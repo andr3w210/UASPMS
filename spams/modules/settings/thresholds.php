@@ -50,10 +50,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'basis' => $basis,
                     ]);
                     $ip = $_SERVER['REMOTE_ADDR'] ?? null;
-                    $alog = $db->prepare('INSERT INTO audit_logs (user_id, module_name, record_type, record_id, action_name, description, ip_address, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())');
+                    $alog = $db->prepare('INSERT INTO audit_logs (user_id, action, table_name, record_id, new_values, module_name, record_type, action_name, description, ip_address, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
                     if ($alog) {
-                        $mod = 'settings'; $rtype = 'property_thresholds'; $action = 'create_threshold';
-                        $alog->bind_param('ississs', $userId, $mod, $rtype, $newId, $action, $desc, $ip);
+                        $action = 'insert';
+                        $tableName = 'property_thresholds';
+                        $mod = 'settings';
+                        $rtype = 'property_thresholds';
+                        $actionName = 'create_threshold';
+                        $alog->bind_param('ississssss', $userId, $action, $tableName, $newId, $desc, $mod, $rtype, $actionName, $desc, $ip);
                         $alog->execute();
                         $alog->close();
                     }
