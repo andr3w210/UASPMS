@@ -11,10 +11,11 @@ $suppliers = [];
 $funds = [];
 $procurementModes = [];
 $accountCodes = [];
+$catalogItems = [];
 $classifications = [];
 $unitOfMeasures = [];
 $defaultRows = [
-    ['item_type' => 'supply', 'account_code_id' => '', 'classification_id' => '', 'item_description' => '', 'quantity' => '1', 'unit_of_measure_id' => '', 'unit_cost' => '0.00'],
+    ['item_type' => 'supply', 'stock_catalog_id' => '', 'account_code_id' => '', 'classification_id' => '', 'item_description' => '', 'quantity' => '1', 'unit_of_measure_id' => '', 'unit_cost' => '0.00'],
 ];
 $form = [
     'system_reference' => '',
@@ -50,8 +51,24 @@ if ($db) {
     $classificationResult = $db->query("SELECT id, classification_code, classification_name, account_code_id FROM classifications WHERE is_active = 1 ORDER BY classification_name ASC");
     if ($classificationResult) $classifications = $classificationResult->fetch_all(MYSQLI_ASSOC);
 
-    $accountCodeResult = $db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC");
+    $accountCodeResult = $db->query("SELECT id, account_code, account_name, account_group FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC");
     if ($accountCodeResult) $accountCodes = $accountCodeResult->fetch_all(MYSQLI_ASSOC);
+
+    $catalogResult = $db->query("
+        SELECT sc.id, sc.stock_no, sc.item_name, sc.item_description,
+               sc.item_type, sc.account_code_id, sc.classification_id,
+               sc.unit_of_measure_id,
+               ac.account_code, ac.account_name,
+               c.classification_name,
+               u.abbreviation AS uom_abbr
+        FROM stock_catalog sc
+        LEFT JOIN account_codes ac ON ac.id = sc.account_code_id
+        LEFT JOIN classifications c ON c.id = sc.classification_id
+        LEFT JOIN unit_of_measures u ON u.id = sc.unit_of_measure_id
+        WHERE sc.is_active = 1
+        ORDER BY sc.item_type ASC, sc.stock_no ASC
+    ");
+    if ($catalogResult) $catalogItems = $catalogResult->fetch_all(MYSQLI_ASSOC);
 
     $uomResult = $db->query("SELECT id, uom_name, abbreviation FROM unit_of_measures WHERE is_active = 1 ORDER BY uom_name ASC");
     if ($uomResult) $unitOfMeasures = $uomResult->fetch_all(MYSQLI_ASSOC);
@@ -63,6 +80,9 @@ if ($db) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? 'save';
         if ($action === 'save') {
+            if (!csrf_verify()) {
+                $errors[] = 'Invalid CSRF token.';
+            }
             $form['po_number'] = old($_POST, 'po_number');
             $form['po_date'] = old($_POST, 'po_date', date('Y-m-d'));
             $form['supplier_id'] = old($_POST, 'supplier_id');
@@ -126,6 +146,7 @@ if ($db) {
                         foreach ($postedRows as $row) {
                             $description      = trim((string)($row['item_description'] ?? ''));
                             $itemType         = trim((string)($row['item_type'] ?? 'supply'));
+                            $stockCatalogId   = trim((string)($row['stock_catalog_id'] ?? ''));
                             $accountCodeId    = trim((string)($row['account_code_id'] ?? ''));
                             $classificationId = trim((string)($row['classification_id'] ?? ''));
                             $quantity         = (float)($row['quantity'] ?? 0);
@@ -151,6 +172,7 @@ if ($db) {
                             $totalAmount  += $lineTotal;
                             $validatedItems[] = [
                                 'item_type'          => $itemType,
+                                'stock_catalog_id'   => $stockCatalogId !== '' ? (int)$stockCatalogId : null,
                                 'account_code_id'    => $accountCodeId !== '' ? (int)$accountCodeId : null,
                                 'classification_id'  => $classificationId !== '' ? (int)$classificationId : null,
                                 'item_description'   => $description,
@@ -201,14 +223,15 @@ if ($db) {
                                 $purchaseOrderId = (int)$headerStmt->insert_id;
                                 $headerStmt->close();
 
-                                $itemStmt = $db->prepare("\n        INSERT INTO purchase_order_items\n          (purchase_order_id, line_no, item_type, account_code_id,\n           classification_id, item_description, quantity,\n           unit_of_measure_id, unit_cost, line_total)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n      ");
+                                $itemStmt = $db->prepare("\n        INSERT INTO purchase_order_items\n          (purchase_order_id, stock_catalog_id, line_no, item_type, account_code_id,\n           classification_id, item_description, quantity,\n           unit_of_measure_id, unit_cost, line_total)\n        VALUES (?, NULLIF(?,0), ?, ?, ?, ?, ?, ?, ?, ?, ?)\n      ");
                                 if (!$itemStmt) throw new RuntimeException('Prepare failed: items');
 
                                 foreach ($validatedItems as $index => $item) {
                                     $ln = $index + 1;
                                     $itemStmt->bind_param(
-                                        'iisiisdidd',
+                                        'iiisiisdidd',
                                         $purchaseOrderId,
+                                        $item['stock_catalog_id'],
                                         $ln,
                                         $item['item_type'],
                                         $item['account_code_id'],
@@ -254,6 +277,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <?php endif; ?>
 
                                 <form id="purchaseOrderForm" method="post">
+                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
 
                                         <div class="card mb-4" style="border-color: var(--bs-primary-border-subtle);">
                                             <div class="card-body p-3">
@@ -389,6 +413,24 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </div>
 
                                         <div class="mb-3">
+                                            <label class="form-label" style="font-size:12px;">
+                                                Select from Stock Catalog
+                                                <span class="text-muted fw-normal">(optional — or fill manually below)</span>
+                                            </label>
+                                            <select class="form-select form-select-sm" id="editorCatalogSearch" data-placeholder="Search stock no. or item name...">
+                                                <option value="">-- Type to search catalog --</option>
+                                            </select>
+                                            <div id="editorCatalogHint" class="small text-muted mt-1" style="display:none;">
+                                                Fields below auto-filled from catalog. You can still edit them.
+                                            </div>
+                                            <div class="mt-2">
+                                                <a href="<?php echo base_url('modules/stock_catalog/index.php?mode=create'); ?>" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm" style="font-size:12px;">
+                                                    Add New Catalog Item
+                                                </a>
+                                            </div>
+                                        </div>
+
+                                        <div class="mb-3">
                                             <label class="form-label" style="font-size:11px;">Account Code <span class="text-danger">*</span></label>
                                             <select class="form-select form-select-sm" id="editorAccountCode" name="_editor_account_code" style="font-size:13px;"></select>
                                         </div>
@@ -461,6 +503,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function formatNumber(n) { return parseFloat(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
     var accountCodes = <?php echo json_encode($accountCodes, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?> || [];
+    var catalogItems = <?php echo json_encode($catalogItems, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?> || [];
     var classifications = <?php echo json_encode($classifications, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?> || [];
     var units = <?php echo json_encode($unitOfMeasures, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?> || [];
 
@@ -478,6 +521,8 @@ document.addEventListener('DOMContentLoaded', function () {
         editorLineLabel: document.getElementById('editorLineLabel'),
         editorTypeBadge: document.getElementById('editorTypeBadge'),
         editorLineCounter: document.getElementById('editorLineCounter'),
+        editorCatalogSearch: document.getElementById('editorCatalogSearch'),
+        editorCatalogHint: document.getElementById('editorCatalogHint'),
         editorAccountCode: document.getElementById('editorAccountCode'),
         editorClassification: document.getElementById('editorClassification'),
         editorDescription: document.getElementById('editorDescription'),
@@ -502,6 +547,26 @@ document.addEventListener('DOMContentLoaded', function () {
     function typeBadgeClass(t) { if (t === 'equipment') return 'bg-warning text-dark'; if (t === 'semi_expendable') return 'bg-primary'; if (t === 'supply') return 'bg-success'; return 'bg-secondary'; }
     function typeLabel(t) { if (t === 'equipment') return 'Equipment'; if (t === 'semi_expendable') return 'Semi-Expendable'; return 'Supply'; }
     function typeShortLabel(t) { if (t === 'equipment') return 'Equip'; if (t === 'semi_expendable') return 'Semi'; return 'Supply'; }
+
+    function populateCatalogSelect(itemType, selectedId) {
+        var sel = el.editorCatalogSearch;
+        if (!sel) return;
+        sel.innerHTML = '<option value="">-- Search catalog --</option>';
+        catalogItems.forEach(function(ci) {
+            if (itemType && ci.item_type !== itemType) return;
+            var opt = document.createElement('option');
+            opt.value = ci.id;
+            opt.setAttribute('data-item', JSON.stringify(ci));
+            opt.textContent = ci.stock_no + ' - ' + ci.item_name;
+            if (String(ci.id) === String(selectedId)) opt.selected = true;
+            sel.appendChild(opt);
+        });
+        if (window.jQuery && jQuery.fn.select2) {
+            var $sel = window.jQuery(sel);
+            if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
+            $sel.select2({ placeholder: 'Search stock no. or item name...', allowClear: true, width: '100%', dropdownParent: window.jQuery(document.body) });
+        }
+    }
 
     function rebuildAccountCodeSelect(itemType, selectedId) {
         var sel = el.editorAccountCode; if (!sel) return; sel.innerHTML = '<option value="">Select account code</option>';
@@ -584,6 +649,7 @@ document.addEventListener('DOMContentLoaded', function () {
         activeIndex = index; var line = poLines[index]; el.editorEmpty.style.display = 'none'; el.editorContent.style.display = '';
         el.editorLineLabel.textContent = 'Line ' + (index + 1); el.editorTypeBadge.className = 'badge ' + typeBadgeClass(line.item_type); el.editorTypeBadge.textContent = typeLabel(line.item_type);
         el.editorLineCounter.textContent = (index + 1) + ' of ' + poLines.length;
+        populateCatalogSelect(line.item_type, line.stock_catalog_id || '');
         rebuildAccountCodeSelect(line.item_type, line.account_code_id);
         rebuildClassificationSelect(line.item_type, line.classification_id);
         rebuildUomSelect(line.unit_of_measure_id);
@@ -603,6 +669,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function saveCurrentLine() {
         if (activeIndex < 0 || activeIndex >= poLines.length) return;
         var ln = poLines[activeIndex];
+        ln.stock_catalog_id = el.editorCatalogSearch ? (el.editorCatalogSearch.value || '') : '';
         ln.account_code_id = el.editorAccountCode.value || '';
 
         // If account code changed, clear classification if it no longer matches
@@ -632,7 +699,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function deleteLine(idx) { if (poLines.length <= 1) { alert('At least one line is required.'); return; } poLines.splice(idx,1); poLines.forEach(function(l,i){ l.index = i; }); var nextIndex = Math.min(idx, poLines.length-1); renderLineList(); loadLineEditor(nextIndex); }
 
-    function buildHiddenInputs() { var container = el.poHiddenInputs; if (!container) return; container.innerHTML = ''; poLines.forEach(function(ln,i){ var fields = { item_type: ln.item_type, account_code_id: ln.account_code_id, classification_id: ln.classification_id, item_description: ln.item_description, quantity: ln.quantity, unit_of_measure_id: ln.unit_of_measure_id, unit_cost: ln.unit_cost }; Object.keys(fields).forEach(function(k){ var inp = document.createElement('input'); inp.type='hidden'; inp.name='items['+i+']['+k+']'; inp.value = fields[k] || ''; container.appendChild(inp); }); }); }
+    function buildHiddenInputs() { var container = el.poHiddenInputs; if (!container) return; container.innerHTML = ''; poLines.forEach(function(ln,i){ var fields = { item_type: ln.item_type, stock_catalog_id: ln.stock_catalog_id, account_code_id: ln.account_code_id, classification_id: ln.classification_id, item_description: ln.item_description, quantity: ln.quantity, unit_of_measure_id: ln.unit_of_measure_id, unit_cost: ln.unit_cost }; Object.keys(fields).forEach(function(k){ var inp = document.createElement('input'); inp.type='hidden'; inp.name='items['+i+']['+k+']'; inp.value = fields[k] || ''; container.appendChild(inp); }); }); }
 
     function addLine(itemType) {
         var validTypes = ['supply', 'semi_expendable', 'equipment'];
@@ -640,6 +707,7 @@ document.addEventListener('DOMContentLoaded', function () {
         poLines.push({
             index:              poLines.length,
             item_type:          itemType,
+            stock_catalog_id:   '',
             account_code_id:    '',
             classification_id:  '',
             item_description:   '',
@@ -665,18 +733,56 @@ document.addEventListener('DOMContentLoaded', function () {
     
     el.editorDeleteLine && el.editorDeleteLine.addEventListener('click', function(){ if (activeIndex>=0) deleteLine(activeIndex); });
 
-        ['editorAccountCode','editorClassification','editorDescription','editorQty','editorUom','editorUnitCost'].forEach(function(id){ var node = document.getElementById(id); if (!node) return; node.addEventListener('change', saveCurrentLine); node.addEventListener('input', function(){ if (id==='editorQty' || id==='editorUnitCost') updateEditorAmount(); saveCurrentLine(); }); });
+        ['editorCatalogSearch','editorAccountCode','editorClassification','editorDescription','editorQty','editorUom','editorUnitCost'].forEach(function(id){ var node = document.getElementById(id); if (!node) return; node.addEventListener('change', saveCurrentLine); node.addEventListener('input', function(){ if (id==='editorQty' || id==='editorUnitCost') updateEditorAmount(); saveCurrentLine(); }); });
 
-        if (window.jQuery) {
+    if (window.jQuery) {
                 window.jQuery(document)
                     .on('select2:select select2:clear',
-                            '#editorAccountCode, #editorClassification, #editorUom',
+                            '#editorCatalogSearch, #editorAccountCode, #editorClassification, #editorUom',
                             function() {
                                 updateEditorAmount();
                                 saveCurrentLine();
                             }
                     );
         }
+
+    if (el.editorCatalogSearch) {
+        el.editorCatalogSearch.addEventListener('change', function() {
+            if (activeIndex < 0 || activeIndex >= poLines.length) return;
+            var opt = this.options[this.selectedIndex];
+            if (!opt || !opt.value) {
+                if (el.editorCatalogHint) el.editorCatalogHint.style.display = 'none';
+                poLines[activeIndex].stock_catalog_id = '';
+                saveCurrentLine();
+                return;
+            }
+            var ci = {};
+            try {
+                ci = JSON.parse(opt.getAttribute('data-item') || '{}');
+            } catch (e) {
+                ci = {};
+            }
+            if (!ci.id) return;
+
+            if (el.editorDescription) {
+                el.editorDescription.value = ci.item_description || ci.item_name || '';
+            }
+
+            poLines[activeIndex].stock_catalog_id = String(ci.id);
+            poLines[activeIndex].item_type = ci.item_type || poLines[activeIndex].item_type;
+
+            rebuildAccountCodeSelect(poLines[activeIndex].item_type, ci.account_code_id || '');
+            rebuildClassificationSelect(poLines[activeIndex].item_type, ci.classification_id || '');
+            rebuildUomSelect(ci.unit_of_measure_id || '');
+
+            if (el.editorTypeBadge) {
+                el.editorTypeBadge.className = 'badge ' + typeBadgeClass(poLines[activeIndex].item_type);
+                el.editorTypeBadge.textContent = typeLabel(poLines[activeIndex].item_type);
+            }
+            if (el.editorCatalogHint) el.editorCatalogHint.style.display = '';
+            saveCurrentLine();
+        });
+    }
 
     var form = document.getElementById('purchaseOrderForm');
     if (form) {
@@ -880,6 +986,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 poLines.push({
                     index:              i,
                     item_type:          itemType,
+                    stock_catalog_id:   '',
                     account_code_id:    '',
                     classification_id:  '',
                     item_description:   item.item_description || '',
@@ -895,7 +1002,7 @@ document.addEventListener('DOMContentLoaded', function () {
             loadLineEditor(0);
 
             if (window.SPAMS && window.SPAMS.refreshSelect2) {
-                ['editorAccountCode','editorClassification','editorUom'].forEach(function(id) {
+                ['editorCatalogSearch','editorAccountCode','editorClassification','editorUom'].forEach(function(id) {
                     var elc = document.getElementById(id);
                     if (elc) window.SPAMS.refreshSelect2(elc);
                 });

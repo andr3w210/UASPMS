@@ -241,6 +241,75 @@ function build_series_code(string $prefix, ?int $yearValue, int $number, int $pa
     return implode('-', $parts);
 }
 
+function stock_catalog_category_code(string $accountName): string
+{
+    $normalized = strtoupper(trim(preg_replace('/[^A-Za-z0-9& ]+/', ' ', $accountName)));
+    if ($normalized === '') {
+        return 'SC';
+    }
+
+    $rawWords = preg_split('/\s+/', $normalized) ?: [];
+    $words = [];
+    foreach ($rawWords as $word) {
+        if ($word === '' || in_array($word, ['AND', 'OF', 'THE', '&'], true)) {
+            continue;
+        }
+        $words[] = $word;
+    }
+
+    if (count($words) >= 2) {
+        return substr($words[0], 0, 1) . substr($words[1], 0, 1);
+    }
+
+    $single = $words ? $words[0] : $normalized;
+    $single = preg_replace('/[^A-Z0-9]/', '', $single);
+    $single = substr($single, 0, 2);
+
+    return str_pad($single, 2, 'X');
+}
+
+function stock_catalog_next_number(mysqli $db, int $accountCodeId): string
+{
+    if ($accountCodeId <= 0) {
+        return '';
+    }
+
+    $accountStmt = $db->prepare("SELECT account_name FROM account_codes WHERE id = ? LIMIT 1");
+    if (!$accountStmt) {
+        return '';
+    }
+
+    $accountStmt->bind_param('i', $accountCodeId);
+    $accountStmt->execute();
+    $accountRow = $accountStmt->get_result()->fetch_assoc();
+    $accountStmt->close();
+
+    $accountName = (string) ($accountRow['account_name'] ?? '');
+    if ($accountName === '') {
+        return '';
+    }
+
+    $prefix = stock_catalog_category_code($accountName);
+
+    $seriesStmt = $db->prepare("
+        SELECT MAX(CAST(SUBSTRING_INDEX(stock_no, '-', -1) AS UNSIGNED)) AS max_series
+        FROM stock_catalog
+        WHERE stock_no LIKE CONCAT(?, '-%')
+    ");
+    if (!$seriesStmt) {
+        return '';
+    }
+
+    $seriesStmt->bind_param('s', $prefix);
+    $seriesStmt->execute();
+    $seriesRow = $seriesStmt->get_result()->fetch_assoc();
+    $seriesStmt->close();
+
+    $nextSeries = ((int) ($seriesRow['max_series'] ?? 0)) + 1;
+
+    return $prefix . '-' . str_pad((string) $nextSeries, 4, '0', STR_PAD_LEFT);
+}
+
 function csrf_token(): string
 {
     if (!isset($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token']) || $_SESSION['csrf_token'] === '') {
