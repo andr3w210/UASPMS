@@ -25,10 +25,11 @@ $suppliers = [];
 $funds = [];
 $procurementModes = [];
 $accountCodes = [];
+$catalogItems = [];
 $classifications = [];
 $unitOfMeasures = [];
 $defaultRows = [
-    ['item_type' => 'supply', 'account_code_id' => '', 'classification_id' => '', 'item_description' => '', 'quantity' => '1', 'unit_of_measure_id' => '', 'unit_cost' => '0.00'],
+    ['item_type' => 'supply', 'stock_catalog_id' => '', 'account_code_id' => '', 'classification_id' => '', 'item_description' => '', 'quantity' => '1', 'unit_of_measure_id' => '', 'unit_cost' => '0.00'],
 ];
 $form = [
     'system_reference' => '',
@@ -85,9 +86,27 @@ if (!$db) {
         $classifications = $classificationResult->fetch_all(MYSQLI_ASSOC);
     }
 
-    $accountCodeResult = $db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC");
+    $accountCodeResult = $db->query("SELECT id, account_code, account_name, account_group FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC");
     if ($accountCodeResult) {
         $accountCodes = $accountCodeResult->fetch_all(MYSQLI_ASSOC);
+    }
+
+    $catalogResult = $db->query("
+        SELECT sc.id, sc.stock_no, sc.item_name, sc.item_description,
+               sc.item_type, sc.account_code_id, sc.classification_id,
+               sc.unit_of_measure_id,
+               ac.account_code, ac.account_name,
+               c.classification_name,
+               u.abbreviation AS uom_abbr
+        FROM stock_catalog sc
+        LEFT JOIN account_codes ac ON ac.id = sc.account_code_id
+        LEFT JOIN classifications c ON c.id = sc.classification_id
+        LEFT JOIN unit_of_measures u ON u.id = sc.unit_of_measure_id
+        WHERE sc.is_active = 1
+        ORDER BY sc.item_type ASC, sc.stock_no ASC
+    ");
+    if ($catalogResult) {
+        $catalogItems = $catalogResult->fetch_all(MYSQLI_ASSOC);
     }
 
     $uomResult = $db->query("SELECT id, uom_name, abbreviation FROM unit_of_measures WHERE is_active = 1 ORDER BY uom_name ASC");
@@ -232,6 +251,7 @@ if (!$db) {
             foreach ($postedRows as $row) {
                 $description = trim((string) ($row['item_description'] ?? ''));
                 $itemType = trim((string) ($row['item_type'] ?? 'supply'));
+                $stockCatalogId = trim((string) ($row['stock_catalog_id'] ?? ''));
                 $accountCodeId = trim((string) ($row['account_code_id'] ?? ''));
                 $classificationId = trim((string) ($row['classification_id'] ?? ''));
                 $quantity = (float) ($row['quantity'] ?? 0);
@@ -305,6 +325,7 @@ if (!$db) {
 
                 $itemRows[] = [
                     'item_type' => $itemType,
+                    'stock_catalog_id' => $stockCatalogId,
                     'account_code_id' => $accountCodeId,
                     'classification_id' => $classificationId,
                     'item_description' => $description,
@@ -344,20 +365,21 @@ if (!$db) {
                     $purchaseOrderId = (int) $stmt->insert_id;
                     $stmt->close();
 
-                    $itemStmt = $db->prepare("INSERT INTO purchase_order_items (purchase_order_id, line_no, item_type, account_code_id, classification_id, item_description, quantity, unit_of_measure_id, unit_cost, line_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $itemStmt = $db->prepare("INSERT INTO purchase_order_items (purchase_order_id, stock_catalog_id, line_no, item_type, account_code_id, classification_id, item_description, quantity, unit_of_measure_id, unit_cost, line_total) VALUES (?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     if (!$itemStmt) {
                         throw new RuntimeException('Unable to prepare PO item insert.');
                     }
 
                     foreach ($itemRows as $index => $row) {
                         $lineNo = $index + 1;
+                        $stockCatalogId = $row['stock_catalog_id'] !== '' ? (int) $row['stock_catalog_id'] : 0;
                         $accountCodeId = $row['account_code_id'] !== '' ? (int) $row['account_code_id'] : null;
                         $classificationId = $row['classification_id'] !== '' ? (int) $row['classification_id'] : null;
                         $unitOfMeasureId = $row['unit_of_measure_id'] !== '' ? (int) $row['unit_of_measure_id'] : null;
                         $quantity = (float) $row['quantity'];
                         $unitCost = (float) $row['unit_cost'];
                         $lineTotal = round($quantity * $unitCost, 2);
-                        $itemStmt->bind_param('iisiisdidd', $purchaseOrderId, $lineNo, $row['item_type'], $accountCodeId, $classificationId, $row['item_description'], $quantity, $unitOfMeasureId, $unitCost, $lineTotal);
+                        $itemStmt->bind_param('iiisiisdidd', $purchaseOrderId, $stockCatalogId, $lineNo, $row['item_type'], $accountCodeId, $classificationId, $row['item_description'], $quantity, $unitOfMeasureId, $unitCost, $lineTotal);
                         $itemStmt->execute();
                     }
                     $itemStmt->close();

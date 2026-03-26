@@ -31,6 +31,7 @@ $menuGroups = [
             ['label' => 'Funds', 'path' => 'modules/funds/index.php', 'needle' => '/funds/', 'icon' => 'bi bi-wallet2'],
             ['label' => 'Account Codes', 'path' => 'modules/account_codes/index.php', 'needle' => '/account_codes/', 'icon' => 'bi bi-journal-code'],
             ['label' => 'Inventory Classes', 'path' => 'modules/classifications/index.php', 'needle' => '/classifications/', 'icon' => 'bi bi-tags'],
+            ['label' => 'Stock Catalog', 'path' => 'modules/stock_catalog/index.php', 'needle' => '/stock_catalog/', 'icon' => 'bi bi-card-list'],
             ['label' => 'Mode of Procurement', 'path' => 'modules/mode_of_procurements/index.php', 'needle' => '/mode_of_procurements/', 'icon' => 'bi bi-list-check'],
             ['label' => 'Unit of Measure', 'path' => 'modules/unit_of_measures/index.php', 'needle' => '/unit_of_measures/', 'icon' => 'bi bi-rulers'],
             ['label' => 'Brands', 'path' => 'modules/brands/index.php', 'needle' => '/brands/', 'icon' => 'bi bi-bookmark-star'],

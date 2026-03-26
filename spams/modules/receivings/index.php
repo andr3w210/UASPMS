@@ -187,17 +187,20 @@ if (!$db) {
                 SELECT poi.id, poi.line_no, poi.item_type, poi.item_description, poi.quantity, poi.unit_cost,
                        poi.account_code_id, poi.classification_id, poi.unit_of_measure_id,
                        ac.account_code, ac.account_name, c.classification_name, u.uom_name, u.abbreviation,
+                       sc.stock_no AS catalog_stock_no, sc.item_name AS catalog_item_name,
                        COALESCE(SUM(CASE WHEN r.status != 'cancelled' THEN ri.quantity_accepted ELSE 0 END), 0) AS quantity_already_received
                 FROM purchase_order_items poi
                 LEFT JOIN account_codes ac ON ac.id = poi.account_code_id
                 LEFT JOIN classifications c ON c.id = poi.classification_id
                 LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id
+                LEFT JOIN stock_catalog sc ON sc.id = poi.stock_catalog_id
                 LEFT JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
                 LEFT JOIN receivings r ON r.id = ri.receiving_id
                 WHERE poi.purchase_order_id = ?
                 GROUP BY poi.id, poi.line_no, poi.item_type, poi.item_description, poi.quantity, poi.unit_cost,
                          poi.account_code_id, poi.classification_id, poi.unit_of_measure_id,
-                         ac.account_code, ac.account_name, c.classification_name, u.uom_name, u.abbreviation
+                         ac.account_code, ac.account_name, c.classification_name, u.uom_name, u.abbreviation,
+                         sc.stock_no, sc.item_name
                 ORDER BY poi.line_no ASC, poi.id ASC
             ");
             if ($itemStmt) {
@@ -386,7 +389,7 @@ if (!$db) {
 
                 $itemStmt = $db->prepare("INSERT INTO receiving_items (receiving_id, purchase_order_item_id, quantity_delivered, quantity_accepted, quantity_rejected, item_condition, unit_cost, line_total, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $detailStmt = $db->prepare("INSERT INTO receiving_item_details (receiving_item_id, brand_id, model_id, brand, model, serial_no, remarks) VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?)");
-                $stockStmt = $db->prepare("INSERT INTO stock_items (system_reference, receiving_id, receiving_item_id, purchase_order_item_id, item_type, semi_expendable_type, account_code_id, classification_id, unit_of_measure_id, item_description, unit_cost, quantity_received, quantity_issued, quantity_on_hand, created_by) VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, 0.00, ?, ?)");
+                $stockStmt = $db->prepare("INSERT INTO stock_items (system_reference, stock_catalog_id, receiving_id, receiving_item_id, purchase_order_item_id, item_type, semi_expendable_type, account_code_id, classification_id, unit_of_measure_id, item_description, unit_cost, quantity_received, quantity_issued, quantity_on_hand, created_by) VALUES (?, NULLIF(?,0), ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, 0.00, ?, ?)");
                 $movementStmt = $db->prepare("INSERT INTO stock_movements (stock_item_id, movement_type, movement_date, reference_type, reference_id, quantity_in, quantity_out, balance_after, remarks, created_by) VALUES (?, 'receipt', ?, 'receiving', ?, ?, 0.00, ?, ?, ?)");
                 if (!$itemStmt || !$detailStmt || !$stockStmt || !$movementStmt) {
                     throw new RuntimeException('Unable to prepare receiving detail insert.');
@@ -399,6 +402,18 @@ if (!$db) {
                     $itemStmt->bind_param('iidddsdds', $receivingId, $item['purchase_order_item_id'], $item['quantity_delivered'], $item['quantity_accepted'], $item['quantity_rejected'], $item['item_condition'], $item['unit_cost'], $item['line_total'], $item['remarks']);
                     $itemStmt->execute();
                     $receivingItemId = (int) $itemStmt->insert_id;
+                    $catalogId = 0;
+                    if (!empty($item['purchase_order_item_id'])) {
+                        $catStmt = $db->prepare("SELECT stock_catalog_id FROM purchase_order_items WHERE id = ? LIMIT 1");
+                        if ($catStmt) {
+                            $purchaseOrderItemId = (int) $item['purchase_order_item_id'];
+                            $catStmt->bind_param('i', $purchaseOrderItemId);
+                            $catStmt->execute();
+                            $catRow = $catStmt->get_result()->fetch_assoc();
+                            $catStmt->close();
+                            $catalogId = (int) ($catRow['stock_catalog_id'] ?? 0);
+                        }
+                    }
 
                     // Insert receiving_item_details and create stock items.
                     $isTracked = in_array($item['item_type'], ['equipment', 'semi_expendable'], true);
@@ -425,8 +440,9 @@ if (!$db) {
 
                             $stockQty = 1.0;
                             $stockStmt->bind_param(
-                                'siiissiiisdddi',
+                                'siiiissiiisdddi',
                                 $stockReference,
+                                $catalogId,
                                 $receivingId,
                                 $receivingItemId,
                                 $item['purchase_order_item_id'],
@@ -477,8 +493,9 @@ if (!$db) {
                                 $semiType = ((float) ($item['unit_cost'] ?? 0) >= (float) $threshold['semi_hv_min']) ? 'high_value' : 'low_value';
                             }
                             $stockStmt->bind_param(
-                                'siiissiiisdddi',
+                                'siiiissiiisdddi',
                                 $stockReference,
+                                $catalogId,
                                 $receivingId,
                                 $receivingItemId,
                                 $item['purchase_order_item_id'],
@@ -861,7 +878,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <tr class="receiving-line-row" data-item-type="<?php echo h($item['item_type']); ?>" data-has-remaining="<?php echo (float) $item['remaining_quantity'] > 0 ? '1' : '0'; ?>">
                                             <td><?php echo (int) $item['line_no']; ?></td>
                                             <td>
-                                                <div class="fw-semibold"><?php echo h($item['classification_name'] ?: 'No inventory class'); ?></div>
+                                                <?php if (!empty($item['catalog_stock_no'])): ?>
+                                                    <div class="d-flex align-items-center gap-2 mb-1">
+                                                        <span class="badge text-bg-secondary" style="font-size:10px;font-family:monospace;">
+                                                            <?php echo h($item['catalog_stock_no']); ?>
+                                                        </span>
+                                                        <span class="fw-semibold">
+                                                            <?php echo h($item['catalog_item_name']); ?>
+                                                        </span>
+                                                    </div>
+                                                <?php else: ?>
+                                                    <div class="fw-semibold"><?php echo h($item['classification_name'] ?: 'No inventory class'); ?></div>
+                                                <?php endif; ?>
                                                 <div class="small"><?php echo h(mb_strimwidth(str_replace(["\r", "\n"], ' ', $item['item_description']), 0, 120, '...')); ?></div>
                                                 <div class="small text-muted"><?php echo h($item['account_code'] ?: ''); ?><?php echo $item['account_name'] ? ' - ' . h($item['account_name']) : ''; ?><?php echo $uomLabel ? ' | ' . h($uomLabel) : ''; ?></div>
                                             </td>
