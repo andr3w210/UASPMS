@@ -6,19 +6,22 @@ header('Content-Type: application/json; charset=utf-8');
 
 $db = db_connect();
 $poId = isset($_GET['po_id']) ? (int) $_GET['po_id'] : 0;
+$hasSemiTypeColumn = $db && function_exists('schema_has_column')
+    ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type')
+    : false;
 if (!$db || $poId <= 0) {
     echo json_encode(['ok' => false, 'error' => 'Invalid request']);
     exit;
 }
 
 $stmt = $db->prepare(
-    "SELECT poi.id, poi.line_no, poi.item_type, poi.item_description, poi.quantity, poi.unit_cost,
+    "SELECT poi.id, poi.line_no, poi.item_type, " . ($hasSemiTypeColumn ? "poi.semi_expendable_type" : "NULL AS semi_expendable_type") . ", poi.item_description, poi.quantity, poi.unit_cost,
             COALESCE(SUM(CASE WHEN r.status != 'cancelled' THEN ri.quantity_accepted ELSE 0 END), 0) AS quantity_already_received
      FROM purchase_order_items poi
      LEFT JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
      LEFT JOIN receivings r ON r.id = ri.receiving_id
      WHERE poi.purchase_order_id = ?
-     GROUP BY poi.id, poi.line_no, poi.item_type, poi.item_description, poi.quantity, poi.unit_cost
+     GROUP BY poi.id, poi.line_no, poi.item_type, " . ($hasSemiTypeColumn ? "poi.semi_expendable_type" : "semi_expendable_type") . ", poi.item_description, poi.quantity, poi.unit_cost
      ORDER BY poi.line_no ASC, poi.id ASC"
 );
 if (!$stmt) {
@@ -36,6 +39,7 @@ while ($row = $res->fetch_assoc()) {
         'id' => (int) $row['id'],
         'line_no' => (int) $row['line_no'],
         'item_type' => $row['item_type'],
+        'semi_expendable_type' => $row['semi_expendable_type'],
         'description' => $row['item_description'],
         'ordered' => (float) $row['quantity'],
         'received' => (float) $row['quantity_already_received'],

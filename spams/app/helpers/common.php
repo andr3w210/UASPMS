@@ -114,6 +114,7 @@ function module_series_defaults(): array
         'distributions' => ['prefix' => 'DST', 'use_year' => true, 'padding' => 4],
         'purchase_orders' => ['prefix' => 'POREC', 'use_year' => true, 'padding' => 4],
         'receivings' => ['prefix' => 'RCV', 'use_year' => true, 'padding' => 4],
+        'maintenance' => ['prefix' => 'MNT', 'use_year' => true, 'padding' => 4],
     ];
 }
 
