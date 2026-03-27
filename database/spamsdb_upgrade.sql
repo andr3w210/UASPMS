@@ -77,6 +77,12 @@ ALTER TABLE purchase_orders
         ENUM('encoded','partial','completed','cancelled')
         NOT NULL DEFAULT 'encoded';
 
+-- 1i. purchase_order_items - add semi_expendable_type
+ALTER TABLE purchase_order_items
+    ADD COLUMN IF NOT EXISTS semi_expendable_type
+        ENUM('high_value','low_value') NULL DEFAULT NULL
+        AFTER item_type;
+
 
 -- =====================================================
 -- STEP 2: CREATE NEW TABLES

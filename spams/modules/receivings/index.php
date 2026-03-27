@@ -109,6 +109,9 @@ $form = [
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    $poItemHasSemiType = function_exists('schema_has_column')
+        ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type')
+        : false;
     $form['system_reference'] = preview_module_code($db, 'receivings');
     $form['ris_no'] = preview_ris_number($db, $form['received_date']);
 
@@ -184,7 +187,7 @@ if (!$db) {
 
         if ($selectedPurchaseOrder) {
             $itemStmt = $db->prepare("
-                SELECT poi.id, poi.line_no, poi.item_type, poi.item_description, poi.quantity, poi.unit_cost,
+                SELECT poi.id, poi.line_no, poi.item_type, " . ($poItemHasSemiType ? "poi.semi_expendable_type" : "NULL AS semi_expendable_type") . ", poi.item_description, poi.quantity, poi.unit_cost,
                        poi.account_code_id, poi.classification_id, poi.unit_of_measure_id,
                        ac.account_code, ac.account_name, c.classification_name, u.uom_name, u.abbreviation,
                        sc.stock_no AS catalog_stock_no, sc.item_name AS catalog_item_name,
@@ -197,7 +200,7 @@ if (!$db) {
                 LEFT JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
                 LEFT JOIN receivings r ON r.id = ri.receiving_id
                 WHERE poi.purchase_order_id = ?
-                GROUP BY poi.id, poi.line_no, poi.item_type, poi.item_description, poi.quantity, poi.unit_cost,
+                GROUP BY poi.id, poi.line_no, poi.item_type, " . ($poItemHasSemiType ? "poi.semi_expendable_type" : "semi_expendable_type") . ", poi.item_description, poi.quantity, poi.unit_cost,
                          poi.account_code_id, poi.classification_id, poi.unit_of_measure_id,
                          ac.account_code, ac.account_name, c.classification_name, u.uom_name, u.abbreviation,
                          sc.stock_no, sc.item_name
@@ -435,7 +438,9 @@ if (!$db) {
                             $unitOfMeasureId = (int) $item['unit_of_measure_id'];
                             $semiType = '';
                             if ((string) ($item['item_type'] ?? '') === 'semi_expendable') {
-                                $semiType = ((float) ($item['unit_cost'] ?? 0) >= (float) $threshold['semi_hv_min']) ? 'high_value' : 'low_value';
+                                $semiType = in_array((string) ($item['semi_expendable_type'] ?? ''), ['high_value', 'low_value'], true)
+                                    ? (string) $item['semi_expendable_type']
+                                    : (((float) ($item['unit_cost'] ?? 0) >= (float) $threshold['semi_hv_min']) ? 'high_value' : 'low_value');
                             }
 
                             $stockQty = 1.0;
