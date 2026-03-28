@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $officeId = (int) ($_GET['office_id'] ?? 0);
 $semiType = $_GET['semi_type'] ?? 'all';
 if (!in_array($semiType, ['all', 'high_value', 'low_value'], true)) {
@@ -14,8 +14,6 @@ $header = null;
 $rows = [];
 
 if ($db) {
-    ensure_distribution_item_runtime_columns($db);
-
     $threshold = get_active_threshold($db);
     $semiHvMin = (float) ($threshold['semi_hv_min'] ?? 5000);
     $poItemSupportsSemiType = function_exists('schema_has_column') ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type') : false;

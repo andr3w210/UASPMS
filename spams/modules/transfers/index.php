@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_role('Administrator', 'Supply Officer', 'Property Officer');
 
-$db = db_connect();
+$db = db();
 $page_title = 'Transfer of Accountability';
 $flash = get_flash();
 $errors = [];
@@ -46,28 +46,6 @@ function transfer_name(array $row, string $prefix = ''): string
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    $db->query("CREATE TABLE IF NOT EXISTS asset_transfers (
-        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        system_reference VARCHAR(50) NOT NULL,
-        transfer_date DATE NOT NULL,
-        source_type ENUM('system','legacy') NOT NULL,
-        distribution_item_detail_id BIGINT UNSIGNED NULL,
-        legacy_asset_id BIGINT UNSIGNED NULL,
-        property_number VARCHAR(100) NULL,
-        from_office_id INT UNSIGNED NULL,
-        from_employee_id INT UNSIGNED NULL,
-        from_responsibility_code_id INT UNSIGNED NULL,
-        to_office_id INT UNSIGNED NULL,
-        to_employee_id INT UNSIGNED NULL,
-        to_responsibility_code_id INT UNSIGNED NULL,
-        reason TEXT NULL,
-        remarks TEXT NULL,
-        status ENUM('posted','cancelled') NOT NULL DEFAULT 'posted',
-        created_by INT UNSIGNED NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    ensure_distribution_item_runtime_columns($db);
-
     $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res) $offices = $res->fetch_all(MYSQLI_ASSOC);
     $res = $db->query("SELECT id, office_id, employee_no, first_name, middle_name, last_name, suffix_name, position_title, is_unit_head FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");

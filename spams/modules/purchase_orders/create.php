@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../app/config/init.php';
 
 require_role('Administrator', 'Supply Officer');
 
-$db = db_connect();
+$db = db();
 $page_title = 'Encode Purchase Order';
 $flash = get_flash();
 $errors = [];
@@ -256,7 +256,9 @@ if ($db) {
                                     $totalAmount,
                                     $userId
                                 );
-                                $headerStmt->execute();
+                                if (!$headerStmt->execute()) {
+                                    throw new RuntimeException('Unable to save the purchase order header.');
+                                }
                                 $purchaseOrderId = (int)$headerStmt->insert_id;
                                 $headerStmt->close();
 
@@ -301,9 +303,34 @@ if ($db) {
                                             $item['line_total']
                                         );
                                     }
-                                    $itemStmt->execute();
+                                    if (!$itemStmt->execute()) {
+                                        throw new RuntimeException('Unable to save purchase order line items.');
+                                    }
                                 }
                                 $itemStmt->close();
+
+                                if (!write_audit_log($db, [
+                                    'action' => 'insert',
+                                    'table_name' => 'purchase_orders',
+                                    'record_id' => $purchaseOrderId,
+                                    'module_name' => 'purchase_orders',
+                                    'record_type' => 'purchase_order',
+                                    'action_name' => 'create_purchase_order',
+                                    'new_values' => [
+                                        'system_reference' => $systemReference,
+                                        'po_number' => $form['po_number'],
+                                        'po_date' => $form['po_date'],
+                                        'supplier_id' => $supplierId,
+                                        'fund_id' => $fundId,
+                                        'mode_of_procurement_id' => $modeId,
+                                        'expected_delivery_date' => $expectedDelivery,
+                                        'total_amount' => $totalAmount,
+                                        'item_count' => count($validatedItems),
+                                    ],
+                                    'description' => 'Created purchase order with line items.',
+                                ])) {
+                                    throw new RuntimeException('Unable to write the purchase order audit log.');
+                                }
 
                                 $db->commit();
                                 set_flash('success', 'Purchase order encoded successfully.');

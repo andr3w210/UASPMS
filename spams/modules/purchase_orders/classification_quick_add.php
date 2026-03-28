@@ -5,7 +5,7 @@ require_role('Administrator', 'Supply Officer');
 
 header('Content-Type: application/json; charset=utf-8');
 
-$db = db_connect();
+$db = db();
 if (!$db) {
     http_response_code(500);
     echo json_encode(['ok' => false, 'error' => 'Unable to connect to the database.']);

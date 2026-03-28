@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $page_title = 'Receipt of Returned Semi-Expendable Property';
 $errors = [];
 $returns = [];
@@ -13,8 +13,6 @@ $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    ensure_returns_runtime_schema($db);
-
     $listSql = "
         SELECT
             rt.id,

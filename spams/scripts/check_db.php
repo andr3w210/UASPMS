@@ -3,7 +3,7 @@ require_once __DIR__ . '/../app/config/constants.php';
 require_once __DIR__ . '/../app/config/db.php';
 
 echo "Checking DB connection...\n";
-$db = db_connect();
+$db = db();
 if (!$db) {
     echo "Cannot connect to DB.\n";
     exit(1);

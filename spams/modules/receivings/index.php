@@ -85,7 +85,7 @@ function preview_ris_number(mysqli $db, string $referenceDate): string
     return $prefix . str_pad((string) $nextNumber, 4, '0', STR_PAD_LEFT);
 }
 
-$db = db_connect();
+$db = db();
 $page_title = 'Receiving';
 $flash = get_flash();
 $errors = [];

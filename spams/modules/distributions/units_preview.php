@@ -4,7 +4,7 @@ require_login();
 
 header('Content-Type: application/json');
 
-$db = db_connect();
+$db = db();
 $receivingId = (int) ($_GET['receiving_id'] ?? 0);
 $itemType = (string) ($_GET['item_type'] ?? 'equipment');
 $semiType = (string) ($_GET['semi_type'] ?? '');

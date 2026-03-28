@@ -2,7 +2,7 @@
 $displayName = $_SESSION['user_name'] ?? 'User';
 $roleName = $_SESSION['role_name'] ?? 'Administrator';
 $userRole = $_SESSION['user_role'] ?? 'User';
-$notificationDb = (isset($db) && $db instanceof mysqli) ? $db : db_connect();
+$notificationDb = (isset($db) && $db instanceof mysqli) ? $db : db();
 $pendingDistributionUnits = 0;
 $pendingDistributionRecords = 0;
 $pendingReceivingCount = 0;
@@ -12,8 +12,6 @@ $repeatExtensionCount = 0;
 $lowStockItemCount = 0;
 $unreadMessageCount = 0;
 if ($notificationDb) {
-    ensure_messaging_infrastructure($notificationDb);
-
     if (current_user_id()) {
         $currentTopbarUserId = (int) current_user_id();
         $unreadMessageStmt = $notificationDb->prepare("

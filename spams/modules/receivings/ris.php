@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
- $db = db_connect();
+ $db = db();
  $receivingId = (int)($_GET['receiving_id'] ?? 0);
  $poId     = (int)($_GET['po_id'] ?? 0);
  $officeId = (int)($_GET['office_id'] ?? 0);

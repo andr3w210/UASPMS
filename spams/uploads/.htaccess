@@ -1,0 +1,36 @@
+# SPAMS uploads must be treated as data only, never executable code.
+
+# Disable common PHP handlers in this directory.
+RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .php8 .phar
+RemoveType .php .phtml .php3 .php4 .php5 .php7 .php8 .phar
+
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+<IfModule mod_mime.c>
+    AddType text/plain .php .phtml .php3 .php4 .php5 .php7 .php8 .phar
+</IfModule>
+
+# Deny direct access to executable/script-like upload extensions.
+<FilesMatch "(?i)\.(php|phtml|phar|php3|php4|php5|php7|php8|cgi|pl|py|sh|bat|cmd|exe|com|dll)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Optional hardening:
+# If you want uploads to be downloadable only through an authenticated PHP controller,
+# uncomment the block below to deny every direct request to this folder.
+#
+# <IfModule mod_authz_core.c>
+#     Require all denied
+# </IfModule>
+# <IfModule !mod_authz_core.c>
+#     Order allow,deny
+#     Deny from all
+# </IfModule>

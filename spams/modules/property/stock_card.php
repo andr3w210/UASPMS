@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $page_title = 'Stock Card Workspace';
 $purchaseOrderId = (int) ($_GET['purchase_order_id'] ?? 0);
 $stockItemId = (int) ($_GET['stock_item_id'] ?? 0);

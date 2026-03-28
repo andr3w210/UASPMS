@@ -3,7 +3,7 @@ if (!is_logged_in()) {
     return;
 }
 
-$chatDb = (isset($db) && $db instanceof mysqli) ? $db : db_connect();
+$chatDb = (isset($db) && $db instanceof mysqli) ? $db : db();
 $chatCurrentUserId = current_user_id() ?? 0;
 $chatUnreadCount = 0;
 $chatConversations = [];
@@ -11,8 +11,6 @@ $chatUsers = [];
 $chatOnlineUserMap = [];
 
 if ($chatDb && $chatCurrentUserId > 0) {
-    ensure_messaging_infrastructure($chatDb);
-
     $chatPresenceStmt = $chatDb->prepare("
         INSERT INTO user_presence (user_id, last_seen_at)
         VALUES (?, NOW())

@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $page_title = 'Messages';
 $flash = get_flash();
 $errors = [];
@@ -21,8 +21,6 @@ if (!in_array($selectedRelatedTable, $allowedRelatedTables, true)) { $selectedRe
 $relatedContextLabel = '';
 
 if ($db && $currentUserId > 0) {
-    ensure_messaging_infrastructure($db);
-
     $usersStmt = $db->prepare("SELECT id, username, full_name FROM users WHERE is_active = 1 AND id != ? ORDER BY full_name ASC, username ASC");
     if ($usersStmt) {
         $usersStmt->bind_param('i', $currentUserId);

@@ -1,6 +1,7 @@
 <?php
 // Public property lookup for QR scans — no login required
 require_once __DIR__ . '/../../app/config/init.php';
+require_login();
 
 $ref = trim((string) ($_GET['ref'] ?? ''));
 if ($ref === '') {
@@ -12,11 +13,9 @@ if ($ref === '') {
     exit;
 }
 
-$db = db_connect();
+$db = db();
 $row = null;
 if ($db) {
-    ensure_distribution_item_runtime_columns($db);
-
     $stmt = $db->prepare(
         "SELECT si.system_reference, did.property_number, si.item_description, si.item_type, si.unit_cost, si.quantity_received,\n" .
         "       poi.item_description AS original_description,\n" .

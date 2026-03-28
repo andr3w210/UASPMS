@@ -4,7 +4,7 @@ require_login();
 
 header('Content-Type: application/json; charset=utf-8');
 
-$db = db_connect();
+$db = db();
 $currentUserId = current_user_id() ?? 0;
 
 if (!$db || $currentUserId <= 0) {
@@ -15,8 +15,6 @@ if (!$db || $currentUserId <= 0) {
     ]);
     exit;
 }
-
-ensure_messaging_infrastructure($db);
 
 $presenceStmt = $db->prepare("
     INSERT INTO user_presence (user_id, last_seen_at)

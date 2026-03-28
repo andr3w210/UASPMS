@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $page_title = 'Maintenance Log';
 $flash = get_flash();
 $errors = [];
@@ -28,24 +28,6 @@ $preselectedDetailId = (int) ($_GET['detail_id'] ?? 0);
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    ensure_distribution_item_runtime_columns($db);
-
-    $db->query("
-        CREATE TABLE IF NOT EXISTS maintenance_logs (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            system_reference VARCHAR(50) NOT NULL,
-            maintenance_date DATE NOT NULL,
-            distribution_item_detail_id BIGINT UNSIGNED NULL,
-            work_description TEXT NOT NULL,
-            performed_by VARCHAR(200) NULL,
-            cost DECIMAL(12,2) NULL DEFAULT 0.00,
-            remarks TEXT NULL,
-            status ENUM('posted','cancelled') NOT NULL DEFAULT 'posted',
-            created_by BIGINT UNSIGNED NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    ");
-
     $referencePreview = preview_module_code($db, 'maintenance');
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {

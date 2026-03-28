@@ -1,0 +1,16 @@
+USE `spamsdb`;
+
+ALTER TABLE `returns`
+    ADD COLUMN IF NOT EXISTS `distribution_item_detail_id` BIGINT UNSIGNED NULL AFTER `return_date`,
+    ADD COLUMN IF NOT EXISTS `office_id` BIGINT UNSIGNED NULL AFTER `distribution_item_detail_id`,
+    ADD COLUMN IF NOT EXISTS `employee_id` BIGINT UNSIGNED NULL AFTER `office_id`,
+    ADD COLUMN IF NOT EXISTS `status` VARCHAR(30) NOT NULL DEFAULT 'posted' AFTER `remarks`,
+    ADD COLUMN IF NOT EXISTS `created_by` BIGINT UNSIGNED NULL AFTER `status`,
+    ADD COLUMN IF NOT EXISTS `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `created_by`;
+
+ALTER TABLE `disposals`
+    ADD COLUMN IF NOT EXISTS `distribution_item_detail_id` BIGINT UNSIGNED NULL AFTER `disposal_date`,
+    ADD COLUMN IF NOT EXISTS `approved_by` BIGINT UNSIGNED NULL AFTER `reason`,
+    ADD COLUMN IF NOT EXISTS `status` VARCHAR(30) NOT NULL DEFAULT 'posted' AFTER `remarks`,
+    ADD COLUMN IF NOT EXISTS `created_by` BIGINT UNSIGNED NULL AFTER `status`,
+    ADD COLUMN IF NOT EXISTS `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `created_by`;

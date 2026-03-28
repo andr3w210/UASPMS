@@ -2,47 +2,6 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-function ensure_disposals_schema(mysqli $db): void
-{
-    $db->query("
-        CREATE TABLE IF NOT EXISTS disposals (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            system_reference VARCHAR(50) NOT NULL UNIQUE,
-            disposal_date DATE NOT NULL,
-            distribution_item_detail_id BIGINT UNSIGNED NULL,
-            disposal_type VARCHAR(100) NULL,
-            reason TEXT NULL,
-            approved_by BIGINT UNSIGNED NULL,
-            remarks TEXT NULL,
-            status VARCHAR(30) NOT NULL DEFAULT 'posted',
-            created_by BIGINT UNSIGNED NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ");
-
-    if (function_exists('schema_has_column')) {
-        if (!schema_has_column($db, 'disposals', 'distribution_item_detail_id')) {
-            $db->query("ALTER TABLE disposals ADD COLUMN distribution_item_detail_id BIGINT UNSIGNED NULL AFTER disposal_date");
-        }
-        if (!schema_has_column($db, 'disposals', 'approved_by')) {
-            $db->query("ALTER TABLE disposals ADD COLUMN approved_by BIGINT UNSIGNED NULL AFTER reason");
-        }
-        if (!schema_has_column($db, 'disposals', 'status')) {
-            $db->query("ALTER TABLE disposals ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'posted' AFTER remarks");
-        }
-        if (!schema_has_column($db, 'disposals', 'created_by')) {
-            $db->query("ALTER TABLE disposals ADD COLUMN created_by BIGINT UNSIGNED NULL AFTER status");
-        }
-        if (!schema_has_column($db, 'disposals', 'created_at')) {
-            $db->query("ALTER TABLE disposals ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER created_by");
-        }
-    }
-
-    if (function_exists('schema_has_column') && !schema_has_column($db, 'distribution_item_details', 'is_disposed')) {
-        $db->query("ALTER TABLE distribution_item_details ADD COLUMN is_disposed TINYINT(1) NOT NULL DEFAULT 0 AFTER is_distributed");
-    }
-}
-
 function disposal_asset_label(array $row): string
 {
     $prefix = trim(implode(' / ', array_filter([
@@ -53,7 +12,7 @@ function disposal_asset_label(array $row): string
     return trim(($prefix !== '' ? $prefix . ' - ' : '') . (string) ($row['item_description'] ?? ''));
 }
 
-$db = db_connect();
+$db = db();
 $page_title = 'Disposals';
 $flash = get_flash();
 $errors = [];
@@ -78,9 +37,6 @@ if (!in_array($typeFilter, ['all', 'semi_expendable', 'equipment'], true)) {
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    ensure_disposals_schema($db);
-    ensure_distribution_item_runtime_columns($db);
-
     $employeeResult = $db->query("SELECT id, first_name, middle_name, last_name, suffix_name FROM employees WHERE is_active = 1 ORDER BY last_name ASC, first_name ASC");
     if ($employeeResult) {
         $employees = $employeeResult->fetch_all(MYSQLI_ASSOC);

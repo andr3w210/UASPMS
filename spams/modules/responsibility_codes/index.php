@@ -39,7 +39,7 @@ function responsibility_codes_has_reference(mysqli $db, int $recordId): bool
     return false;
 }
 
-$db = db_connect();
+$db = db();
 $page_title = 'Responsibility Codes';
 $flash = get_flash();
 $errors = [];

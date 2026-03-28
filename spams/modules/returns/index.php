@@ -2,46 +2,6 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-function ensure_returns_schema(mysqli $db): void
-{
-    $db->query("
-        CREATE TABLE IF NOT EXISTS returns (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            system_reference VARCHAR(50) NOT NULL UNIQUE,
-            return_date DATE NOT NULL,
-            distribution_item_detail_id BIGINT UNSIGNED NULL,
-            office_id BIGINT UNSIGNED NULL,
-            employee_id BIGINT UNSIGNED NULL,
-            reason TEXT NULL,
-            remarks TEXT NULL,
-            status VARCHAR(30) NOT NULL DEFAULT 'posted',
-            created_by BIGINT UNSIGNED NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ");
-
-    if (function_exists('schema_has_column')) {
-        if (!schema_has_column($db, 'returns', 'distribution_item_detail_id')) {
-            $db->query("ALTER TABLE returns ADD COLUMN distribution_item_detail_id BIGINT UNSIGNED NULL AFTER return_date");
-        }
-        if (!schema_has_column($db, 'returns', 'status')) {
-            $db->query("ALTER TABLE returns ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'posted' AFTER remarks");
-        }
-        if (!schema_has_column($db, 'returns', 'created_by')) {
-            $db->query("ALTER TABLE returns ADD COLUMN created_by BIGINT UNSIGNED NULL AFTER status");
-        }
-        if (!schema_has_column($db, 'returns', 'created_at')) {
-            $db->query("ALTER TABLE returns ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER created_by");
-        }
-        if (!schema_has_column($db, 'returns', 'office_id')) {
-            $db->query("ALTER TABLE returns ADD COLUMN office_id BIGINT UNSIGNED NULL AFTER distribution_item_detail_id");
-        }
-        if (!schema_has_column($db, 'returns', 'employee_id')) {
-            $db->query("ALTER TABLE returns ADD COLUMN employee_id BIGINT UNSIGNED NULL AFTER office_id");
-        }
-    }
-}
-
 function return_asset_label(array $row): string
 {
     $prefix = trim(implode(' / ', array_filter([
@@ -52,7 +12,7 @@ function return_asset_label(array $row): string
     return trim(($prefix !== '' ? $prefix . ' - ' : '') . (string) ($row['item_description'] ?? ''));
 }
 
-$db = db_connect();
+$db = db();
 $page_title = 'Returns';
 $flash = get_flash();
 $errors = [];
@@ -76,9 +36,6 @@ if (!in_array($typeFilter, ['all', 'semi_expendable', 'equipment'], true)) {
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    ensure_returns_schema($db);
-    ensure_distribution_item_runtime_columns($db);
-
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';

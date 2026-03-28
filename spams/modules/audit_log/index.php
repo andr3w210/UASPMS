@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_role('Administrator');
 
-$db = db_connect();
+$db = db();
 $page_title = 'Audit Log';
 $flash = get_flash();
 $errors = [];
@@ -32,8 +32,6 @@ $page = max(1, (int) ($_GET['page'] ?? 1));
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    ensure_audit_logs_table($db);
-
     $userRes = $db->query("SELECT id, username, full_name FROM users ORDER BY username ASC");
     if ($userRes) {
         $users = $userRes->fetch_all(MYSQLI_ASSOC);

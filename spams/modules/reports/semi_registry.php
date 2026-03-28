@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $page_title = 'Registry of Semi Expendable Property Issued';
 $errors = [];
 $rows = [];
@@ -40,9 +40,6 @@ function semi_registry_person(array $row, string $prefix = ''): string
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    ensure_returns_runtime_schema($db);
-    ensure_disposals_runtime_schema($db);
-
     $officeResult = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeResult) {
         $offices = $officeResult->fetch_all(MYSQLI_ASSOC);

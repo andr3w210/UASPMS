@@ -7,7 +7,7 @@ function consolidated_receiving_type_label(string $type): string
     return $type === 'equipment' ? 'Equipment' : ($type === 'semi_expendable' ? 'Semi-Expendable' : 'Supplies');
 }
 
-$db = db_connect();
+$db = db();
 $purchaseOrderId = (int) ($_GET['po_id'] ?? 0);
 $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $purchaseOrders = [];
