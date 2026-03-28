@@ -16,6 +16,7 @@ $classifications = [];
 $unitOfMeasures = [];
 $activeThreshold = ['equipment_min' => 50000.00, 'semi_hv_min' => 5000.01];
 $poItemSupportsSemiType = false;
+$catalogById = [];
 $defaultRows = [
     ['item_type' => 'supply', 'semi_expendable_type' => '', 'stock_catalog_id' => '', 'account_code_id' => '', 'classification_id' => '', 'item_description' => '', 'quantity' => '1', 'unit_of_measure_id' => '', 'unit_cost' => '0.00'],
 ];
@@ -71,6 +72,9 @@ if ($db) {
         ORDER BY sc.item_type ASC, sc.stock_no ASC
     ");
     if ($catalogResult) $catalogItems = $catalogResult->fetch_all(MYSQLI_ASSOC);
+    foreach ($catalogItems as $catalogItem) {
+        $catalogById[(int) $catalogItem['id']] = $catalogItem;
+    }
 
     $uomResult = $db->query("SELECT id, uom_name, abbreviation FROM unit_of_measures WHERE is_active = 1 ORDER BY uom_name ASC");
     if ($uomResult) $unitOfMeasures = $uomResult->fetch_all(MYSQLI_ASSOC);
@@ -168,6 +172,25 @@ if ($db) {
                                 $errors[] = 'Description is required on line ' . $lineNo . '.';
                             if (!in_array($itemType, ['supply','semi_expendable','equipment'], true))
                                 $errors[] = 'Invalid item type on line ' . $lineNo . '.';
+                            if ($itemType === 'supply') {
+                                if ($stockCatalogId === '') {
+                                    $errors[] = 'Supply line ' . $lineNo . ' must be selected from the stock catalog.';
+                                } else {
+                                    $catalogRow = $catalogById[(int) $stockCatalogId] ?? null;
+                                    if (!$catalogRow) {
+                                        $errors[] = 'Selected catalog item is invalid on line ' . $lineNo . '.';
+                                    } elseif (($catalogRow['item_type'] ?? '') !== 'supply') {
+                                        $errors[] = 'Only supply items can be selected from the stock catalog on line ' . $lineNo . '.';
+                                    } else {
+                                        $description = trim((string) ($catalogRow['item_description'] ?? ''));
+                                        if ($description === '') {
+                                            $description = trim((string) ($catalogRow['item_name'] ?? ''));
+                                        }
+                                    }
+                                }
+                            } else {
+                                $stockCatalogId = '';
+                            }
                             if ($quantity <= 0)
                                 $errors[] = 'Quantity must be greater than zero on line ' . $lineNo . '.';
                             if ($accountCodeId === '')
@@ -394,13 +417,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                     <div class="d-flex justify-content-between align-items-center mb-3 mt-4">
                         <h6 class="mb-0">PO Items</h6>
-                        <div class="dropdown">
-                            <button class="btn btn-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">Add Item</button>
-                            <ul class="dropdown-menu dropdown-menu-end">
-                                <li><button class="dropdown-item add-line-btn" type="button" data-type="supply">Supply</button></li>
-                                <li><button class="dropdown-item add-line-btn" type="button" data-type="semi_expendable">Semi-Expendable</button></li>
-                                <li><button class="dropdown-item add-line-btn" type="button" data-type="equipment">Equipment</button></li>
-                            </ul>
+                        <div class="d-flex gap-2 flex-wrap justify-content-end">
+                            <button class="btn btn-success btn-sm add-line-btn" type="button" data-type="supply">+ Supply</button>
+                            <button class="btn btn-primary btn-sm add-line-btn" type="button" data-type="semi_expendable">+ Semi-Expendable</button>
+                            <button class="btn btn-warning btn-sm add-line-btn" type="button" data-type="equipment">+ Equipment</button>
                         </div>
                     </div>
 
@@ -412,9 +432,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <div class="input-group input-group-sm" style="max-width:160px;">
                                             <input type="text" class="form-control form-control-sm" id="lineSearchInput" placeholder="Search lines...">
                                         </div>
+                                        <div class="input-group input-group-sm" style="max-width:140px;">
+                                            <input type="number" class="form-control form-control-sm" id="jumpLineInput" min="1" placeholder="Line #">
+                                            <button class="btn btn-outline-secondary" type="button" id="jumpLineBtn">Go</button>
+                                        </div>
                                         <button class="btn btn-sm btn-outline-secondary po-filter-btn active" data-filter="all" type="button">All</button>
-                                        <button class="btn btn-sm btn-outline-secondary po-filter-btn" data-filter="done" type="button">Done</button>
-                                        <button class="btn btn-sm btn-outline-secondary po-filter-btn" data-filter="empty" type="button">Empty</button>
+                                        <button class="btn btn-sm btn-outline-secondary po-filter-btn" data-filter="supply" type="button">Supply</button>
+                                        <button class="btn btn-sm btn-outline-secondary po-filter-btn" data-filter="semi_expendable" type="button">Semi</button>
+                                        <button class="btn btn-sm btn-outline-secondary po-filter-btn" data-filter="equipment" type="button">Equipment</button>
+                                        <button class="btn btn-sm btn-outline-secondary po-filter-btn" data-filter="done" type="button">Complete</button>
+                                        <button class="btn btn-sm btn-outline-secondary po-filter-btn" data-filter="empty" type="button">Incomplete</button>
                                     </div>
 
                                     <div id="poLineListScroll" style="flex:1; overflow-y:auto; max-height:380px; display:flex; flex-direction:column; gap:2px;"></div>
@@ -438,7 +465,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <div class="card-body p-3" id="poLineEditor">
                                     <div id="poEditorEmpty" class="text-center text-muted py-5">
                                         <div class="mb-2">No lines yet.</div>
-                                        <div class="small">Use "Add Item" to add your first PO line.</div>
+                                        <div class="small">Use the add buttons above to create your first PO line.</div>
                                     </div>
                                     <div id="poEditorContent" style="display:none;">
                                         <div class="d-flex align-items-center gap-2 mb-3">
@@ -449,16 +476,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <span class="small text-muted" id="editorLineCounter">1 of 1</span>
                                         </div>
 
-                                        <div class="mb-3">
+                                        <div class="alert alert-light border py-2 px-3 mb-3" id="editorWorkflowHelp" style="font-size:12px;"></div>
+
+                                        <div class="mb-3" id="editorCatalogSection">
                                             <label class="form-label" style="font-size:12px;">
                                                 Select from Stock Catalog
-                                                <span class="text-muted fw-normal">(optional — or fill manually below)</span>
+                                                <span class="text-muted fw-normal" id="editorCatalogMeta">required for supplies</span>
                                             </label>
                                             <select class="form-select form-select-sm" id="editorCatalogSearch" data-placeholder="Search stock no. or item name...">
                                                 <option value="">-- Type to search catalog --</option>
                                             </select>
                                             <div id="editorCatalogHint" class="small text-muted mt-1" style="display:none;">
-                                                Fields below auto-filled from catalog. You can still edit them.
+                                                Catalog defaults loaded. You can still refine the PO description below if needed.
                                             </div>
                                             <div class="mt-2 d-flex gap-2 flex-wrap">
                                                 <button type="button" class="btn btn-outline-secondary btn-sm" id="openCatalogQuickAdd" style="font-size:12px;">
@@ -473,16 +502,22 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <div class="mb-3">
                                             <label class="form-label" style="font-size:11px;">Account Code <span class="text-danger">*</span></label>
                                             <select class="form-select form-select-sm" id="editorAccountCode" name="_editor_account_code" style="font-size:13px;"></select>
+                                            <input type="text" class="form-control form-control-sm bg-light" id="editorAccountCodeText" style="font-size:13px; display:none;" readonly>
                                         </div>
 
                                         <div class="mb-3">
-                                            <label class="form-label" style="font-size:11px;">Inventory Class <span class="text-muted" style="font-size:10px;">(optional)</span></label>
+                                            <label class="form-label" style="font-size:11px;">Item Classification <span class="text-muted" style="font-size:10px;">(optional)</span></label>
                                             <select class="form-select form-select-sm" id="editorClassification" name="_editor_classification" style="font-size:13px;"></select>
+                                            <input type="text" class="form-control form-control-sm bg-light" id="editorClassificationText" style="font-size:13px; display:none;" readonly>
+                                            <div class="mt-2">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="openClassificationQuickAdd">Add Classification</button>
+                                            </div>
                                         </div>
 
                                         <div class="mb-3">
-                                            <label class="form-label" style="font-size:11px;">Description <span class="text-danger">*</span></label>
-                                            <textarea class="form-control form-control-sm" id="editorDescription" rows="3" placeholder="Item description from hard copy PO" style="font-size:13px; border-left:3px solid var(--bs-primary-border-subtle); border-radius:0 4px 4px 0;"></textarea>
+                                            <label class="form-label" style="font-size:11px;" id="editorDescriptionLabel">Description <span class="text-danger">*</span></label>
+                                            <textarea class="form-control form-control-sm" id="editorDescription" rows="5" placeholder="Item description from hard copy PO" style="font-size:13px; border-left:3px solid var(--bs-primary-border-subtle); border-radius:0 4px 4px 0;"></textarea>
+                                            <div class="small text-muted mt-1" id="editorDescriptionHint">Paste the PO description exactly as written on the hard copy when needed.</div>
                                         </div>
 
                                         <div class="row g-2 mb-2">
@@ -493,6 +528,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div class="col-5">
                                                 <label class="form-label" style="font-size:11px;">Unit</label>
                                                 <select class="form-select form-select-sm" id="editorUom" style="font-size:13px;"></select>
+                                                <input type="text" class="form-control form-control-sm bg-light" id="editorUomText" style="font-size:13px; display:none;" readonly>
                                             </div>
                                             <div class="col-4">
                                                 <label class="form-label" style="font-size:11px;">Unit Cost</label>
@@ -571,6 +607,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-md-6">
                         <label for="quickAddClassification" class="form-label">Classification</label>
                         <select class="form-select" id="quickAddClassification"></select>
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="openClassificationQuickAddFromCatalog">Add Classification</button>
+                        </div>
                     </div>
                     <div class="col-md-6">
                         <label for="quickAddUom" class="form-label">Unit of Measure</label>
@@ -581,6 +620,46 @@ require_once __DIR__ . '/../../includes/topbar.php';
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="saveCatalogQuickAdd">Save to Catalog</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="classificationQuickAddModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Item Classification</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger py-2 px-3" id="classificationQuickAddError" style="display:none; font-size:13px;"></div>
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label for="quickClassificationType" class="form-label">Item Type</label>
+                        <input type="text" class="form-control" id="quickClassificationType" readonly>
+                    </div>
+                    <div class="col-12">
+                        <label for="quickClassificationName" class="form-label">Classification Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="quickClassificationName">
+                    </div>
+                    <div class="col-12">
+                        <label for="quickClassificationAccountCode" class="form-label">Default Account Code</label>
+                        <select class="form-select" id="quickClassificationAccountCode"></select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="quickClassificationUsefulLife" class="form-label">Useful Life (Years)</label>
+                        <input type="number" class="form-control" id="quickClassificationUsefulLife" min="0" step="1">
+                    </div>
+                    <div class="col-12">
+                        <label for="quickClassificationDescription" class="form-label">Description</label>
+                        <textarea class="form-control" id="quickClassificationDescription" rows="3"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveClassificationQuickAdd">Save Classification</button>
             </div>
         </div>
     </div>
@@ -611,13 +690,21 @@ document.addEventListener('DOMContentLoaded', function () {
         editorTypeBadge: document.getElementById('editorTypeBadge'),
         editorSemiTypeBadge: document.getElementById('editorSemiTypeBadge'),
         editorLineCounter: document.getElementById('editorLineCounter'),
+        editorWorkflowHelp: document.getElementById('editorWorkflowHelp'),
+        editorCatalogSection: document.getElementById('editorCatalogSection'),
+        editorCatalogMeta: document.getElementById('editorCatalogMeta'),
         editorCatalogSearch: document.getElementById('editorCatalogSearch'),
         editorCatalogHint: document.getElementById('editorCatalogHint'),
         editorAccountCode: document.getElementById('editorAccountCode'),
+        editorAccountCodeText: document.getElementById('editorAccountCodeText'),
         editorClassification: document.getElementById('editorClassification'),
+        editorClassificationText: document.getElementById('editorClassificationText'),
+        editorDescriptionLabel: document.getElementById('editorDescriptionLabel'),
         editorDescription: document.getElementById('editorDescription'),
+        editorDescriptionHint: document.getElementById('editorDescriptionHint'),
         editorQty: document.getElementById('editorQty'),
         editorUom: document.getElementById('editorUom'),
+        editorUomText: document.getElementById('editorUomText'),
         editorUnitCost: document.getElementById('editorUnitCost'),
         editorAmount: document.getElementById('editorAmount'),
         editorProgress: document.getElementById('editorProgress'),
@@ -631,6 +718,16 @@ document.addEventListener('DOMContentLoaded', function () {
         footerLineCount: document.getElementById('footerLineCount'),
         poGrandTotal: document.getElementById('poGrandTotal'),
         poHiddenInputs: document.getElementById('poHiddenInputs'),
+        openClassificationQuickAdd: document.getElementById('openClassificationQuickAdd'),
+        openClassificationQuickAddFromCatalog: document.getElementById('openClassificationQuickAddFromCatalog'),
+        classificationQuickAddModal: document.getElementById('classificationQuickAddModal'),
+        classificationQuickAddError: document.getElementById('classificationQuickAddError'),
+        quickClassificationType: document.getElementById('quickClassificationType'),
+        quickClassificationName: document.getElementById('quickClassificationName'),
+        quickClassificationAccountCode: document.getElementById('quickClassificationAccountCode'),
+        quickClassificationUsefulLife: document.getElementById('quickClassificationUsefulLife'),
+        quickClassificationDescription: document.getElementById('quickClassificationDescription'),
+        saveClassificationQuickAdd: document.getElementById('saveClassificationQuickAdd'),
         openCatalogQuickAdd: document.getElementById('openCatalogQuickAdd'),
         catalogQuickAddModal: document.getElementById('catalogQuickAddModal'),
         catalogQuickAddError: document.getElementById('catalogQuickAddError'),
@@ -643,16 +740,45 @@ document.addEventListener('DOMContentLoaded', function () {
         saveCatalogQuickAdd: document.getElementById('saveCatalogQuickAdd')
     };
     var quickAddModal = (window.bootstrap && el.catalogQuickAddModal) ? new bootstrap.Modal(el.catalogQuickAddModal) : null;
+    var classificationQuickAddModal = (window.bootstrap && el.classificationQuickAddModal) ? new bootstrap.Modal(el.classificationQuickAddModal) : null;
 
-    function lineIsComplete(line) { return (line.account_code_id || '') !== '' && (String(line.item_description || '').trim() !== '') && (parseFloat(line.quantity || 0) > 0); }
+    function lineIsComplete(line) {
+        if (!line) return false;
+        var hasCatalog = !lineUsesCatalog(line) || (line.stock_catalog_id || '') !== '';
+        return hasCatalog && (line.account_code_id || '') !== '' && (String(line.item_description || '').trim() !== '') && (parseFloat(line.quantity || 0) > 0);
+    }
     function typeBadgeClass(t) { if (t === 'equipment') return 'bg-warning text-dark'; if (t === 'semi_expendable') return 'bg-primary'; if (t === 'supply') return 'bg-success'; return 'bg-secondary'; }
     function typeLabel(t) { if (t === 'equipment') return 'Equipment'; if (t === 'semi_expendable') return 'Semi-Expendable'; return 'Supply'; }
     function typeShortLabel(t) { if (t === 'equipment') return 'Equip'; if (t === 'semi_expendable') return 'Semi'; return 'Supply'; }
+    function lineUsesCatalog(line) { return !!line && line.item_type === 'supply'; }
     function expectedAccountGroup(itemType) { return itemType === 'equipment' ? 'asset' : itemType; }
     function getSemiType(unitCost) { return parseFloat(unitCost || 0) >= semiHvMin ? 'high_value' : 'low_value'; }
     function lineNeedsSemiType(line) { return !!line && line.item_type === 'semi_expendable'; }
     function classificationMatchesType(classification, itemType) { return !classification || !classification.classification_group || classification.classification_group === expectedAccountGroup(itemType); }
-    function accountCodeMatchesType(accountCode, itemType) { return !accountCode || !accountCode.account_group || accountCode.account_group === expectedAccountGroup(itemType); }
+    function accountCodeMatchesType(accountCode, itemType) {
+        if (itemType === 'supply') return true;
+        return !accountCode || !accountCode.account_group || accountCode.account_group === expectedAccountGroup(itemType);
+    }
+    function accountCodeLabelById(id) {
+        for (var i = 0; i < accountCodes.length; i++) {
+            if (String(accountCodes[i].id) === String(id)) {
+                return (accountCodes[i].account_code || '') + ' - ' + (accountCodes[i].account_name || '');
+            }
+        }
+        return '';
+    }
+    function classificationNameById(id) {
+        for (var i = 0; i < classifications.length; i++) {
+            if (String(classifications[i].id) === String(id)) return classifications[i].classification_name || '';
+        }
+        return '';
+    }
+    function uomLabelById(id) {
+        for (var i = 0; i < units.length; i++) {
+            if (String(units[i].id) === String(id)) return (units[i].uom_name || '') + ((units[i].abbreviation || '') ? ' (' + units[i].abbreviation + ')' : '');
+        }
+        return '';
+    }
     function updateSemiTypeBadge(line) {
         if (!el.editorSemiTypeBadge) return;
         if (!lineNeedsSemiType(line)) {
@@ -679,11 +805,96 @@ document.addEventListener('DOMContentLoaded', function () {
         else catalogItems.push(item);
     }
 
+    function syncLineMode(line) {
+        if (!line) return;
+        if (!lineUsesCatalog(line)) {
+            line.stock_catalog_id = '';
+        }
+    }
+
+    function updateEditorMode(line) {
+        if (!line) return;
+        var usesCatalog = lineUsesCatalog(line);
+
+        if (el.editorWorkflowHelp) {
+            if (usesCatalog) {
+                el.editorWorkflowHelp.className = 'alert alert-success border py-2 px-3 mb-3';
+                el.editorWorkflowHelp.innerHTML = '<strong>Supply workflow:</strong> select an item from the stock catalog, then adjust the PO description if the hard copy adds extra details.';
+            } else if (line.item_type === 'semi_expendable') {
+                el.editorWorkflowHelp.className = 'alert alert-primary border py-2 px-3 mb-3';
+                el.editorWorkflowHelp.innerHTML = '<strong>Manual workflow:</strong> encode this semi-expendable item directly from the hard copy PO. HV/LV will be computed from unit cost.';
+            } else {
+                el.editorWorkflowHelp.className = 'alert alert-warning border py-2 px-3 mb-3';
+                el.editorWorkflowHelp.innerHTML = '<strong>Manual workflow:</strong> encode this equipment item directly from the hard copy PO, including the full description/specification when needed.';
+            }
+        }
+
+        if (el.editorCatalogSection) {
+            el.editorCatalogSection.style.display = usesCatalog ? '' : 'none';
+        }
+        if (el.editorCatalogMeta) {
+            el.editorCatalogMeta.textContent = usesCatalog ? 'required for supplies' : 'not used for manual lines';
+        }
+        if (el.openCatalogQuickAdd) {
+            el.openCatalogQuickAdd.style.display = usesCatalog ? '' : 'none';
+        }
+        if (el.openClassificationQuickAdd) {
+            el.openClassificationQuickAdd.style.display = usesCatalog ? 'none' : '';
+        }
+        if (el.editorCatalogHint) {
+            el.editorCatalogHint.style.display = usesCatalog && line.stock_catalog_id ? '' : 'none';
+        }
+        if (el.editorDescriptionLabel) {
+            el.editorDescriptionLabel.innerHTML = usesCatalog
+                ? 'Description / PO Detail <span class="text-danger">*</span>'
+                : 'Detailed PO Description <span class="text-danger">*</span>';
+        }
+        if (el.editorDescriptionHint) {
+            el.editorDescriptionHint.textContent = usesCatalog
+                ? 'This description comes directly from the selected stock catalog item.'
+                : 'Paste the hard copy PO description/specification here, even if it is long.';
+        }
+        if (el.editorDescription) {
+            el.editorDescription.rows = usesCatalog ? 4 : 8;
+            el.editorDescription.placeholder = usesCatalog
+                ? 'Description from stock catalog'
+                : 'Detailed description from the hard copy PO';
+            el.editorDescription.readOnly = usesCatalog;
+            el.editorDescription.classList.toggle('bg-light', usesCatalog);
+        }
+        if (el.editorAccountCode) {
+            el.editorAccountCode.style.display = usesCatalog ? 'none' : '';
+            if (window.jQuery) window.jQuery(el.editorAccountCode).nextAll('.select2').first().toggle(!usesCatalog);
+        }
+        if (el.editorAccountCodeText) {
+            el.editorAccountCodeText.style.display = usesCatalog ? '' : 'none';
+            el.editorAccountCodeText.value = usesCatalog ? accountCodeLabelById(line.account_code_id || '') : '';
+        }
+        if (el.editorClassification) {
+            el.editorClassification.style.display = usesCatalog ? 'none' : '';
+            if (window.jQuery) window.jQuery(el.editorClassification).nextAll('.select2').first().toggle(!usesCatalog);
+        }
+        if (el.editorClassificationText) {
+            el.editorClassificationText.style.display = usesCatalog ? '' : 'none';
+            el.editorClassificationText.value = usesCatalog ? classificationNameById(line.classification_id || '') : '';
+        }
+        if (el.editorUom) {
+            el.editorUom.style.display = usesCatalog ? 'none' : '';
+            if (window.jQuery) window.jQuery(el.editorUom).nextAll('.select2').first().toggle(!usesCatalog);
+        }
+        if (el.editorUomText) {
+            el.editorUomText.style.display = usesCatalog ? '' : 'none';
+            el.editorUomText.value = usesCatalog ? uomLabelById(line.unit_of_measure_id || '') : '';
+        }
+    }
+
     function populateCatalogSelect(selectedId) {
         var sel = el.editorCatalogSearch;
         if (!sel) return;
         sel.innerHTML = '<option value="">-- Search catalog --</option>';
         catalogItems.forEach(function(ci) {
+            var line = (activeIndex >= 0 && activeIndex < poLines.length) ? poLines[activeIndex] : null;
+            if (lineUsesCatalog(line) && ci.item_type !== 'supply') return;
             var opt = document.createElement('option');
             opt.value = ci.id;
             opt.setAttribute('data-item', JSON.stringify(ci));
@@ -716,7 +927,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function rebuildClassificationSelect(itemType, selectedId) {
         var sel = el.editorClassification;
         if (!sel) return;
-        sel.innerHTML = '<option value="">Select inventory class</option>';
+        sel.innerHTML = '<option value="">Select item classification</option>';
         classifications.forEach(function(cl){
             if (!classificationMatchesType(cl, itemType)) return;
             var opt = document.createElement('option');
@@ -729,7 +940,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (window.jQuery && jQuery.fn.select2) {
             var $sel = window.jQuery(sel);
             if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
-            $sel.select2({ placeholder: 'Select inventory class', allowClear: true, width: '100%', dropdownParent: window.jQuery(document.body) });
+            $sel.select2({ placeholder: 'Select item classification', allowClear: true, width: '100%', dropdownParent: window.jQuery(document.body) });
         }
     }
 
@@ -755,9 +966,10 @@ document.addEventListener('DOMContentLoaded', function () {
         var done = 0; var total = poLines.length; var sum = 0;
         for (var i = 0; i < poLines.length; i++) {
             var ln = poLines[i];
+            syncLineMode(ln);
             ln.semi_expendable_type = lineNeedsSemiType(ln) ? getSemiType(ln.unit_cost || 0) : '';
             ln.is_complete = lineIsComplete(ln); if (ln.is_complete) done++; sum += parseFloat(ln.line_total || 0);
-            if (currentFilter === 'done' && !ln.is_complete) continue; if (currentFilter === 'empty' && ln.is_complete) continue; if (searchTerm && !(ln.item_description || '').toLowerCase().includes(searchTerm)) continue;
+            if (currentFilter === 'done' && !ln.is_complete) continue; if (currentFilter === 'empty' && ln.is_complete) continue; if (currentFilter === 'supply' && ln.item_type !== 'supply') continue; if (currentFilter === 'semi_expendable' && ln.item_type !== 'semi_expendable') continue; if (currentFilter === 'equipment' && ln.item_type !== 'equipment') continue; var searchBlob = [ln.item_description || '', ln.item_type || '', classificationNameById(ln.classification_id || ''), uomLabelById(ln.unit_of_measure_id || ''), accountCodeLabelById(ln.account_code_id || '')].join(' ').toLowerCase(); if (searchTerm && searchBlob.indexOf(searchTerm) === -1) continue;
             var dotColor = (i === activeIndex) ? '#0d6efd' : (ln.is_complete ? '#198754' : '#adb5bd');
             var badgeClass = (ln.item_type === 'equipment') ? 'text-bg-warning-subtle' : (ln.item_type === 'semi_expendable' ? 'text-bg-primary-subtle' : 'text-bg-success-subtle');
             var shortType = typeShortLabel(ln.item_type); var desc = (ln.item_description || 'New item'); var amt = (parseFloat(ln.line_total || 0) !== 0) ? formatNumber(ln.line_total) : '—';
@@ -781,30 +993,36 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadLineEditor(index) {
         if (poLines.length === 0) { el.editorEmpty.style.display = ''; el.editorContent.style.display = 'none'; activeIndex = -1; renderLineList(); return; }
         activeIndex = index; var line = poLines[index]; el.editorEmpty.style.display = 'none'; el.editorContent.style.display = '';
+        syncLineMode(line);
         el.editorLineLabel.textContent = 'Line ' + (index + 1); el.editorTypeBadge.className = 'badge ' + typeBadgeClass(line.item_type); el.editorTypeBadge.textContent = typeLabel(line.item_type);
         updateSemiTypeBadge(line);
         el.editorLineCounter.textContent = (index + 1) + ' of ' + poLines.length;
         populateCatalogSelect(line.stock_catalog_id || '');
+        updateEditorMode(line);
         rebuildAccountCodeSelect(line.item_type, line.account_code_id);
         rebuildClassificationSelect(line.item_type, line.classification_id);
         rebuildUomSelect(line.unit_of_measure_id);
+        updateEditorMode(line);
+        if (lineUsesCatalog(line) && !line.item_description && line.stock_catalog_id) {
+            for (var ciIdx = 0; ciIdx < catalogItems.length; ciIdx++) {
+                if (String(catalogItems[ciIdx].id) === String(line.stock_catalog_id)) {
+                    line.item_description = catalogItems[ciIdx].item_description || catalogItems[ciIdx].item_name || '';
+                    break;
+                }
+            }
+        }
         el.editorDescription.value = line.item_description || ''; el.editorQty.value = line.quantity || '1'; el.editorUnitCost.value = line.unit_cost || '0.00'; el.editorAmount.textContent = formatNumber(line.line_total || 0);
         el.editorPrev.disabled = (index === 0); el.editorNext.disabled = (index === poLines.length - 1);
         var done = poLines.filter(lineIsComplete).length; var pct = poLines.length ? Math.round((done / poLines.length) * 100) : 0;
         el.editorProgress.style.width = pct + '%'; el.editorProgressLabel.textContent = done + ' / ' + poLines.length + ' completed';
         renderLineList();
         if (window.SPAMS && typeof window.SPAMS.initSelect2 === 'function') window.SPAMS.initSelect2(document.getElementById('poLineEditor'));
-        if (window.SPAMS && typeof window.SPAMS.refreshSelect2 === 'function') {
-            window.SPAMS.refreshSelect2(document.getElementById('editorAccountCode'));
-            window.SPAMS.refreshSelect2(document.getElementById('editorClassification'));
-            window.SPAMS.refreshSelect2(document.getElementById('editorUom'));
-        }
     }
 
     function saveCurrentLine() {
         if (activeIndex < 0 || activeIndex >= poLines.length) return;
         var ln = poLines[activeIndex];
-        ln.stock_catalog_id = el.editorCatalogSearch ? (el.editorCatalogSearch.value || '') : '';
+        ln.stock_catalog_id = lineUsesCatalog(ln) && el.editorCatalogSearch ? (el.editorCatalogSearch.value || '') : '';
         ln.account_code_id = el.editorAccountCode.value || '';
 
         // If account code changed, clear classification if it no longer matches
@@ -819,11 +1037,32 @@ document.addEventListener('DOMContentLoaded', function () {
         ln.classification_id = el.editorClassification
             ? (el.editorClassification.value || '') : '';
 
-        ln.item_description = (el.editorDescription.value || '').trim();
+        if (lineUsesCatalog(ln)) {
+            var supplyCatalog = null;
+            for (var catIdx = 0; catIdx < catalogItems.length; catIdx++) {
+                if (String(catalogItems[catIdx].id) === String(ln.stock_catalog_id)) {
+                    supplyCatalog = catalogItems[catIdx];
+                    break;
+                }
+            }
+            ln.item_description = supplyCatalog ? ((supplyCatalog.item_description || supplyCatalog.item_name || '').trim()) : '';
+            ln.account_code_id = supplyCatalog ? String(supplyCatalog.account_code_id || '') : '';
+            ln.classification_id = supplyCatalog ? String(supplyCatalog.classification_id || '') : '';
+            ln.unit_of_measure_id = supplyCatalog ? String(supplyCatalog.unit_of_measure_id || '') : '';
+            if (el.editorDescription) {
+                el.editorDescription.value = ln.item_description;
+            }
+            if (el.editorAccountCodeText) el.editorAccountCodeText.value = accountCodeLabelById(ln.account_code_id || '');
+            if (el.editorClassificationText) el.editorClassificationText.value = classificationNameById(ln.classification_id || '');
+            if (el.editorUomText) el.editorUomText.value = uomLabelById(ln.unit_of_measure_id || '');
+        } else {
+            ln.item_description = (el.editorDescription.value || '').trim();
+            ln.unit_of_measure_id = el.editorUom.value || '';
+        }
         ln.quantity = el.editorQty.value || '0';
-        ln.unit_of_measure_id = el.editorUom.value || '';
         ln.unit_cost = el.editorUnitCost.value || '0';
         ln.semi_expendable_type = lineNeedsSemiType(ln) ? getSemiType(ln.unit_cost) : '';
+        syncLineMode(ln);
         ln.line_total = Math.round((parseFloat(ln.quantity || 0) * parseFloat(ln.unit_cost || 0)) * 100) / 100;
         ln.is_complete = lineIsComplete(ln);
         el.editorAmount.textContent = formatNumber(ln.line_total || 0);
@@ -864,6 +1103,8 @@ document.addEventListener('DOMContentLoaded', function () {
     // events
     Array.from(document.querySelectorAll('.add-line-btn')).forEach(function(b){ b.addEventListener('click', function(){ addLine(b.dataset.type || 'supply'); }); });
     el.lineSearchInput && el.lineSearchInput.addEventListener('input', function(){ searchTerm = (this.value||'').trim().toLowerCase(); renderLineList(); });
+    document.getElementById('jumpLineBtn') && document.getElementById('jumpLineBtn').addEventListener('click', function(){ var raw = document.getElementById('jumpLineInput') ? document.getElementById('jumpLineInput').value : ''; var target = parseInt(raw, 10); if (!isNaN(target) && target >= 1 && target <= poLines.length) loadLineEditor(target - 1); });
+    document.getElementById('jumpLineInput') && document.getElementById('jumpLineInput').addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); var target = parseInt(this.value, 10); if (!isNaN(target) && target >= 1 && target <= poLines.length) loadLineEditor(target - 1); } });
     Array.from(document.querySelectorAll('.po-filter-btn')).forEach(function(b){ b.addEventListener('click', function(){ document.querySelectorAll('.po-filter-btn').forEach(function(bb){ bb.classList.remove('active'); }); b.classList.add('active'); currentFilter = b.dataset.filter || 'all'; renderLineList(); }); });
 
     el.editorPrev && el.editorPrev.addEventListener('click', function(){ saveCurrentLine(); if (activeIndex>0) loadLineEditor(activeIndex-1); });
@@ -887,6 +1128,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (el.editorCatalogSearch) {
         el.editorCatalogSearch.addEventListener('change', function() {
             if (activeIndex < 0 || activeIndex >= poLines.length) return;
+            if (!lineUsesCatalog(poLines[activeIndex])) return;
             var opt = this.options[this.selectedIndex];
             if (!opt || !opt.value) {
                 if (el.editorCatalogHint) el.editorCatalogHint.style.display = 'none';
@@ -907,7 +1149,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             poLines[activeIndex].stock_catalog_id = String(ci.id);
-            poLines[activeIndex].item_type = ci.item_type || poLines[activeIndex].item_type;
+            poLines[activeIndex].item_type = 'supply';
             poLines[activeIndex].account_code_id = ci.account_code_id || '';
             poLines[activeIndex].classification_id = ci.classification_id || '';
             poLines[activeIndex].unit_of_measure_id = ci.unit_of_measure_id || '';
@@ -915,6 +1157,16 @@ document.addEventListener('DOMContentLoaded', function () {
             rebuildAccountCodeSelect(poLines[activeIndex].item_type, ci.account_code_id || '');
             rebuildClassificationSelect(poLines[activeIndex].item_type, ci.classification_id || '');
             rebuildUomSelect(ci.unit_of_measure_id || '');
+            updateEditorMode(poLines[activeIndex]);
+            if (window.jQuery && jQuery.fn.select2) {
+                window.jQuery(el.editorAccountCode).val(String(ci.account_code_id || '')).trigger('change.select2');
+                window.jQuery(el.editorClassification).val(String(ci.classification_id || '')).trigger('change.select2');
+                window.jQuery(el.editorUom).val(String(ci.unit_of_measure_id || '')).trigger('change.select2');
+            } else {
+                if (el.editorAccountCode) el.editorAccountCode.value = String(ci.account_code_id || '');
+                if (el.editorClassification) el.editorClassification.value = String(ci.classification_id || '');
+                if (el.editorUom) el.editorUom.value = String(ci.unit_of_measure_id || '');
+            }
 
             if (el.editorTypeBadge) {
                 el.editorTypeBadge.className = 'badge ' + typeBadgeClass(poLines[activeIndex].item_type);
@@ -951,6 +1203,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
+            var missingCatalogLine = poLines.find(function(ln) {
+                return lineUsesCatalog(ln) && (!ln.stock_catalog_id || String(ln.stock_catalog_id).trim() === '');
+            });
+            if (missingCatalogLine) {
+                e.preventDefault();
+                alert('Supply line ' + (missingCatalogLine.index + 1) + ' must be selected from the stock catalog before saving.');
+                loadLineEditor(missingCatalogLine.index);
+                return;
+            }
+
             // Allow submit — PHP handles all other validation
         });
     }
@@ -966,6 +1228,14 @@ document.addEventListener('DOMContentLoaded', function () {
     // Initialize Select2 on static editor selects
     if (window.SPAMS && window.SPAMS.initSelect2) {
         window.SPAMS.initSelect2(document.getElementById('poLineEditor'));
+    }
+    if (poLines.length > 0 && activeIndex >= 0 && activeIndex < poLines.length) {
+        updateEditorMode(poLines[activeIndex]);
+        setTimeout(function() {
+            if (poLines.length > 0 && activeIndex >= 0 && activeIndex < poLines.length) {
+                updateEditorMode(poLines[activeIndex]);
+            }
+        }, 50);
     }
 
     function rebuildQuickAddAccountCodes(itemType, selectedId) {
@@ -983,6 +1253,24 @@ document.addEventListener('DOMContentLoaded', function () {
             var $sel = window.jQuery(el.quickAddAccountCode);
             if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
             $sel.select2({ placeholder: 'Select account code', allowClear: true, width: '100%', dropdownParent: window.jQuery(el.catalogQuickAddModal) });
+        }
+    }
+
+    function rebuildClassificationQuickAddAccountCodes(itemType, selectedId) {
+        if (!el.quickClassificationAccountCode) return;
+        el.quickClassificationAccountCode.innerHTML = '<option value="">No default account code</option>';
+        accountCodes.forEach(function(ac) {
+            if (!accountCodeMatchesType(ac, itemType)) return;
+            var opt = document.createElement('option');
+            opt.value = ac.id;
+            opt.textContent = ac.account_code + ' - ' + ac.account_name;
+            if (String(ac.id) === String(selectedId)) opt.selected = true;
+            el.quickClassificationAccountCode.appendChild(opt);
+        });
+        if (window.jQuery && jQuery.fn.select2) {
+            var $sel = window.jQuery(el.quickClassificationAccountCode);
+            if ($sel.hasClass('select2-hidden-accessible')) $sel.select2('destroy');
+            $sel.select2({ placeholder: 'No default account code', allowClear: true, width: '100%', dropdownParent: window.jQuery(el.classificationQuickAddModal) });
         }
     }
 
@@ -1027,11 +1315,55 @@ document.addEventListener('DOMContentLoaded', function () {
         el.catalogQuickAddError.style.display = message ? '' : 'none';
     }
 
+    function showClassificationQuickAddError(message) {
+        if (!el.classificationQuickAddError) return;
+        el.classificationQuickAddError.textContent = message || '';
+        el.classificationQuickAddError.style.display = message ? '' : 'none';
+    }
+
+    function upsertClassification(classification) {
+        if (!classification || !classification.id) return;
+        var idx = -1;
+        for (var i = 0; i < classifications.length; i++) {
+            if (String(classifications[i].id) === String(classification.id)) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx >= 0) {
+            classifications[idx] = Object.assign({}, classifications[idx], classification);
+        } else {
+            classifications.push(classification);
+        }
+        classifications.sort(function(a, b) {
+            return String(a.classification_name || '').localeCompare(String(b.classification_name || ''));
+        });
+    }
+
+    function seedClassificationQuickAdd() {
+        var line = (activeIndex >= 0 && activeIndex < poLines.length) ? poLines[activeIndex] : null;
+        var itemType = line ? (line.item_type || 'supply') : 'supply';
+        if (el.quickClassificationType) {
+            el.quickClassificationType.value = typeLabel(itemType);
+            el.quickClassificationType.setAttribute('data-item-type', itemType);
+        }
+        if (el.quickClassificationName) el.quickClassificationName.value = '';
+        if (el.quickClassificationDescription) el.quickClassificationDescription.value = '';
+        if (el.quickClassificationUsefulLife) {
+            el.quickClassificationUsefulLife.value = itemType === 'supply' ? '' : '3';
+        }
+        rebuildClassificationQuickAddAccountCodes(itemType, line ? line.account_code_id : '');
+        showClassificationQuickAddError('');
+    }
+
     function seedQuickAddFromLine() {
         var line = (activeIndex >= 0 && activeIndex < poLines.length) ? poLines[activeIndex] : null;
         if (el.quickAddItemName) el.quickAddItemName.value = '';
         if (el.quickAddDescription) el.quickAddDescription.value = line ? (line.item_description || '') : '';
-        if (el.quickAddItemType) el.quickAddItemType.value = line ? (line.item_type || 'supply') : 'supply';
+        if (el.quickAddItemType) {
+            el.quickAddItemType.value = lineUsesCatalog(line) ? 'supply' : (line ? (line.item_type || 'supply') : 'supply');
+            el.quickAddItemType.disabled = !!lineUsesCatalog(line);
+        }
         rebuildQuickAddAccountCodes(el.quickAddItemType ? el.quickAddItemType.value : 'supply', line ? line.account_code_id : '');
         rebuildQuickAddClassifications(el.quickAddItemType ? el.quickAddItemType.value : 'supply', line ? line.classification_id : '');
         rebuildQuickAddUom(line ? line.unit_of_measure_id : '');
@@ -1049,6 +1381,69 @@ document.addEventListener('DOMContentLoaded', function () {
         el.openCatalogQuickAdd.addEventListener('click', function() {
             seedQuickAddFromLine();
             if (quickAddModal) quickAddModal.show();
+        });
+    }
+
+    if (el.openClassificationQuickAdd) {
+        el.openClassificationQuickAdd.addEventListener('click', function() {
+            seedClassificationQuickAdd();
+            if (classificationQuickAddModal) classificationQuickAddModal.show();
+        });
+    }
+
+    if (el.openClassificationQuickAddFromCatalog) {
+        el.openClassificationQuickAddFromCatalog.addEventListener('click', function() {
+            seedClassificationQuickAdd();
+            if (classificationQuickAddModal) classificationQuickAddModal.show();
+        });
+    }
+
+    if (el.saveClassificationQuickAdd) {
+        el.saveClassificationQuickAdd.addEventListener('click', async function() {
+            var itemType = el.quickClassificationType ? (el.quickClassificationType.getAttribute('data-item-type') || 'supply') : 'supply';
+            var payload = new FormData();
+            payload.append('_csrf', <?php echo json_encode(csrf_token(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>);
+            payload.append('item_type', itemType);
+            payload.append('classification_name', el.quickClassificationName ? el.quickClassificationName.value.trim() : '');
+            payload.append('account_code_id', el.quickClassificationAccountCode ? (el.quickClassificationAccountCode.value || '') : '');
+            payload.append('useful_life_years', el.quickClassificationUsefulLife ? (el.quickClassificationUsefulLife.value || '') : '');
+            payload.append('description', el.quickClassificationDescription ? el.quickClassificationDescription.value.trim() : '');
+
+            showClassificationQuickAddError('');
+            el.saveClassificationQuickAdd.disabled = true;
+
+            try {
+                var response = await fetch('<?php echo base_url('modules/purchase_orders/classification_quick_add.php'); ?>', {
+                    method: 'POST',
+                    body: payload
+                });
+                var result = await response.json();
+                if (!response.ok || !result.ok) {
+                    throw new Error(result.error || 'Unable to save classification.');
+                }
+
+                upsertClassification(result.classification);
+
+                if (activeIndex >= 0 && activeIndex < poLines.length) {
+                    poLines[activeIndex].classification_id = String(result.classification.id);
+                    rebuildClassificationSelect(poLines[activeIndex].item_type, result.classification.id);
+                    if (window.jQuery && jQuery.fn.select2) {
+                        window.jQuery(el.editorClassification).val(String(result.classification.id)).trigger('change');
+                    } else if (el.editorClassification) {
+                        el.editorClassification.value = String(result.classification.id);
+                    }
+                }
+
+                if (el.quickAddItemType) {
+                    rebuildQuickAddClassifications(el.quickAddItemType.value || 'supply', result.classification.id);
+                }
+
+                if (classificationQuickAddModal) classificationQuickAddModal.hide();
+            } catch (err) {
+                showClassificationQuickAddError(err.message || 'Unable to save classification.');
+            } finally {
+                el.saveClassificationQuickAdd.disabled = false;
+            }
         });
     }
 
@@ -1325,3 +1720,5 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
+
