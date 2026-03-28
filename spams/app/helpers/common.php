@@ -110,6 +110,16 @@ function ensure_message_channels_table(mysqli $db): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    $db->query("
+        CREATE TABLE IF NOT EXISTS message_channel_hidden (
+            channel_message_id BIGINT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            hidden_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (channel_message_id, user_id),
+            INDEX idx_user (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     $insertStmt = $db->prepare("
         INSERT INTO message_channels (channel_key, channel_name, channel_description, is_active)
         VALUES ('general', 'General Group Chat', 'Shared coordination channel for all active users.', 1)
@@ -168,20 +178,46 @@ function message_channel_unread_count(mysqli $db, string $channelKey, int $userI
         LEFT JOIN message_channel_reads mcr
             ON mcr.channel_key = cm.channel_key
            AND mcr.user_id = ?
+        LEFT JOIN message_channel_hidden mch
+            ON mch.channel_message_id = cm.id
+           AND mch.user_id = ?
         WHERE cm.channel_key = ?
           AND cm.sender_user_id != ?
+          AND mch.channel_message_id IS NULL
           AND cm.id > COALESCE(mcr.last_read_message_id, 0)
     ");
     if (!$stmt) {
         return 0;
     }
 
-    $stmt->bind_param('isi', $userId, $channelKey, $userId);
+    $stmt->bind_param('iisi', $userId, $userId, $channelKey, $userId);
     $stmt->execute();
     $total = (int) (($stmt->get_result()->fetch_assoc()['total'] ?? 0));
     $stmt->close();
 
     return $total;
+}
+
+function message_hide_channel_message(mysqli $db, int $messageId, int $userId): bool
+{
+    if ($messageId <= 0 || $userId <= 0) {
+        return false;
+    }
+
+    $stmt = $db->prepare("
+        INSERT INTO message_channel_hidden (channel_message_id, user_id)
+        VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE hidden_at = CURRENT_TIMESTAMP
+    ");
+    if (!$stmt) {
+        return false;
+    }
+
+    $stmt->bind_param('ii', $messageId, $userId);
+    $ok = $stmt->execute();
+    $stmt->close();
+
+    return $ok;
 }
 
 function message_highlight_mentions_html(string $message): string

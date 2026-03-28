@@ -42,8 +42,8 @@ if ($db) {
         ")\n" .
         "LEFT JOIN distribution_items di ON di.id = did.distribution_item_id\n" .
         "LEFT JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'\n" .
-        "LEFT JOIN offices o ON o.id = d.office_id\n" .
-        "LEFT JOIN employees e ON e.id = d.employee_id\n" .
+        "LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)\n" .
+        "LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)\n" .
         "WHERE si.system_reference = ?\n" .
         "LIMIT 1"
     );
@@ -53,6 +53,31 @@ if ($db) {
         $res = $stmt->get_result();
         $row = $res ? $res->fetch_assoc() : null;
         $stmt->close();
+    }
+
+    if (!$row) {
+        $legacyStmt = $db->prepare(
+            "SELECT la.system_reference, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
+                    la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
+                    '' AS ris_no, la.acquisition_date AS received_date, '' AS po_number, '' AS supplier_name,
+                    la.brand, la.model, la.serial_no, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
+                    la.acquisition_date AS distribution_date, o.office_name,
+                    e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title
+             FROM legacy_assets la
+             LEFT JOIN classifications c ON c.id = la.classification_id
+             LEFT JOIN account_codes ac ON ac.id = la.account_code_id
+             LEFT JOIN offices o ON o.id = la.office_id
+             LEFT JOIN employees e ON e.id = la.employee_id
+             WHERE la.property_number = ?
+             LIMIT 1"
+        );
+        if ($legacyStmt) {
+            $legacyStmt->bind_param('s', $ref);
+            $legacyStmt->execute();
+            $legacyRes = $legacyStmt->get_result();
+            $row = $legacyRes ? $legacyRes->fetch_assoc() : null;
+            $legacyStmt->close();
+        }
     }
 }
 
@@ -99,7 +124,7 @@ $empName = employee_display_name_from_row($row);
         <div class="card-body">
             <h5 class="card-title">University of Antique — Property Information</h5>
             <hr>
-            <div class="mb-2"><span class="kv">Property No:</span> <?php echo h($row['system_reference']); ?></div>
+            <div class="mb-2"><span class="kv">Property No:</span> <?php echo h($row['system_reference'] ?: $ref); ?></div>
             <div class="mb-2"><span class="kv">Description:</span> <?php echo h($row['item_description'] ?? $row['original_description']); ?></div>
             <div class="mb-2"><span class="kv">Classification:</span> <?php echo h($row['classification_name'] ?? ''); ?></div>
             <div class="mb-2"><span class="kv">Account Code:</span> <?php echo h($row['account_code'] ?? '') . ' ' . h($row['account_name'] ?? ''); ?></div>
