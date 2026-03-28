@@ -380,7 +380,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Prepare statement to fetch fund/account/rc for property number generation
                 $fundStmt = $db->prepare(
-                    "SELECT f.fund_code, ac.account_code, rc.code AS rc_code
+                    "SELECT f.fund_source, f.fund_code, ac.account_code, rc.code AS rc_code
                      FROM receiving_items ri
                      INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
                      INNER JOIN receivings r ON r.id = ri.receiving_id
@@ -409,7 +409,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $fundStmt->execute();
                             $fundRow = $fundStmt->get_result()->fetch_assoc();
                             $year        = date('Y', strtotime($form['distribution_date']));
-                            $fundCode    = $fundRow['fund_code'] ?? '';
+                            $fundCode    = $fundRow['fund_source'] ?? ($fundRow['fund_code'] ?? '');
                             $accountCode = $fundRow['account_code'] ?? '';
                             $rcCode      = $fundRow['rc_code'] ?? '';
                             $propertyNo  = generate_property_number($db, $year, $fundCode, $accountCode, $rcCode);
@@ -429,6 +429,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($fundStmt) $fundStmt->close();
                 $markDetailStmt->close();
                 $itemStmt->close();
+
+                write_audit_log($db, [
+                    'action' => 'insert',
+                    'table_name' => 'distributions',
+                    'record_id' => $distributionId,
+                    'module_name' => 'distributions',
+                    'record_type' => 'distribution',
+                    'action_name' => 'post_distribution',
+                    'new_values' => [
+                        'system_reference' => $systemReference,
+                        'document_type' => $form['document_type'],
+                        'document_no' => $documentNo,
+                        'distribution_date' => $form['distribution_date'],
+                        'office_id' => $officeId,
+                        'employee_id' => $employeeId,
+                        'semi_expendable_type' => $postSemi,
+                        'total_amount' => $totalAmount,
+                        'item_count' => count($validatedItems),
+                    ],
+                    'description' => 'Posted distribution transaction.',
+                ]);
+
                 $db->commit();
                 set_flash('success', strtoupper($form['document_type']) . ' distribution posted successfully.');
                 // Redirect to the canonical document (ICS or PAR) with a created flag

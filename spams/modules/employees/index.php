@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
 function employees_has_reference(mysqli $db, int $recordId): bool
@@ -108,20 +109,71 @@ if (!$db) {
                     $stmt=$db->prepare("UPDATE employees SET employee_no = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, department_id = NULL, office_id = ?, responsibility_code_id = ?, position_title = ?, employment_status = ?, is_unit_head = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
                     if($stmt){
                         $stmt->bind_param('ssssssiissiiii',$form['employee_no'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isActive,$userId,$recordId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
                         $stmt->close();
-                        set_flash('success','Employee updated successfully.');
-                        redirect('modules/employees/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'update',
+                                'table_name' => 'employees',
+                                'record_id' => $recordId,
+                                'module_name' => 'employees',
+                                'record_type' => 'employee',
+                                'action_name' => 'update_employee',
+                                'description' => 'Updated employee record.',
+                                'new_values' => [
+                                    'employee_no' => $form['employee_no'],
+                                    'first_name' => $form['first_name'],
+                                    'middle_name' => $form['middle_name'],
+                                    'last_name' => $form['last_name'],
+                                    'suffix_name' => $form['suffix_name'],
+                                    'email' => $form['email'],
+                                    'office_id' => $officeId,
+                                    'responsibility_code_id' => $responsibilityCodeId,
+                                    'position_title' => $form['position_title'],
+                                    'employment_status' => $form['employment_status'],
+                                    'is_unit_head' => $isUnitHead,
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success','Employee updated successfully.');
+                            redirect('modules/employees/index.php');
+                        }
                     }
                 } else {
                     $form['employee_no']=next_module_code($db,'employees');
                     $stmt=$db->prepare("INSERT INTO employees (employee_no, first_name, middle_name, last_name, suffix_name, email, department_id, office_id, responsibility_code_id, position_title, employment_status, is_unit_head, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)");
                     if($stmt){
                         $stmt->bind_param('ssssssiissiii',$form['employee_no'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isActive,$userId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
+                        $newEmployeeId = (int) $stmt->insert_id;
                         $stmt->close();
-                        set_flash('success','Employee created successfully.');
-                        redirect('modules/employees/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'insert',
+                                'table_name' => 'employees',
+                                'record_id' => $newEmployeeId,
+                                'module_name' => 'employees',
+                                'record_type' => 'employee',
+                                'action_name' => 'create_employee',
+                                'description' => 'Created employee record.',
+                                'new_values' => [
+                                    'employee_no' => $form['employee_no'],
+                                    'first_name' => $form['first_name'],
+                                    'middle_name' => $form['middle_name'],
+                                    'last_name' => $form['last_name'],
+                                    'suffix_name' => $form['suffix_name'],
+                                    'email' => $form['email'],
+                                    'office_id' => $officeId,
+                                    'responsibility_code_id' => $responsibilityCodeId,
+                                    'position_title' => $form['position_title'],
+                                    'employment_status' => $form['employment_status'],
+                                    'is_unit_head' => $isUnitHead,
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success','Employee created successfully.');
+                            redirect('modules/employees/index.php');
+                        }
                     }
                 }
                 $errors[]='Unable to save the employee.';
@@ -132,10 +184,22 @@ if (!$db) {
             $stmt=$db->prepare("UPDATE employees SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
             if($stmt){
                 $stmt->bind_param('ii',$userId,$recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success','Employee deactivated successfully.');
-                redirect('modules/employees/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'employees',
+                        'record_id' => $recordId,
+                        'module_name' => 'employees',
+                        'record_type' => 'employee',
+                        'action_name' => 'deactivate_employee',
+                        'description' => 'Deactivated employee record.',
+                        'new_values' => ['is_active' => 0],
+                    ]);
+                    set_flash('success','Employee deactivated successfully.');
+                    redirect('modules/employees/index.php');
+                }
             }
             $errors[]='Unable to deactivate the employee.';
         } elseif($action==='hard_delete'){
@@ -148,13 +212,36 @@ if (!$db) {
                 set_flash('error','Cannot delete: record is used in existing transactions.');
                 redirect('modules/employees/index.php');
             }
+            $auditSnapshot = ['id' => $recordId];
+            $auditStmt = $db->prepare("SELECT employee_no, first_name, middle_name, last_name, suffix_name FROM employees WHERE id = ? LIMIT 1");
+            if ($auditStmt) {
+                $auditStmt->bind_param('i', $recordId);
+                $auditStmt->execute();
+                $auditRow = $auditStmt->get_result()->fetch_assoc();
+                $auditStmt->close();
+                if ($auditRow) {
+                    $auditSnapshot = $auditRow;
+                }
+            }
             $stmt=$db->prepare("DELETE FROM employees WHERE id = ? LIMIT 1");
             if($stmt){
                 $stmt->bind_param('i',$recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success','Record permanently deleted.');
-                redirect('modules/employees/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'delete',
+                        'table_name' => 'employees',
+                        'record_id' => $recordId,
+                        'module_name' => 'employees',
+                        'record_type' => 'employee',
+                        'action_name' => 'hard_delete_employee',
+                        'description' => 'Permanently deleted employee record.',
+                        'old_values' => $auditSnapshot,
+                    ]);
+                    set_flash('success','Record permanently deleted.');
+                    redirect('modules/employees/index.php');
+                }
             }
             $errors[]='Unable to permanently delete the employee.';
         }

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
 function funds_has_reference(mysqli $db, int $recordId): bool
@@ -64,19 +65,56 @@ if (!$db) {
                     if ($stmt) {
                         $recordId = (int) $form['id'];
                         $stmt->bind_param('ssssiii', $form['fund_code'], $form['fund_name'], $form['fund_source'], $form['description'], $isActive, $userId, $recordId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
                         $stmt->close();
-                        set_flash('success', 'Fund updated successfully.');
-                        redirect('modules/funds/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'update',
+                                'table_name' => 'funds',
+                                'record_id' => $recordId,
+                                'module_name' => 'funds',
+                                'record_type' => 'fund',
+                                'action_name' => 'update_fund',
+                                'description' => 'Updated fund record.',
+                                'new_values' => [
+                                    'fund_code' => $form['fund_code'],
+                                    'fund_name' => $form['fund_name'],
+                                    'fund_source' => $form['fund_source'],
+                                    'description' => $form['description'],
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success', 'Fund updated successfully.');
+                            redirect('modules/funds/index.php');
+                        }
                     }
                 } else {
                     $stmt = $db->prepare("INSERT INTO funds (fund_code, fund_name, fund_source, description, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?)");
                     if ($stmt) {
                         $stmt->bind_param('ssssii', $form['fund_code'], $form['fund_name'], $form['fund_source'], $form['description'], $isActive, $userId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
+                        $newFundId = (int) $stmt->insert_id;
                         $stmt->close();
-                        set_flash('success', 'Fund created successfully.');
-                        redirect('modules/funds/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'insert',
+                                'table_name' => 'funds',
+                                'record_id' => $newFundId,
+                                'module_name' => 'funds',
+                                'record_type' => 'fund',
+                                'action_name' => 'create_fund',
+                                'description' => 'Created fund record.',
+                                'new_values' => [
+                                    'fund_code' => $form['fund_code'],
+                                    'fund_name' => $form['fund_name'],
+                                    'fund_source' => $form['fund_source'],
+                                    'description' => $form['description'],
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success', 'Fund created successfully.');
+                            redirect('modules/funds/index.php');
+                        }
                     }
                 }
                 $errors[] = 'Unable to save the fund.';
@@ -87,10 +125,22 @@ if (!$db) {
             $stmt = $db->prepare("UPDATE funds SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
             if ($stmt) {
                 $stmt->bind_param('ii', $userId, $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Fund deactivated successfully.');
-                redirect('modules/funds/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'funds',
+                        'record_id' => $recordId,
+                        'module_name' => 'funds',
+                        'record_type' => 'fund',
+                        'action_name' => 'deactivate_fund',
+                        'description' => 'Deactivated fund record.',
+                        'new_values' => ['is_active' => 0],
+                    ]);
+                    set_flash('success', 'Fund deactivated successfully.');
+                    redirect('modules/funds/index.php');
+                }
             }
             $errors[] = 'Unable to deactivate the fund.';
         } elseif ($action === 'hard_delete') {
@@ -103,13 +153,36 @@ if (!$db) {
                 set_flash('error', 'Cannot delete: record is used in existing transactions.');
                 redirect('modules/funds/index.php');
             }
+            $auditSnapshot = ['id' => $recordId];
+            $auditStmt = $db->prepare("SELECT fund_code, fund_name, fund_source FROM funds WHERE id = ? LIMIT 1");
+            if ($auditStmt) {
+                $auditStmt->bind_param('i', $recordId);
+                $auditStmt->execute();
+                $auditRow = $auditStmt->get_result()->fetch_assoc();
+                $auditStmt->close();
+                if ($auditRow) {
+                    $auditSnapshot = $auditRow;
+                }
+            }
             $stmt = $db->prepare("DELETE FROM funds WHERE id = ? LIMIT 1");
             if ($stmt) {
                 $stmt->bind_param('i', $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Record permanently deleted.');
-                redirect('modules/funds/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'delete',
+                        'table_name' => 'funds',
+                        'record_id' => $recordId,
+                        'module_name' => 'funds',
+                        'record_type' => 'fund',
+                        'action_name' => 'hard_delete_fund',
+                        'description' => 'Permanently deleted fund record.',
+                        'old_values' => $auditSnapshot,
+                    ]);
+                    set_flash('success', 'Record permanently deleted.');
+                    redirect('modules/funds/index.php');
+                }
             }
             $errors[] = 'Unable to permanently delete the fund.';
         }

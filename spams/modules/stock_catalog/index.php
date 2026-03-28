@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 
 require_role('Administrator', 'Supply Officer');
 
@@ -98,10 +99,33 @@ if (!$db) {
                 if ($toggleStmt) {
                     $userId = current_user_id();
                     $toggleStmt->bind_param('ii', $userId, $toggleId);
-                    $toggleStmt->execute();
+                    $saved = $toggleStmt->execute();
                     $toggleStmt->close();
-                    set_flash('success', 'Stock catalog item status updated.');
-                    redirect('modules/stock_catalog/index.php?id=' . $toggleId);
+                    if ($saved) {
+                        $statusStmt = $db->prepare("SELECT stock_no, item_name, is_active FROM stock_catalog WHERE id = ? LIMIT 1");
+                        $statusPayload = ['id' => $toggleId];
+                        if ($statusStmt) {
+                            $statusStmt->bind_param('i', $toggleId);
+                            $statusStmt->execute();
+                            $statusRow = $statusStmt->get_result()->fetch_assoc();
+                            $statusStmt->close();
+                            if ($statusRow) {
+                                $statusPayload = $statusRow;
+                            }
+                        }
+                        write_audit_log($db, [
+                            'action' => 'update',
+                            'table_name' => 'stock_catalog',
+                            'record_id' => $toggleId,
+                            'module_name' => 'stock_catalog',
+                            'record_type' => 'stock_item',
+                            'action_name' => 'toggle_stock_catalog_status',
+                            'description' => 'Updated stock catalog item status.',
+                            'new_values' => $statusPayload,
+                        ]);
+                        set_flash('success', 'Stock catalog item status updated.');
+                        redirect('modules/stock_catalog/index.php?id=' . $toggleId);
+                    }
                 }
                 $errors[] = 'Unable to update stock catalog status.';
             }
@@ -240,11 +264,32 @@ if (!$db) {
                                 $isActive,
                                 $userId
                             );
-                            $stmt->execute();
+                            $saved = $stmt->execute();
                             $newId = (int) $stmt->insert_id;
                             $stmt->close();
-                            set_flash('success', 'Stock catalog item created successfully.');
-                            redirect('modules/stock_catalog/index.php?id=' . $newId);
+                            if ($saved) {
+                                write_audit_log($db, [
+                                    'action' => 'insert',
+                                    'table_name' => 'stock_catalog',
+                                    'record_id' => $newId,
+                                    'module_name' => 'stock_catalog',
+                                    'record_type' => 'stock_item',
+                                    'action_name' => 'create_stock_catalog_item',
+                                    'description' => 'Created stock catalog item.',
+                                    'new_values' => [
+                                        'stock_no' => $form['stock_no'],
+                                        'item_name' => $form['item_name'],
+                                        'item_description' => $form['item_description'],
+                                        'item_type' => $form['item_type'],
+                                        'classification_id' => $classificationId,
+                                        'account_code_id' => $accountCodeId,
+                                        'unit_of_measure_id' => $unitOfMeasureId,
+                                        'is_active' => $isActive,
+                                    ],
+                                ]);
+                                set_flash('success', 'Stock catalog item created successfully.');
+                                redirect('modules/stock_catalog/index.php?id=' . $newId);
+                            }
                         }
                     }
 
@@ -270,14 +315,35 @@ if (!$db) {
                                 $userId,
                                 $recordId
                             );
-                            $stmt->execute();
+                            $saved = $stmt->execute();
                             $stmt->close();
-                            if ($warnings) {
-                                set_flash('info', implode(' ', $warnings));
-                            } else {
-                                set_flash('success', 'Stock catalog item updated successfully.');
+                            if ($saved) {
+                                write_audit_log($db, [
+                                    'action' => 'update',
+                                    'table_name' => 'stock_catalog',
+                                    'record_id' => $recordId,
+                                    'module_name' => 'stock_catalog',
+                                    'record_type' => 'stock_item',
+                                    'action_name' => 'update_stock_catalog_item',
+                                    'description' => 'Updated stock catalog item.',
+                                    'new_values' => [
+                                        'stock_no' => $form['stock_no'],
+                                        'item_name' => $form['item_name'],
+                                        'item_description' => $form['item_description'],
+                                        'item_type' => $form['item_type'],
+                                        'classification_id' => $classificationId,
+                                        'account_code_id' => $accountCodeId,
+                                        'unit_of_measure_id' => $unitOfMeasureId,
+                                        'is_active' => $isActive,
+                                    ],
+                                ]);
+                                if ($warnings) {
+                                    set_flash('info', implode(' ', $warnings));
+                                } else {
+                                    set_flash('success', 'Stock catalog item updated successfully.');
+                                }
+                                redirect('modules/stock_catalog/index.php?id=' . $recordId);
                             }
-                            redirect('modules/stock_catalog/index.php?id=' . $recordId);
                         }
                     }
 

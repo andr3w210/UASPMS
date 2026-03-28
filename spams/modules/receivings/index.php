@@ -592,6 +592,24 @@ if (!$db) {
                     $updRecvStmt->close();
                 }
 
+                write_audit_log($db, [
+                    'action' => 'insert',
+                    'table_name' => 'receivings',
+                    'record_id' => $receivingId,
+                    'module_name' => 'receivings',
+                    'record_type' => 'receiving',
+                    'action_name' => 'post_receiving',
+                    'new_values' => [
+                        'system_reference' => $systemReference,
+                        'purchase_order_id' => $purchaseOrderId,
+                        'received_date' => $form['received_date'],
+                        'status' => $receivingStatus,
+                        'total_received_amount' => $totalReceivedAmount,
+                        'item_count' => count($validatedItems),
+                    ],
+                    'description' => 'Posted receiving transaction.',
+                ]);
+
                 $db->commit();
                 set_flash('success', 'Receiving record saved successfully.');
                 redirect('modules/receivings/index.php');

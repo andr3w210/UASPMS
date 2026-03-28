@@ -210,6 +210,25 @@ if (!$db) {
                 $movementStmt->close();
                 $stockUpdateStmt->close();
                 $itemStmt->close();
+
+                write_audit_log($db, [
+                    'action' => 'insert',
+                    'table_name' => 'issuances',
+                    'record_id' => $issuanceId,
+                    'module_name' => 'issuances',
+                    'record_type' => 'issuance',
+                    'action_name' => 'post_issuance',
+                    'new_values' => [
+                        'system_reference' => $systemReference,
+                        'issuance_date' => $form['issuance_date'],
+                        'office_id' => $officeId,
+                        'employee_id' => $employeeId,
+                        'total_amount' => $totalAmount,
+                        'item_count' => count($validatedItems),
+                    ],
+                    'description' => 'Posted issuance transaction.',
+                ]);
+
                 $db->commit();
                 set_flash('success', 'Issuance posted successfully.');
                 redirect('modules/issuances/index.php');

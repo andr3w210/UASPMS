@@ -279,16 +279,26 @@ $hasNotifications = $notificationBadgeCount > 0;
                     </div>
                 </div>
             <?php endif; ?>
-            <div class="text-end d-none d-sm-block">
-                <div class="small text-muted">Signed in as</div>
-                <div class="fw-semibold"><?php echo h($displayName); ?> <span class="text-muted small ms-2"><?php echo h($userRole); ?></span></div>
+            <div class="dropdown d-flex align-items-center">
+                <button class="btn topbar-user-btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <div class="text-end d-none d-lg-flex">
+                        <div class="small text-muted">Signed in as</div>
+                        <div class="fw-semibold"><?php echo h($displayName); ?> <span class="text-muted small ms-2"><?php echo h($userRole); ?></span></div>
+                    </div>
+                    <div class="topbar-avatar">
+                        <?php echo h(strtoupper(substr($displayName, 0, 1))); ?>
+                    </div>
+                </button>
+                <div class="dropdown-menu dropdown-menu-end topbar-user-menu">
+                    <div class="topbar-user-menu-head">
+                        <div class="fw-semibold"><?php echo h($displayName); ?></div>
+                        <div class="small text-muted"><?php echo h($roleName); ?></div>
+                    </div>
+                    <a class="dropdown-item text-danger" href="<?php echo base_url('auth/logout.php'); ?>">
+                        <i class="bi bi-box-arrow-right me-2"></i>Sign out
+                    </a>
+                </div>
             </div>
-            <div class="topbar-avatar">
-                <?php echo h(strtoupper(substr($displayName, 0, 1))); ?>
-            </div>
-            <a class="btn btn-outline-danger btn-sm" href="<?php echo base_url('auth/logout.php'); ?>">
-                <i class="bi bi-box-arrow-right me-1"></i>Logout
-            </a>
         </div>
     </div>
 </header>

@@ -19,6 +19,8 @@ if (!in_array($semiType, ['all', 'high_value', 'low_value'], true)) {
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    ensure_distribution_item_runtime_columns($db);
+
     $officeResult = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeResult) {
         $offices = $officeResult->fetch_all(MYSQLI_ASSOC);

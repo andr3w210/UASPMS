@@ -13,6 +13,8 @@ $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    ensure_returns_runtime_schema($db);
+
     $listSql = "
         SELECT
             rt.id,

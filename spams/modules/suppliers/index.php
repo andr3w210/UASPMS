@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
 function suppliers_has_reference(mysqli $db, int $recordId): bool
@@ -67,20 +68,63 @@ if (!$db) {
                     if ($stmt) {
                         $recordId = (int) $form['id'];
                         $stmt->bind_param('sssssssiii', $form['supplier_code'], $form['supplier_name'], $form['contact_person'], $form['contact_no'], $form['email'], $form['address'], $form['tin_no'], $isActive, $userId, $recordId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
                         $stmt->close();
-                        set_flash('success', 'Supplier updated successfully.');
-                        redirect('modules/suppliers/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'update',
+                                'table_name' => 'suppliers',
+                                'record_id' => $recordId,
+                                'module_name' => 'suppliers',
+                                'record_type' => 'supplier',
+                                'action_name' => 'update_supplier',
+                                'description' => 'Updated supplier record.',
+                                'new_values' => [
+                                    'supplier_code' => $form['supplier_code'],
+                                    'supplier_name' => $form['supplier_name'],
+                                    'contact_person' => $form['contact_person'],
+                                    'contact_no' => $form['contact_no'],
+                                    'email' => $form['email'],
+                                    'address' => $form['address'],
+                                    'tin_no' => $form['tin_no'],
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success', 'Supplier updated successfully.');
+                            redirect('modules/suppliers/index.php');
+                        }
                     }
                 } else {
                     $form['supplier_code'] = next_module_code($db, 'suppliers');
                     $stmt = $db->prepare("INSERT INTO suppliers (supplier_code, supplier_name, contact_person, contact_no, email, address, tin_no, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     if ($stmt) {
                         $stmt->bind_param('sssssssii', $form['supplier_code'], $form['supplier_name'], $form['contact_person'], $form['contact_no'], $form['email'], $form['address'], $form['tin_no'], $isActive, $userId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
+                        $newSupplierId = (int) $stmt->insert_id;
                         $stmt->close();
-                        set_flash('success', 'Supplier created successfully.');
-                        redirect('modules/suppliers/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'insert',
+                                'table_name' => 'suppliers',
+                                'record_id' => $newSupplierId,
+                                'module_name' => 'suppliers',
+                                'record_type' => 'supplier',
+                                'action_name' => 'create_supplier',
+                                'description' => 'Created supplier record.',
+                                'new_values' => [
+                                    'supplier_code' => $form['supplier_code'],
+                                    'supplier_name' => $form['supplier_name'],
+                                    'contact_person' => $form['contact_person'],
+                                    'contact_no' => $form['contact_no'],
+                                    'email' => $form['email'],
+                                    'address' => $form['address'],
+                                    'tin_no' => $form['tin_no'],
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success', 'Supplier created successfully.');
+                            redirect('modules/suppliers/index.php');
+                        }
                     }
                 }
                 $errors[] = 'Unable to save the supplier.';
@@ -91,10 +135,22 @@ if (!$db) {
             $stmt = $db->prepare("UPDATE suppliers SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
             if ($stmt) {
                 $stmt->bind_param('ii', $userId, $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Supplier deactivated successfully.');
-                redirect('modules/suppliers/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'suppliers',
+                        'record_id' => $recordId,
+                        'module_name' => 'suppliers',
+                        'record_type' => 'supplier',
+                        'action_name' => 'deactivate_supplier',
+                        'description' => 'Deactivated supplier record.',
+                        'new_values' => ['is_active' => 0],
+                    ]);
+                    set_flash('success', 'Supplier deactivated successfully.');
+                    redirect('modules/suppliers/index.php');
+                }
             }
             $errors[] = 'Unable to deactivate the supplier.';
         } elseif ($action === 'hard_delete') {
@@ -107,13 +163,36 @@ if (!$db) {
                 set_flash('error', 'Cannot delete: record is used in existing transactions.');
                 redirect('modules/suppliers/index.php');
             }
+            $auditSnapshot = ['id' => $recordId];
+            $auditStmt = $db->prepare("SELECT supplier_code, supplier_name, contact_person FROM suppliers WHERE id = ? LIMIT 1");
+            if ($auditStmt) {
+                $auditStmt->bind_param('i', $recordId);
+                $auditStmt->execute();
+                $auditRow = $auditStmt->get_result()->fetch_assoc();
+                $auditStmt->close();
+                if ($auditRow) {
+                    $auditSnapshot = $auditRow;
+                }
+            }
             $stmt = $db->prepare("DELETE FROM suppliers WHERE id = ? LIMIT 1");
             if ($stmt) {
                 $stmt->bind_param('i', $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Record permanently deleted.');
-                redirect('modules/suppliers/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'delete',
+                        'table_name' => 'suppliers',
+                        'record_id' => $recordId,
+                        'module_name' => 'suppliers',
+                        'record_type' => 'supplier',
+                        'action_name' => 'hard_delete_supplier',
+                        'description' => 'Permanently deleted supplier record.',
+                        'old_values' => $auditSnapshot,
+                    ]);
+                    set_flash('success', 'Record permanently deleted.');
+                    redirect('modules/suppliers/index.php');
+                }
             }
             $errors[] = 'Unable to permanently delete the supplier.';
         }

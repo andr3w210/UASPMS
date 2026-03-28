@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
 function models_has_reference(mysqli $db, int $recordId): bool
@@ -92,20 +93,27 @@ if (!$db) {
                     if ($stmt) {
                         $recordId = (int) $form['id'];
                         $stmt->bind_param('isssiii', $brandId, $form['model_code'], $form['model_name'], $form['description'], $isActive, $userId, $recordId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
                         $stmt->close();
-                        set_flash('success', 'Model updated successfully.');
-                        redirect('modules/models/index.php');
+                        if ($saved) {
+                            write_audit_log($db, ['action' => 'update', 'table_name' => 'models', 'record_id' => $recordId, 'module_name' => 'models', 'record_type' => 'model', 'action_name' => 'update_model', 'description' => 'Updated model record.', 'new_values' => ['brand_id' => $brandId, 'model_code' => $form['model_code'], 'model_name' => $form['model_name'], 'description' => $form['description'], 'is_active' => $isActive]]);
+                            set_flash('success', 'Model updated successfully.');
+                            redirect('modules/models/index.php');
+                        }
                     }
                 } else {
                     $form['model_code'] = next_module_code($db, 'models');
                     $stmt = $db->prepare("INSERT INTO models (brand_id, model_code, model_name, description, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?)");
                     if ($stmt) {
                         $stmt->bind_param('isssii', $brandId, $form['model_code'], $form['model_name'], $form['description'], $isActive, $userId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
+                        $newId = (int) $stmt->insert_id;
                         $stmt->close();
-                        set_flash('success', 'Model created successfully.');
-                        redirect('modules/models/index.php');
+                        if ($saved) {
+                            write_audit_log($db, ['action' => 'insert', 'table_name' => 'models', 'record_id' => $newId, 'module_name' => 'models', 'record_type' => 'model', 'action_name' => 'create_model', 'description' => 'Created model record.', 'new_values' => ['brand_id' => $brandId, 'model_code' => $form['model_code'], 'model_name' => $form['model_name'], 'description' => $form['description'], 'is_active' => $isActive]]);
+                            set_flash('success', 'Model created successfully.');
+                            redirect('modules/models/index.php');
+                        }
                     }
                 }
 
@@ -117,10 +125,13 @@ if (!$db) {
             $stmt = $db->prepare("UPDATE models SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
             if ($stmt) {
                 $stmt->bind_param('ii', $userId, $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Model deactivated successfully.');
-                redirect('modules/models/index.php');
+                if ($saved) {
+                    write_audit_log($db, ['action' => 'update', 'table_name' => 'models', 'record_id' => $recordId, 'module_name' => 'models', 'record_type' => 'model', 'action_name' => 'deactivate_model', 'description' => 'Deactivated model record.', 'new_values' => ['is_active' => 0]]);
+                    set_flash('success', 'Model deactivated successfully.');
+                    redirect('modules/models/index.php');
+                }
             }
             $errors[] = 'Unable to deactivate the model.';
         } elseif ($action === 'hard_delete') {
@@ -134,14 +145,18 @@ if (!$db) {
                 set_flash('error', 'Cannot delete: record is used in existing transactions.');
                 redirect('modules/models/index.php');
             }
+            $auditSnapshot = ['id' => $recordId]; $auditStmt = $db->prepare("SELECT brand_id, model_code, model_name FROM models WHERE id = ? LIMIT 1"); if ($auditStmt) { $auditStmt->bind_param('i', $recordId); $auditStmt->execute(); $auditRow = $auditStmt->get_result()->fetch_assoc(); $auditStmt->close(); if ($auditRow) $auditSnapshot = $auditRow; }
 
             $stmt = $db->prepare("DELETE FROM models WHERE id = ? LIMIT 1");
             if ($stmt) {
                 $stmt->bind_param('i', $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Record permanently deleted.');
-                redirect('modules/models/index.php');
+                if ($saved) {
+                    write_audit_log($db, ['action' => 'delete', 'table_name' => 'models', 'record_id' => $recordId, 'module_name' => 'models', 'record_type' => 'model', 'action_name' => 'hard_delete_model', 'description' => 'Permanently deleted model record.', 'old_values' => $auditSnapshot]);
+                    set_flash('success', 'Record permanently deleted.');
+                    redirect('modules/models/index.php');
+                }
             }
             $errors[] = 'Unable to permanently delete the model.';
         }

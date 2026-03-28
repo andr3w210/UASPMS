@@ -10,6 +10,8 @@ $header = null;
 $rows = [];
 
 if ($db) {
+    ensure_distribution_item_runtime_columns($db);
+
     $officeRes = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeRes) {
         $offices = $officeRes->fetch_all(MYSQLI_ASSOC);

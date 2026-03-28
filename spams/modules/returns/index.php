@@ -61,6 +61,7 @@ $available = [];
 $rows = [];
 $typeFilter = trim((string) ($_GET['item_type'] ?? 'all'));
 $search = trim((string) ($_GET['q'] ?? ''));
+$preselectedDetailId = (int) ($_GET['detail_id'] ?? 0);
 $form = [
     'distribution_item_detail_id' => '',
     'return_date' => date('Y-m-d'),
@@ -76,6 +77,7 @@ if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
     ensure_returns_schema($db);
+    ensure_distribution_item_runtime_columns($db);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!csrf_verify()) {
@@ -186,6 +188,25 @@ if (!$db) {
                 $upd->execute();
                 $upd->close();
 
+                $returnId = (int) $db->insert_id;
+                write_audit_log($db, [
+                    'action' => 'insert',
+                    'table_name' => 'returns',
+                    'record_id' => $returnId,
+                    'module_name' => 'returns',
+                    'record_type' => 'return',
+                    'action_name' => 'post_return',
+                    'new_values' => [
+                        'system_reference' => $systemRef,
+                        'return_date' => $form['return_date'],
+                        'distribution_item_detail_id' => $detailId,
+                        'office_id' => $officeId,
+                        'employee_id' => $employeeId,
+                        'reason' => $form['reason'],
+                    ],
+                    'description' => 'Posted asset return.',
+                ]);
+
                 $db->commit();
                 set_flash('success', 'Return recorded successfully.');
                 redirect('modules/returns/index.php');
@@ -220,8 +241,10 @@ if (!$db) {
         INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
         INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
         LEFT JOIN classifications c ON c.id = poi.classification_id
-        LEFT JOIN offices o ON o.id = did.current_office_id
-        LEFT JOIN employees e ON e.id = did.current_employee_id
+        LEFT JOIN offices base_o ON base_o.id = d.office_id
+        LEFT JOIN employees base_e ON base_e.id = d.employee_id
+        LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
+        LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
         LEFT JOIN returns rt ON rt.distribution_item_detail_id = did.id AND rt.status = 'posted'
         WHERE did.is_distributed = 1
           AND (did.is_disposed IS NULL OR did.is_disposed = 0)
@@ -259,6 +282,15 @@ if (!$db) {
         $availableStmt->close();
     }
 
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $preselectedDetailId > 0) {
+        foreach ($available as $assetRow) {
+            if ((int) ($assetRow['id'] ?? 0) === $preselectedDetailId) {
+                $form['distribution_item_detail_id'] = (string) $preselectedDetailId;
+                break;
+            }
+        }
+    }
+
     $rowsSql = "
         SELECT
             rt.id,
@@ -286,8 +318,8 @@ if (!$db) {
         LEFT JOIN receiving_items ri ON ri.id = di.receiving_item_id
         LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
         LEFT JOIN classifications c ON c.id = poi.classification_id
-        LEFT JOIN offices o ON o.id = rt.office_id
-        LEFT JOIN employees e ON e.id = rt.employee_id
+        LEFT JOIN offices o ON o.id = COALESCE(rt.office_id, did.current_office_id, d.office_id)
+        LEFT JOIN employees e ON e.id = COALESCE(rt.employee_id, did.current_employee_id, d.employee_id)
         ORDER BY rt.return_date DESC, rt.id DESC
     ";
     $rowsResult = $db->query($rowsSql);

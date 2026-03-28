@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
 function brands_has_reference(mysqli $db, int $recordId): bool
@@ -80,20 +81,27 @@ if (!$db) {
                     if ($stmt) {
                         $recordId = (int) $form['id'];
                         $stmt->bind_param('sssiii', $form['brand_code'], $form['brand_name'], $form['description'], $isActive, $userId, $recordId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
                         $stmt->close();
-                        set_flash('success', 'Brand updated successfully.');
-                        redirect('modules/brands/index.php');
+                        if ($saved) {
+                            write_audit_log($db, ['action' => 'update', 'table_name' => 'brands', 'record_id' => $recordId, 'module_name' => 'brands', 'record_type' => 'brand', 'action_name' => 'update_brand', 'description' => 'Updated brand record.', 'new_values' => ['brand_code' => $form['brand_code'], 'brand_name' => $form['brand_name'], 'description' => $form['description'], 'is_active' => $isActive]]);
+                            set_flash('success', 'Brand updated successfully.');
+                            redirect('modules/brands/index.php');
+                        }
                     }
                 } else {
                     $form['brand_code'] = next_module_code($db, 'brands');
                     $stmt = $db->prepare("INSERT INTO brands (brand_code, brand_name, description, is_active, created_by) VALUES (?, ?, ?, ?, ?)");
                     if ($stmt) {
                         $stmt->bind_param('sssii', $form['brand_code'], $form['brand_name'], $form['description'], $isActive, $userId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
+                        $newId = (int) $stmt->insert_id;
                         $stmt->close();
-                        set_flash('success', 'Brand created successfully.');
-                        redirect('modules/brands/index.php');
+                        if ($saved) {
+                            write_audit_log($db, ['action' => 'insert', 'table_name' => 'brands', 'record_id' => $newId, 'module_name' => 'brands', 'record_type' => 'brand', 'action_name' => 'create_brand', 'description' => 'Created brand record.', 'new_values' => ['brand_code' => $form['brand_code'], 'brand_name' => $form['brand_name'], 'description' => $form['description'], 'is_active' => $isActive]]);
+                            set_flash('success', 'Brand created successfully.');
+                            redirect('modules/brands/index.php');
+                        }
                     }
                 }
 
@@ -105,10 +113,13 @@ if (!$db) {
             $stmt = $db->prepare("UPDATE brands SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
             if ($stmt) {
                 $stmt->bind_param('ii', $userId, $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Brand deactivated successfully.');
-                redirect('modules/brands/index.php');
+                if ($saved) {
+                    write_audit_log($db, ['action' => 'update', 'table_name' => 'brands', 'record_id' => $recordId, 'module_name' => 'brands', 'record_type' => 'brand', 'action_name' => 'deactivate_brand', 'description' => 'Deactivated brand record.', 'new_values' => ['is_active' => 0]]);
+                    set_flash('success', 'Brand deactivated successfully.');
+                    redirect('modules/brands/index.php');
+                }
             }
             $errors[] = 'Unable to deactivate the brand.';
         } elseif ($action === 'hard_delete') {
@@ -122,14 +133,18 @@ if (!$db) {
                 set_flash('error', 'Cannot delete: record is used in existing transactions.');
                 redirect('modules/brands/index.php');
             }
+            $auditSnapshot = ['id' => $recordId]; $auditStmt = $db->prepare("SELECT brand_code, brand_name FROM brands WHERE id = ? LIMIT 1"); if ($auditStmt) { $auditStmt->bind_param('i', $recordId); $auditStmt->execute(); $auditRow = $auditStmt->get_result()->fetch_assoc(); $auditStmt->close(); if ($auditRow) $auditSnapshot = $auditRow; }
 
             $stmt = $db->prepare("DELETE FROM brands WHERE id = ? LIMIT 1");
             if ($stmt) {
                 $stmt->bind_param('i', $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Record permanently deleted.');
-                redirect('modules/brands/index.php');
+                if ($saved) {
+                    write_audit_log($db, ['action' => 'delete', 'table_name' => 'brands', 'record_id' => $recordId, 'module_name' => 'brands', 'record_type' => 'brand', 'action_name' => 'hard_delete_brand', 'description' => 'Permanently deleted brand record.', 'old_values' => $auditSnapshot]);
+                    set_flash('success', 'Record permanently deleted.');
+                    redirect('modules/brands/index.php');
+                }
             }
             $errors[] = 'Unable to permanently delete the brand.';
         }

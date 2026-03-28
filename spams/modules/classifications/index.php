@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
 function classifications_has_reference(mysqli $db, int $recordId): bool
@@ -59,25 +60,26 @@ if (!$db) {
                 $isActive = (int) $form['is_active']; $userId = current_user_id(); $accountCodeId = $form['account_code_id'] !== '' ? (int) $form['account_code_id'] : null;
                 if ($form['id'] > 0) {
                     $stmt = $db->prepare("UPDATE classifications SET classification_code = ?, classification_name = ?, classification_family = NULLIF(?, ''), useful_life_years = NULLIF(?,0), classification_group = ?, account_code_id = ?, description = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
-                    if ($stmt) { $recordId = (int) $form['id']; $stmt->bind_param('sssisisiii', $form['classification_code'], $form['classification_name'], $form['classification_family'], $form['useful_life_years'], $form['classification_group'], $accountCodeId, $form['description'], $isActive, $userId, $recordId); $stmt->execute(); $stmt->close(); set_flash('success', 'Classification updated successfully.'); redirect('modules/classifications/index.php'); }
+                    if ($stmt) { $recordId = (int) $form['id']; $stmt->bind_param('sssisisiii', $form['classification_code'], $form['classification_name'], $form['classification_family'], $form['useful_life_years'], $form['classification_group'], $accountCodeId, $form['description'], $isActive, $userId, $recordId); $saved = $stmt->execute(); $stmt->close(); if ($saved) { write_audit_log($db, ['action' => 'update', 'table_name' => 'classifications', 'record_id' => $recordId, 'module_name' => 'classifications', 'record_type' => 'classification', 'action_name' => 'update_classification', 'description' => 'Updated item classification.', 'new_values' => ['classification_code' => $form['classification_code'], 'classification_name' => $form['classification_name'], 'classification_family' => $form['classification_family'], 'useful_life_years' => $form['useful_life_years'], 'classification_group' => $form['classification_group'], 'account_code_id' => $accountCodeId, 'is_active' => $isActive]]); set_flash('success', 'Classification updated successfully.'); redirect('modules/classifications/index.php'); } }
                 } else {
                     $form['classification_code'] = next_module_code($db, 'classifications');
                     $stmt = $db->prepare("INSERT INTO classifications (classification_code, classification_name, classification_family, useful_life_years, classification_group, account_code_id, description, is_active, created_by) VALUES (?, ?, NULLIF(?, ''), NULLIF(?,0), ?, ?, ?, ?, ?)");
-                    if ($stmt) { $stmt->bind_param('sssisisii', $form['classification_code'], $form['classification_name'], $form['classification_family'], $form['useful_life_years'], $form['classification_group'], $accountCodeId, $form['description'], $isActive, $userId); $stmt->execute(); $stmt->close(); set_flash('success', 'Classification created successfully.'); redirect('modules/classifications/index.php'); }
+                    if ($stmt) { $stmt->bind_param('sssisisii', $form['classification_code'], $form['classification_name'], $form['classification_family'], $form['useful_life_years'], $form['classification_group'], $accountCodeId, $form['description'], $isActive, $userId); $saved = $stmt->execute(); $newId = (int) $stmt->insert_id; $stmt->close(); if ($saved) { write_audit_log($db, ['action' => 'insert', 'table_name' => 'classifications', 'record_id' => $newId, 'module_name' => 'classifications', 'record_type' => 'classification', 'action_name' => 'create_classification', 'description' => 'Created item classification.', 'new_values' => ['classification_code' => $form['classification_code'], 'classification_name' => $form['classification_name'], 'classification_family' => $form['classification_family'], 'useful_life_years' => $form['useful_life_years'], 'classification_group' => $form['classification_group'], 'account_code_id' => $accountCodeId, 'is_active' => $isActive]]); set_flash('success', 'Classification created successfully.'); redirect('modules/classifications/index.php'); } }
                 }
                 $errors[] = 'Unable to save the classification.';
             }
         } elseif ($action === 'delete') {
             $recordId = (int) ($_POST['id'] ?? 0); $userId = current_user_id();
             $stmt = $db->prepare("UPDATE classifications SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
-            if ($stmt) { $stmt->bind_param('ii', $userId, $recordId); $stmt->execute(); $stmt->close(); set_flash('success', 'Classification deactivated successfully.'); redirect('modules/classifications/index.php'); }
+            if ($stmt) { $stmt->bind_param('ii', $userId, $recordId); $saved = $stmt->execute(); $stmt->close(); if ($saved) { write_audit_log($db, ['action' => 'update', 'table_name' => 'classifications', 'record_id' => $recordId, 'module_name' => 'classifications', 'record_type' => 'classification', 'action_name' => 'deactivate_classification', 'description' => 'Deactivated item classification.', 'new_values' => ['is_active' => 0]]); set_flash('success', 'Classification deactivated successfully.'); redirect('modules/classifications/index.php'); } }
             $errors[] = 'Unable to deactivate the classification.';
         } elseif ($action === 'hard_delete') {
             if (($_SESSION['user_role'] ?? '') !== 'Administrator') { set_flash('error', 'Only administrators can permanently delete records.'); redirect('modules/classifications/index.php'); }
             $recordId = (int) ($_POST['id'] ?? 0);
             if (classifications_has_reference($db, $recordId)) { set_flash('error', 'Cannot delete: record is used in existing transactions.'); redirect('modules/classifications/index.php'); }
+            $auditSnapshot = ['id' => $recordId]; $auditStmt = $db->prepare("SELECT classification_code, classification_name, classification_group FROM classifications WHERE id = ? LIMIT 1"); if ($auditStmt) { $auditStmt->bind_param('i', $recordId); $auditStmt->execute(); $auditRow = $auditStmt->get_result()->fetch_assoc(); $auditStmt->close(); if ($auditRow) $auditSnapshot = $auditRow; }
             $stmt = $db->prepare("DELETE FROM classifications WHERE id = ? LIMIT 1");
-            if ($stmt) { $stmt->bind_param('i', $recordId); $stmt->execute(); $stmt->close(); set_flash('success', 'Record permanently deleted.'); redirect('modules/classifications/index.php'); }
+            if ($stmt) { $stmt->bind_param('i', $recordId); $saved = $stmt->execute(); $stmt->close(); if ($saved) { write_audit_log($db, ['action' => 'delete', 'table_name' => 'classifications', 'record_id' => $recordId, 'module_name' => 'classifications', 'record_type' => 'classification', 'action_name' => 'hard_delete_classification', 'description' => 'Permanently deleted item classification.', 'old_values' => $auditSnapshot]); set_flash('success', 'Record permanently deleted.'); redirect('modules/classifications/index.php'); } }
             $errors[] = 'Unable to permanently delete the classification.';
         }
     }

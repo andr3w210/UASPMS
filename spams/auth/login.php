@@ -49,11 +49,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $updateStmt->close();
                         }
 
+                        write_audit_log($db, [
+                            'user_id' => (int) $row['id'],
+                            'action' => 'login',
+                            'table_name' => 'users',
+                            'record_id' => (string) $row['id'],
+                            'module_name' => 'auth',
+                            'record_type' => 'user_session',
+                            'action_name' => 'login_success',
+                            'new_values' => [
+                                'username' => $row['username'],
+                                'role_name' => $row['role_name'] ?: 'User',
+                            ],
+                            'description' => 'User logged in successfully.',
+                        ]);
+
                         redirect('dashboard/index.php');
                     } else {
+                        write_audit_log($db, [
+                            'action' => 'login_failed',
+                            'table_name' => 'users',
+                            'record_id' => (string) $row['id'],
+                            'module_name' => 'auth',
+                            'record_type' => 'user_session',
+                            'action_name' => 'login_failed',
+                            'new_values' => [
+                                'username_or_email' => $username,
+                                'reason' => 'invalid_password',
+                            ],
+                            'description' => 'Failed login attempt: invalid password.',
+                        ]);
                         $error = 'Invalid credentials.';
                     }
                 } else {
+                    write_audit_log($db, [
+                        'action' => 'login_failed',
+                        'table_name' => 'users',
+                        'module_name' => 'auth',
+                        'record_type' => 'user_session',
+                        'action_name' => 'login_failed',
+                        'new_values' => [
+                            'username_or_email' => $username,
+                            'reason' => 'user_not_found',
+                        ],
+                        'description' => 'Failed login attempt: user not found.',
+                    ]);
                     $error = 'Invalid credentials.';
                 }
                 $stmt->close();

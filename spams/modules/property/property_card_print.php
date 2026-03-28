@@ -45,6 +45,8 @@ function property_card_meta(array $card): array
 }
 
 if ($db) {
+    ensure_distribution_item_runtime_columns($db);
+
     $poRes = $db->query("SELECT id, po_number FROM purchase_orders ORDER BY po_date DESC, id DESC");
     if ($poRes) {
         $purchaseOrders = $poRes->fetch_all(MYSQLI_ASSOC);

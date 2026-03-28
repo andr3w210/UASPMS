@@ -43,6 +43,53 @@ a {
     width: 40px;
 }
 
+.topbar-user-btn {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 14px;
+    display: inline-flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    padding: 0.35rem 0.5rem 0.35rem 0.85rem;
+    white-space: nowrap;
+}
+
+.topbar-user-btn:hover,
+.topbar-user-btn:focus,
+.topbar-user-btn.show {
+    background: #f4f7ff;
+    box-shadow: none;
+}
+
+.topbar-user-btn::after {
+    margin-left: 0.15rem;
+    vertical-align: middle;
+}
+
+.topbar-user-menu {
+    border: 0;
+    border-radius: 16px;
+    box-shadow: 0 0 30px rgba(1, 41, 112, 0.12);
+    min-width: 220px;
+    overflow: hidden;
+    padding: 0;
+}
+
+.topbar-user-menu-head {
+    background: linear-gradient(135deg, #f7faff 0%, #eef3ff 100%);
+    border-bottom: 1px solid rgba(1, 41, 112, 0.06);
+    padding: 0.95rem 1rem 0.85rem;
+}
+
+.topbar-user-btn .text-end {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1.15;
+    min-width: 0;
+}
+
 .sidebar {
     background: #ffffff;
     bottom: 0;
@@ -317,6 +364,231 @@ a {
     font-size: 1.15rem;
     font-weight: 800;
     margin: 0;
+}
+
+.dashboard-hero {
+    background: linear-gradient(135deg, #f7faff 0%, #eef3ff 42%, #ffffff 100%);
+    border: 1px solid rgba(65, 84, 241, 0.08);
+    border-radius: 22px;
+    overflow: hidden;
+    position: relative;
+}
+
+.dashboard-hero::before {
+    background: radial-gradient(circle at top right, rgba(65, 84, 241, 0.12), transparent 52%);
+    content: "";
+    inset: 0;
+    pointer-events: none;
+    position: absolute;
+}
+
+.dashboard-hero .card-body,
+.dashboard-stat-card,
+.dashboard-panel {
+    position: relative;
+    z-index: 1;
+}
+
+.dashboard-hero-eyebrow {
+    color: #5f6f89;
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.dashboard-hero-title {
+    color: #012970;
+    font-size: 2.2rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.08;
+    margin: 0.45rem 0 0.85rem;
+    max-width: 13ch;
+}
+
+.dashboard-hero-text {
+    color: #5f6f89;
+    font-size: 1rem;
+    line-height: 1.7;
+    margin: 0 0 1.1rem;
+    max-width: 56ch;
+}
+
+.dashboard-hero-actions {
+    margin-bottom: 1rem;
+}
+
+.dashboard-hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.dashboard-hero-meta-item {
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(65, 84, 241, 0.08);
+    border-radius: 14px;
+    min-width: 150px;
+    padding: 0.7rem 0.85rem;
+}
+
+.dashboard-hero-meta-label {
+    color: #6f7e96;
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.2rem;
+    text-transform: uppercase;
+}
+
+.dashboard-hero-meta-item strong {
+    color: #012970;
+    font-size: 1.15rem;
+    font-weight: 800;
+}
+
+.dashboard-priority-card {
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(65, 84, 241, 0.08);
+    border-radius: 18px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    height: 100%;
+    padding: 1.25rem 1.3rem;
+}
+
+.dashboard-priority-title {
+    color: #012970;
+    font-size: 1.05rem;
+    font-weight: 800;
+    margin-bottom: 0.35rem;
+}
+
+.dashboard-priority-copy {
+    color: #6f7e96;
+    font-size: 0.87rem;
+    line-height: 1.5;
+    margin-bottom: 0.75rem;
+}
+
+.dashboard-priority-item {
+    align-items: center;
+    color: #42526b;
+    display: flex;
+    font-size: 0.96rem;
+    justify-content: space-between;
+    padding: 0.7rem 0;
+}
+
+.dashboard-priority-item + .dashboard-priority-item {
+    border-top: 1px solid rgba(1, 41, 112, 0.08);
+}
+
+.dashboard-priority-item strong {
+    color: #012970;
+    font-size: 1rem;
+}
+
+.dashboard-stat-card {
+    align-items: center;
+    background: #fff;
+    border: 1px solid rgba(1, 41, 112, 0.06);
+    border-radius: 18px;
+    box-shadow: 0 0 30px rgba(1, 41, 112, 0.08);
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr);
+    gap: 1rem;
+    min-height: 118px;
+    padding: 1.05rem 1.05rem 1rem;
+}
+
+.dashboard-stat-icon {
+    align-items: center;
+    border-radius: 16px;
+    display: inline-flex;
+    font-size: 1.25rem;
+    height: 54px;
+    justify-content: center;
+    min-width: 54px;
+}
+
+.dashboard-stat-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+
+.dashboard-stat-label {
+    color: #5f6f89;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.dashboard-stat-value {
+    color: #012970;
+    font-size: 1.7rem;
+    font-weight: 800;
+    line-height: 1.05;
+    margin-top: 0.2rem;
+}
+
+.dashboard-stat-note {
+    color: #7f8ea7;
+    font-size: 0.82rem;
+    margin-top: 0.28rem;
+}
+
+.dashboard-panel {
+    border-radius: 18px;
+}
+
+.dashboard-panel .card-body {
+    min-height: 100%;
+}
+
+.dashboard-table thead th {
+    color: #6b7a92;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+.dashboard-table tbody td {
+    padding-top: 0.85rem;
+    padding-bottom: 0.85rem;
+    vertical-align: middle;
+}
+
+@media (max-width: 1199.98px) {
+    .dashboard-hero-title {
+        font-size: 2rem;
+        max-width: none;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .topbar-user-btn {
+        padding-left: 0.4rem;
+        padding-right: 0.25rem;
+    }
+
+    .dashboard-stat-card {
+        grid-template-columns: 48px minmax(0, 1fr);
+        min-height: 96px;
+    }
+
+    .dashboard-hero-meta {
+        gap: 0.5rem;
+    }
+
+    .dashboard-hero-meta-item {
+        min-width: 0;
+        width: 100%;
+    }
 }
 
 .report-section-copy {
@@ -1001,6 +1273,98 @@ body.toggle-sidebar .main {
     font-size: 0.76rem;
 }
 
+.stock-card-print-shell {
+    border: 1px solid #111827;
+    background: #ffffff;
+    max-width: 8in;
+    margin: 0 auto;
+    padding: 0.15rem 0.25rem 0.25rem;
+}
+
+.stock-card-print-only {
+    display: none;
+}
+
+.stock-card-print-only .table-search-toolbar,
+.stock-card-print-only .table-pagination-controls {
+    display: none !important;
+}
+
+.stock-card-form-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    color: #111827;
+    margin-bottom: 0.15rem;
+}
+
+.stock-card-form-title {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.stock-card-header-block {
+    margin-bottom: 0.35rem;
+}
+
+.stock-card-header-block img {
+    display: block;
+    margin: 0 auto 0.2rem;
+}
+
+.stock-card-header-block h5 {
+    margin-top: 0.1rem !important;
+    margin-bottom: 0.1rem !important;
+}
+
+.stock-card-head-table,
+.stock-card-ledger-table {
+    border: 1px solid #111827;
+}
+
+.stock-card-head-table td,
+.stock-card-ledger-table th,
+.stock-card-ledger-table td {
+    border: 1px solid #111827;
+    color: #111827;
+}
+
+.stock-card-head-table td {
+    font-size: 0.82rem;
+    padding: 0.35rem 0.45rem;
+}
+
+.stock-card-label {
+    width: 18%;
+    font-weight: 700;
+    background: #f8fafc;
+}
+
+.stock-card-ledger-table th,
+.stock-card-ledger-table td {
+    font-size: 0.78rem;
+    padding: 0.32rem 0.4rem;
+    vertical-align: top;
+}
+
+.stock-card-ledger-table thead th {
+    background: #f8fafc;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.stock-card-ledger-table tbody tr {
+    height: 2.1rem;
+}
+
+.stock-card-blank-row td {
+    color: transparent;
+}
+
 @media (max-width: 767.98px) {
     .po-document {
         padding: 1rem;
@@ -1040,6 +1404,39 @@ body.toggle-sidebar .main {
         max-width: none;
         min-height: auto;
         padding: 0;
+    }
+
+    .stock-card-screen-only,
+    .stock-card-workspace-shell,
+    #sidebar,
+    .topbar,
+    #header,
+    .header,
+    main > .pagetitle,
+    .footer,
+    #footer,
+    .chat-widget,
+    .chat-bubble,
+    .chat-drawer {
+        display: none !important;
+    }
+
+    .stock-card-print-only {
+        display: block !important;
+        margin: 0;
+        padding: 0;
+    }
+
+    .stock-card-print-shell {
+        border: 0;
+        box-shadow: none;
+        max-width: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .stock-card-ledger-table tbody tr {
+        height: 2.35rem;
     }
 
     @page {

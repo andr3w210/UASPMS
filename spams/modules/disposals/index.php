@@ -62,6 +62,7 @@ $rows = [];
 $employees = [];
 $typeFilter = trim((string) ($_GET['item_type'] ?? 'all'));
 $search = trim((string) ($_GET['q'] ?? ''));
+$preselectedDetailId = (int) ($_GET['detail_id'] ?? 0);
 $form = [
     'distribution_item_detail_id' => '',
     'disposal_date' => date('Y-m-d'),
@@ -78,6 +79,7 @@ if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
     ensure_disposals_schema($db);
+    ensure_distribution_item_runtime_columns($db);
 
     $employeeResult = $db->query("SELECT id, first_name, middle_name, last_name, suffix_name FROM employees WHERE is_active = 1 ORDER BY last_name ASC, first_name ASC");
     if ($employeeResult) {
@@ -136,6 +138,17 @@ if (!$db) {
                 $errors[] = 'The selected asset is already marked as disposed.';
             } elseif ((int) ($asset['is_distributed'] ?? 0) !== 1) {
                 $errors[] = 'Only currently accountable assets can be disposed.';
+            } else {
+                $dupStmt = $db->prepare("SELECT id FROM disposals WHERE distribution_item_detail_id = ? AND status = 'posted' LIMIT 1");
+                if ($dupStmt) {
+                    $dupStmt->bind_param('i', $detailId);
+                    $dupStmt->execute();
+                    $existing = $dupStmt->get_result()->fetch_assoc();
+                    $dupStmt->close();
+                    if ($existing) {
+                        $errors[] = 'A posted disposal already exists for the selected asset.';
+                    }
+                }
             }
         }
 
@@ -181,6 +194,25 @@ if (!$db) {
                 $upd->execute();
                 $upd->close();
 
+                $disposalId = (int) $db->insert_id;
+                write_audit_log($db, [
+                    'action' => 'insert',
+                    'table_name' => 'disposals',
+                    'record_id' => $disposalId,
+                    'module_name' => 'disposals',
+                    'record_type' => 'disposal',
+                    'action_name' => 'post_disposal',
+                    'new_values' => [
+                        'system_reference' => $systemRef,
+                        'disposal_date' => $form['disposal_date'],
+                        'distribution_item_detail_id' => $detailId,
+                        'disposal_type' => $disposalType,
+                        'reason' => $form['reason'],
+                        'approved_by' => $approvedBy,
+                    ],
+                    'description' => 'Posted asset disposal.',
+                ]);
+
                 $db->commit();
                 set_flash('success', 'Disposal recorded successfully.');
                 redirect('modules/disposals/index.php');
@@ -215,8 +247,8 @@ if (!$db) {
         INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
         INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
         LEFT JOIN classifications c ON c.id = poi.classification_id
-        LEFT JOIN offices o ON o.id = did.current_office_id
-        LEFT JOIN employees e ON e.id = did.current_employee_id
+        LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
+        LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
         WHERE did.is_distributed = 1
           AND (did.is_disposed IS NULL OR did.is_disposed = 0)
           AND poi.item_type IN ('semi_expendable', 'equipment')
@@ -252,6 +284,15 @@ if (!$db) {
         $availableStmt->close();
     }
 
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $preselectedDetailId > 0) {
+        foreach ($available as $assetRow) {
+            if ((int) ($assetRow['id'] ?? 0) === $preselectedDetailId) {
+                $form['distribution_item_detail_id'] = (string) $preselectedDetailId;
+                break;
+            }
+        }
+    }
+
     $rowsSql = "
         SELECT
             dp.id,
@@ -284,8 +325,8 @@ if (!$db) {
         LEFT JOIN receiving_items ri ON ri.id = di.receiving_item_id
         LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
         LEFT JOIN classifications c ON c.id = poi.classification_id
-        LEFT JOIN offices o ON o.id = did.current_office_id
-        LEFT JOIN employees e ON e.id = did.current_employee_id
+        LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
+        LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
         LEFT JOIN employees ap ON ap.id = dp.approved_by
         ORDER BY dp.disposal_date DESC, dp.id DESC
     ";

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
 function offices_has_reference(mysqli $db, int $recordId): bool
@@ -90,20 +91,57 @@ if (!$db) {
                     if ($stmt) {
                         $officeId = (int) $form['id'];
                         $stmt->bind_param('ssisiii', $form['office_code'], $form['office_name'], $officeHeadId, $form['description'], $isActive, $userId, $officeId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
                         $stmt->close();
-                        set_flash('success', 'Office updated successfully.');
-                        redirect('modules/offices/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'update',
+                                'table_name' => 'offices',
+                                'record_id' => $officeId,
+                                'module_name' => 'offices',
+                                'record_type' => 'office',
+                                'action_name' => 'update_office',
+                                'description' => 'Updated office record.',
+                                'new_values' => [
+                                    'office_code' => $form['office_code'],
+                                    'office_name' => $form['office_name'],
+                                    'office_head_employee_id' => $officeHeadId,
+                                    'description' => $form['description'],
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success', 'Office updated successfully.');
+                            redirect('modules/offices/index.php');
+                        }
                     }
                 } else {
                     $form['office_code'] = next_module_code($db, 'offices');
                     $stmt = $db->prepare("INSERT INTO offices (office_code, office_name, department_id, office_head_employee_id, description, is_active, created_by) VALUES (?, ?, NULL, ?, ?, ?, ?)");
                     if ($stmt) {
                         $stmt->bind_param('ssisii', $form['office_code'], $form['office_name'], $officeHeadId, $form['description'], $isActive, $userId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
+                        $newOfficeId = (int) $stmt->insert_id;
                         $stmt->close();
-                        set_flash('success', 'Office created successfully.');
-                        redirect('modules/offices/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'insert',
+                                'table_name' => 'offices',
+                                'record_id' => $newOfficeId,
+                                'module_name' => 'offices',
+                                'record_type' => 'office',
+                                'action_name' => 'create_office',
+                                'description' => 'Created office record.',
+                                'new_values' => [
+                                    'office_code' => $form['office_code'],
+                                    'office_name' => $form['office_name'],
+                                    'office_head_employee_id' => $officeHeadId,
+                                    'description' => $form['description'],
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success', 'Office created successfully.');
+                            redirect('modules/offices/index.php');
+                        }
                     }
                 }
 
@@ -115,10 +153,22 @@ if (!$db) {
             $stmt = $db->prepare("UPDATE offices SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
             if ($stmt) {
                 $stmt->bind_param('ii', $userId, $officeId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Office deactivated successfully.');
-                redirect('modules/offices/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'offices',
+                        'record_id' => $officeId,
+                        'module_name' => 'offices',
+                        'record_type' => 'office',
+                        'action_name' => 'deactivate_office',
+                        'description' => 'Deactivated office record.',
+                        'new_values' => ['is_active' => 0],
+                    ]);
+                    set_flash('success', 'Office deactivated successfully.');
+                    redirect('modules/offices/index.php');
+                }
             }
             $errors[] = 'Unable to deactivate the office.';
         } elseif ($action === 'hard_delete') {
@@ -132,14 +182,37 @@ if (!$db) {
                 set_flash('error', 'Cannot delete: record is used in existing transactions.');
                 redirect('modules/offices/index.php');
             }
+            $auditSnapshot = ['id' => $officeId];
+            $auditStmt = $db->prepare("SELECT office_code, office_name FROM offices WHERE id = ? LIMIT 1");
+            if ($auditStmt) {
+                $auditStmt->bind_param('i', $officeId);
+                $auditStmt->execute();
+                $auditRow = $auditStmt->get_result()->fetch_assoc();
+                $auditStmt->close();
+                if ($auditRow) {
+                    $auditSnapshot = $auditRow;
+                }
+            }
 
             $stmt = $db->prepare("DELETE FROM offices WHERE id = ? LIMIT 1");
             if ($stmt) {
                 $stmt->bind_param('i', $officeId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Record permanently deleted.');
-                redirect('modules/offices/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'delete',
+                        'table_name' => 'offices',
+                        'record_id' => $officeId,
+                        'module_name' => 'offices',
+                        'record_type' => 'office',
+                        'action_name' => 'hard_delete_office',
+                        'description' => 'Permanently deleted office record.',
+                        'old_values' => $auditSnapshot,
+                    ]);
+                    set_flash('success', 'Record permanently deleted.');
+                    redirect('modules/offices/index.php');
+                }
             }
             $errors[] = 'Unable to permanently delete the office.';
         }

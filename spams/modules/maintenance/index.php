@@ -8,6 +8,12 @@ $flash = get_flash();
 $errors = [];
 $records = [];
 $distributedItems = [];
+$stats = [
+    'total' => 0,
+    'posted' => 0,
+    'cancelled' => 0,
+    'cost' => 0.00,
+];
 $form = [
     'maintenance_date' => date('Y-m-d'),
     'distribution_item_detail_id' => '',
@@ -17,10 +23,13 @@ $form = [
     'remarks' => '',
 ];
 $referencePreview = '';
+$preselectedDetailId = (int) ($_GET['detail_id'] ?? 0);
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    ensure_distribution_item_runtime_columns($db);
+
     $db->query("
         CREATE TABLE IF NOT EXISTS maintenance_logs (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -63,6 +72,17 @@ if (!$db) {
                     $cancelStmt->bind_param('i', $recordId);
                     $cancelStmt->execute();
                     $cancelStmt->close();
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'maintenance_logs',
+                        'record_id' => $recordId,
+                        'module_name' => 'maintenance',
+                        'record_type' => 'maintenance',
+                        'action_name' => 'cancel_maintenance_record',
+                        'old_values' => ['status' => 'posted'],
+                        'new_values' => ['status' => 'cancelled'],
+                        'description' => 'Cancelled maintenance record.',
+                    ]);
                     set_flash('success', 'Maintenance record cancelled successfully.');
                     redirect('modules/maintenance/index.php');
                 }
@@ -146,7 +166,25 @@ if (!$db) {
                     $userId
                 );
                 $insertStmt->execute();
+                $maintenanceId = (int) $insertStmt->insert_id;
                 $insertStmt->close();
+
+                write_audit_log($db, [
+                    'action' => 'insert',
+                    'table_name' => 'maintenance_logs',
+                    'record_id' => $maintenanceId,
+                    'module_name' => 'maintenance',
+                    'record_type' => 'maintenance',
+                    'action_name' => 'create_maintenance_record',
+                    'new_values' => [
+                        'system_reference' => $systemReference,
+                        'maintenance_date' => $maintenanceDate,
+                        'distribution_item_detail_id' => $detailId,
+                        'performed_by' => $performedBy,
+                        'cost' => $costToSave,
+                    ],
+                    'description' => 'Created maintenance record.',
+                ]);
 
                 set_flash('success', 'Maintenance record saved successfully.');
                 redirect('modules/maintenance/index.php');
@@ -157,16 +195,52 @@ if (!$db) {
     }
 
     $itemsStmt = $db->prepare("
-        SELECT did.id, did.property_number, did.brand, did.model, did.serial_no
+        SELECT
+            did.id,
+            did.property_number,
+            did.brand,
+            did.model,
+            did.serial_no,
+            poi.item_type,
+            poi.item_description,
+            c.classification_name,
+            c.classification_family,
+            COALESCE(curr_o.office_name, base_o.office_name) AS office_name,
+            COALESCE(curr_e.first_name, base_e.first_name) AS first_name,
+            COALESCE(curr_e.middle_name, base_e.middle_name) AS middle_name,
+            COALESCE(curr_e.last_name, base_e.last_name) AS last_name,
+            COALESCE(curr_e.suffix_name, base_e.suffix_name) AS suffix_name,
+            COALESCE(curr_e.position_title, base_e.position_title) AS position_title,
+            COALESCE(curr_rc.code, base_rc.code) AS rc_code
         FROM distribution_item_details did
+        INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+        INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
+        INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
+        INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+        LEFT JOIN classifications c ON c.id = poi.classification_id
+        LEFT JOIN offices base_o ON base_o.id = d.office_id
+        LEFT JOIN employees base_e ON base_e.id = d.employee_id
+        LEFT JOIN responsibility_codes base_rc ON base_rc.office_id = d.office_id
+        LEFT JOIN offices curr_o ON curr_o.id = did.current_office_id
+        LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id
+        LEFT JOIN responsibility_codes curr_rc ON curr_rc.id = did.current_responsibility_code_id
         WHERE did.is_distributed = 1
           AND (did.is_disposed IS NULL OR did.is_disposed = 0)
-        ORDER BY did.property_number ASC, did.id ASC
+        ORDER BY poi.item_type ASC, poi.item_description ASC, did.property_number ASC, did.id ASC
     ");
     if ($itemsStmt) {
         $itemsStmt->execute();
         $distributedItems = $itemsStmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $itemsStmt->close();
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $preselectedDetailId > 0) {
+        foreach ($distributedItems as $assetRow) {
+            if ((int) ($assetRow['id'] ?? 0) === $preselectedDetailId) {
+                $form['distribution_item_detail_id'] = (string) $preselectedDetailId;
+                break;
+            }
+        }
     }
 
     $listStmt = $db->prepare("
@@ -180,15 +254,45 @@ if (!$db) {
             ml.remarks,
             ml.status,
             ml.created_at,
-            did.property_number
+            did.property_number,
+            did.brand,
+            did.model,
+            did.serial_no,
+            poi.item_type,
+            poi.item_description,
+            c.classification_name,
+            COALESCE(curr_o.office_name, base_o.office_name) AS office_name,
+            COALESCE(curr_e.first_name, base_e.first_name) AS first_name,
+            COALESCE(curr_e.middle_name, base_e.middle_name) AS middle_name,
+            COALESCE(curr_e.last_name, base_e.last_name) AS last_name,
+            COALESCE(curr_e.suffix_name, base_e.suffix_name) AS suffix_name
         FROM maintenance_logs ml
         LEFT JOIN distribution_item_details did ON did.id = ml.distribution_item_detail_id
+        LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
+        LEFT JOIN distributions d ON d.id = di.distribution_id
+        LEFT JOIN receiving_items ri ON ri.id = di.receiving_item_id
+        LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+        LEFT JOIN classifications c ON c.id = poi.classification_id
+        LEFT JOIN offices base_o ON base_o.id = d.office_id
+        LEFT JOIN employees base_e ON base_e.id = d.employee_id
+        LEFT JOIN offices curr_o ON curr_o.id = did.current_office_id
+        LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id
         ORDER BY ml.created_at DESC, ml.id DESC
     ");
     if ($listStmt) {
         $listStmt->execute();
         $records = $listStmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $listStmt->close();
+    }
+
+    foreach ($records as $record) {
+        $stats['total']++;
+        if (($record['status'] ?? '') === 'cancelled') {
+            $stats['cancelled']++;
+        } else {
+            $stats['posted']++;
+            $stats['cost'] += (float) ($record['cost'] ?? 0);
+        }
     }
 }
 
@@ -197,6 +301,43 @@ require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 <section class="row g-4">
+    <div class="col-12">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Maintenance Records</div>
+                        <div class="fs-4 fw-semibold"><?php echo h((string) $stats['total']); ?></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Posted</div>
+                        <div class="fs-4 fw-semibold text-success"><?php echo h((string) $stats['posted']); ?></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Cancelled</div>
+                        <div class="fs-4 fw-semibold text-secondary"><?php echo h((string) $stats['cancelled']); ?></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Total Posted Cost</div>
+                        <div class="fs-4 fw-semibold"><?php echo h(number_format((float) $stats['cost'], 2)); ?></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="col-12">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -250,18 +391,73 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <option value="">Select property number</option>
                                     <?php foreach ($distributedItems as $item): ?>
                                         <?php
-                                        $fallbackName = trim((string) (($item['brand'] ?? '') . ' ' . ($item['model'] ?? '')));
-                                        $optionLabel = $item['property_number'] ?: ($fallbackName !== '' ? $fallbackName : ('Item #' . (int) $item['id']));
-                                        $serial = trim((string) ($item['serial_no'] ?? ''));
-                                        if ($serial !== '') {
-                                            $optionLabel .= ' | SN: ' . $serial;
-                                        }
+                                        $typeLabel = ($item['item_type'] ?? '') === 'semi_expendable' ? 'Semi-Expendable' : 'Equipment';
+                                        $optionLabel = trim(implode(' | ', array_filter([
+                                            $item['property_number'] ?? '',
+                                            $typeLabel,
+                                            $item['classification_name'] ?? '',
+                                            $item['item_description'] ?? '',
+                                            !empty($item['office_name']) ? $item['office_name'] : '',
+                                            !empty($item['serial_no']) ? 'SN: ' . $item['serial_no'] : '',
+                                        ])));
                                         ?>
-                                        <option value="<?php echo (int) $item['id']; ?>" <?php echo $form['distribution_item_detail_id'] === (string) $item['id'] ? 'selected' : ''; ?>>
+                                        <option
+                                            value="<?php echo (int) $item['id']; ?>"
+                                            <?php echo $form['distribution_item_detail_id'] === (string) $item['id'] ? 'selected' : ''; ?>
+                                            data-property-number="<?php echo h((string) ($item['property_number'] ?? '')); ?>"
+                                            data-item-type="<?php echo h((string) ($item['item_type'] ?? '')); ?>"
+                                            data-classification="<?php echo h(trim(implode(' / ', array_filter([
+                                                trim((string) ($item['classification_family'] ?? '')),
+                                                trim((string) ($item['classification_name'] ?? '')),
+                                            ])))); ?>"
+                                            data-description="<?php echo h((string) ($item['item_description'] ?? '')); ?>"
+                                            data-brand-model="<?php echo h(trim(implode(' / ', array_filter([
+                                                trim((string) ($item['brand'] ?? '')),
+                                                trim((string) ($item['model'] ?? '')),
+                                            ])))); ?>"
+                                            data-serial="<?php echo h((string) ($item['serial_no'] ?? '')); ?>"
+                                            data-office="<?php echo h((string) ($item['office_name'] ?? '')); ?>"
+                                            data-accountable="<?php echo h(trim(implode(' ', array_filter([
+                                                trim((string) ($item['first_name'] ?? '')),
+                                                trim((string) ($item['middle_name'] ?? '')),
+                                                trim((string) ($item['last_name'] ?? '')),
+                                                trim((string) ($item['suffix_name'] ?? '')),
+                                            ])))); ?>"
+                                            data-position="<?php echo h((string) ($item['position_title'] ?? '')); ?>"
+                                            data-rc="<?php echo h((string) ($item['rc_code'] ?? '')); ?>"
+                                        >
                                             <?php echo h($optionLabel); ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
+                            </div>
+
+                            <div class="col-12">
+                                <div class="border rounded-3 bg-light-subtle p-3" id="assetPreviewCard">
+                                    <div class="small text-muted mb-2">Current Asset Assignment</div>
+                                    <div class="row g-3">
+                                        <div class="col-md-3">
+                                            <div class="small text-muted">Property Number</div>
+                                            <div class="fw-semibold" data-preview="property_number">Select an asset</div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="small text-muted">Type / Classification</div>
+                                            <div data-preview="type_classification">-</div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="small text-muted">Brand / Model / Serial</div>
+                                            <div data-preview="brand_model_serial">-</div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="small text-muted">Office / RC</div>
+                                            <div data-preview="office_rc">-</div>
+                                        </div>
+                                        <div class="col-md-12">
+                                            <div class="small text-muted">Description / Accountable</div>
+                                            <div data-preview="description_accountable">-</div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="col-md-12">
@@ -324,11 +520,33 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                 <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
                     <input type="search" id="tableSearch" class="form-control form-control-sm" placeholder="Search maintenance logs..." style="max-width:300px;">
+                    <select id="typeFilter" class="form-select form-select-sm" style="max-width:170px;">
+                        <option value="">All asset types</option>
+                        <option value="equipment">Equipment</option>
+                        <option value="semi_expendable">Semi-Expendable</option>
+                    </select>
+                    <select id="officeFilter" class="form-select form-select-sm" style="max-width:220px;">
+                        <option value="">All offices</option>
+                        <?php
+                        $seenOffices = [];
+                        foreach ($records as $record):
+                            $officeName = trim((string) ($record['office_name'] ?? ''));
+                            if ($officeName === '' || isset($seenOffices[strtolower($officeName)])) {
+                                continue;
+                            }
+                            $seenOffices[strtolower($officeName)] = true;
+                        ?>
+                            <option value="<?php echo h($officeName); ?>"><?php echo h($officeName); ?></option>
+                        <?php endforeach; ?>
+                    </select>
                     <select id="statusFilter" class="form-select form-select-sm" style="max-width:140px;">
                         <option value="">All statuses</option>
                         <option value="posted">Posted</option>
                         <option value="cancelled">Cancelled</option>
                     </select>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" id="clearFilters">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Clear
+                    </button>
                 </div>
 
                 <div class="table-responsive">
@@ -338,6 +556,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <th data-sort="reference">System Reference <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="date">Maintenance Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="property">Property Number <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="asset">Asset</th>
                                 <th data-sort="description">Description of Work <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="performed">Performed By <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th class="text-end">Cost</th>
@@ -349,10 +568,39 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <tbody>
                             <?php if ($records): ?>
                                 <?php foreach ($records as $record): ?>
-                                    <tr data-status="<?php echo h((string) ($record['status'] ?? 'posted')); ?>">
+                                    <tr
+                                        data-status="<?php echo h((string) ($record['status'] ?? 'posted')); ?>"
+                                        data-item-type="<?php echo h((string) ($record['item_type'] ?? '')); ?>"
+                                        data-office="<?php echo h((string) ($record['office_name'] ?? '')); ?>"
+                                    >
                                         <td class="fw-semibold"><?php echo h($record['system_reference']); ?></td>
                                         <td><?php echo h(date('M d, Y', strtotime($record['maintenance_date']))); ?></td>
                                         <td><?php echo h($record['property_number'] ?? ''); ?></td>
+                                        <td>
+                                            <div class="fw-semibold"><?php echo h($record['item_description'] ?? ''); ?></div>
+                                            <small class="text-muted">
+                                                <?php echo h(trim(implode(' | ', array_filter([
+                                                    ($record['item_type'] ?? '') === 'semi_expendable' ? 'Semi-Expendable' : 'Equipment',
+                                                    $record['classification_name'] ?? '',
+                                                    trim(implode(' / ', array_filter([
+                                                        trim((string) ($record['brand'] ?? '')),
+                                                        trim((string) ($record['model'] ?? '')),
+                                                    ]))),
+                                                    !empty($record['serial_no']) ? 'SN: ' . $record['serial_no'] : '',
+                                                ])))); ?>
+                                            </small>
+                                            <div class="small text-muted">
+                                                <?php echo h(trim(implode(' | ', array_filter([
+                                                    $record['office_name'] ?? '',
+                                                    trim(implode(' ', array_filter([
+                                                        trim((string) ($record['first_name'] ?? '')),
+                                                        trim((string) ($record['middle_name'] ?? '')),
+                                                        trim((string) ($record['last_name'] ?? '')),
+                                                        trim((string) ($record['suffix_name'] ?? '')),
+                                                    ]))),
+                                                ])))); ?>
+                                            </div>
+                                        </td>
                                         <td>
                                             <div><?php echo h($record['work_description']); ?></div>
                                             <?php if (!empty($record['remarks'])): ?>
@@ -383,7 +631,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <?php endforeach; ?>
                             <?php else: ?>
                                 <tr>
-                                    <td colspan="9" class="text-center text-muted py-4">No maintenance records found yet.</td>
+                                    <td colspan="10" class="text-center text-muted py-4">No maintenance records found yet.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>
@@ -405,12 +653,61 @@ require_once __DIR__ . '/../../includes/topbar.php';
 </section>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    var itemSelect = document.getElementById('distribution_item_detail_id');
+
+    function prettifyType(type) {
+        if (type === 'semi_expendable') {
+            return 'Semi-Expendable';
+        }
+        if (type === 'equipment') {
+            return 'Equipment';
+        }
+        return type || '-';
+    }
+
+    function updateAssetPreview() {
+        if (!itemSelect) {
+            return;
+        }
+
+        var option = itemSelect.options[itemSelect.selectedIndex];
+        var propertyNumber = option && option.value ? (option.dataset.propertyNumber || option.text || 'Selected asset') : 'Select an asset';
+        var typeLabel = option && option.value ? prettifyType(option.dataset.itemType || '') : '-';
+        var classification = option && option.value ? (option.dataset.classification || '-') : '-';
+        var description = option && option.value ? (option.dataset.description || '-') : '-';
+        var brandModel = option && option.value ? (option.dataset.brandModel || '-') : '-';
+        var serial = option && option.value ? (option.dataset.serial || '') : '';
+        var office = option && option.value ? (option.dataset.office || '-') : '-';
+        var accountable = option && option.value ? (option.dataset.accountable || '-') : '-';
+        var position = option && option.value ? (option.dataset.position || '') : '';
+        var rc = option && option.value ? (option.dataset.rc || '-') : '-';
+
+        var previewMap = {
+            property_number: propertyNumber,
+            type_classification: option && option.value ? [typeLabel, classification].filter(Boolean).join(' / ') : '-',
+            brand_model_serial: option && option.value ? [brandModel, serial ? 'SN: ' + serial : ''].filter(Boolean).join(' | ') || '-' : '-',
+            office_rc: option && option.value ? [office, rc].filter(Boolean).join(' | ') : '-',
+            description_accountable: option && option.value ? [description, [accountable, position].filter(Boolean).join(' - ')].filter(Boolean).join(' | ') : '-'
+        };
+
+        Object.keys(previewMap).forEach(function (key) {
+            var node = document.querySelector('[data-preview="' + key + '"]');
+            if (node) {
+                node.textContent = previewMap[key] || '-';
+            }
+        });
+    }
+
     if (window.jQuery && jQuery.fn.select2) {
-        jQuery('#distribution_item_detail_id').select2({
+        jQuery(itemSelect).select2({
             width: '100%',
             placeholder: 'Select property number'
         });
+        jQuery(itemSelect).on('change', updateAssetPreview);
     }
+
+    itemSelect?.addEventListener('change', updateAssetPreview);
+    updateAssetPreview();
 
     var perPage = 25;
     var currentPage = 1;
@@ -456,11 +753,15 @@ document.addEventListener('DOMContentLoaded', function () {
     function applyFilters() {
         var term = ((document.getElementById('tableSearch') || {}).value || '').toLowerCase();
         var status = ((document.getElementById('statusFilter') || {}).value || '');
+        var itemType = ((document.getElementById('typeFilter') || {}).value || '');
+        var office = ((document.getElementById('officeFilter') || {}).value || '').toLowerCase();
 
         getRows().forEach(function(row) {
             var textMatch = !term || row.textContent.toLowerCase().includes(term);
             var statusMatch = !status || row.dataset.status === status;
-            row.dataset.visible = (textMatch && statusMatch) ? '1' : '0';
+            var typeMatch = !itemType || row.dataset.itemType === itemType;
+            var officeMatch = !office || (row.dataset.office || '').toLowerCase() === office;
+            row.dataset.visible = (textMatch && statusMatch && typeMatch && officeMatch) ? '1' : '0';
         });
 
         currentPage = 1;
@@ -469,6 +770,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
     document.getElementById('tableSearch')?.addEventListener('input', applyFilters);
     document.getElementById('statusFilter')?.addEventListener('change', applyFilters);
+    document.getElementById('typeFilter')?.addEventListener('change', applyFilters);
+    document.getElementById('officeFilter')?.addEventListener('change', applyFilters);
+    document.getElementById('clearFilters')?.addEventListener('click', function () {
+        var search = document.getElementById('tableSearch');
+        var status = document.getElementById('statusFilter');
+        var itemType = document.getElementById('typeFilter');
+        var office = document.getElementById('officeFilter');
+        if (search) search.value = '';
+        if (status) status.value = '';
+        if (itemType) itemType.value = '';
+        if (office) office.value = '';
+        applyFilters();
+    });
     document.getElementById('prevPage')?.addEventListener('click', function() { currentPage--; renderPage(); });
     document.getElementById('nextPage')?.addEventListener('click', function() { currentPage++; renderPage(); });
     document.getElementById('perPageSelect')?.addEventListener('change', function() {
