@@ -13,7 +13,14 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         var root = scope || document;
-        var selects = root.querySelectorAll('select.form-select:not([data-no-select2]):not([data-select2-initialized])');
+        var selector = 'select.form-select:not([data-no-select2]):not([data-select2-initialized])';
+        var selects = [];
+
+        if (root instanceof HTMLElement && root.matches(selector)) {
+            selects = [root];
+        } else if (root.querySelectorAll) {
+            selects = Array.from(root.querySelectorAll(selector));
+        }
 
         selects.forEach(function (select) {
             var $select = jQuery(select);

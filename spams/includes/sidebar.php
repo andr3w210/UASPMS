@@ -48,6 +48,7 @@ $menuGroups = [
             ['label' => 'Distribution', 'path' => 'modules/distributions/index.php', 'needle' => '/distributions/', 'icon' => 'bi bi-diagram-3'],
             ['label' => 'Issuances', 'path' => 'modules/issuances/index.php', 'needle' => '/issuances/', 'icon' => 'bi bi-box-arrow-up-right'],
             ['label' => 'Returns', 'path' => 'modules/returns/index.php', 'needle' => '/returns/', 'icon' => 'bi bi-arrow-counterclockwise'],
+            ['label' => 'Maintenance', 'path' => 'modules/maintenance/index.php', 'needle' => '/maintenance/', 'icon' => 'bi bi-wrench-adjustable-circle'],
             ['label' => 'Disposals', 'path' => 'modules/disposals/index.php', 'needle' => '/disposals/', 'icon' => 'bi bi-trash3'],
         ],
     ],

@@ -472,7 +472,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 <section class="row g-4">
     <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
             <h5 class="mb-0">Encoded Purchase Orders</h5>
             <div class="d-flex gap-2 align-items-center">
                 <a href="<?php echo base_url('modules/purchase_orders/create.php'); ?>" class="btn btn-primary btn-sm">Encode New PO</a>
@@ -480,10 +480,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
 
         <div class="card">
-            <div class="card-body p-4">
-                <div class="mb-3">
-                    <form method="get" class="row g-2 align-items-end">
-                        <div class="col-auto">
+            <div class="card-body p-3 p-lg-4">
+                <div class="mb-4">
+                    <form method="get" class="row g-2 g-lg-3 align-items-end">
+                        <div class="col-12 col-md-2 col-lg-1">
                             <label class="form-label small mb-1">Status</label>
                             <select name="status" class="form-select form-select-sm">
                                 <?php $filterStatus = $_GET['status'] ?? 'all'; ?>
@@ -495,7 +495,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </select>
                         </div>
 
-                        <div class="col-auto">
+                        <div class="col-12 col-md-4 col-lg-3">
                             <label class="form-label small mb-1">Supplier</label>
                             <select name="supplier_id" class="form-select form-select-sm">
                                 <?php $filterSupplierId = $_GET['supplier_id'] ?? ''; ?>
@@ -506,30 +506,30 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </select>
                         </div>
 
-                        <div class="col-auto">
+                        <div class="col-6 col-md-2">
                             <label class="form-label small mb-1">Date from</label>
                             <input type="date" name="date_from" class="form-control form-control-sm" value="<?php echo h($_GET['date_from'] ?? ''); ?>">
                         </div>
 
-                        <div class="col-auto">
+                        <div class="col-6 col-md-2">
                             <label class="form-label small mb-1">Date to</label>
                             <input type="date" name="date_to" class="form-control form-control-sm" value="<?php echo h($_GET['date_to'] ?? ''); ?>">
                         </div>
 
-                        <div class="col-auto">
+                        <div class="col-12 col-md-4 col-lg-3">
                             <label class="form-label small mb-1">Search</label>
                             <input type="text" name="q" class="form-control form-control-sm" placeholder="PO number or system ref" value="<?php echo h($_GET['q'] ?? ''); ?>">
                         </div>
 
-                        <div class="col-auto">
-                            <button class="btn btn-sm btn-outline-secondary">Filter</button>
+                        <div class="col-12 col-lg-auto">
+                            <button class="btn btn-sm btn-outline-secondary px-3">Filter</button>
                             <a href="<?php echo base_url('modules/purchase_orders/index.php'); ?>" class="btn btn-sm btn-link">Clear</a>
                         </div>
                     </form>
                 </div>
 
                 <div class="table-responsive">
-                    <table class="table align-middle">
+                    <table class="table table-sm align-middle">
                         <thead>
                             <tr>
                                 <th>System Ref</th>
@@ -553,37 +553,39 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td class="fw-semibold"><?php echo h($po['system_reference']); ?></td>
                                         <td><?php echo h($po['po_number']); ?></td>
                                         <td><?php echo h(date('M d, Y', strtotime($po['po_date']))); ?></td>
-                                        <td><?php echo h($po['supplier_name']); ?></td>
-                                        <td><?php echo h($po['fund_name']); ?></td>
-                                        <td><?php echo h($po['mode_of_procurement_name'] ?? ''); ?></td>
+                                        <td style="min-width:220px;"><?php echo h($po['supplier_name']); ?></td>
+                                        <td style="min-width:105px;"><?php echo h($po['fund_name']); ?></td>
+                                        <td style="min-width:260px;"><?php echo h($po['mode_of_procurement_name'] ?? ''); ?></td>
                                         <?php
                                             $pct = $po['total_qty'] > 0
                                                 ? min(100, (int) round(($po['total_received_qty'] / $po['total_qty']) * 100))
                                                 : 0;
                                             $barClass = $pct >= 100 ? 'bg-success' : ($pct > 0 ? 'bg-warning' : 'bg-secondary');
                                         ?>
-                                        <td style="min-width:100px;">
-                                            <div class="progress" style="height:6px;" title="<?php echo $pct; ?>% received">
+                                        <td style="min-width:120px;">
+                                            <div class="progress" style="height:8px;" title="<?php echo $pct; ?>% received">
                                                 <div class="progress-bar <?php echo $barClass; ?>" style="width:<?php echo $pct; ?>%"></div>
                                             </div>
-                                            <div class="small text-muted mt-1"><?php echo $pct; ?>%</div>
+                                            <div class="small text-muted mt-1 fw-semibold"><?php echo $pct; ?>%</div>
                                         </td>
                                         <td><?php echo $po['expected_delivery_date'] ? h(date('M d, Y', strtotime($po['expected_delivery_date']))) : ''; ?></td>
-                                        <td><?php echo h($po['place_of_delivery'] ?? ''); ?></td>
-                                        <td><?php echo po_status_badge($po['status']); ?></td>
-                                        <td class="text-end"><?php echo h(number_format((float) $po['total_amount'], 2)); ?></td>
+                                        <td style="min-width:130px;"><?php echo h($po['place_of_delivery'] ?? ''); ?></td>
+                                        <td class="text-center"><?php echo po_status_badge($po['status']); ?></td>
+                                        <td class="text-end fw-semibold"><?php echo h(number_format((float) $po['total_amount'], 2)); ?></td>
                                         <td class="text-end">
-                                            <a href="<?php echo base_url('modules/purchase_orders/view.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">
-                                                View / Print
-                                            </a>
-                                            <?php if ($po['status'] === 'encoded'): ?>
-                                                <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                                                <button type="button"
-                                                        class="btn btn-sm btn-outline-danger"
-                                                        onclick="confirmCancelPO(<?php echo (int)$po['id']; ?>, '<?php echo h(addslashes($po['po_number'])); ?>')">
-                                                    Cancel
-                                                </button>
-                                            <?php endif; ?>
+                                            <div class="d-inline-flex flex-wrap justify-content-end gap-1">
+                                                <a href="<?php echo base_url('modules/purchase_orders/view.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">
+                                                    View / Print
+                                                </a>
+                                                <?php if ($po['status'] === 'encoded'): ?>
+                                                    <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
+                                                    <button type="button"
+                                                            class="btn btn-sm btn-outline-danger"
+                                                            onclick="confirmCancelPO(<?php echo (int)$po['id']; ?>, '<?php echo h(addslashes($po['po_number'])); ?>')">
+                                                        Cancel
+                                                    </button>
+                                                <?php endif; ?>
+                                            </div>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
