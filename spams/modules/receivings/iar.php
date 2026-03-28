@@ -7,7 +7,7 @@ function receiving_type_label(string $type): string
     return $type === 'equipment' ? 'Equipment' : ($type === 'semi_expendable' ? 'Semi-Expendable' : 'Supplies');
 }
 
-$db = db_connect();
+$db = db();
 $receivingId = (int) ($_GET['id'] ?? 0);
 
 if (!$db || $receivingId <= 0) {

@@ -17,7 +17,7 @@ if ($sql === false) {
     exit(1);
 }
 
-$db = db_connect();
+$db = db();
 if (!$db) {
     echo "Unable to connect to DB.\n";
     exit(1);

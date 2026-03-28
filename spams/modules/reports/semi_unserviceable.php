@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $page_title = 'Unserviceable Semi-Expendable Property';
 $errors = [];
 $rows = [];
@@ -10,8 +10,6 @@ $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $asOf = trim((string) ($_GET['as_of'] ?? date('Y-m-d')));
 
 if ($db) {
-    ensure_disposals_runtime_schema($db);
-
     $sql = "
         SELECT
             dp.disposal_date,

@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../app/config/init.php';
 require_role('Administrator', 'Supply Officer');
 
 $page_title = 'Delivery Extensions';
-$db = db_connect();
+$db = db();
 $flash = get_flash();
 $errors = [];
 $extensions = [];
@@ -22,25 +22,6 @@ $form = [
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    $db->query(
-        "CREATE TABLE IF NOT EXISTS purchase_order_delivery_extensions (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            system_reference VARCHAR(50) NOT NULL,
-            purchase_order_id BIGINT UNSIGNED NOT NULL,
-            old_expected_delivery_date DATE NOT NULL,
-            new_expected_delivery_date DATE NOT NULL,
-            requested_extension_days INT UNSIGNED NULL,
-            reason TEXT NOT NULL,
-            remarks TEXT NULL,
-            status ENUM('posted','cancelled') NOT NULL DEFAULT 'posted',
-            created_by BIGINT UNSIGNED NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
-    );
-    if (function_exists('schema_has_column') && !schema_has_column($db, 'purchase_order_delivery_extensions', 'requested_extension_days')) {
-        $db->query("ALTER TABLE purchase_order_delivery_extensions ADD COLUMN requested_extension_days INT UNSIGNED NULL AFTER new_expected_delivery_date");
-    }
-
     $form['system_reference'] = preview_module_code($db, 'po_delivery_extensions');
 
     $eligibleSql = "

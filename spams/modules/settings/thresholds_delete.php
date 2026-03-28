@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_role('admin');
 
-$db = db_connect();
+$db = db();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     set_flash('error', 'Invalid request method.');

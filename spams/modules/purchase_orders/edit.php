@@ -19,7 +19,7 @@ function po_edit_schema_has_column(mysqli $db, string $table, string $column): b
     return $cache[$key];
 }
 
-$db = db_connect();
+$db = db();
 $flash = get_flash();
 $errors = [];
 $page_title = 'Edit Purchase Order';

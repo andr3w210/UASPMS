@@ -16,7 +16,7 @@ function suppliers_has_reference(mysqli $db, int $recordId): bool
     return $hasRow;
 }
 
-$db = db_connect();
+$db = db();
 $page_title = 'Suppliers';
 $flash = get_flash();
 $errors = [];

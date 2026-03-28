@@ -4,7 +4,7 @@ require_login();
 
 header('Content-Type: application/json; charset=utf-8');
 
-$db = db_connect();
+$db = db();
 $poId = isset($_GET['po_id']) ? (int) $_GET['po_id'] : 0;
 $hasSemiTypeColumn = $db && function_exists('schema_has_column')
     ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type')

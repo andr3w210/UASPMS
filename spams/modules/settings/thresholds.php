@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_role('Administrator');
 
-$db = db_connect();
+$db = db();
 $page_title = 'Property Thresholds';
 $flash = get_flash();
 $errors = [];

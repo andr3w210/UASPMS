@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_role('admin');
 
-$db = db_connect();
+$db = db();
 $page_title = 'Edit Threshold';
 $flash = get_flash();
 $errors = [];

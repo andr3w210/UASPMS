@@ -4,7 +4,7 @@ require_once __DIR__ . '/../../app/helpers/roles.php';
 
 require_login();
 
-$db = db_connect();
+$db = db();
 $detailId = (int) ($_GET['detail_id'] ?? 0);
 $distributionId = (int) ($_GET['distribution_id'] ?? 0);
 
@@ -37,8 +37,6 @@ foreach ($possible as $path) {
 }
 
 if ($db) {
-    ensure_distribution_item_runtime_columns($db);
-
     $sql =
         "SELECT
             did.id AS did_id,

@@ -16,7 +16,7 @@ function po_status_badge(string $status): string {
     return '<span class="badge ' . $class . '">' . h($label) . '</span>';
 }
 
-$db = db_connect();
+$db = db();
 $page_title = 'Purchase Orders';
 $flash = get_flash();
 $errors = [];

@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $page_title = 'Ledger Card Print';
 
 $purchaseOrderId = (int) ($_GET['purchase_order_id'] ?? 0);
@@ -66,8 +66,6 @@ function ledger_sort_rows(array &$rows): void
 }
 
 if ($db) {
-    ensure_distribution_item_runtime_columns($db);
-
     $poRes = $db->query("SELECT id, po_number FROM purchase_orders ORDER BY po_date DESC, id DESC");
     if ($poRes) {
         $purchaseOrders = $poRes->fetch_all(MYSQLI_ASSOC);

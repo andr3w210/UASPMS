@@ -7,7 +7,7 @@ function distribution_doc_title(string $type): string
     return strtoupper($type) === 'PAR' ? 'PROPERTY ACKNOWLEDGMENT RECEIPT' : 'INVENTORY CUSTODIAN SLIP';
 }
 
-$db = db_connect();
+$db = db();
 $distributionId = (int) ($_GET['id'] ?? 0);
 $distribution = null;
 $items = [];

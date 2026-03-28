@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $officeId = (int) ($_GET['office_id'] ?? 0);
 $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $offices = [];
@@ -10,8 +10,6 @@ $header = null;
 $rows = [];
 
 if ($db) {
-    ensure_distribution_item_runtime_columns($db);
-
     $officeRes = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeRes) {
         $offices = $officeRes->fetch_all(MYSQLI_ASSOC);

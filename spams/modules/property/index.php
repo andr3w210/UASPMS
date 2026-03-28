@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $officeId = isset($_GET['office_id']) ? (int) $_GET['office_id'] : 0;
 $itemType = trim($_GET['item_type'] ?? '');
 $sourceFilter = trim($_GET['source'] ?? '');
@@ -22,8 +22,6 @@ $classifications = [];
 $summary = ['total' => 0, 'equipment' => 0, 'semi_expendable' => 0, 'legacy' => 0];
 
 if ($db) {
-    ensure_distribution_item_runtime_columns($db);
-
     $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res instanceof mysqli_result) {
         $offices = $res->fetch_all(MYSQLI_ASSOC);

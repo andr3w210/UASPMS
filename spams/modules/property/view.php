@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/roles.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $page_title = 'Asset Details';
 $source = trim((string) ($_GET['source'] ?? ''));
 $id = (int) ($_GET['id'] ?? 0);
@@ -70,8 +70,6 @@ if (!$db) {
     http_response_code(500);
     exit('Unable to connect to the database.');
 }
-
-ensure_distribution_item_runtime_columns($db);
 
 if ($source === 'system') {
     $stmt = $db->prepare("

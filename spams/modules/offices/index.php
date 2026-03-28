@@ -27,7 +27,7 @@ function offices_has_reference(mysqli $db, int $recordId): bool
     return false;
 }
 
-$db = db_connect();
+$db = db();
 $page_title = 'Offices';
 $flash = get_flash();
 $errors = [];

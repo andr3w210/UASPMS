@@ -1,38 +1,7 @@
 <?php
 
-function ensure_audit_logs_table(mysqli $db): void
-{
-    static $done = false;
-
-    if ($done) {
-        return;
-    }
-
-    $db->query("
-        CREATE TABLE IF NOT EXISTS audit_logs (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            user_id BIGINT UNSIGNED NULL,
-            action VARCHAR(50) NOT NULL,
-            table_name VARCHAR(100) NOT NULL,
-            record_id VARCHAR(100) NULL,
-            old_values LONGTEXT NULL,
-            new_values LONGTEXT NULL,
-            module_name VARCHAR(100) NULL,
-            record_type VARCHAR(100) NULL,
-            action_name VARCHAR(100) NULL,
-            description TEXT NULL,
-            ip_address VARCHAR(100) NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ");
-
-    $done = true;
-}
-
 function write_audit_log(mysqli $db, array $entry): bool
 {
-    ensure_audit_logs_table($db);
-
     $userId = isset($entry['user_id']) ? (int) $entry['user_id'] : (function_exists('current_user_id') ? (int) current_user_id() : 0);
     $action = trim((string) ($entry['action'] ?? 'update'));
     $tableName = trim((string) ($entry['table_name'] ?? ''));

@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../app/config/init.php';
 
 require_login();
 
-$db = db_connect();
+$db = db();
 $page_title = 'Departments';
 $flash = get_flash();
 $errors = [];

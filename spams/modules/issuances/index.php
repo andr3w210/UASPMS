@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_role('Administrator', 'Supply Officer');
 
-$db = db_connect();
+$db = db();
 $page_title = 'Issuances';
 $flash = get_flash();
 $errors = [];
@@ -191,27 +191,35 @@ if (!$db) {
                 }
 
                 $headerStmt->bind_param('ssiissdi', $systemReference, $form['issuance_date'], $officeId, $employeeId, $form['purpose'], $form['remarks'], $totalAmount, $userId);
-                $headerStmt->execute();
+                if (!$headerStmt->execute()) {
+                    throw new RuntimeException('Unable to save the issuance header.');
+                }
                 $issuanceId = (int) $headerStmt->insert_id;
                 $headerStmt->close();
 
                 foreach ($validatedItems as $item) {
                     $itemStmt->bind_param('iiddds', $issuanceId, $item['stock_item_id'], $item['issue_quantity'], $item['unit_cost'], $item['line_total'], $item['remarks']);
-                    $itemStmt->execute();
+                    if (!$itemStmt->execute()) {
+                        throw new RuntimeException('Unable to save issuance line items.');
+                    }
 
                     $stockUpdateStmt->bind_param('ddii', $item['issue_quantity'], $item['issue_quantity'], $userId, $item['stock_item_id']);
-                    $stockUpdateStmt->execute();
+                    if (!$stockUpdateStmt->execute()) {
+                        throw new RuntimeException('Unable to update stock balances for issuance.');
+                    }
 
                     $movementRemarks = $item['remarks'] !== '' ? $item['remarks'] : ('Issued through ' . $systemReference);
                     $movementStmt->bind_param('isiddsi', $item['stock_item_id'], $form['issuance_date'], $issuanceId, $item['issue_quantity'], $item['balance_after'], $movementRemarks, $userId);
-                    $movementStmt->execute();
+                    if (!$movementStmt->execute()) {
+                        throw new RuntimeException('Unable to write stock movement entries for issuance.');
+                    }
                 }
 
                 $movementStmt->close();
                 $stockUpdateStmt->close();
                 $itemStmt->close();
 
-                write_audit_log($db, [
+                if (!write_audit_log($db, [
                     'action' => 'insert',
                     'table_name' => 'issuances',
                     'record_id' => $issuanceId,
@@ -227,7 +235,9 @@ if (!$db) {
                         'item_count' => count($validatedItems),
                     ],
                     'description' => 'Posted issuance transaction.',
-                ]);
+                ])) {
+                    throw new RuntimeException('Unable to write the issuance audit log.');
+                }
 
                 $db->commit();
                 set_flash('success', 'Issuance posted successfully.');

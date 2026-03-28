@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
+$db = db();
 $issuanceId = (int) ($_GET['id'] ?? 0);
 
 if (!$db || $issuanceId <= 0) {

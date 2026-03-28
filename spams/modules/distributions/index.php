@@ -8,7 +8,7 @@ $errors = [];
 $flash = get_flash();
 
 // Database and initial state
-$db = db_connect();
+$db = db();
 
 // Default state variables
 $offices              = [];
@@ -368,7 +368,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $semiForBind = $postSemi ?? '';
                 $headerStmt->bind_param('sssssiissdi', $systemReference, $form['document_type'], $semiForBind, $documentNo, $form['distribution_date'], $officeId, $employeeId, $form['purpose'], $form['remarks'], $totalAmount, $userId);
-                $headerStmt->execute();
+                if (!$headerStmt->execute()) {
+                    throw new RuntimeException('Unable to save the distribution header.');
+                }
                 $distributionId = (int) $headerStmt->insert_id;
                 $headerStmt->close();
 
@@ -398,7 +400,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $issuanceItemId = (int) ($item['issuance_item_id'] ?? 0);
                     $originReceivingItemId = (int) ($item['origin_receiving_item_id'] ?? 0);
                     $itemStmt->bind_param('iiiddds', $distributionId, $issuanceItemId, $originReceivingItemId, $item['quantity_distributed'], $item['unit_cost'], $item['line_total'], $item['remarks']);
-                    $itemStmt->execute();
+                    if (!$itemStmt->execute()) {
+                        throw new RuntimeException('Unable to save distribution line items.');
+                    }
                     $distributionItemId = (int) $itemStmt->insert_id;
 
                     foreach ($item['details'] as $detail) {
@@ -416,11 +420,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
 
                         $detailStmt->bind_param('iisssss', $distributionItemId, $detailId, $detail['brand'], $detail['model'], $detail['serial_no'], $detail['remarks'], $propertyNo);
-                        $detailStmt->execute();
+                        if (!$detailStmt->execute()) {
+                            throw new RuntimeException('Unable to save distributed unit details.');
+                        }
                         // If this detail references a receiving_item_detail, mark that unit as distributed
                         if ($detailId > 0) {
                             $markDetailStmt->bind_param('i', $detailId);
-                            $markDetailStmt->execute();
+                            if (!$markDetailStmt->execute()) {
+                                throw new RuntimeException('Unable to mark receiving units as distributed.');
+                            }
                         }
                     }
                 }
@@ -430,7 +438,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $markDetailStmt->close();
                 $itemStmt->close();
 
-                write_audit_log($db, [
+                if (!write_audit_log($db, [
                     'action' => 'insert',
                     'table_name' => 'distributions',
                     'record_id' => $distributionId,
@@ -449,7 +457,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'item_count' => count($validatedItems),
                     ],
                     'description' => 'Posted distribution transaction.',
-                ]);
+                ])) {
+                    throw new RuntimeException('Unable to write the distribution audit log.');
+                }
 
                 $db->commit();
                 set_flash('success', strtoupper($form['document_type']) . ' distribution posted successfully.');

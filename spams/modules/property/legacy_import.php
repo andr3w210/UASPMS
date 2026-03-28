@@ -2,37 +2,6 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-function ensure_legacy_import_table(mysqli $db): void
-{
-    $db->query("CREATE TABLE IF NOT EXISTS legacy_assets (
-        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        system_reference VARCHAR(50) NULL,
-        property_number VARCHAR(100) NOT NULL,
-        item_type VARCHAR(30) NOT NULL DEFAULT 'equipment',
-        item_description TEXT NOT NULL,
-        classification_id INT UNSIGNED NULL,
-        account_code_id INT UNSIGNED NULL,
-        supplier_id INT UNSIGNED NULL,
-        brand_id INT UNSIGNED NULL,
-        model_id INT UNSIGNED NULL,
-        brand VARCHAR(200) NULL,
-        model VARCHAR(200) NULL,
-        serial_no VARCHAR(200) NULL,
-        acquisition_date DATE NULL,
-        quantity INT UNSIGNED NOT NULL DEFAULT 1,
-        unit_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-        acquisition_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-        office_id INT UNSIGNED NULL,
-        employee_id INT UNSIGNED NULL,
-        responsibility_code_id INT UNSIGNED NULL,
-        condition_status VARCHAR(50) NULL,
-        remarks TEXT NULL,
-        is_active TINYINT(1) NOT NULL DEFAULT 1,
-        created_by INT UNSIGNED NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-}
-
 function li_norm(string $value): string
 {
     $value = trim(strtolower($value));
@@ -162,7 +131,7 @@ function li_parse_upload(array $file): array
     throw new RuntimeException('Only CSV and XLSX files are supported.');
 }
 
-$db = db_connect();
+$db = db();
 $page_title = 'Import Legacy Assets';
 $errors = [];
 $flash = get_flash();
@@ -172,7 +141,6 @@ $summary = ['valid' => 0, 'invalid' => 0];
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    ensure_legacy_import_table($db);
     $classifications = ($db->query("SELECT id, classification_name FROM classifications WHERE is_active = 1 ORDER BY classification_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
     $accountCodes = ($db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
     $suppliers = ($db->query("SELECT id, supplier_name FROM suppliers WHERE is_active = 1 ORDER BY supplier_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];

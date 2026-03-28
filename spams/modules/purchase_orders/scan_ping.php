@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_login();
 header('Content-Type: application/json; charset=utf-8');
 
 $logFile = defined('UPLOADS_DIR') ? rtrim(UPLOADS_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'scan_proxy_debug.log' : null;

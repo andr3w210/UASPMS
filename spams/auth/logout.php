@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../app/config/init.php';
 
 if (is_logged_in()) {
-    $db = db_connect();
+    $db = db();
     if ($db) {
         write_audit_log($db, [
             'user_id' => (int) ($_SESSION['user_id'] ?? 0),

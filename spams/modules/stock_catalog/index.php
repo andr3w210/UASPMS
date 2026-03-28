@@ -4,7 +4,7 @@ require_once __DIR__ . '/../../app/helpers/audit.php';
 
 require_role('Administrator', 'Supply Officer');
 
-$db = db_connect();
+$db = db();
 $page_title = 'Stock Catalog';
 $flash = get_flash();
 $errors = [];
