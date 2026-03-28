@@ -75,6 +75,7 @@ $menuGroups = [
             ['label' => 'Beginning Balance Assets', 'path' => 'modules/property/legacy_assets.php', 'needle' => '/property/legacy_assets', 'icon' => 'bi bi-box2-heart'],
             ['label' => 'Import Legacy Assets', 'path' => 'modules/property/legacy_import.php', 'needle' => '/property/legacy_import', 'icon' => 'bi bi-file-earmark-arrow-up'],
             ['label' => 'Property Card Print', 'path' => 'modules/property/property_card_print.php', 'needle' => '/property/property_card_print', 'icon' => 'bi bi-printer'],
+            ['label' => 'Ledger Card Print', 'path' => 'modules/property/ledger_card_print.php', 'needle' => '/property/ledger_card_print', 'icon' => 'bi bi-journal-text'],
             ['label' => 'Print QR Tags', 'path' => 'modules/property/tags.php', 'needle' => '/property/tags', 'icon' => 'bi bi-qr-code'],
         ],
     ],

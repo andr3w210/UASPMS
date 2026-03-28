@@ -2,463 +2,309 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
-$db = db_connect();
-$errors = [];
-$success = '';
-
-if ($db && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_verify()) {
-        $errors[] = 'Invalid CSRF token.';
-    }
-    $detailId = (int) ($_POST['distribution_item_detail_id'] ?? 0);
-    $returnDate = trim($_POST['return_date'] ?? '');
-    $reason = trim($_POST['reason'] ?? '');
-    $remarks = trim($_POST['remarks'] ?? '');
-
-    if ($detailId <= 0) $errors[] = 'Select an item to return.';
-    if ($returnDate === '') $errors[] = 'Return date is required.';
-
-    if (empty($errors)) {
-        // Ensure returns table exists
-        $db->query("CREATE TABLE IF NOT EXISTS returns (
-            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            system_reference VARCHAR(50) NOT NULL,
+function ensure_returns_schema(mysqli $db): void
+{
+    $db->query("
+        CREATE TABLE IF NOT EXISTS returns (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            system_reference VARCHAR(50) NOT NULL UNIQUE,
             return_date DATE NOT NULL,
-            distribution_item_detail_id INT UNSIGNED NOT NULL,
+            distribution_item_detail_id BIGINT UNSIGNED NULL,
+            office_id BIGINT UNSIGNED NULL,
+            employee_id BIGINT UNSIGNED NULL,
             reason TEXT NULL,
             remarks TEXT NULL,
-            status ENUM('posted','cancelled') DEFAULT 'posted',
-            created_by INT UNSIGNED NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            status VARCHAR(30) NOT NULL DEFAULT 'posted',
+            created_by BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
 
-        $systemRef = next_module_code($db, 'returns');
-        $userId = current_user_id();
-        $ins = $db->prepare("INSERT INTO returns (system_reference, return_date, distribution_item_detail_id, reason, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?)");
-        if ($ins) {
-            $ins->bind_param('ssissi', $systemRef, $returnDate, $detailId, $reason, $remarks, $userId);
-            $ins->execute();
-            $ins->close();
-
-            // find receiving_item_detail_id and mark it as not distributed
-            $q = $db->prepare("SELECT receiving_item_detail_id FROM distribution_item_details WHERE id = ? LIMIT 1");
-            if ($q) {
-                $q->bind_param('i', $detailId);
-                $q->execute();
-                $row = $q->get_result()->fetch_assoc();
-                $q->close();
-                if ($row && !empty($row['receiving_item_detail_id'])) {
-                    $rid = (int) $row['receiving_item_detail_id'];
-                    $u = $db->prepare("UPDATE receiving_item_details SET is_distributed = 0 WHERE id = ?");
-                    if ($u) { $u->bind_param('i', $rid); $u->execute(); $u->close(); }
-                }
-            }
-
-            $success = 'Return recorded successfully.';
-        } else {
-            $errors[] = 'Unable to record return.';
+    if (function_exists('schema_has_column')) {
+        if (!schema_has_column($db, 'returns', 'distribution_item_detail_id')) {
+            $db->query("ALTER TABLE returns ADD COLUMN distribution_item_detail_id BIGINT UNSIGNED NULL AFTER return_date");
+        }
+        if (!schema_has_column($db, 'returns', 'status')) {
+            $db->query("ALTER TABLE returns ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'posted' AFTER remarks");
+        }
+        if (!schema_has_column($db, 'returns', 'created_by')) {
+            $db->query("ALTER TABLE returns ADD COLUMN created_by BIGINT UNSIGNED NULL AFTER status");
+        }
+        if (!schema_has_column($db, 'returns', 'created_at')) {
+            $db->query("ALTER TABLE returns ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER created_by");
+        }
+        if (!schema_has_column($db, 'returns', 'office_id')) {
+            $db->query("ALTER TABLE returns ADD COLUMN office_id BIGINT UNSIGNED NULL AFTER distribution_item_detail_id");
+        }
+        if (!schema_has_column($db, 'returns', 'employee_id')) {
+            $db->query("ALTER TABLE returns ADD COLUMN employee_id BIGINT UNSIGNED NULL AFTER office_id");
         }
     }
 }
 
-$available = [];
-$rows = [];
-if ($db) {
-    // items available to return: distributed details (is_distributed = 1) and not disposed
-    $stmt = $db->prepare("SELECT did.id, did.property_number, did.brand, did.model, did.serial_no, d.document_no, o.office_name FROM distribution_item_details did INNER JOIN distribution_items di ON di.id = did.distribution_item_id INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted' LEFT JOIN offices o ON o.id = d.office_id WHERE did.id IS NOT NULL AND did.id > 0 AND did.is_distributed = 1 AND (did.is_disposed IS NULL OR did.is_disposed = 0)");
-    if ($stmt) {
-        $stmt->execute();
-        $available = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $stmt->close();
-    }
+function return_asset_label(array $row): string
+{
+    $prefix = trim(implode(' / ', array_filter([
+        trim((string) ($row['classification_family'] ?? '')),
+        trim((string) ($row['classification_name'] ?? '')),
+    ])));
 
-    // list recent returns
-    $rStmt = $db->prepare("SELECT rt.id, rt.system_reference, rt.return_date, rt.reason, rt.remarks, did.property_number, d.document_no, o.office_name FROM returns rt LEFT JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id LEFT JOIN distribution_items di ON di.id = did.distribution_item_id LEFT JOIN distributions d ON d.id = di.distribution_id LEFT JOIN offices o ON o.id = d.office_id ORDER BY rt.created_at DESC");
-    if ($rStmt) {
-        $rStmt->execute();
-        $rows = $rStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $rStmt->close();
-    }
+    return trim(($prefix !== '' ? $prefix . ' - ' : '') . (string) ($row['item_description'] ?? ''));
 }
-
-require_once __DIR__ . '/../../includes/header.php';
-require_once __DIR__ . '/../../includes/sidebar.php';
-require_once __DIR__ . '/../../includes/topbar.php';
-?>
-<div class="container">
-    <h3>Returns</h3>
-    <?php if (!empty($errors)): ?>
-        <div class="alert alert-danger"><?php echo h(implode('<br>', $errors)); ?></div>
-    <?php endif; ?>
-    <?php if ($success): ?>
-        <div class="alert alert-success"><?php echo h($success); ?></div>
-    <?php endif; ?>
-
-    <form method="post" class="mb-4">
-        <?php echo csrf_input(); ?>
-        <div class="row g-2 align-items-end">
-            <div class="col-md-4">
-                <label class="form-label">Item</label>
-                <select name="distribution_item_detail_id" class="form-select form-select-sm">
-                    <option value="">Select distributed item</option>
-                    <?php foreach ($available as $a): ?>
-                        <option value="<?php echo (int)$a['id']; ?>"><?php echo h($a['property_number'] ?: ($a['brand'] . ' ' . $a['model'])); ?> — <?php echo h($a['document_no'] ?? ''); ?> (<?php echo h($a['office_name'] ?? ''); ?>)</option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">Return Date</label>
-                <input type="date" name="return_date" class="form-control form-control-sm" value="<?php echo h(date('Y-m-d')); ?>">
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Reason</label>
-                <input name="reason" class="form-control form-control-sm">
-            </div>
-            <div class="col-md-2">
-                <button class="btn btn-primary">Record Return</button>
-            </div>
-        </div>
-    </form>
-
-    <h5>Recent Returns</h5>
-    <div class="table-responsive">
-        <table class="table table-sm">
-            <thead>
-                <tr><th>Ref</th><th>Date</th><th>Item</th><th>Doc</th><th>Office</th><th>Reason</th></tr>
-            </thead>
-            <tbody>
-                <?php if ($rows): foreach ($rows as $rr): ?>
-                <tr>
-                    <td><?php echo h($rr['system_reference']); ?></td>
-                    <td><?php echo h(!empty($rr['return_date']) ? date('M d, Y', strtotime($rr['return_date'])) : ''); ?></td>
-                    <td><?php echo h($rr['property_number'] ?? ''); ?></td>
-                    <td><?php echo h($rr['document_no'] ?? ''); ?></td>
-                    <td><?php echo h($rr['office_name'] ?? ''); ?></td>
-                    <td><?php echo h($rr['reason'] ?? ''); ?></td>
-                </tr>
-                <?php endforeach; else: ?>
-                <tr><td colspan="6" class="text-center text-muted">No returns recorded.</td></tr>
-                <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-<?php
-require_once __DIR__ . '/../../app/config/init.php';
-require_login();
-
-$db = db_connect();
-$errors = [];
-$success = '';
-
-if ($db && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_verify()) {
-        $errors[] = 'Invalid CSRF token.';
-    }
-    $detailId = (int) ($_POST['distribution_item_detail_id'] ?? 0);
-    $returnDate = trim($_POST['return_date'] ?? '');
-    $reason = trim($_POST['reason'] ?? '');
-    $remarks = trim($_POST['remarks'] ?? '');
-
-    if ($detailId <= 0) $errors[] = 'Select an item to return.';
-    if ($returnDate === '') $errors[] = 'Return date is required.';
-
-    if (empty($errors)) {
-        // Ensure returns table exists
-        $db->query("CREATE TABLE IF NOT EXISTS returns (
-            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            system_reference VARCHAR(50) NOT NULL,
-            return_date DATE NOT NULL,
-            distribution_item_detail_id INT UNSIGNED NOT NULL,
-            reason TEXT NULL,
-            remarks TEXT NULL,
-            status ENUM('posted','cancelled') DEFAULT 'posted',
-            created_by INT UNSIGNED NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-        $systemRef = next_module_code($db, 'returns');
-        $userId = current_user_id();
-        $ins = $db->prepare("INSERT INTO returns (system_reference, return_date, distribution_item_detail_id, reason, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?)");
-        if ($ins) {
-            $ins->bind_param('ssis si', $systemRef, $returnDate, $detailId, $reason, $remarks, $userId);
-            // correct types: s s i s s i -> fix bind param string
-        }
-        // Workaround: use proper bind with types
-        if ($ins) {
-            $ins->bind_param('ssissi', $systemRef, $returnDate, $detailId, $reason, $remarks, $userId);
-            $ins->execute();
-            $ins->close();
-
-            // find receiving_item_detail_id and mark it as not distributed
-            $q = $db->prepare("SELECT receiving_item_detail_id FROM distribution_item_details WHERE id = ? LIMIT 1");
-            if ($q) {
-                $q->bind_param('i', $detailId);
-                $q->execute();
-                $row = $q->get_result()->fetch_assoc();
-                $q->close();
-                if ($row && !empty($row['receiving_item_detail_id'])) {
-                    $rid = (int) $row['receiving_item_detail_id'];
-                    $u = $db->prepare("UPDATE receiving_item_details SET is_distributed = 0 WHERE id = ?");
-                    if ($u) { $u->bind_param('i', $rid); $u->execute(); $u->close(); }
-                }
-            }
-
-            $success = 'Return recorded successfully.';
-        } else {
-            $errors[] = 'Unable to record return.';
-        }
-    }
-}
-
-$available = [];
-$rows = [];
-if ($db) {
-    // items available to return: distributed details (is_distributed = 1)
-    $stmt = $db->prepare("SELECT did.id, did.property_number, did.brand, did.model, did.serial_no, d.document_no, o.office_name FROM distribution_item_details did INNER JOIN distribution_items di ON di.id = did.distribution_item_id INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted' LEFT JOIN offices o ON o.id = d.office_id WHERE did.id IS NOT NULL AND did.id > 0 AND did.is_distributed = 1 AND (did.is_disposed IS NULL OR did.is_disposed = 0)");
-    if ($stmt) {
-        $stmt->execute();
-        $available = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $stmt->close();
-    }
-
-    // list recent returns
-    $rStmt = $db->prepare("SELECT rt.id, rt.system_reference, rt.return_date, rt.reason, rt.remarks, did.property_number, d.document_no, o.office_name FROM returns rt LEFT JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id LEFT JOIN distribution_items di ON di.id = did.distribution_item_id LEFT JOIN distributions d ON d.id = di.distribution_id LEFT JOIN offices o ON o.id = d.office_id ORDER BY rt.created_at DESC");
-    if ($rStmt) {
-        $rStmt->execute();
-        $rows = $rStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $rStmt->close();
-    }
-}
-
-require_once __DIR__ . '/../../includes/header.php';
-require_once __DIR__ . '/../../includes/sidebar.php';
-require_once __DIR__ . '/../../includes/topbar.php';
-?>
-<div class="container">
-    <h3>Returns</h3>
-    <?php if (!empty($errors)): ?>
-        <div class="alert alert-danger"><?php echo h(implode('<br>', $errors)); ?></div>
-    <?php endif; ?>
-    <?php if ($success): ?>
-        <div class="alert alert-success"><?php echo h($success); ?></div>
-    <?php endif; ?>
-
-    <form method="post" class="mb-4">
-        <?php echo csrf_input(); ?>
-        <div class="row g-2 align-items-end">
-            <div class="col-md-4">
-                <label class="form-label">Item</label>
-                <select name="distribution_item_detail_id" class="form-select form-select-sm">
-                    <option value="">Select distributed item</option>
-                    <?php foreach ($available as $a): ?>
-                        <option value="<?php echo (int)$a['id']; ?>"><?php echo h($a['property_number'] ?: ($a['brand'] . ' ' . $a['model'])); ?> — <?php echo h($a['document_no'] ?? ''); ?> (<?php echo h($a['office_name'] ?? ''); ?>)</option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">Return Date</label>
-                <input type="date" name="return_date" class="form-control form-control-sm" value="<?php echo h(date('Y-m-d')); ?>">
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Reason</label>
-                <input name="reason" class="form-control form-control-sm">
-            </div>
-            <div class="col-md-2">
-                <button class="btn btn-primary">Record Return</button>
-            </div>
-        </div>
-    </form>
-
-    <h5>Recent Returns</h5>
-    <div class="table-responsive">
-        <table class="table table-sm">
-            <thead>
-                <tr><th>Ref</th><th>Date</th><th>Item</th><th>Doc</th><th>Office</th><th>Reason</th></tr>
-            </thead>
-            <tbody>
-                <?php if ($rows): foreach ($rows as $rr): ?>
-                <tr>
-                    <td><?php echo h($rr['system_reference']); ?></td>
-                    <td><?php echo h(!empty($rr['return_date']) ? date('M d, Y', strtotime($rr['return_date'])) : ''); ?></td>
-                    <td><?php echo h($rr['property_number'] ?? ''); ?></td>
-                    <td><?php echo h($rr['document_no'] ?? ''); ?></td>
-                    <td><?php echo h($rr['office_name'] ?? ''); ?></td>
-                    <td><?php echo h($rr['reason'] ?? ''); ?></td>
-                </tr>
-                <?php endforeach; else: ?>
-                <tr><td colspan="6" class="text-center text-muted">No returns recorded.</td></tr>
-                <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-<?php
-require_once __DIR__ . '/../../app/config/init.php';
-require_login();
 
 $db = db_connect();
 $page_title = 'Returns';
 $flash = get_flash();
 $errors = [];
-$returns = [];
-$issuances = [];
-$issuanceItems = [];
+$success = '';
+$available = [];
+$rows = [];
+$typeFilter = trim((string) ($_GET['item_type'] ?? 'all'));
+$search = trim((string) ($_GET['q'] ?? ''));
 $form = [
-    'system_reference' => '',
+    'distribution_item_detail_id' => '',
     'return_date' => date('Y-m-d'),
-    'issuance_id' => '',
+    'reason' => '',
     'remarks' => '',
 ];
+
+if (!in_array($typeFilter, ['all', 'semi_expendable', 'equipment'], true)) {
+    $typeFilter = 'all';
+}
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    $form['system_reference'] = preview_module_code($db, 'returns');
-
-    $issResult = $db->query("SELECT i.id, i.system_reference, i.issuance_date, o.office_name FROM issuances i INNER JOIN offices o ON o.id = i.office_id ORDER BY i.issuance_date DESC, i.id DESC");
-    if ($issResult) {
-        $issuances = $issResult->fetch_all(MYSQLI_ASSOC);
-    }
-
-    // If an issuance is selected, load its items
-    $selectedIssuanceId = isset($_GET['issuance_id']) ? (int) $_GET['issuance_id'] : 0;
-    if ($selectedIssuanceId > 0) {
-        $itemStmt = $db->prepare("SELECT ii.id, ii.stock_item_id, ii.quantity_issued, si.system_reference, si.item_description, si.quantity_on_hand FROM issuance_items ii INNER JOIN stock_items si ON si.id = ii.stock_item_id WHERE ii.issuance_id = ? ORDER BY ii.id ASC");
-        if ($itemStmt) {
-            $itemStmt->bind_param('i', $selectedIssuanceId);
-            $itemStmt->execute();
-            $res = $itemStmt->get_result();
-            if ($res) {
-                $issuanceItems = $res->fetch_all(MYSQLI_ASSOC);
-            }
-            $itemStmt->close();
-        }
-    }
+    ensure_returns_schema($db);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $form['system_reference'] = preview_module_code($db, 'returns');
-        $form['return_date'] = old($_POST, 'return_date', date('Y-m-d'));
-        $form['issuance_id'] = old($_POST, 'issuance_id');
-        $form['remarks'] = old($_POST, 'remarks');
+        if (!csrf_verify()) {
+            $errors[] = 'Invalid CSRF token.';
+        }
 
+        $form['distribution_item_detail_id'] = trim((string) ($_POST['distribution_item_detail_id'] ?? ''));
+        $form['return_date'] = trim((string) ($_POST['return_date'] ?? date('Y-m-d')));
+        $form['reason'] = trim((string) ($_POST['reason'] ?? ''));
+        $form['remarks'] = trim((string) ($_POST['remarks'] ?? ''));
+
+        $detailId = (int) ($form['distribution_item_detail_id'] !== '' ? $form['distribution_item_detail_id'] : 0);
+
+        if ($detailId <= 0) {
+            $errors[] = 'Select an accountable asset to return.';
+        }
         if ($form['return_date'] === '') {
             $errors[] = 'Return date is required.';
         }
-        if ($form['issuance_id'] === '') {
-            $errors[] = 'Issuance is required.';
+
+        $asset = null;
+        if (!$errors) {
+            $assetStmt = $db->prepare("
+                SELECT
+                    did.id,
+                    did.current_office_id,
+                    did.current_employee_id,
+                    did.is_distributed,
+                    did.is_disposed,
+                    poi.item_type
+                FROM distribution_item_details did
+                INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+                INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
+                INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+                WHERE did.id = ?
+                LIMIT 1
+            ");
+            if ($assetStmt) {
+                $assetStmt->bind_param('i', $detailId);
+                $assetStmt->execute();
+                $asset = $assetStmt->get_result()->fetch_assoc() ?: null;
+                $assetStmt->close();
+            }
+
+            if (!$asset) {
+                $errors[] = 'The selected asset could not be found.';
+            } elseif ((int) ($asset['is_disposed'] ?? 0) === 1) {
+                $errors[] = 'Disposed assets can no longer be returned.';
+            } elseif ((int) ($asset['is_distributed'] ?? 0) !== 1) {
+                $errors[] = 'The selected asset is no longer marked as distributed.';
+            } else {
+                $dupStmt = $db->prepare("SELECT id FROM returns WHERE distribution_item_detail_id = ? AND status = 'posted' LIMIT 1");
+                if ($dupStmt) {
+                    $dupStmt->bind_param('i', $detailId);
+                    $dupStmt->execute();
+                    $existing = $dupStmt->get_result()->fetch_assoc();
+                    $dupStmt->close();
+                    if ($existing) {
+                        $errors[] = 'A posted return already exists for the selected asset.';
+                    }
+                }
+            }
         }
 
-        $issuanceId = (int) ($form['issuance_id'] !== '' ? $form['issuance_id'] : 0);
-
-        $postedItems = $_POST['items'] ?? [];
-        $validatedItems = [];
-
-        foreach ($postedItems as $issuanceItemId => $posted) {
-            $issuanceItemId = (int) $issuanceItemId;
-            $returnQty = isset($posted['return_quantity']) ? (float) $posted['return_quantity'] : 0;
-            $lineRemarks = trim((string) ($posted['remarks'] ?? ''));
-
-            if ($returnQty <= 0) {
-                continue;
-            }
-
-            // fetch issuance_item to validate
-            $iiStmt = $db->prepare("SELECT id, stock_item_id, quantity_issued FROM issuance_items WHERE id = ? LIMIT 1");
-            if (!$iiStmt) {
-                $errors[] = 'Unable to validate issuance item.';
-                break;
-            }
-            $iiStmt->bind_param('i', $issuanceItemId);
-            $iiStmt->execute();
-            $iiRes = $iiStmt->get_result();
-            $iiRow = $iiRes ? $iiRes->fetch_assoc() : null;
-            $iiStmt->close();
-
-            if (!$iiRow) {
-                $errors[] = 'Invalid issuance item selected.';
-                continue;
-            }
-
-            $available = (float) $iiRow['quantity_issued'];
-            if ($returnQty > $available) {
-                $errors[] = 'Return quantity cannot exceed issued quantity for issuance item ID ' . $issuanceItemId . '.';
-                continue;
-            }
-
-            $validatedItems[] = [
-                'issuance_item_id' => $issuanceItemId,
-                'stock_item_id' => (int) $iiRow['stock_item_id'],
-                'return_quantity' => $returnQty,
-                'remarks' => $lineRemarks,
-            ];
-        }
-
-        if (empty($validatedItems)) {
-            $errors[] = 'Enter at least one quantity to return.';
-        }
-
-        if (empty($errors)) {
+        if (!$errors && $asset) {
             $db->begin_transaction();
             try {
-                $systemReference = next_module_code($db, 'returns');
+                $systemRef = next_module_code($db, 'returns');
                 $userId = current_user_id();
+                $officeId = (int) ($asset['current_office_id'] ?? 0);
+                $employeeId = (int) ($asset['current_employee_id'] ?? 0);
 
-                $headerStmt = $db->prepare("INSERT INTO returns (system_reference, return_date, issuance_id, remarks, created_by) VALUES (?, ?, ?, ?, ?)");
-                $itemStmt = $db->prepare("INSERT INTO return_items (return_id, issuance_item_id, stock_item_id, quantity_returned, remarks) VALUES (?, ?, ?, ?, ?)");
-                $stockUpdateStmt = $db->prepare("UPDATE stock_items SET quantity_on_hand = quantity_on_hand + ?, quantity_issued = quantity_issued - ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
-                $movementStmt = $db->prepare("INSERT INTO stock_movements (stock_item_id, movement_type, movement_date, reference_type, reference_id, quantity_in, quantity_out, balance_after, remarks, created_by) VALUES (?, 'return', ?, 'return', ?, ?, 0.00, ?, ?, ?)");
+                $ins = $db->prepare("
+                    INSERT INTO returns (
+                        system_reference,
+                        return_date,
+                        distribution_item_detail_id,
+                        office_id,
+                        employee_id,
+                        reason,
+                        remarks,
+                        status,
+                        created_by
+                    ) VALUES (?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), ?, ?, 'posted', ?)
+                ");
 
-                if (!$headerStmt || !$itemStmt || !$stockUpdateStmt || !$movementStmt) {
-                    throw new RuntimeException('Unable to prepare return statements.');
+                if (!$ins) {
+                    throw new RuntimeException('Unable to prepare the return insert statement.');
                 }
 
-                $headerStmt->bind_param('siiis', $systemReference, $form['return_date'], $issuanceId, $form['remarks'], $userId);
-                $headerStmt->execute();
-                $returnId = (int) $headerStmt->insert_id;
-                $headerStmt->close();
+                $ins->bind_param('ssiiissi', $systemRef, $form['return_date'], $detailId, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
+                $ins->execute();
+                $ins->close();
 
-                foreach ($validatedItems as $item) {
-                    // get current on hand for balance calculation
-                    $qStmt = $db->prepare("SELECT quantity_on_hand FROM stock_items WHERE id = ? LIMIT 1");
-                    $qStmt->bind_param('i', $item['stock_item_id']);
-                    $qStmt->execute();
-                    $qRes = $qStmt->get_result();
-                    $qRow = $qRes ? $qRes->fetch_assoc() : null;
-                    $qStmt->close();
-                    $before = $qRow ? (int) $qRow['quantity_on_hand'] : 0;
-
-                    $itemStmt->bind_param('iiids', $returnId, $item['issuance_item_id'], $item['stock_item_id'], $item['return_quantity'], $item['remarks']);
-                    $itemStmt->execute();
-
-                    $stockUpdateStmt->bind_param('diii', $item['return_quantity'], $item['return_quantity'], $userId, $item['stock_item_id']);
-                    $stockUpdateStmt->execute();
-
-                    $balanceAfter = $before + $item['return_quantity'];
-                    $movementStmt->bind_param('isidssi', $item['stock_item_id'], $form['return_date'], $returnId, $item['return_quantity'], $balanceAfter, $item['remarks'], $userId);
-                    $movementStmt->execute();
+                $upd = $db->prepare("
+                    UPDATE distribution_item_details
+                    SET
+                        is_distributed = 0,
+                        current_office_id = NULL,
+                        current_employee_id = NULL,
+                        current_responsibility_code_id = NULL
+                    WHERE id = ?
+                ");
+                if (!$upd) {
+                    throw new RuntimeException('Unable to update the asset accountability state.');
                 }
+                $upd->bind_param('i', $detailId);
+                $upd->execute();
+                $upd->close();
 
-                $movementStmt->close();
-                $stockUpdateStmt->close();
-                $itemStmt->close();
                 $db->commit();
-                set_flash('success', 'Return posted successfully.');
+                set_flash('success', 'Return recorded successfully.');
                 redirect('modules/returns/index.php');
             } catch (Throwable $e) {
                 $db->rollback();
-                $errors[] = 'Unable to save the return.';
+                $errors[] = 'Unable to record the return.';
             }
         }
     }
 
-    $returnResult = $db->query("SELECT r.id, r.system_reference, r.return_date, o.office_name, i.system_reference AS issuance_reference FROM returns r INNER JOIN issuances i ON i.id = r.issuance_id INNER JOIN offices o ON o.id = i.office_id ORDER BY r.return_date DESC, r.id DESC");
-    if ($returnResult) {
-        $returns = $returnResult->fetch_all(MYSQLI_ASSOC);
+    $availableSql = "
+        SELECT
+            did.id,
+            did.property_number,
+            did.brand,
+            did.model,
+            did.serial_no,
+            poi.item_type,
+            poi.item_description,
+            c.classification_name,
+            c.classification_family,
+            d.document_no,
+            d.document_type,
+            o.office_name,
+            e.first_name,
+            e.middle_name,
+            e.last_name,
+            e.suffix_name
+        FROM distribution_item_details did
+        INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+        INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
+        INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
+        INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+        LEFT JOIN classifications c ON c.id = poi.classification_id
+        LEFT JOIN offices o ON o.id = did.current_office_id
+        LEFT JOIN employees e ON e.id = did.current_employee_id
+        LEFT JOIN returns rt ON rt.distribution_item_detail_id = did.id AND rt.status = 'posted'
+        WHERE did.is_distributed = 1
+          AND (did.is_disposed IS NULL OR did.is_disposed = 0)
+          AND rt.id IS NULL
+          AND poi.item_type IN ('semi_expendable', 'equipment')
+    ";
+    $types = '';
+    $params = [];
+    if ($typeFilter !== 'all') {
+        $availableSql .= " AND poi.item_type = ?";
+        $types .= 's';
+        $params[] = $typeFilter;
+    }
+    if ($search !== '') {
+        $availableSql .= " AND (
+            did.property_number LIKE CONCAT('%', ?, '%')
+            OR did.serial_no LIKE CONCAT('%', ?, '%')
+            OR poi.item_description LIKE CONCAT('%', ?, '%')
+            OR did.brand LIKE CONCAT('%', ?, '%')
+            OR did.model LIKE CONCAT('%', ?, '%')
+            OR o.office_name LIKE CONCAT('%', ?, '%')
+        )";
+        $types .= 'ssssss';
+        array_push($params, $search, $search, $search, $search, $search, $search);
+    }
+    $availableSql .= " ORDER BY poi.item_type ASC, poi.item_description ASC, did.property_number ASC, did.serial_no ASC";
+
+    $availableStmt = $db->prepare($availableSql);
+    if ($availableStmt) {
+        if ($params) {
+            $availableStmt->bind_param($types, ...$params);
+        }
+        $availableStmt->execute();
+        $available = $availableStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $availableStmt->close();
+    }
+
+    $rowsSql = "
+        SELECT
+            rt.id,
+            rt.system_reference,
+            rt.return_date,
+            rt.reason,
+            rt.remarks,
+            did.property_number,
+            did.serial_no,
+            poi.item_type,
+            poi.item_description,
+            c.classification_name,
+            c.classification_family,
+            d.document_no,
+            d.document_type,
+            o.office_name,
+            e.first_name,
+            e.middle_name,
+            e.last_name,
+            e.suffix_name
+        FROM returns rt
+        LEFT JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
+        LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
+        LEFT JOIN distributions d ON d.id = di.distribution_id
+        LEFT JOIN receiving_items ri ON ri.id = di.receiving_item_id
+        LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+        LEFT JOIN classifications c ON c.id = poi.classification_id
+        LEFT JOIN offices o ON o.id = rt.office_id
+        LEFT JOIN employees e ON e.id = rt.employee_id
+        ORDER BY rt.return_date DESC, rt.id DESC
+    ";
+    $rowsResult = $db->query($rowsSql);
+    if ($rowsResult) {
+        $rows = $rowsResult->fetch_all(MYSQLI_ASSOC);
+    }
+}
+
+$availableCount = count($available);
+$recentCount = count($rows);
+$equipmentAvailable = 0;
+$semiAvailable = 0;
+foreach ($available as $assetRow) {
+    if (($assetRow['item_type'] ?? '') === 'equipment') {
+        $equipmentAvailable++;
+    } elseif (($assetRow['item_type'] ?? '') === 'semi_expendable') {
+        $semiAvailable++;
     }
 }
 
@@ -470,125 +316,144 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
-                <h5 class="card-title mb-3">Encode Return</h5>
-                <?php if ($errors): ?><div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
-                <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?>
-
-                <form method="post">
-                    <div class="row g-3 mb-4">
-                        <div class="col-md-3">
-                            <label class="form-label">System Reference</label>
-                            <input type="text" class="form-control" value="<?php echo h($form['system_reference']); ?>" readonly>
-                        </div>
-                        <div class="col-md-3">
-                            <label for="return_date" class="form-label">Return Date</label>
-                            <input type="date" class="form-control" id="return_date" name="return_date" value="<?php echo h($form['return_date']); ?>" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label for="issuance_id" class="form-label">Select Issuance</label>
-                            <select class="form-select" id="issuance_id" name="issuance_id" required onchange="if(this.value) location.href='?issuance_id='+this.value;">
-                                <option value="">Select issuance</option>
-                                <?php foreach ($issuances as $iss): ?>
-                                    <option value="<?php echo (int) $iss['id']; ?>" <?php echo $selectedIssuanceId === (int) $iss['id'] ? 'selected' : ''; ?>>
-                                        <?php echo h($iss['system_reference'] . ' - ' . date('M d, Y', strtotime($iss['issuance_date'])) . ' | ' . $iss['office_name']); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
+                <div class="report-page-shell">
+                    <div class="report-toolbar">
+                        <div>
+                            <h5 class="report-toolbar-title mb-0">Returns</h5>
+                            <p class="report-toolbar-copy">Record the return of distributed semi-expendable or equipment assets and bring them back out of active accountability without losing the audit trail.</p>
                         </div>
                     </div>
 
-                    <div class="table-responsive mb-4">
-                        <table class="table table-sm align-middle">
+                    <?php if ($flash): ?>
+                        <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div>
+                    <?php endif; ?>
+                    <?php if ($errors): ?>
+                        <div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div>
+                    <?php endif; ?>
+
+                    <div class="report-summary-grid">
+                        <div class="report-summary-card">
+                            <div class="report-summary-label">Available Assets</div>
+                            <div class="report-summary-value"><?php echo number_format($availableCount); ?></div>
+                            <div class="report-summary-note">Distributed assets that can still be returned.</div>
+                        </div>
+                        <div class="report-summary-card">
+                            <div class="report-summary-label">Semi-Expendable</div>
+                            <div class="report-summary-value"><?php echo number_format($semiAvailable); ?></div>
+                            <div class="report-summary-note">Semi assets currently available for return.</div>
+                        </div>
+                        <div class="report-summary-card">
+                            <div class="report-summary-label">Equipment</div>
+                            <div class="report-summary-value"><?php echo number_format($equipmentAvailable); ?></div>
+                            <div class="report-summary-note">Equipment assets currently available for return.</div>
+                        </div>
+                        <div class="report-summary-card">
+                            <div class="report-summary-label">Recent Records</div>
+                            <div class="report-summary-value"><?php echo number_format($recentCount); ?></div>
+                            <div class="report-summary-note">Posted return transactions already recorded.</div>
+                        </div>
+                    </div>
+
+                    <div class="report-filter-card">
+                        <h6 class="report-filter-title">Find Returnable Assets</h6>
+                        <form method="get" class="row g-3 align-items-end">
+                            <div class="col-md-3">
+                                <label class="form-label">Inventory Type</label>
+                                <select name="item_type" class="form-select">
+                                    <option value="all" <?php echo $typeFilter === 'all' ? 'selected' : ''; ?>>All accountable assets</option>
+                                    <option value="semi_expendable" <?php echo $typeFilter === 'semi_expendable' ? 'selected' : ''; ?>>Semi-Expendable</option>
+                                    <option value="equipment" <?php echo $typeFilter === 'equipment' ? 'selected' : ''; ?>>Equipment</option>
+                                </select>
+                            </div>
+                            <div class="col-md-7">
+                                <label class="form-label">Search</label>
+                                <input type="text" name="q" class="form-control" value="<?php echo h($search); ?>" placeholder="Property no., serial no., description, brand, model, or office">
+                            </div>
+                            <div class="col-md-2 d-flex gap-2">
+                                <button type="submit" class="btn btn-primary w-100">Apply</button>
+                                <a href="<?php echo base_url('modules/returns/index.php'); ?>" class="btn btn-outline-secondary">Reset</a>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="report-filter-card">
+                        <h6 class="report-filter-title">Record Return</h6>
+                        <form method="post" class="row g-3 align-items-end">
+                            <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                            <div class="col-md-6">
+                                <label class="form-label">Accountable Asset</label>
+                                <select name="distribution_item_detail_id" class="form-select" required>
+                                    <option value="">Select distributed asset</option>
+                                    <?php foreach ($available as $asset): ?>
+                                        <option value="<?php echo (int) $asset['id']; ?>" <?php echo $form['distribution_item_detail_id'] === (string) $asset['id'] ? 'selected' : ''; ?>>
+                                            <?php
+                                            echo h(trim(implode(' | ', array_filter([
+                                                strtoupper((string) ($asset['item_type'] ?? '')),
+                                                $asset['property_number'] ?? '',
+                                                $asset['serial_no'] ?? '',
+                                                return_asset_label($asset),
+                                                $asset['office_name'] ?? '',
+                                            ]))));
+                                            ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Return Date</label>
+                                <input type="date" name="return_date" class="form-control" value="<?php echo h($form['return_date']); ?>" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Reason</label>
+                                <input type="text" name="reason" class="form-control" value="<?php echo h($form['reason']); ?>" placeholder="Reason for return">
+                            </div>
+                            <div class="col-md-10">
+                                <label class="form-label">Remarks</label>
+                                <input type="text" name="remarks" class="form-control" value="<?php echo h($form['remarks']); ?>" placeholder="Optional notes for the return record">
+                            </div>
+                            <div class="col-md-2 d-grid">
+                                <button class="btn btn-primary">Post Return</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="report-table-card table-responsive">
+                        <table class="table align-middle">
                             <thead>
                                 <tr>
-                                    <th>Issuance Item</th>
-                                    <th class="text-end">Quantity Issued</th>
-                                    <th class="text-end">On Hand</th>
-                                    <th style="width: 150px;">Return Qty</th>
-                                    <th style="width: 220px;">Remarks</th>
+                                    <th>Reference</th>
+                                    <th>Date</th>
+                                    <th>Asset</th>
+                                    <th>Document</th>
+                                    <th>From Office / Officer</th>
+                                    <th>Reason</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php if ($issuanceItems): ?>
-                                    <?php foreach ($issuanceItems as $it): ?>
+                                <?php if ($rows): ?>
+                                    <?php foreach ($rows as $row): ?>
                                         <tr>
+                                            <td class="fw-semibold"><?php echo h($row['system_reference']); ?></td>
+                                            <td><?php echo h(!empty($row['return_date']) ? date('M d, Y', strtotime((string) $row['return_date'])) : ''); ?></td>
                                             <td>
-                                                <div class="fw-semibold"><?php echo h($it['system_reference']); ?></div>
-                                                <div><?php echo h($it['item_description']); ?></div>
+                                                <div class="fw-semibold"><?php echo h($row['property_number'] ?? ''); ?></div>
+                                                <div><?php echo h(return_asset_label($row)); ?></div>
+                                                <?php if (!empty($row['serial_no'])): ?><div class="small text-muted"><?php echo h($row['serial_no']); ?></div><?php endif; ?>
                                             </td>
-                                            <td class="text-end"><?php echo h(number_format((float) $it['quantity_issued'], 2)); ?></td>
-                                            <td class="text-end fw-semibold"><?php echo h(number_format((float) $it['quantity_on_hand'], 2)); ?></td>
-                                            <td>
-                                                <input type="number" class="form-control form-control-sm" step="0.01" min="0" max="<?php echo h((string) $it['quantity_issued']); ?>" name="items[<?php echo (int) $it['id']; ?>][return_quantity]" value="0.00">
-                                            </td>
-                                            <td>
-                                                <input type="text" class="form-control form-control-sm" name="items[<?php echo (int) $it['id']; ?>][remarks]" value="">
-                                            </td>
+                                            <td><?php echo h(trim(implode(' / ', array_filter([$row['document_type'] ?? '', $row['document_no'] ?? ''])))); ?></td>
+                                            <td><?php echo h(trim(implode(' / ', array_filter([$row['office_name'] ?? '', employee_display_name($row)])))); ?></td>
+                                            <td><?php echo h(trim(implode(' | ', array_filter([$row['reason'] ?? '', $row['remarks'] ?? ''])))); ?></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <tr><td colspan="5" class="text-center text-muted py-4">Select an issuance to list its items for return.</td></tr>
+                                    <tr><td colspan="6" class="text-center text-muted py-4">No return records yet.</td></tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
-
-                    <div class="d-flex justify-content-end">
-                        <button type="submit" class="btn btn-primary" <?php echo $issuanceItems ? '' : 'disabled'; ?>>Post Return</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <h5 class="card-title mb-0">Return Records</h5>
-                    <span class="badge text-bg-light"><?php echo count($returns); ?> record(s)</span>
-                </div>
-                <div class="table-responsive">
-                    <table class="table align-middle">
-                        <thead>
-                            <tr>
-                                <th>Reference</th>
-                                <th>Date</th>
-                                <th>Office</th>
-                                <th>Issuance Ref</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if ($returns): ?>
-                                <?php foreach ($returns as $r): ?>
-                                    <tr>
-                                        <td class="fw-semibold"><?php echo h($r['system_reference']); ?></td>
-                                        <td><?php echo h(date('M d, Y', strtotime($r['return_date']))); ?></td>
-                                        <td><?php echo h($r['office_name']); ?></td>
-                                        <td class="fw-semibold"><?php echo h($r['issuance_reference']); ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <tr><td colspan="4" class="text-center text-muted py-4">No return records yet.</td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </div>
     </div>
 </section>
-<?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-<?php
-require_once __DIR__ . '/../../app/config/init.php';
-if (empty($_SESSION['user_id'])) { header('Location: ../../auth/login.php'); exit; }
-$page_title = 'Returns';
-require_once __DIR__ . '/../../includes/header.php';
-require_once __DIR__ . '/../../includes/sidebar.php';
-require_once __DIR__ . '/../../includes/topbar.php';
-?>
-<main class="py-4 container">
-  <h2>Returns</h2>
-  <p>Module placeholder — asset returns management.</p>
-</main>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

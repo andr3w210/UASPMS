@@ -17,6 +17,33 @@ $purchaseOrders = [];
 $offices = [];
 $cards = [];
 
+function property_card_meta(array $card): array
+{
+    $itemType = (string) ($card['item_type'] ?? '');
+    if ($itemType === 'semi_expendable') {
+        return [
+            'appendix' => 'Annex A.1',
+            'title' => 'Semi Expendable Property Card',
+            'asset_label' => 'Semi-expendable Property',
+            'number_label' => 'Semi-expendable Property Number',
+            'reference_label' => 'Reference',
+            'issue_label' => 'Issue / Transfer / Disposal',
+            'issue_ref_label' => 'Item No.',
+            'issue_party_label' => 'Office / Officer',
+        ];
+    }
+    return [
+        'appendix' => 'Appendix 69',
+        'title' => 'Property Card',
+        'asset_label' => 'Property, Plant and Equipment',
+        'number_label' => 'Property Number',
+        'reference_label' => 'Reference / PAR No.',
+        'issue_label' => 'Issue / Transfer / Disposal',
+        'issue_ref_label' => 'Reference',
+        'issue_party_label' => 'Office / Officer',
+    ];
+}
+
 if ($db) {
     $poRes = $db->query("SELECT id, po_number FROM purchase_orders ORDER BY po_date DESC, id DESC");
     if ($poRes) {
@@ -53,7 +80,10 @@ if ($db) {
                     rc.code AS rc_code,
                     did.property_number,
                     f.fund_code,
-                    po.po_number
+                    po.po_number,
+                    poi.item_type,
+                    c.classification_name,
+                    c.classification_family
                 FROM distribution_item_details did
                 INNER JOIN distribution_items di ON di.id = did.distribution_item_id
                 INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
@@ -100,6 +130,9 @@ if ($db) {
                     'card_key' => 'system-' . (int) $row['card_key'],
                     'source_type' => 'system',
                     'po_number' => $row['po_number'] ?? '',
+                    'item_type' => $row['item_type'] ?? '',
+                    'classification_name' => $row['classification_name'] ?? '',
+                    'classification_family' => $row['classification_family'] ?? '',
                     'fund_code' => $row['fund_code'] ?? '',
                     'accountability_no' => $row['accountability_no'] ?? '',
                     'document_type' => strtoupper((string) ($row['document_type'] ?? '')),
@@ -119,16 +152,25 @@ if ($db) {
                             'date' => $row['received_date'] ?? null,
                             'reference' => $row['iar_ref'] ?? '',
                             'receipt_qty' => 1,
+                            'receipt_unit_cost' => (float) ($row['unit_cost'] ?? 0),
                             'receipt_cost' => (float) ($row['unit_cost'] ?? 0),
                             'issue_qty' => 0,
+                            'issue_reference' => '',
+                            'issue_party' => '',
                             'remarks' => 'Receipt',
                         ],
                         [
                             'date' => $row['distribution_date'] ?? null,
                             'reference' => $row['accountability_no'] ?? '',
                             'receipt_qty' => 0,
+                            'receipt_unit_cost' => 0,
                             'receipt_cost' => 0,
                             'issue_qty' => 1,
+                            'issue_reference' => $row['property_number'] ?? '',
+                            'issue_party' => trim(implode(' / ', array_filter([
+                                $row['office_name'] ?? '',
+                                employee_display_name($row),
+                            ]))),
                             'remarks' => 'Issued (' . strtoupper((string) ($row['document_type'] ?? '')) . ')',
                         ],
                     ],
@@ -163,8 +205,12 @@ if ($db) {
                         rc.code AS rc_code,
                         la.property_number,
                         '' AS fund_code,
-                        '' AS po_number
+                        '' AS po_number,
+                        la.item_type,
+                        c.classification_name,
+                        c.classification_family
                     FROM legacy_assets la
+                    LEFT JOIN classifications c ON c.id = la.classification_id
                     LEFT JOIN offices o ON o.id = la.office_id
                     LEFT JOIN employees e ON e.id = la.employee_id
                     LEFT JOIN responsibility_codes rc ON rc.id = la.responsibility_code_id
@@ -194,6 +240,9 @@ if ($db) {
                     'card_key' => 'legacy-' . (int) $row['card_key'],
                     'source_type' => 'legacy',
                     'po_number' => '',
+                    'item_type' => $row['item_type'] ?? '',
+                    'classification_name' => $row['classification_name'] ?? '',
+                    'classification_family' => $row['classification_family'] ?? '',
                     'fund_code' => '',
                     'accountability_no' => 'Beginning Balance',
                     'document_type' => 'LEGACY',
@@ -213,8 +262,11 @@ if ($db) {
                             'date' => $row['received_date'] ?? null,
                             'reference' => 'Beginning Balance',
                             'receipt_qty' => 1,
+                            'receipt_unit_cost' => (float) ($row['unit_cost'] ?? 0),
                             'receipt_cost' => (float) ($row['unit_cost'] ?? 0),
                             'issue_qty' => 0,
+                            'issue_reference' => '',
+                            'issue_party' => '',
                             'remarks' => 'Opening balance',
                         ],
                     ],
@@ -309,15 +361,17 @@ if ($db) {
         <div class="card card-print mb-4">
             <div class="card-body">
                 <div class="text-center">
+                    <?php $meta = property_card_meta($card); ?>
                     <img src="<?php echo h(LOGO_PATH); ?>" style="width:60px;height:60px;object-fit:contain;" alt="logo">
+                    <div class="small fst-italic"><?php echo h($meta['appendix']); ?></div>
                     <h5 class="mt-2">University of Antique</h5>
-                    <div>Property Card (COA GAM Appendix 73)</div>
+                    <div><?php echo h($meta['title']); ?></div>
                 </div>
                 <div class="row mt-3">
                     <div class="col-6">
                         <div><strong>Fund Cluster:</strong> <?php echo h($card['fund_code']); ?></div>
-                        <div><strong>Property Card No.:</strong> <?php echo h($card['accountability_no']); ?></div>
-                        <div><strong>Property Number:</strong> <?php echo h($card['property_number']); ?></div>
+                        <div><strong><?php echo h($meta['asset_label']); ?>:</strong> <?php echo h($card['classification_name'] ?: $card['classification_family']); ?></div>
+                        <div><strong><?php echo h($meta['number_label']); ?>:</strong> <?php echo h($card['property_number']); ?></div>
                         <div><strong>Source:</strong> <?php echo h($card['source_type'] === 'legacy' ? 'Beginning Balance' : 'System Transaction'); ?></div>
                         <?php if ($card['po_number'] !== ''): ?>
                             <div><strong>PO Number:</strong> <?php echo h($card['po_number']); ?></div>
@@ -325,6 +379,7 @@ if ($db) {
                     </div>
                     <div class="col-6">
                         <div><strong>Item Description:</strong> <?php echo h($card['item_description']); ?></div>
+                        <div><strong>Reference No.:</strong> <?php echo h($card['accountability_no']); ?></div>
                         <div><strong>Brand:</strong> <?php echo h($card['brand']); ?></div>
                         <div><strong>Model:</strong> <?php echo h($card['model']); ?></div>
                         <div><strong>Serial No.:</strong> <?php echo h($card['serial_no']); ?></div>
@@ -339,14 +394,21 @@ if ($db) {
                     <table class="table table-sm table-bordered">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Reference</th>
-                                <th>Receipt Qty</th>
-                                <th>Receipt Cost</th>
-                                <th>Issue Qty</th>
-                                <th>Balance Qty</th>
-                                <th>Balance Cost</th>
-                                <th>Remarks</th>
+                                <th rowspan="2">Date</th>
+                                <th rowspan="2"><?php echo h($meta['reference_label']); ?></th>
+                                <th colspan="3" class="text-center">Receipt</th>
+                                <th colspan="3" class="text-center"><?php echo h($meta['issue_label']); ?></th>
+                                <th rowspan="2">Balance Qty</th>
+                                <th rowspan="2">Amount</th>
+                                <th rowspan="2">Remarks</th>
+                            </tr>
+                            <tr>
+                                <th>Qty.</th>
+                                <th>Unit Cost</th>
+                                <th>Total Cost</th>
+                                <th><?php echo h($meta['issue_ref_label']); ?></th>
+                                <th>Qty.</th>
+                                <th><?php echo h($meta['issue_party_label']); ?></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -361,8 +423,11 @@ if ($db) {
                                 <td><?php echo h(!empty($row['date']) ? date('M d, Y', strtotime($row['date'])) : ''); ?></td>
                                 <td><?php echo h($row['reference'] ?? ''); ?></td>
                                 <td class="text-end"><?php echo h(number_format((float) ($row['receipt_qty'] ?? 0), 2)); ?></td>
+                                <td class="text-end"><?php echo h(number_format((float) ($row['receipt_unit_cost'] ?? 0), 2)); ?></td>
                                 <td class="text-end"><?php echo h(number_format((float) ($row['receipt_cost'] ?? 0), 2)); ?></td>
+                                <td><?php echo h($row['issue_reference'] ?? ''); ?></td>
                                 <td class="text-end"><?php echo h(number_format((float) ($row['issue_qty'] ?? 0), 2)); ?></td>
+                                <td><?php echo h($row['issue_party'] ?? ''); ?></td>
                                 <td class="text-end"><?php echo h(number_format($balQty, 2)); ?></td>
                                 <td class="text-end"><?php echo h(number_format($balCost, 2)); ?></td>
                                 <td><?php echo h($row['remarks'] ?? ''); ?></td>
