@@ -93,6 +93,14 @@ if (!$db) {
     }
 }
 
+$rowCount = count($rows);
+$totalQuantity = 0.0;
+$totalAmount = 0.0;
+foreach ($rows as $row) {
+    $totalQuantity += (float) ($row['quantity_issued'] ?? 0);
+    $totalAmount += (float) ($row['line_total'] ?? 0);
+}
+
 if ($isPrint) {
     ?>
     <!doctype html>
@@ -178,51 +186,71 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <div>
-                        <h5 class="card-title mb-0">RSMI</h5>
-                        <div class="text-muted small">Report of Supplies and Materials Issued</div>
+                <div class="report-page-shell">
+                    <div class="report-toolbar">
+                        <div>
+                            <h5 class="report-toolbar-title mb-0">RSMI</h5>
+                            <p class="report-toolbar-copy">Review posted RIS issuances by date and office, then print the official Report of Supplies and Materials Issued directly from the same screen.</p>
+                        </div>
+                        <div class="report-toolbar-actions">
+                            <a href="<?php echo h(base_url('modules/reports/rsmi.php?print=1&date_from=' . urlencode($dateFrom) . '&date_to=' . urlencode($dateTo) . '&office_id=' . $officeId)); ?>" class="btn btn-primary" target="_blank">
+                                <i class="bi bi-printer me-1"></i>Print
+                            </a>
+                        </div>
                     </div>
-                    <a
-                        href="<?php echo h(base_url('modules/reports/rsmi.php?print=1&date_from=' . urlencode($dateFrom) . '&date_to=' . urlencode($dateTo) . '&office_id=' . $officeId)); ?>"
-                        class="btn btn-primary"
-                        target="_blank"
-                    >
-                        <i class="bi bi-printer me-1"></i>Print
-                    </a>
-                </div>
 
-                <?php if ($errors): ?>
-                    <div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div>
-                <?php endif; ?>
+                    <div class="report-summary-grid">
+                        <div class="report-summary-card">
+                            <div class="report-summary-label">Loaded Lines</div>
+                            <div class="report-summary-value"><?php echo number_format($rowCount); ?></div>
+                            <div class="report-summary-note">Issued supply rows in the current result.</div>
+                        </div>
+                        <div class="report-summary-card">
+                            <div class="report-summary-label">Total Quantity</div>
+                            <div class="report-summary-value"><?php echo number_format($totalQuantity, 2); ?></div>
+                            <div class="report-summary-note">Combined issued quantity for the selected filters.</div>
+                        </div>
+                        <div class="report-summary-card">
+                            <div class="report-summary-label">Total Amount</div>
+                            <div class="report-summary-value"><?php echo number_format($totalAmount, 2); ?></div>
+                            <div class="report-summary-note">Line totals summed from posted RIS entries.</div>
+                        </div>
+                    </div>
 
-                <form method="get" class="row g-3 align-items-end mb-4">
-                    <div class="col-md-3">
-                        <label for="date_from" class="form-label">Date From</label>
-                        <input type="date" class="form-control" id="date_from" name="date_from" value="<?php echo h($dateFrom); ?>">
-                    </div>
-                    <div class="col-md-3">
-                        <label for="date_to" class="form-label">Date To</label>
-                        <input type="date" class="form-control" id="date_to" name="date_to" value="<?php echo h($dateTo); ?>">
-                    </div>
-                    <div class="col-md-4">
-                        <label for="office_id" class="form-label">Office</label>
-                        <select class="form-select" id="office_id" name="office_id" data-placeholder="All offices">
-                            <option value="0">All offices</option>
-                            <?php foreach ($offices as $office): ?>
-                                <option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>>
-                                    <?php echo h($office['office_name']); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="col-md-2 d-flex gap-2">
-                        <button type="submit" class="btn btn-primary w-100">Filter</button>
-                        <a href="<?php echo base_url('modules/reports/rsmi.php'); ?>" class="btn btn-outline-secondary">Reset</a>
-                    </div>
-                </form>
+                    <?php if ($errors): ?>
+                        <div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div>
+                    <?php endif; ?>
 
-                <div class="table-responsive">
+                    <div class="report-filter-card">
+                        <h6 class="report-filter-title">Filter Report</h6>
+                        <form method="get" class="row g-3 align-items-end">
+                            <div class="col-md-3">
+                                <label for="date_from" class="form-label">Date From</label>
+                                <input type="date" class="form-control" id="date_from" name="date_from" value="<?php echo h($dateFrom); ?>">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="date_to" class="form-label">Date To</label>
+                                <input type="date" class="form-control" id="date_to" name="date_to" value="<?php echo h($dateTo); ?>">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="office_id" class="form-label">Office</label>
+                                <select class="form-select" id="office_id" name="office_id" data-placeholder="All offices">
+                                    <option value="0">All offices</option>
+                                    <?php foreach ($offices as $office): ?>
+                                        <option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>>
+                                            <?php echo h($office['office_name']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-flex gap-2">
+                                <button type="submit" class="btn btn-primary w-100">Apply</button>
+                                <a href="<?php echo base_url('modules/reports/rsmi.php'); ?>" class="btn btn-outline-secondary">Reset</a>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="report-table-card table-responsive">
                     <table class="table align-middle">
                         <thead>
                             <tr>
@@ -259,6 +287,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
         </div>

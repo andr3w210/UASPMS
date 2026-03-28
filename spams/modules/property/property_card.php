@@ -125,17 +125,18 @@ foreach ($rows as $r) {
                 <div class="card-body">
                     <div class="text-center">
                         <img src="<?php echo h(LOGO_PATH); ?>" style="width:60px;height:60px;object-fit:contain;" alt="logo">
+                        <div class="small fst-italic">Appendix 69</div>
                         <h5 class="mt-2">University of Antique</h5>
-                        <div>Property Card (COA GAM Appendix 73)</div>
+                        <div>Property Card</div>
                     </div>
                     <div class="row mt-3">
                         <div class="col-6">
                             <div><strong>Fund Cluster:</strong> <?php echo h($card['fund_code']); ?></div>
-                            <div><strong>Property Card No.:</strong> <?php echo h($card['par_no'] ?? ''); ?></div>
+                            <div><strong>Property, Plant and Equipment:</strong> <?php echo h($card['item_description']); ?></div>
                             <div><strong>Property Number:</strong> <?php echo h($card['property_number'] ?? ''); ?></div>
                         </div>
                         <div class="col-6">
-                            <div><strong>Item Description:</strong> <?php echo h($card['item_description']); ?></div>
+                            <div><strong>Reference / PAR No.:</strong> <?php echo h($card['par_no'] ?? ''); ?></div>
                             <div><strong>Brand:</strong> <?php echo h($card['brand']); ?></div>
                             <div><strong>Model:</strong> <?php echo h($card['model']); ?></div>
                             <div><strong>Serial No.:</strong> <?php echo h($card['serial_no']); ?></div>
