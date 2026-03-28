@@ -16,7 +16,7 @@ if (!$db || $currentUserId <= 0) {
     exit;
 }
 
-ensure_user_messages_table($db);
+ensure_messaging_infrastructure($db);
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -37,6 +37,53 @@ if (!csrf_verify()) {
 }
 
 $messageId = (int) ($_POST['message_id'] ?? 0);
+$channelMessageId = (int) ($_POST['channel_message_id'] ?? 0);
+if ($channelMessageId > 0) {
+    $channelStmt = $db->prepare("
+        SELECT id
+        FROM channel_messages
+        WHERE id = ?
+        LIMIT 1
+    ");
+    if (!$channelStmt) {
+        http_response_code(500);
+        echo json_encode([
+            'ok' => false,
+            'message' => 'Unable to update the message.',
+        ]);
+        exit;
+    }
+
+    $channelStmt->bind_param('i', $channelMessageId);
+    $channelStmt->execute();
+    $channelMessage = $channelStmt->get_result()->fetch_assoc();
+    $channelStmt->close();
+
+    if (!$channelMessage) {
+        http_response_code(404);
+        echo json_encode([
+            'ok' => false,
+            'message' => 'Message not found.',
+        ]);
+        exit;
+    }
+
+    if (!message_hide_channel_message($db, $channelMessageId, $currentUserId)) {
+        http_response_code(500);
+        echo json_encode([
+            'ok' => false,
+            'message' => 'Unable to update the message.',
+        ]);
+        exit;
+    }
+
+    echo json_encode([
+        'ok' => true,
+        'message' => 'Message removed from your view.',
+    ]);
+    exit;
+}
+
 if ($messageId <= 0) {
     http_response_code(422);
     echo json_encode([

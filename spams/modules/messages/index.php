@@ -51,7 +51,7 @@ if ($db && $currentUserId > 0) {
         $contextSql = " AND related_table = '" . $db->real_escape_string($selectedRelatedTable) . "' AND related_id = " . $selectedRelatedId . " ";
     }
 
-    $generalPreviewStmt = $db->prepare("SELECT subject, message_body, created_at FROM channel_messages WHERE channel_key = 'general' " . $contextSql . " ORDER BY created_at DESC, id DESC LIMIT 1");
+    $generalPreviewStmt = $db->prepare("SELECT cm.subject, cm.message_body, cm.created_at FROM channel_messages cm LEFT JOIN message_channel_hidden mch ON mch.channel_message_id = cm.id AND mch.user_id = " . $currentUserId . " WHERE cm.channel_key = 'general' AND mch.channel_message_id IS NULL " . $contextSql . " ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1");
     $generalPreview = 'Shared coordination, announcements, and mentions.';
     $generalCreatedAt = '';
     if ($generalPreviewStmt) {
@@ -113,7 +113,8 @@ if ($db && $currentUserId > 0) {
                    sender.full_name AS sender_full_name, sender.username AS sender_username
             FROM channel_messages cm
             INNER JOIN users sender ON sender.id = cm.sender_user_id
-            WHERE cm.channel_key = 'general' $contextSql
+            LEFT JOIN message_channel_hidden mch ON mch.channel_message_id = cm.id AND mch.user_id = " . $currentUserId . "
+            WHERE cm.channel_key = 'general' AND mch.channel_message_id IS NULL $contextSql
             ORDER BY cm.created_at ASC, cm.id ASC
         ");
         if ($threadStmt) {
@@ -249,7 +250,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                             <?php if (trim((string) ($message['subject'] ?? '')) !== ''): ?><div class="fw-semibold mb-2"><?php echo h($message['subject']); ?></div><?php endif; ?>
                             <div style="white-space: pre-wrap;"><?php echo message_highlight_mentions_html((string) $message['message_body']); ?></div>
-                            <?php if ($selectedChannelKey !== 'general'): ?><div class="mt-2 text-end"><button type="button" class="btn btn-sm btn-outline-secondary message-delete-btn" data-message-id="<?php echo (int) $message['id']; ?>"><i class="bi bi-trash3"></i> Delete for me</button></div><?php endif; ?>
+                            <div class="mt-2 text-end"><button type="button" class="btn btn-sm btn-outline-secondary message-delete-btn" data-message-id="<?php echo $selectedChannelKey === 'general' ? 0 : (int) $message['id']; ?>" data-channel-message-id="<?php echo $selectedChannelKey === 'general' ? (int) $message['id'] : 0; ?>"><i class="bi bi-trash3"></i> Delete for me</button></div>
                         </div>
                     </div>
                 <?php endforeach; ?></div><?php else: ?><div class="text-center text-muted py-5">No messages yet in this conversation.</div><?php endif; ?>
@@ -273,7 +274,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
     function status(text, err){ if(!composeStatus){ return; } composeStatus.textContent = text || ''; composeStatus.classList.toggle('d-none', !text); composeStatus.classList.toggle('text-danger', !!err); composeStatus.classList.toggle('text-success', !err && !!text); }
     if(recipientField){ recipientField.addEventListener('change', syncTarget); syncTarget(); }
     if(composeForm){ composeForm.addEventListener('submit', function(e){ e.preventDefault(); syncTarget(); var fd = new FormData(composeForm); if(fd.get('recipient_user_id') === '__general__'){ fd.set('recipient_user_id', ''); fd.set('channel_key', 'general'); } status('Sending...', false); fetch(sendUrl, { method:'POST', body:fd, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} }).then(function(r){ return r.json(); }).then(function(data){ if(!data || data.ok !== true){ status(data && data.message ? data.message : 'Unable to send the message.', true); return; } composeForm.reset(); if(window.jQuery && jQuery.fn.select2){ jQuery('#recipient_user_id').val('').trigger('change'); } syncTarget(); status('Message sent.', false); location.reload(); }).catch(function(){ status('Unable to send the message.', true); }); }); }
-    if(threadBody){ threadBody.addEventListener('click', function(e){ var btn = e.target.closest('.message-delete-btn'); if(!btn || !confirm('Remove this message from your view?')){ return; } var fd = new FormData(); fd.append('_csrf', <?php echo json_encode(csrf_token()); ?>); fd.append('message_id', btn.getAttribute('data-message-id') || '0'); fetch(deleteUrl, { method:'POST', body:fd, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} }).then(function(r){ return r.json(); }).then(function(data){ if(!data || data.ok !== true){ status(data && data.message ? data.message : 'Unable to remove the message.', true); return; } location.reload(); }); }); }
+    if(threadBody){ threadBody.addEventListener('click', function(e){ var btn = e.target.closest('.message-delete-btn'); if(!btn || !confirm('Remove this message from your view?')){ return; } var fd = new FormData(); fd.append('_csrf', <?php echo json_encode(csrf_token()); ?>); fd.append('message_id', btn.getAttribute('data-message-id') || '0'); fd.append('channel_message_id', btn.getAttribute('data-channel-message-id') || '0'); fetch(deleteUrl, { method:'POST', body:fd, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} }).then(function(r){ return r.json(); }).then(function(data){ if(!data || data.ok !== true){ status(data && data.message ? data.message : 'Unable to remove the message.', true); return; } location.reload(); }); }); }
     window.setInterval(function(){ fetch(pollUrl, { credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'} }).then(function(r){ return r.json(); }).then(function(data){ if(data && data.ok === true){ badge(parseInt(data.unread_count || 0, 10)); } }).catch(function(){}); }, 8000);
 })();
 </script>

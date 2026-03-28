@@ -725,7 +725,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
             <div class="card-body p-4">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                     <h5 class="card-title mb-0">Posted Distributions</h5>
-                    <span class="badge text-bg-light"><?php echo count($distributions); ?> record(s)</span>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <a href="<?php echo base_url('modules/distributions/par_office.php'); ?>" class="btn btn-sm btn-outline-primary" target="_blank">PAR by Office</a>
+                        <a href="<?php echo base_url('modules/distributions/ics_office.php'); ?>" class="btn btn-sm btn-outline-success" target="_blank">ICS by Office</a>
+                        <span class="badge text-bg-light"><?php echo count($distributions); ?> record(s)</span>
+                    </div>
                 </div>
 
                 <form method="get" class="row g-2 align-items-center mb-3">

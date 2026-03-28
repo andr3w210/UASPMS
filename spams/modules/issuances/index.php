@@ -10,6 +10,12 @@ $issuances = [];
 $stockItems = [];
 $offices = [];
 $employees = [];
+$purchaseOrders = [];
+$selectedPoId = 0;
+$stockLotCount = 0;
+$stockOnHandTotal = 0.00;
+$stockValueTotal = 0.00;
+$groupedStockItems = [];
 $form = [
     'system_reference' => '',
     'issuance_date' => date('Y-m-d'),
@@ -22,6 +28,7 @@ $form = [
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    $selectedPoId = (int) ($_POST['po_id'] ?? ($_GET['po_id'] ?? 0));
     $form['system_reference'] = preview_module_code($db, 'issuances');
 
     $officeResult = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
@@ -29,15 +36,28 @@ if (!$db) {
         $offices = $officeResult->fetch_all(MYSQLI_ASSOC);
     }
 
-    $employeeResult = $db->query("SELECT id, office_id, employee_no, first_name, middle_name, last_name, suffix_name FROM employees WHERE is_active = 1 ORDER BY last_name ASC, first_name ASC");
+    $employeeResult = $db->query("SELECT id, office_id, employee_no, first_name, middle_name, last_name, suffix_name, position_title, is_unit_head FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
     if ($employeeResult) {
         $employees = $employeeResult->fetch_all(MYSQLI_ASSOC);
     }
 
-    $stockResult = $db->query("
+    $poResult = $db->query("
+        SELECT DISTINCT po.id, po.po_number, po.po_date
+        FROM stock_items si
+        INNER JOIN purchase_order_items poi ON poi.id = si.purchase_order_item_id
+        INNER JOIN purchase_orders po ON po.id = poi.purchase_order_id
+        WHERE si.item_type = 'supply'
+          AND si.quantity_on_hand > 0
+        ORDER BY po.po_date DESC, po.id DESC
+    ");
+    if ($poResult) {
+        $purchaseOrders = $poResult->fetch_all(MYSQLI_ASSOC);
+    }
+
+    $stockSql = "
      SELECT si.id, si.system_reference, si.item_type, si.item_description, si.unit_cost, si.quantity_received, si.quantity_issued, si.quantity_on_hand,
          si.account_code_id, si.classification_id, si.unit_of_measure_id, ac.account_code, ac.account_name, c.classification_name,
-         u.uom_name, u.abbreviation, r.system_reference AS receiving_reference, po.po_number
+         u.uom_name, u.abbreviation, r.system_reference AS receiving_reference, po.po_number, po.id AS purchase_order_id, po.po_date
         FROM stock_items si
         LEFT JOIN account_codes ac ON ac.id = si.account_code_id
         LEFT JOIN classifications c ON c.id = si.classification_id
@@ -45,11 +65,47 @@ if (!$db) {
         LEFT JOIN receivings r ON r.id = si.receiving_id
         LEFT JOIN purchase_order_items poi ON poi.id = si.purchase_order_item_id
         LEFT JOIN purchase_orders po ON po.id = poi.purchase_order_id
-        WHERE si.item_type IN ('supply', 'semi_expendable', 'equipment') AND si.quantity_on_hand > 0
-        ORDER BY si.created_at DESC, si.id DESC
-    ");
-    if ($stockResult) {
-        $stockItems = $stockResult->fetch_all(MYSQLI_ASSOC);
+        WHERE si.item_type = 'supply' AND si.quantity_on_hand > 0
+    ";
+    $stockTypes = '';
+    $stockParams = [];
+    if ($selectedPoId > 0) {
+        $stockSql .= " AND po.id = ?";
+        $stockTypes .= 'i';
+        $stockParams[] = $selectedPoId;
+    }
+    $stockSql .= " ORDER BY po.po_date DESC, po.po_number DESC, si.created_at DESC, si.id DESC";
+    $stockStmt = $db->prepare($stockSql);
+    if ($stockStmt) {
+        if ($stockTypes !== '') {
+            $stockStmt->bind_param($stockTypes, ...$stockParams);
+        }
+        $stockStmt->execute();
+        $stockResult = $stockStmt->get_result();
+        if ($stockResult) {
+            $stockItems = $stockResult->fetch_all(MYSQLI_ASSOC);
+        }
+        $stockStmt->close();
+    }
+
+    foreach ($stockItems as $stockItem) {
+        $stockLotCount++;
+        $stockOnHandTotal += (float) ($stockItem['quantity_on_hand'] ?? 0);
+        $stockValueTotal += ((float) ($stockItem['quantity_on_hand'] ?? 0) * (float) ($stockItem['unit_cost'] ?? 0));
+
+        $groupKey = strtolower(trim((string) ($stockItem['classification_name'] ?? ''))) . '|' . strtolower(trim((string) ($stockItem['item_description'] ?? '')));
+        if (!isset($groupedStockItems[$groupKey])) {
+            $groupedStockItems[$groupKey] = [
+                'classification_name' => $stockItem['classification_name'] ?? '',
+                'item_description' => $stockItem['item_description'] ?? '',
+                'lots' => [],
+                'lot_count' => 0,
+                'total_on_hand' => 0.00,
+            ];
+        }
+        $groupedStockItems[$groupKey]['lots'][] = $stockItem;
+        $groupedStockItems[$groupKey]['lot_count']++;
+        $groupedStockItems[$groupKey]['total_on_hand'] += (float) ($stockItem['quantity_on_hand'] ?? 0);
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -190,6 +246,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?>
 
                 <form method="post" id="issuanceForm">
+                    <input type="hidden" name="po_id" value="<?php echo (int) $selectedPoId; ?>">
                     <div class="row g-3 mb-4">
                         <div class="col-md-3">
                             <label class="form-label">System Reference</label>
@@ -215,8 +272,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <select class="form-select" id="employee_id" name="employee_id" data-placeholder="Select employee">
                                 <option value="">Select employee</option>
                                 <?php foreach ($employees as $employee): ?>
-                                    <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
-                                        <?php echo h(employee_display_name($employee) . ' - ' . $employee['employee_no']); ?>
+                                    <option value="<?php echo (int) $employee['id']; ?>"
+                                            data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>"
+                                            data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>"
+                                            <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
+                                        <?php echo h(employee_display_name($employee) . ' - ' . $employee['employee_no'] . (!empty($employee['position_title']) ? ' (' . $employee['position_title'] . ')' : '')); ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -231,13 +291,71 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
 
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h6 class="mb-0">Available Supply Stock</h6>
-                        <span class="small text-muted"><?php echo count($stockItems); ?> stock lot(s) on hand</span>
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <div>
+                            <h6 class="mb-0">Available Supply Stock</h6>
+                            <div class="small text-muted">Issue directly from supply lots on hand, optionally narrowed to one PO.</div>
+                        </div>
+                        <span class="small text-muted"><?php echo count($stockItems); ?> stock lot(s) loaded</span>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <div class="border rounded-3 p-3 bg-light-subtle h-100">
+                                <div class="text-muted small">Loaded Stock Lots</div>
+                                <div class="fs-5 fw-semibold"><?php echo h(number_format($stockLotCount)); ?></div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="border rounded-3 p-3 bg-light-subtle h-100">
+                                <div class="text-muted small">Total On Hand</div>
+                                <div class="fs-5 fw-semibold"><?php echo h(number_format($stockOnHandTotal, 2)); ?></div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="border rounded-3 p-3 bg-light-subtle h-100">
+                                <div class="text-muted small">Estimated Stock Value</div>
+                                <div class="fs-5 fw-semibold"><?php echo h(number_format($stockValueTotal, 2)); ?></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-2 align-items-end mb-3">
+                        <div class="col-md-3">
+                            <label for="poFilter" class="form-label mb-0">Purchase Order</label>
+                            <select id="poFilter" class="form-select form-select-sm">
+                                <option value="">All POs</option>
+                                <?php foreach ($purchaseOrders as $po): ?>
+                                    <option value="<?php echo (int) $po['id']; ?>" <?php echo $selectedPoId === (int) $po['id'] ? 'selected' : ''; ?>>
+                                        <?php echo h(($po['po_number'] ?: ('PO #' . (int) $po['id'])) . (!empty($po['po_date']) ? ' - ' . date('M d, Y', strtotime($po['po_date'])) : '')); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="stockSearch" class="form-label mb-0">Search Supply Stock</label>
+                            <input type="search" id="stockSearch" class="form-control form-control-sm" placeholder="Search stock ref, description, class, account, PO...">
+                        </div>
+                        <div class="col-md-2">
+                            <label for="stockPerPage" class="form-label mb-0">Rows</label>
+                            <select id="stockPerPage" class="form-select form-select-sm">
+                                <option value="15">15</option>
+                                <option value="25" selected>25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3 text-md-end ms-auto">
+                            <div id="stockPageInfo" class="small text-muted mb-1"></div>
+                            <div class="btn-group btn-group-sm">
+                                <button type="button" id="stockPrevPage" class="btn btn-outline-secondary">Prev</button>
+                                <button type="button" id="stockNextPage" class="btn btn-outline-secondary">Next</button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="table-responsive mb-4">
-                        <table class="table table-sm align-middle" data-no-table-search>
+                        <table class="table table-sm align-middle" data-no-table-search id="stockTable">
                             <thead>
                                 <tr>
                                     <th>Stock Ref</th>
@@ -252,7 +370,21 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </thead>
                             <tbody>
                                 <?php if ($stockItems): ?>
-                                    <?php foreach ($stockItems as $stockItem): ?>
+                                    <?php foreach ($groupedStockItems as $group): ?>
+                                        <tr class="table-light" data-group-header="1">
+                                            <td colspan="8">
+                                                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                                    <div>
+                                                        <span class="fw-semibold"><?php echo h($group['classification_name'] ?: 'No inventory class'); ?></span>
+                                                        <span class="text-muted"> - <?php echo h($group['item_description']); ?></span>
+                                                    </div>
+                                                    <div class="small text-muted">
+                                                        <?php echo h(number_format((float) $group['total_on_hand'], 2)); ?> on hand across <?php echo h((string) $group['lot_count']); ?> lot(s)
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <?php foreach ($group['lots'] as $stockItem): ?>
                                         <?php
                                         $uomLabel = trim((string) ($stockItem['uom_name'] ?? ''));
                                         if ($uomLabel === '' && !empty($stockItem['abbreviation'])) {
@@ -261,19 +393,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             $uomLabel .= ' (' . $stockItem['abbreviation'] . ')';
                                         }
                                         ?>
-                                        <tr>
+                                        <tr data-po-id="<?php echo (int) ($stockItem['purchase_order_id'] ?? 0); ?>">
                                             <td>
                                                 <div class="fw-semibold"><?php echo h($stockItem['system_reference']); ?></div>
-                                                <div class="small text-muted"><?php echo h($stockItem['receiving_reference'] ?? ''); ?></div>
+                                                <div class="small text-muted"><?php echo h($stockItem['receiving_reference'] ?? ''); ?><?php echo !empty($stockItem['po_number']) ? ' | PO ' . h($stockItem['po_number']) : ''; ?></div>
                                             </td>
-                                            <td>
-                                                <?php
-                                                $type = trim((string) ($stockItem['item_type'] ?? ''));
-                                                $label = $type === 'equipment' ? 'Equipment' : ($type === 'semi_expendable' ? 'Semi-Expendable' : 'Supplies');
-                                                $badgeClass = $type === 'supply' ? 'text-bg-success-subtle' : ($type === 'semi_expendable' ? 'text-bg-primary-subtle' : 'text-bg-warning-subtle');
-                                                ?>
-                                                <span class="badge <?php echo h($badgeClass); ?>"><?php echo h($label); ?></span>
-                                            </td>
+                                            <td><span class="badge text-bg-success-subtle">Supplies</span></td>
                                             <td>
                                                 <div class="fw-semibold"><?php echo h($stockItem['classification_name'] ?: 'No inventory class'); ?></div>
                                                 <div><?php echo h($stockItem['item_description']); ?></div>
@@ -293,6 +418,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <input type="text" class="form-control form-control-sm" name="items[<?php echo (int) $stockItem['id']; ?>][remarks]" value="">
                                             </td>
                                         </tr>
+                                        <?php endforeach; ?>
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr><td colspan="8" class="text-center text-muted py-4">No supply stock is available yet. Receive accepted supply items first.</td></tr>
@@ -358,10 +484,29 @@ require_once __DIR__ . '/../../includes/topbar.php';
 document.addEventListener('DOMContentLoaded', function () {
     var officeSelect = document.getElementById('office_id');
     var employeeSelect = document.getElementById('employee_id');
+    var stockSearch = document.getElementById('stockSearch');
+    var stockPerPage = document.getElementById('stockPerPage');
+    var stockPrevPage = document.getElementById('stockPrevPage');
+    var stockNextPage = document.getElementById('stockNextPage');
+    var stockPageInfo = document.getElementById('stockPageInfo');
+    var poFilter = document.getElementById('poFilter');
+    var stockCurrentPage = 1;
+    var stockPageSize = parseInt(stockPerPage?.value || '25', 10);
 
-    function filterEmployees() {
+    function findUnitHeadOption(officeId) {
+        if (!officeId || !employeeSelect) return null;
+        return Array.prototype.find.call(employeeSelect.options, function (option) {
+            return option.value &&
+                option.getAttribute('data-office-id') === officeId &&
+                option.getAttribute('data-is-unit-head') === '1';
+        }) || null;
+    }
+
+    function filterEmployees(autoSelectHead) {
         if (!officeSelect || !employeeSelect) return;
         var selectedOffice = officeSelect.value;
+        var currentEmployeeStillValid = false;
+
         Array.prototype.forEach.call(employeeSelect.options, function (option) {
             if (!option.value) {
                 option.hidden = false;
@@ -369,22 +514,103 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             var matches = !selectedOffice || option.getAttribute('data-office-id') === selectedOffice;
             option.hidden = !matches;
-            if (!matches && option.selected) {
-                employeeSelect.value = '';
+            if (matches && option.value === employeeSelect.value) {
+                currentEmployeeStillValid = true;
             }
         });
+
+        if (!currentEmployeeStillValid && employeeSelect.value) {
+            employeeSelect.value = '';
+        }
+
+        if (autoSelectHead && selectedOffice) {
+            var unitHead = findUnitHeadOption(selectedOffice);
+            if (unitHead) {
+                employeeSelect.value = unitHead.value;
+            }
+        }
+
         if (window.SPAMS && window.SPAMS.refreshSelect2) {
             window.SPAMS.refreshSelect2(employeeSelect);
         }
     }
 
-    if (officeSelect) {
-        officeSelect.addEventListener('change', filterEmployees);
-        if (window.jQuery) {
-            window.jQuery(officeSelect).on('select2:select select2:clear', filterEmployees);
-        }
-        filterEmployees();
+    function getStockRows() {
+        return Array.prototype.slice.call(document.querySelectorAll('#stockTable tbody tr')).filter(function (row) {
+            return row.cells.length > 1 && row.dataset.groupHeader !== '1';
+        });
     }
+
+    function renderStockTable() {
+        var allRows = getStockRows();
+        var visibleRows = allRows.filter(function (row) { return row.dataset.visible !== '0'; });
+        var total = visibleRows.length;
+        var pages = Math.max(1, Math.ceil(total / stockPageSize));
+        stockCurrentPage = Math.min(stockCurrentPage, pages);
+
+        allRows.forEach(function (row) { row.style.display = 'none'; });
+        var start = (stockCurrentPage - 1) * stockPageSize;
+        visibleRows.slice(start, start + stockPageSize).forEach(function (row) { row.style.display = ''; });
+
+        if (stockPageInfo) {
+            stockPageInfo.textContent = 'Page ' + stockCurrentPage + ' of ' + pages + ' (' + total + ' lots)';
+        }
+        if (stockPrevPage) stockPrevPage.disabled = stockCurrentPage <= 1;
+        if (stockNextPage) stockNextPage.disabled = stockCurrentPage >= pages;
+    }
+
+    function applyStockFilter() {
+        var term = (stockSearch?.value || '').toLowerCase();
+        getStockRows().forEach(function (row) {
+            row.dataset.visible = (!term || row.textContent.toLowerCase().includes(term)) ? '1' : '0';
+        });
+        stockCurrentPage = 1;
+        renderStockTable();
+    }
+
+    if (officeSelect) {
+        officeSelect.addEventListener('change', function () { filterEmployees(true); });
+        if (window.jQuery) {
+            window.jQuery(officeSelect).on('select2:select select2:clear', function () { filterEmployees(true); });
+        }
+        filterEmployees(true);
+    }
+
+    if (stockSearch) {
+        stockSearch.addEventListener('input', applyStockFilter);
+    }
+    if (poFilter) {
+        poFilter.addEventListener('change', function () {
+            var url = new URL(window.location.href);
+            if (this.value) {
+                url.searchParams.set('po_id', this.value);
+            } else {
+                url.searchParams.delete('po_id');
+            }
+            window.location.href = url.toString();
+        });
+    }
+    if (stockPerPage) {
+        stockPerPage.addEventListener('change', function () {
+            stockPageSize = parseInt(this.value || '25', 10);
+            stockCurrentPage = 1;
+            renderStockTable();
+        });
+    }
+    if (stockPrevPage) {
+        stockPrevPage.addEventListener('click', function () {
+            stockCurrentPage--;
+            renderStockTable();
+        });
+    }
+    if (stockNextPage) {
+        stockNextPage.addEventListener('click', function () {
+            stockCurrentPage++;
+            renderStockTable();
+        });
+    }
+
+    applyStockFilter();
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

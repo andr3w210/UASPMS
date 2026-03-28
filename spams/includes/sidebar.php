@@ -47,6 +47,7 @@ $menuGroups = [
             ['label' => 'Delivery Extensions', 'path' => 'modules/purchase_orders/extensions.php', 'needle' => '/purchase_orders/extensions', 'icon' => 'bi bi-calendar2-plus'],
             ['label' => 'Receiving', 'path' => 'modules/receivings/index.php', 'needle' => '/receivings/', 'icon' => 'bi bi-box-seam'],
             ['label' => 'Distribution', 'path' => 'modules/distributions/index.php', 'needle' => '/distributions/', 'icon' => 'bi bi-diagram-3'],
+            ['label' => 'Transfers', 'path' => 'modules/transfers/index.php', 'needle' => '/transfers/', 'icon' => 'bi bi-arrow-left-right'],
             ['label' => 'Issuances', 'path' => 'modules/issuances/index.php', 'needle' => '/issuances/', 'icon' => 'bi bi-box-arrow-up-right'],
             ['label' => 'Returns', 'path' => 'modules/returns/index.php', 'needle' => '/returns/', 'icon' => 'bi bi-arrow-counterclockwise'],
             ['label' => 'Maintenance', 'path' => 'modules/maintenance/index.php', 'needle' => '/maintenance/', 'icon' => 'bi bi-wrench-adjustable-circle'],
@@ -71,6 +72,9 @@ $menuGroups = [
         'icon' => 'bi bi-tags',
         'items' => [
             ['label' => 'Property Register', 'path' => 'modules/property/index.php', 'needle' => '/property/', 'icon' => 'bi bi-journal-bookmark'],
+            ['label' => 'Beginning Balance Assets', 'path' => 'modules/property/legacy_assets.php', 'needle' => '/property/legacy_assets', 'icon' => 'bi bi-box2-heart'],
+            ['label' => 'Import Legacy Assets', 'path' => 'modules/property/legacy_import.php', 'needle' => '/property/legacy_import', 'icon' => 'bi bi-file-earmark-arrow-up'],
+            ['label' => 'Property Card Print', 'path' => 'modules/property/property_card_print.php', 'needle' => '/property/property_card_print', 'icon' => 'bi bi-printer'],
             ['label' => 'Print QR Tags', 'path' => 'modules/property/tags.php', 'needle' => '/property/tags', 'icon' => 'bi bi-qr-code'],
         ],
     ],

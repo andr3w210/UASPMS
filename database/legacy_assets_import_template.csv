@@ -1,0 +1,4 @@
+property_number,inventory_type,description,classification,account_code,supplier,brand,model,serial_no,acquisition_date,quantity,unit_cost,office,employee,responsibility_code,condition_status,remarks
+2024-05-03-0001-RC-ICTC,equipment,Desktop Computer for Admin Office,Desktop Computer,1.06.05.030.00,ACEL Hardware & Construction Supply,Acer,Aspire 5,SN-ICT-0001,2024-06-15,1,38500.00,Information and Communications Technology Center,,,good,Leave employee and RC blank to auto-fill office unit head and office RC
+2024-05-03-0002-RC-CAS,equipment,Multifunction Printer,Printer,1.06.05.030.00,ACEL Hardware & Construction Supply,Epson,L3210,SN-CAS-0002,2024-07-10,1,14500.00,College of Arts and Sciences,,,good,Sample equipment row
+2024-05-03-0003-RC-CEduc,semi_expendable,Office Chair for Faculty Room,Office Chair,5.02.03.210.02,Mandaue Foam Home Store,,,CH-EDU-0003,2024-08-01,2,4200.00,College of Education,,,good,Sample semi-expendable row

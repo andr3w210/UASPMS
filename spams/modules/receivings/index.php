@@ -625,6 +625,7 @@ if (!$db) {
 
     $recSql = "
         SELECT r.id, r.system_reference, r.ris_no, r.received_date, r.delivery_receipt_no, r.status, r.total_received_amount,
+               po.id AS purchase_order_id,
                po.po_number, s.supplier_name
         FROM receivings r
         INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
@@ -1284,7 +1285,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo h($receiving['delivery_receipt_no'] ?? ''); ?></td>
                                     <td><?php echo receiving_status_badge($receiving['status']); ?></td>
                                     <td class="text-end"><?php echo h(number_format((float) $receiving['total_received_amount'], 2)); ?></td>
-                                    <td class="text-end"><a href="<?php echo base_url('modules/messages/index.php?related_table=receivings&related_id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-info me-1">Discussion</a><?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary" target="_blank">Print IAR</a><?php else: ?><span class="text-muted small">No items received yet</span><?php endif; ?></td>
+                                    <td class="text-end"><a href="<?php echo base_url('modules/messages/index.php?related_table=receivings&related_id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-info me-1">Discussion</a><?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print IAR</a><a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Final IAR by PO</a><?php else: ?><span class="text-muted small">No items received yet</span><?php endif; ?></td>
                                 </tr>
                             <?php endforeach; else: ?>
                                 <tr><td colspan="9" class="text-center text-muted py-4">No receiving records yet.</td></tr>
@@ -1346,6 +1347,22 @@ document.addEventListener('DOMContentLoaded', function () {
         return html;
     }
 
+    function initReceivingSelect2(select) {
+        if (!select || !window.jQuery || !window.jQuery.fn || !window.jQuery.fn.select2) {
+            return;
+        }
+        var $select = window.jQuery(select);
+        if ($select.hasClass('select2-hidden-accessible')) {
+            $select.select2('destroy');
+        }
+        $select.select2({
+            width: '100%',
+            placeholder: select.getAttribute('data-placeholder') || 'Select an option',
+            allowClear: true,
+            dropdownParent: window.jQuery(select.parentElement || document.body)
+        });
+    }
+
     function syncModelOptions(row) {
         var brandSelect = row.querySelector('.receiving-brand-select');
         var modelSelect = row.querySelector('.receiving-model-select');
@@ -1363,23 +1380,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
         modelSelect.innerHTML = modelOptions(currentModelValue, selectedBrand);
         modelSelect.disabled = false;
-
-        if (window.jQuery && window.jQuery.fn.select2) {
-            var $modelSelect = window.jQuery(modelSelect);
-            if ($modelSelect.hasClass('select2-hidden-accessible')) {
-                $modelSelect.select2('destroy');
-                modelSelect.removeAttribute('data-select2-initialized');
-            }
-            if (window.SPAMS && window.SPAMS.initSelect2) {
-                window.SPAMS.initSelect2(modelSelect.parentElement || row);
-            }
-        }
+        initReceivingSelect2(modelSelect);
     }
 
     function rowMarkup(itemId, index) {
         return '<div class="row g-2 align-items-end receiving-detail-row mb-2">' +
-            '<div class="col-md-3"><label class="form-label">Brand</label><select class="form-select receiving-brand-select" name="items[' + itemId + '][details][' + index + '][brand_id]" data-placeholder="Select brand">' + brandOptions('') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][brand]" value=""></div>' +
-            '<div class="col-md-3"><label class="form-label">Model</label><select class="form-select receiving-model-select" name="items[' + itemId + '][details][' + index + '][model_id]" data-placeholder="Select model">' + modelOptions('', '') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][model]" value=""></div>' +
+            '<div class="col-md-3"><label class="form-label">Brand</label><select class="form-select receiving-brand-select" name="items[' + itemId + '][details][' + index + '][brand_id]" data-placeholder="Select brand" data-no-select2>' + brandOptions('') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][brand]" value=""></div>' +
+            '<div class="col-md-3"><label class="form-label">Model</label><select class="form-select receiving-model-select" name="items[' + itemId + '][details][' + index + '][model_id]" data-placeholder="Select model" data-no-select2>' + modelOptions('', '') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][model]" value=""></div>' +
             '<div class="col-md-3"><label class="form-label">Serial Number</label><input type="text" class="form-control" name="items[' + itemId + '][details][' + index + '][serial_no]"></div>' +
             '<div class="col-md-2"><label class="form-label">Remarks</label><input type="text" class="form-control" name="items[' + itemId + '][details][' + index + '][remarks]"></div>' +
             '<div class="col-md-1"><button type="button" class="btn btn-outline-danger btn-sm w-100 remove-detail-row">Remove</button></div>' +
@@ -1420,16 +1427,17 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         Array.from(rows).forEach(function (detailRow) {
-            if (window.SPAMS && window.SPAMS.refreshSelect2) {
-                window.SPAMS.refreshSelect2(detailRow);
-            }
+            initReceivingSelect2(detailRow.querySelector('.receiving-brand-select'));
             syncModelOptions(detailRow);
         });
 
         updateDetailRowStatus(itemId);
     }
 
-    document.querySelectorAll('.receiving-detail-row').forEach(syncModelOptions);
+    document.querySelectorAll('.receiving-detail-row').forEach(function (row) {
+        initReceivingSelect2(row.querySelector('.receiving-brand-select'));
+        syncModelOptions(row);
+    });
     document.addEventListener('click', function (event) {
         if (!event.target.classList.contains('remove-detail-row')) return;
         var row = event.target.closest('.receiving-detail-row');

@@ -108,7 +108,11 @@ $generalUnreadCount = message_channel_unread_count($db, 'general', $currentUserI
 $generalChannelStmt = $db->prepare("
     SELECT cm.id, cm.subject, cm.message_body, cm.created_at
     FROM channel_messages cm
+    LEFT JOIN message_channel_hidden mch
+        ON mch.channel_message_id = cm.id
+       AND mch.user_id = " . $currentUserId . "
     WHERE cm.channel_key = 'general'
+      AND mch.channel_message_id IS NULL
     " . $contextSqlFilter . "
     ORDER BY cm.created_at DESC, cm.id DESC
     LIMIT 1
@@ -238,7 +242,11 @@ if ($threadChannel === 'general') {
             sender.username AS sender_username
         FROM channel_messages cm
         INNER JOIN users sender ON sender.id = cm.sender_user_id
+        LEFT JOIN message_channel_hidden mch
+            ON mch.channel_message_id = cm.id
+           AND mch.user_id = " . $currentUserId . "
         WHERE cm.channel_key = 'general'
+          AND mch.channel_message_id IS NULL
           " . $contextSqlFilter . "
         ORDER BY cm.created_at ASC, cm.id ASC
     ");
@@ -260,7 +268,7 @@ if ($threadChannel === 'general') {
                 'created_at' => (string) $row['created_at'],
                 'created_label' => date('M d, Y g:i A', strtotime((string) $row['created_at'])),
                 'is_mine' => (int) $row['sender_user_id'] === $currentUserId,
-                'can_delete' => false,
+                'can_delete' => true,
             ];
         }
     }

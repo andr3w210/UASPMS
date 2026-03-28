@@ -153,6 +153,33 @@ if ($chatDb && $chatCurrentUserId > 0) {
             ];
         }
     }
+
+    $chatGeneralStmt = $chatDb->prepare("
+        SELECT cm.subject, cm.message_body, cm.created_at
+        FROM channel_messages cm
+        LEFT JOIN message_channel_hidden mch
+            ON mch.channel_message_id = cm.id
+           AND mch.user_id = " . $chatCurrentUserId . "
+        WHERE cm.channel_key = 'general'
+          AND mch.channel_message_id IS NULL
+        ORDER BY cm.created_at DESC, cm.id DESC
+        LIMIT 1
+    ");
+    if ($chatGeneralStmt) {
+        $chatGeneralStmt->execute();
+        $chatGeneralRow = $chatGeneralStmt->get_result()->fetch_assoc();
+        $chatGeneralStmt->close();
+        if ($chatGeneralRow) {
+            $chatGeneralPreview = trim((string) (($chatGeneralRow['subject'] ?? '') ?: ($chatGeneralRow['message_body'] ?? '')));
+            if (function_exists('mb_strlen') && mb_strlen($chatGeneralPreview) > 70) {
+                $chatGeneralPreview = mb_substr($chatGeneralPreview, 0, 70) . '...';
+            } elseif (strlen($chatGeneralPreview) > 70) {
+                $chatGeneralPreview = substr($chatGeneralPreview, 0, 70) . '...';
+            }
+            $chatConversations[0]['preview'] = $chatGeneralPreview;
+            $chatConversations[0]['last_message_label'] = date('M d', strtotime((string) $chatGeneralRow['created_at']));
+        }
+    }
 }
 ?>
 <div
@@ -430,7 +457,7 @@ if ($chatDb && $chatCurrentUserId > 0) {
             }
             html += '<div style="white-space: pre-wrap;">' + escapeHtml(message.message_body) + '</div>';
             if (message.can_delete) {
-                html += '<div class="mt-2 text-end"><button type="button" class="btn btn-sm btn-outline-secondary chat-widget-delete-btn" data-message-id="' + escapeHtml(message.id) + '"><i class="bi bi-trash3"></i> Delete for me</button></div>';
+                html += '<div class="mt-2 text-end"><button type="button" class="btn btn-sm btn-outline-secondary chat-widget-delete-btn" data-message-id="' + escapeHtml(threadData.type === "channel" ? 0 : message.id) + '" data-channel-message-id="' + escapeHtml(threadData.type === "channel" ? message.id : 0) + '"><i class="bi bi-trash3"></i> Delete for me</button></div>';
             }
             html += '</div></div>';
         });
@@ -596,6 +623,7 @@ if ($chatDb && $chatCurrentUserId > 0) {
             var formData = new FormData();
             formData.append('_csrf', csrfToken);
             formData.append('message_id', String(messageId));
+            formData.append('channel_message_id', deleteButton.getAttribute('data-channel-message-id') || '0');
 
             fetch(deleteUrl, {
                 method: 'POST',
