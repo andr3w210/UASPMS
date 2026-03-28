@@ -32,7 +32,7 @@ if ($db && $distributionId > 0) {
     if ($distribution) {
         $itemStmt = $db->prepare("
             SELECT di.id, di.quantity_distributed, di.unit_cost, di.line_total, di.remarks,
-                   ri.item_condition, poi.line_no, poi.item_type, poi.item_description, ac.account_code, c.classification_name,
+                   ri.item_condition, poi.line_no, poi.item_type, poi.item_description, ac.account_code, c.classification_name, c.classification_family,
                    u.uom_name, u.abbreviation, r.system_reference AS receiving_reference
             FROM distribution_items di
             INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
@@ -130,8 +130,12 @@ if (!$distribution) {
                     <tr>
                         <td><?php echo (int) $item['line_no']; ?></td>
                         <td>
-                            <div class="fw-semibold"><?php echo h($item['classification_name'] ?: 'No inventory class'); ?></div>
-                            <div><?php echo nl2br(h($item['item_description'])); ?></div>
+                            <?php
+                                $viewLabel = trim((!empty($item['classification_family']) ? $item['classification_family'] . ' / ' : '') . ($item['classification_name'] ?: 'No inventory class'));
+                                $viewDescription = trim(($viewLabel !== '' ? $viewLabel . ' - ' : '') . ($item['item_description'] ?? ''));
+                            ?>
+                            <div class="fw-semibold"><?php echo h($viewLabel); ?></div>
+                            <div><?php echo nl2br(h($viewDescription)); ?></div>
                             <div class="text-muted"><?php echo h($item['account_code'] ?: ''); ?><?php echo $uomLabel ? ' | ' . h($uomLabel) : ''; ?><?php echo $item['receiving_reference'] ? ' | ' . h($item['receiving_reference']) : ''; ?></div>
                             <div class="text-muted">Condition: <?php echo h($item['item_condition'] ?: ''); ?></div>
                             <?php if (!empty($item['details'])): ?>

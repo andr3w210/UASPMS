@@ -51,7 +51,7 @@ if ($db) {
     }
     if ($procurementModeResult) $procurementModes = $procurementModeResult->fetch_all(MYSQLI_ASSOC);
 
-    $classificationResult = $db->query("SELECT id, classification_code, classification_name, classification_group, account_code_id FROM classifications WHERE is_active = 1 ORDER BY classification_name ASC");
+    $classificationResult = $db->query("SELECT id, classification_code, classification_name, classification_family, classification_group, account_code_id FROM classifications WHERE is_active = 1 ORDER BY COALESCE(classification_family, ''), classification_name ASC");
     if ($classificationResult) $classifications = $classificationResult->fetch_all(MYSQLI_ASSOC);
 
     $accountCodeResult = $db->query("SELECT id, account_code, account_name, account_group FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC");
@@ -644,6 +644,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <input type="text" class="form-control" id="quickClassificationName">
                     </div>
                     <div class="col-12">
+                        <label for="quickClassificationFamily" class="form-label">Classification Family</label>
+                        <input type="text" class="form-control" id="quickClassificationFamily" placeholder="e.g. IT Supplies, Janitorial Supplies">
+                    </div>
+                    <div class="col-12">
                         <label for="quickClassificationAccountCode" class="form-label">Default Account Code</label>
                         <select class="form-select" id="quickClassificationAccountCode"></select>
                     </div>
@@ -724,6 +728,7 @@ document.addEventListener('DOMContentLoaded', function () {
         classificationQuickAddError: document.getElementById('classificationQuickAddError'),
         quickClassificationType: document.getElementById('quickClassificationType'),
         quickClassificationName: document.getElementById('quickClassificationName'),
+        quickClassificationFamily: document.getElementById('quickClassificationFamily'),
         quickClassificationAccountCode: document.getElementById('quickClassificationAccountCode'),
         quickClassificationUsefulLife: document.getElementById('quickClassificationUsefulLife'),
         quickClassificationDescription: document.getElementById('quickClassificationDescription'),
@@ -755,6 +760,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function getSemiType(unitCost) { return parseFloat(unitCost || 0) >= semiHvMin ? 'high_value' : 'low_value'; }
     function lineNeedsSemiType(line) { return !!line && line.item_type === 'semi_expendable'; }
     function classificationMatchesType(classification, itemType) { return !classification || !classification.classification_group || classification.classification_group === expectedAccountGroup(itemType); }
+    function classificationDisplayName(classification) {
+        if (!classification) return '';
+        var family = String(classification.classification_family || '').trim();
+        var name = String(classification.classification_name || '').trim();
+        return family ? (family + ' / ' + name) : name;
+    }
     function accountCodeMatchesType(accountCode, itemType) {
         if (itemType === 'supply') return true;
         return !accountCode || !accountCode.account_group || accountCode.account_group === expectedAccountGroup(itemType);
@@ -769,7 +780,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     function classificationNameById(id) {
         for (var i = 0; i < classifications.length; i++) {
-            if (String(classifications[i].id) === String(id)) return classifications[i].classification_name || '';
+            if (String(classifications[i].id) === String(id)) return classificationDisplayName(classifications[i]);
         }
         return '';
     }
@@ -932,7 +943,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!classificationMatchesType(cl, itemType)) return;
             var opt = document.createElement('option');
             opt.value = cl.id;
-            opt.textContent = cl.classification_name;
+            opt.textContent = classificationDisplayName(cl);
             opt.setAttribute('data-item-type', cl.classification_group === 'asset' ? 'equipment' : (cl.classification_group || ''));
             if (String(cl.id) === String(selectedId)) opt.selected = true;
             sel.appendChild(opt);
@@ -1281,7 +1292,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!classificationMatchesType(cl, itemType)) return;
             var opt = document.createElement('option');
             opt.value = cl.id;
-            opt.textContent = cl.classification_name;
+            opt.textContent = classificationDisplayName(cl);
             if (String(cl.id) === String(selectedId)) opt.selected = true;
             el.quickAddClassification.appendChild(opt);
         });
@@ -1336,7 +1347,7 @@ document.addEventListener('DOMContentLoaded', function () {
             classifications.push(classification);
         }
         classifications.sort(function(a, b) {
-            return String(a.classification_name || '').localeCompare(String(b.classification_name || ''));
+            return classificationDisplayName(a).localeCompare(classificationDisplayName(b));
         });
     }
 
@@ -1348,6 +1359,7 @@ document.addEventListener('DOMContentLoaded', function () {
             el.quickClassificationType.setAttribute('data-item-type', itemType);
         }
         if (el.quickClassificationName) el.quickClassificationName.value = '';
+        if (el.quickClassificationFamily) el.quickClassificationFamily.value = itemType === 'supply' ? 'Office Supplies' : '';
         if (el.quickClassificationDescription) el.quickClassificationDescription.value = '';
         if (el.quickClassificationUsefulLife) {
             el.quickClassificationUsefulLife.value = itemType === 'supply' ? '' : '3';
@@ -1405,6 +1417,7 @@ document.addEventListener('DOMContentLoaded', function () {
             payload.append('_csrf', <?php echo json_encode(csrf_token(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>);
             payload.append('item_type', itemType);
             payload.append('classification_name', el.quickClassificationName ? el.quickClassificationName.value.trim() : '');
+            payload.append('classification_family', el.quickClassificationFamily ? el.quickClassificationFamily.value.trim() : '');
             payload.append('account_code_id', el.quickClassificationAccountCode ? (el.quickClassificationAccountCode.value || '') : '');
             payload.append('useful_life_years', el.quickClassificationUsefulLife ? (el.quickClassificationUsefulLife.value || '') : '');
             payload.append('description', el.quickClassificationDescription ? el.quickClassificationDescription.value.trim() : '');

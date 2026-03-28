@@ -43,6 +43,176 @@ function current_user_id(): ?int
     return isset($_SESSION['user_id']) ? (int) $_SESSION['user_id'] : null;
 }
 
+function ensure_user_messages_table(mysqli $db): void
+{
+    $db->query("
+        CREATE TABLE IF NOT EXISTS user_messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            sender_user_id INT UNSIGNED NOT NULL,
+            recipient_user_id INT UNSIGNED NOT NULL,
+            subject VARCHAR(200) NULL,
+            message_body TEXT NOT NULL,
+            related_table VARCHAR(50) NULL,
+            related_id BIGINT UNSIGNED NULL,
+            is_read TINYINT(1) NOT NULL DEFAULT 0,
+            read_at DATETIME NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_sender (sender_user_id),
+            INDEX idx_recipient (recipient_user_id),
+            INDEX idx_recipient_read (recipient_user_id, is_read),
+            INDEX idx_related (related_table, related_id),
+            INDEX idx_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $db->query("ALTER TABLE user_messages ADD COLUMN IF NOT EXISTS hidden_for_sender TINYINT(1) NOT NULL DEFAULT 0");
+    $db->query("ALTER TABLE user_messages ADD COLUMN IF NOT EXISTS hidden_for_recipient TINYINT(1) NOT NULL DEFAULT 0");
+    $db->query("ALTER TABLE user_messages ADD COLUMN IF NOT EXISTS related_table VARCHAR(50) NULL");
+    $db->query("ALTER TABLE user_messages ADD COLUMN IF NOT EXISTS related_id BIGINT UNSIGNED NULL");
+}
+
+function ensure_message_channels_table(mysqli $db): void
+{
+    $db->query("
+        CREATE TABLE IF NOT EXISTS message_channels (
+            channel_key VARCHAR(50) PRIMARY KEY,
+            channel_name VARCHAR(100) NOT NULL,
+            channel_description VARCHAR(255) NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $db->query("
+        CREATE TABLE IF NOT EXISTS channel_messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            channel_key VARCHAR(50) NOT NULL,
+            sender_user_id INT UNSIGNED NOT NULL,
+            subject VARCHAR(200) NULL,
+            message_body TEXT NOT NULL,
+            related_table VARCHAR(50) NULL,
+            related_id BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_channel_created (channel_key, created_at),
+            INDEX idx_sender (sender_user_id),
+            INDEX idx_related (related_table, related_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $db->query("
+        CREATE TABLE IF NOT EXISTS message_channel_reads (
+            channel_key VARCHAR(50) NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            last_read_message_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            last_read_at DATETIME NULL,
+            PRIMARY KEY (channel_key, user_id),
+            INDEX idx_user (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $insertStmt = $db->prepare("
+        INSERT INTO message_channels (channel_key, channel_name, channel_description, is_active)
+        VALUES ('general', 'General Group Chat', 'Shared coordination channel for all active users.', 1)
+        ON DUPLICATE KEY UPDATE channel_name = VALUES(channel_name), channel_description = VALUES(channel_description), is_active = 1
+    ");
+    if ($insertStmt) {
+        $insertStmt->execute();
+        $insertStmt->close();
+    }
+}
+
+function ensure_messaging_infrastructure(mysqli $db): void
+{
+    ensure_user_messages_table($db);
+    ensure_user_presence_table($db);
+    ensure_message_channels_table($db);
+}
+
+function message_mark_channel_read(mysqli $db, string $channelKey, int $userId): void
+{
+    if ($channelKey === '' || $userId <= 0) {
+        return;
+    }
+
+    $maxStmt = $db->prepare("SELECT COALESCE(MAX(id), 0) AS last_id FROM channel_messages WHERE channel_key = ?");
+    if (!$maxStmt) {
+        return;
+    }
+
+    $maxStmt->bind_param('s', $channelKey);
+    $maxStmt->execute();
+    $lastId = (int) (($maxStmt->get_result()->fetch_assoc()['last_id'] ?? 0));
+    $maxStmt->close();
+
+    $upsertStmt = $db->prepare("
+        INSERT INTO message_channel_reads (channel_key, user_id, last_read_message_id, last_read_at)
+        VALUES (?, ?, ?, NOW())
+        ON DUPLICATE KEY UPDATE last_read_message_id = VALUES(last_read_message_id), last_read_at = NOW()
+    ");
+    if ($upsertStmt) {
+        $upsertStmt->bind_param('sii', $channelKey, $userId, $lastId);
+        $upsertStmt->execute();
+        $upsertStmt->close();
+    }
+}
+
+function message_channel_unread_count(mysqli $db, string $channelKey, int $userId): int
+{
+    if ($channelKey === '' || $userId <= 0) {
+        return 0;
+    }
+
+    $stmt = $db->prepare("
+        SELECT COUNT(*) AS total
+        FROM channel_messages cm
+        LEFT JOIN message_channel_reads mcr
+            ON mcr.channel_key = cm.channel_key
+           AND mcr.user_id = ?
+        WHERE cm.channel_key = ?
+          AND cm.sender_user_id != ?
+          AND cm.id > COALESCE(mcr.last_read_message_id, 0)
+    ");
+    if (!$stmt) {
+        return 0;
+    }
+
+    $stmt->bind_param('isi', $userId, $channelKey, $userId);
+    $stmt->execute();
+    $total = (int) (($stmt->get_result()->fetch_assoc()['total'] ?? 0));
+    $stmt->close();
+
+    return $total;
+}
+
+function message_highlight_mentions_html(string $message): string
+{
+    $html = h($message);
+    $patterns = [
+        '/@everyone\b/i',
+        '/@administrator\b/i',
+        '/@supply officer\b/i',
+        '/@property officer\b/i',
+        '/@viewer\b/i',
+    ];
+
+    foreach ($patterns as $pattern) {
+        $html = preg_replace($pattern, '<span class="badge text-bg-warning text-dark">$0</span>', $html);
+    }
+
+    return nl2br($html, false);
+}
+
+function ensure_user_presence_table(mysqli $db): void
+{
+    $db->query("
+        CREATE TABLE IF NOT EXISTS user_presence (
+            user_id INT UNSIGNED PRIMARY KEY,
+            last_seen_at DATETIME NOT NULL,
+            INDEX idx_last_seen_at (last_seen_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+}
+
 function set_flash(string $type, string $message): void
 {
     $_SESSION['flash'] = [
@@ -113,6 +283,7 @@ function module_series_defaults(): array
         'issuances' => ['prefix' => 'ISS', 'use_year' => true, 'padding' => 4],
         'distributions' => ['prefix' => 'DST', 'use_year' => true, 'padding' => 4],
         'purchase_orders' => ['prefix' => 'POREC', 'use_year' => true, 'padding' => 4],
+        'po_delivery_extensions' => ['prefix' => 'POEXT', 'use_year' => true, 'padding' => 4],
         'receivings' => ['prefix' => 'RCV', 'use_year' => true, 'padding' => 4],
         'maintenance' => ['prefix' => 'MNT', 'use_year' => true, 'padding' => 4],
     ];
@@ -242,9 +413,9 @@ function build_series_code(string $prefix, ?int $yearValue, int $number, int $pa
     return implode('-', $parts);
 }
 
-function stock_catalog_category_code(string $accountName): string
+function stock_catalog_item_code(string $label): string
 {
-    $normalized = strtoupper(trim(preg_replace('/[^A-Za-z0-9& ]+/', ' ', $accountName)));
+    $normalized = strtoupper(trim(preg_replace('/[^A-Za-z0-9& ]+/', ' ', $label)));
     if ($normalized === '') {
         return 'SC';
     }
@@ -259,38 +430,53 @@ function stock_catalog_category_code(string $accountName): string
     }
 
     if (count($words) >= 2) {
-        return substr($words[0], 0, 1) . substr($words[1], 0, 1);
+        $first = preg_replace('/[^A-Z]/', '', $words[0]);
+        $second = preg_match('/^[A-Z]/', $words[1]) ? preg_replace('/[^A-Z]/', '', $words[1]) : '';
+        $code = substr($first, 0, 1) . substr($second, 0, 1);
+        if (strlen($code) === 2) {
+            return $code;
+        }
+        if (strlen($first) >= 2) {
+            return substr($first, 0, 2);
+        }
     }
 
     $single = $words ? $words[0] : $normalized;
-    $single = preg_replace('/[^A-Z0-9]/', '', $single);
+    $single = preg_replace('/[^A-Z]/', '', $single);
     $single = substr($single, 0, 2);
 
     return str_pad($single, 2, 'X');
 }
 
-function stock_catalog_next_number(mysqli $db, int $accountCodeId): string
+function stock_catalog_number_basis(mysqli $db, ?int $classificationId, string $itemName = '', string $itemDescription = ''): string
 {
-    if ($accountCodeId <= 0) {
-        return '';
+    if ($classificationId && $classificationId > 0) {
+        $stmt = $db->prepare("SELECT classification_family, classification_name FROM classifications WHERE id = ? LIMIT 1");
+        if ($stmt) {
+            $stmt->bind_param('i', $classificationId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            $family = trim((string) ($row['classification_family'] ?? ''));
+            if ($family !== '') {
+                return $family;
+            }
+            $name = trim((string) ($row['classification_name'] ?? ''));
+            if ($name !== '') {
+                return $name;
+            }
+        }
     }
 
-    $accountStmt = $db->prepare("SELECT account_name FROM account_codes WHERE id = ? LIMIT 1");
-    if (!$accountStmt) {
+    return trim($itemName) !== '' ? $itemName : $itemDescription;
+}
+
+function stock_catalog_next_number(mysqli $db, ?int $classificationId, string $itemName = '', string $itemDescription = ''): string
+{
+    $prefix = stock_catalog_item_code(stock_catalog_number_basis($db, $classificationId, $itemName, $itemDescription));
+    if ($prefix === '') {
         return '';
     }
-
-    $accountStmt->bind_param('i', $accountCodeId);
-    $accountStmt->execute();
-    $accountRow = $accountStmt->get_result()->fetch_assoc();
-    $accountStmt->close();
-
-    $accountName = (string) ($accountRow['account_name'] ?? '');
-    if ($accountName === '') {
-        return '';
-    }
-
-    $prefix = stock_catalog_category_code($accountName);
 
     $seriesStmt = $db->prepare("
         SELECT MAX(CAST(SUBSTRING_INDEX(stock_no, '-', -1) AS UNSIGNED)) AS max_series
@@ -308,7 +494,7 @@ function stock_catalog_next_number(mysqli $db, int $accountCodeId): string
 
     $nextSeries = ((int) ($seriesRow['max_series'] ?? 0)) + 1;
 
-    return $prefix . '-' . str_pad((string) $nextSeries, 4, '0', STR_PAD_LEFT);
+    return $prefix . '-' . str_pad((string) $nextSeries, 3, '0', STR_PAD_LEFT);
 }
 
 function csrf_token(): string

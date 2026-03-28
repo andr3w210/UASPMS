@@ -26,6 +26,7 @@ if (!csrf_verify()) {
 
 $itemType = trim((string) ($_POST['item_type'] ?? 'supply'));
 $classificationName = trim((string) ($_POST['classification_name'] ?? ''));
+$classificationFamily = trim((string) ($_POST['classification_family'] ?? ''));
 $accountCodeId = (int) ($_POST['account_code_id'] ?? 0);
 $usefulLifeYears = trim((string) ($_POST['useful_life_years'] ?? ''));
 $description = trim((string) ($_POST['description'] ?? ''));
@@ -75,7 +76,7 @@ if ($accountCodeId > 0) {
     }
 }
 
-$duplicateStmt = $db->prepare("SELECT id, classification_name, classification_group, account_code_id, useful_life_years FROM classifications WHERE classification_name = ? LIMIT 1");
+$duplicateStmt = $db->prepare("SELECT id, classification_name, classification_family, classification_group, account_code_id, useful_life_years FROM classifications WHERE classification_name = ? LIMIT 1");
 if (!$duplicateStmt) {
     http_response_code(500);
     echo json_encode(['ok' => false, 'error' => 'Unable to validate classification duplicates.']);
@@ -98,6 +99,7 @@ if ($existing) {
         'classification' => [
             'id' => (int) $existing['id'],
             'classification_name' => $existing['classification_name'],
+            'classification_family' => $existing['classification_family'] ?? '',
             'classification_group' => $existing['classification_group'],
             'account_code_id' => $existing['account_code_id'],
             'useful_life_years' => $existing['useful_life_years'],
@@ -111,8 +113,8 @@ $code = next_module_code($db, 'classifications');
 $userId = current_user_id();
 $insertStmt = $db->prepare("
     INSERT INTO classifications
-    (classification_code, system_reference, classification_name, classification_group, useful_life_years, account_code_id, description, is_active, created_by)
-    VALUES (?, ?, ?, ?, ?, NULLIF(?, 0), ?, 1, ?)
+    (classification_code, system_reference, classification_name, classification_family, classification_group, useful_life_years, account_code_id, description, is_active, created_by)
+    VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, NULLIF(?, 0), ?, 1, ?)
 ");
 if (!$insertStmt) {
     http_response_code(500);
@@ -120,10 +122,11 @@ if (!$insertStmt) {
     exit;
 }
 $insertStmt->bind_param(
-    'sssssisi',
+    'ssssssisi',
     $code,
     $code,
     $classificationName,
+    $classificationFamily,
     $classificationGroup,
     $usefulLifeYears,
     $accountCodeId,
@@ -135,7 +138,7 @@ $newId = (int) $insertStmt->insert_id;
 $insertStmt->close();
 
 $classificationStmt = $db->prepare("
-    SELECT id, classification_name, classification_group, account_code_id, useful_life_years
+    SELECT id, classification_name, classification_family, classification_group, account_code_id, useful_life_years
     FROM classifications
     WHERE id = ?
     LIMIT 1

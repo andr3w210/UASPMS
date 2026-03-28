@@ -654,6 +654,218 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
+<style>
+.receiving-stepper {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.receiving-step {
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.9rem;
+    padding: 0.85rem 1rem;
+}
+
+.receiving-step.active {
+    background: rgba(13, 110, 253, 0.08);
+    border-color: rgba(13, 110, 253, 0.35);
+}
+
+.receiving-step.done {
+    background: rgba(25, 135, 84, 0.08);
+    border-color: rgba(25, 135, 84, 0.28);
+}
+
+.receiving-step-number {
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 0.78rem;
+    font-weight: 700;
+    height: 1.65rem;
+    justify-content: center;
+    margin-bottom: 0.45rem;
+    width: 1.65rem;
+}
+
+.receiving-step.active .receiving-step-number {
+    background: var(--bs-primary);
+    border-color: var(--bs-primary);
+    color: #fff;
+}
+
+.receiving-step.done .receiving-step-number {
+    background: var(--bs-success);
+    border-color: var(--bs-success);
+    color: #fff;
+}
+
+.receiving-step-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.receiving-step-copy {
+    color: var(--bs-secondary-color);
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+.receiving-step-panel {
+    display: none;
+}
+
+.receiving-step-panel.active {
+    display: block;
+}
+
+.receiving-workspace {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+}
+
+.receiving-line-list {
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 1rem;
+    padding: 0.9rem;
+}
+
+.receiving-line-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    max-height: 560px;
+    overflow-y: auto;
+}
+
+.receiving-line-card {
+    background: #fff;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.85rem;
+    cursor: pointer;
+    padding: 0.75rem 0.85rem;
+}
+
+.receiving-line-card.active {
+    border-color: rgba(13, 110, 253, 0.45);
+    box-shadow: 0 0 0 0.18rem rgba(13, 110, 253, 0.12);
+}
+
+.receiving-line-card.done {
+    background: rgba(25, 135, 84, 0.05);
+}
+
+.receiving-line-card.needs-details {
+    border-color: rgba(220, 53, 69, 0.28);
+}
+
+.receiving-line-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.receiving-line-meta {
+    color: var(--bs-secondary-color);
+    font-size: 0.76rem;
+}
+
+.receiving-line-card {
+    background: #fff;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.85rem;
+    cursor: pointer;
+    padding: 0.8rem 0.85rem;
+    transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.receiving-line-card:hover {
+    border-color: rgba(13, 110, 253, 0.3);
+    transform: translateY(-1px);
+}
+
+.receiving-line-card.active {
+    border-color: rgba(13, 110, 253, 0.5);
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.12);
+}
+
+.receiving-line-card.done {
+    background: rgba(25, 135, 84, 0.05);
+}
+
+.receiving-line-card.needs-details {
+    border-color: rgba(220, 53, 69, 0.3);
+}
+
+.receiving-line-meta {
+    color: var(--bs-secondary-color);
+    font-size: 0.75rem;
+}
+
+.receiving-line-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.receiving-editor-card {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 1rem;
+    padding: 1rem;
+}
+
+.receiving-summary-strip {
+    background: var(--bs-secondary-bg);
+    border-radius: 0.85rem;
+    padding: 0.85rem 1rem;
+}
+
+.receiving-detail-box {
+    background: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.9rem;
+    padding: 0.9rem;
+}
+
+.receiving-review-grid {
+    display: grid;
+    gap: 0.85rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.receiving-review-card {
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.9rem;
+    padding: 0.9rem 1rem;
+}
+
+.receiving-review-label {
+    color: var(--bs-secondary-color);
+    font-size: 0.74rem;
+    margin-bottom: 0.2rem;
+    text-transform: uppercase;
+}
+
+.receiving-review-value {
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+@media (max-width: 991.98px) {
+    .receiving-stepper,
+    .receiving-review-grid,
+    .receiving-workspace {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
 <section class="row g-4">
     <div class="col-12">
         <div class="card">
@@ -805,14 +1017,37 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <span class="text-muted ms-2"><?php echo h($selectedPurchaseOrder['supplier_name']); ?></span>
                                                 <span class="text-muted ms-2"><?php echo h(date('M d, Y', strtotime($selectedPurchaseOrder['po_date']))); ?></span>
                                             </div>
-                                            <div class="ms-auto">
+                                            <div class="ms-auto d-flex gap-2">
                                                 <a href="<?php echo base_url('modules/receivings/index.php'); ?>" class="btn btn-sm btn-outline-secondary">← Change PO</a>
+                                                <a href="<?php echo base_url('modules/messages/index.php?related_table=purchase_orders&related_id=' . (int) $selectedPurchaseOrder['id']); ?>" class="btn btn-sm btn-outline-info">PO Discussion</a>
                                             </div>
                                         </div>
                                 <?php endif; ?>
 
                                 <?php if ($selectedPurchaseOrder): ?>
-                                        <div class="border rounded-3 p-3 mb-4 bg-light-subtle">
+                                        <div class="receiving-stepper mb-4">
+                                            <button type="button" class="receiving-step active text-start" data-scroll-target="receivingPoOverview">
+                                                <div class="receiving-step-number">1</div>
+                                                <div class="receiving-step-title">PO Overview</div>
+                                                <div class="receiving-step-copy">Review the selected PO and remaining lines.</div>
+                                            </button>
+                                            <button type="button" class="receiving-step text-start" data-scroll-target="receivingHeaderSection">
+                                                <div class="receiving-step-number">2</div>
+                                                <div class="receiving-step-title">Receiving Header</div>
+                                                <div class="receiving-step-copy">Encode the received date and delivery references.</div>
+                                            </button>
+                                            <button type="button" class="receiving-step text-start" data-scroll-target="receivingItemsSection">
+                                                <div class="receiving-step-number">3</div>
+                                                <div class="receiving-step-title">Items Workspace</div>
+                                                <div class="receiving-step-copy">Work line-by-line with filters and tracked details.</div>
+                                            </button>
+                                            <button type="button" class="receiving-step text-start" data-scroll-target="receivingSaveSection">
+                                                <div class="receiving-step-number">4</div>
+                                                <div class="receiving-step-title">Review & Save</div>
+                                                <div class="receiving-step-copy">Finish the review and post the batch.</div>
+                                            </button>
+                                        </div>
+                                        <div class="border rounded-3 p-3 mb-4 bg-light-subtle" id="receivingPoOverview">
                                                 <div class="row g-3">
                                                         <div class="col-md-3"><div class="small text-muted">PO Number</div><div class="fw-semibold"><?php echo h($selectedPurchaseOrder['po_number']); ?></div></div>
                                                         <div class="col-md-3"><div class="small text-muted">PO Date</div><div class="fw-semibold"><?php echo h(date('M d, Y', strtotime($selectedPurchaseOrder['po_date']))); ?></div></div>
@@ -830,7 +1065,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <input type="hidden" name="action" value="save">
                             <?php echo '<input type="hidden" name="_csrf" value="' . h(csrf_token()) . '">'; ?>
                             <input type="hidden" name="purchase_order_id" value="<?php echo (int) $selectedPurchaseOrder['id']; ?>">
-                        <div class="row g-3 mb-4">
+                        <div class="row g-3 mb-4" id="receivingHeaderSection">
                             <div class="col-md-3"><label class="form-label">System Reference</label><input type="text" class="form-control" value="<?php echo h($form['system_reference']); ?>" readonly></div>
                             <div class="col-md-3"><label for="ris_no" class="form-label">RIS Number</label><input type="text" class="form-control" id="ris_no" name="ris_no" value="<?php echo h($form['ris_no']); ?>" readonly><div class="form-text">Generated as `RIS-YEAR-MONTH-SERIES`.</div></div>
                             <div class="col-md-3"><label for="received_date" class="form-label">Received Date</label><input type="date" class="form-control" id="received_date" name="received_date" value="<?php echo h($form['received_date']); ?>" required></div>
@@ -839,18 +1074,55 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="col-12"><label for="remarks" class="form-label">Receiving Remarks</label><textarea class="form-control" id="remarks" name="remarks" rows="2"><?php echo h($form['remarks']); ?></textarea></div>
                         </div>
 
+                        <div class="receiving-summary-strip mb-3">
+                            <div class="row g-3 align-items-center">
+                                <div class="col-md-4"><div class="small text-muted">Lines ready</div><div class="fw-semibold" id="workspaceProgressLabel">0 of <?php echo count($receivingItems); ?> lines</div></div>
+                                <div class="col-md-4"><div class="small text-muted">Tracked lines missing details</div><div class="fw-semibold text-danger" id="workspaceMissingDetailsLabel">0 line(s)</div></div>
+                                <div class="col-md-4"><div class="small text-muted">Accepted amount so far</div><div class="fw-semibold" id="workspaceAcceptedAmountLabel">0.00</div></div>
+                            </div>
+                        </div>
+
+                        <div class="receiving-workspace mb-4" id="receivingItemsSection">
+                            <aside class="receiving-line-list">
+                                <div class="mb-2"><input type="search" id="receivingLineSearch" class="form-control form-control-sm" placeholder="Search line, stock no, description..."></div>
+                                <div class="d-flex gap-2 mb-2">
+                                    <input type="number" id="receivingJumpLine" class="form-control form-control-sm" placeholder="Line #" min="1">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="receivingJumpBtn">Go</button>
+                                </div>
+                                <div class="receiving-line-scroll" id="receivingLineList">
+                                    <?php foreach ($receivingItems as $navIndex => $item): ?>
+                                        <?php $navItemId = (int) $item['id']; ?>
+                                        <div class="receiving-line-card <?php echo $navIndex === 0 ? 'active' : ''; ?>" data-line-id="<?php echo $navItemId; ?>" data-line-no="<?php echo (int) $item['line_no']; ?>" data-item-type="<?php echo h($item['item_type']); ?>" data-has-remaining="<?php echo (float) $item['remaining_quantity'] > 0 ? '1' : '0'; ?>">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge text-bg-light">Line <?php echo (int) $item['line_no']; ?></span>
+                                                <span class="badge text-bg-primary-subtle text-primary"><?php echo h(receiving_type_label((string) $item['item_type'])); ?></span>
+                                            </div>
+                                            <div class="receiving-line-title"><?php echo h(!empty($item['catalog_item_name']) ? $item['catalog_item_name'] : ($item['classification_name'] ?: 'Unclassified Item')); ?></div>
+                                            <div class="receiving-line-meta"><?php echo h(mb_strimwidth(str_replace(["\r", "\n"], ' ', $item['item_description']), 0, 90, '...')); ?></div>
+                                            <div class="d-flex justify-content-between mt-2 receiving-line-meta">
+                                                <span><?php echo h($item['catalog_stock_no'] ?: ($item['account_code'] ?: '')); ?></span>
+                                                <span>Rem: <?php echo h(number_format((float) $item['remaining_quantity'], 2)); ?></span>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </aside>
+
+                            <div>
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                             <div class="small text-muted">Use the compact grid below for fast encoding. Expand details only for semi-expendable and equipment lines.</div>
-                            <div class="d-flex gap-2">
+                            <div class="d-flex gap-2 flex-wrap">
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn active" data-filter="all">All</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="supply">Supplies</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="semi_expendable">Semi</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="equipment">Equipment</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="remaining">Remaining Only</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="receivingPrevLineBtn">Previous</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="receivingNextLineBtn">Next</button>
                             </div>
                         </div>
 
-                        <div class="table-responsive mb-4">
+                        <div class="table-responsive">
                             <table class="table table-sm align-middle" data-no-table-search>
                                 <thead>
                                     <tr>
@@ -880,7 +1152,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         }
                                         $trackIdentity = receiving_tracks_identity((string) $item['item_type']);
                                         ?>
-                                        <tr class="receiving-line-row" data-item-type="<?php echo h($item['item_type']); ?>" data-has-remaining="<?php echo (float) $item['remaining_quantity'] > 0 ? '1' : '0'; ?>">
+                                        <tr class="receiving-line-row <?php echo $itemId === (int) ($receivingItems[0]['id'] ?? 0) ? 'table-primary' : ''; ?>" data-line-id="<?php echo $itemId; ?>" data-line-no="<?php echo (int) $item['line_no']; ?>" data-unit-cost="<?php echo h(number_format((float) $item['unit_cost'], 2, '.', '')); ?>" data-item-type="<?php echo h($item['item_type']); ?>" data-has-remaining="<?php echo (float) $item['remaining_quantity'] > 0 ? '1' : '0'; ?>">
                                             <td><?php echo (int) $item['line_no']; ?></td>
                                             <td>
                                                 <?php if (!empty($item['catalog_stock_no'])): ?>
@@ -904,8 +1176,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td class="text-end"><?php echo h(number_format((float) $item['quantity'], 2)); ?></td>
                                             <td class="text-end"><?php echo h(number_format((float) $item['quantity_already_received'], 2)); ?></td>
                                             <td class="text-end fw-semibold"><?php echo h(number_format((float) $item['remaining_quantity'], 2)); ?></td>
-                                            <td><input type="number" class="form-control form-control-sm" step="0.01" min="0" max="<?php echo h((string) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][deliver_quantity]" value="<?php echo h($item['deliver_quantity']); ?>"></td>
-                                            <td><input type="number" class="form-control form-control-sm" step="0.01" min="0" max="<?php echo h((string) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][accept_quantity]" value="<?php echo h($item['accept_quantity']); ?>"></td>
+                                            <td><input type="number" class="form-control form-control-sm receiving-deliver-input" step="0.01" min="0" max="<?php echo h((string) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][deliver_quantity]" value="<?php echo h($item['deliver_quantity']); ?>"></td>
+                                            <td><input type="number" class="form-control form-control-sm receiving-accept-input" step="0.01" min="0" max="<?php echo h((string) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][accept_quantity]" value="<?php echo h($item['accept_quantity']); ?>"></td>
                                             <td><input type="number" class="form-control form-control-sm" step="0.01" min="0" max="<?php echo h((string) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][reject_quantity]" value="<?php echo h($item['reject_quantity']); ?>"></td>
                                             <td>
                                                 <?php
@@ -931,7 +1203,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </td>
                                         </tr>
                                         <?php if ($trackIdentity): ?>
-                                            <tr class="collapse receiving-detail-wrapper" id="receiving-details-<?php echo $itemId; ?>" data-item-type="<?php echo h($item['item_type']); ?>" data-has-remaining="<?php echo (float) $item['remaining_quantity'] > 0 ? '1' : '0'; ?>">
+                                        <tr class="collapse receiving-detail-wrapper <?php echo $itemId === (int) ($receivingItems[0]['id'] ?? 0) ? 'show' : ''; ?>" id="receiving-details-<?php echo $itemId; ?>" data-line-id="<?php echo $itemId; ?>" data-item-type="<?php echo h($item['item_type']); ?>" data-has-remaining="<?php echo (float) $item['remaining_quantity'] > 0 ? '1' : '0'; ?>">
                                                 <td colspan="12" class="bg-light-subtle">
                                                     <div class="border rounded-3 p-3 my-2">
                                                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -939,7 +1211,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                                 <div class="fw-semibold">Brand / Model / Serial Details</div>
                                                                 <div class="small text-muted">Add at least one detail row for accepted semi-expendable and equipment items.</div>
                                                             </div>
-                                                            <button type="button" class="btn btn-sm btn-outline-primary add-detail-row" data-item-id="<?php echo $itemId; ?>">Add Detail Row</button>
+                                                            <div class="small text-muted detail-row-status" data-item-id="<?php echo $itemId; ?>">0 detail row(s)</div>
                                                         </div>
                                                         <div class="receiving-detail-rows" data-item-id="<?php echo $itemId; ?>">
                                                             <?php foreach ($item['detail_rows'] as $detailIndex => $detail): ?>
@@ -960,8 +1232,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 </tbody>
                             </table>
                         </div>
+                            </div>
+                        </div>
 
-                        <div class="d-flex justify-content-end"><button type="submit" class="btn btn-primary">Save Receiving</button></div>
+                        <div class="d-flex justify-content-end" id="receivingSaveSection"><button type="submit" class="btn btn-primary">Save Receiving</button></div>
                     </form>
                 <?php else: ?>
                     <div class="text-muted">Select a purchase order first to load items for receiving.</div>
@@ -1010,7 +1284,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo h($receiving['delivery_receipt_no'] ?? ''); ?></td>
                                     <td><?php echo receiving_status_badge($receiving['status']); ?></td>
                                     <td class="text-end"><?php echo h(number_format((float) $receiving['total_received_amount'], 2)); ?></td>
-                                    <td class="text-end"><?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary" target="_blank">Print IAR</a><?php else: ?><span class="text-muted small">No items received yet</span><?php endif; ?></td>
+                                    <td class="text-end"><a href="<?php echo base_url('modules/messages/index.php?related_table=receivings&related_id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-info me-1">Discussion</a><?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary" target="_blank">Print IAR</a><?php else: ?><span class="text-muted small">No items received yet</span><?php endif; ?></td>
                                 </tr>
                             <?php endforeach; else: ?>
                                 <tr><td colspan="9" class="text-center text-muted py-4">No receiving records yet.</td></tr>
@@ -1111,31 +1385,62 @@ document.addEventListener('DOMContentLoaded', function () {
             '<div class="col-md-1"><button type="button" class="btn btn-outline-danger btn-sm w-100 remove-detail-row">Remove</button></div>' +
         '</div>';
     }
-    document.querySelectorAll('.add-detail-row').forEach(function (button) {
-        button.addEventListener('click', function () {
-            var itemId = button.getAttribute('data-item-id');
-            var container = document.querySelector('.receiving-detail-rows[data-item-id="' + itemId + '"]');
-            if (!container) return;
-            var index = container.querySelectorAll('.receiving-detail-row').length;
-            container.insertAdjacentHTML('beforeend', rowMarkup(itemId, index));
-            var newRow = container.lastElementChild;
+
+    function updateDetailRowStatus(itemId) {
+        var container = document.querySelector('.receiving-detail-rows[data-item-id="' + itemId + '"]');
+        var status = document.querySelector('.detail-row-status[data-item-id="' + itemId + '"]');
+        var acceptInput = document.querySelector('.receiving-accept-input[name="items[' + itemId + '][accept_quantity]"]');
+        if (!container || !status || !acceptInput) return;
+        var expected = Math.max(0, Math.round(parseNum(acceptInput.value || 0)));
+        var actual = container.querySelectorAll('.receiving-detail-row').length;
+        status.textContent = actual + ' of ' + expected + ' detail row(s)';
+    }
+
+    function ensureTrackedDetailRows(itemId) {
+        var container = document.querySelector('.receiving-detail-rows[data-item-id="' + itemId + '"]');
+        var acceptInput = document.querySelector('.receiving-accept-input[name="items[' + itemId + '][accept_quantity]"]');
+        if (!container || !acceptInput) return;
+
+        var expected = Math.max(0, Math.round(parseNum(acceptInput.value || 0)));
+        var rows = container.querySelectorAll('.receiving-detail-row');
+
+        while (rows.length < expected) {
+            container.insertAdjacentHTML('beforeend', rowMarkup(itemId, rows.length));
+            rows = container.querySelectorAll('.receiving-detail-row');
+        }
+
+        while (rows.length > expected && rows.length > 0) {
+            rows[rows.length - 1].remove();
+            rows = container.querySelectorAll('.receiving-detail-row');
+        }
+
+        if (rows.length === 0) {
+            container.insertAdjacentHTML('beforeend', rowMarkup(itemId, 0));
+            rows = container.querySelectorAll('.receiving-detail-row');
+        }
+
+        Array.from(rows).forEach(function (detailRow) {
             if (window.SPAMS && window.SPAMS.refreshSelect2) {
-                window.SPAMS.refreshSelect2(newRow);
+                window.SPAMS.refreshSelect2(detailRow);
             }
-            syncModelOptions(newRow);
+            syncModelOptions(detailRow);
         });
-    });
+
+        updateDetailRowStatus(itemId);
+    }
+
     document.querySelectorAll('.receiving-detail-row').forEach(syncModelOptions);
     document.addEventListener('click', function (event) {
         if (!event.target.classList.contains('remove-detail-row')) return;
         var row = event.target.closest('.receiving-detail-row');
         var container = row ? row.parentElement : null;
         if (!row || !container) return;
-        if (container.querySelectorAll('.receiving-detail-row').length === 1) {
-            row.querySelectorAll('input').forEach(function (input) { input.value = ''; });
-            return;
-        }
         row.remove();
+        var itemId = container.getAttribute('data-item-id');
+        if (itemId) {
+            ensureTrackedDetailRows(itemId);
+        }
+        updateWorkspaceSummary();
     });
     document.addEventListener('change', function (event) {
         var row = event.target.closest('.receiving-detail-row');
@@ -1151,6 +1456,7 @@ document.addEventListener('DOMContentLoaded', function () {
             var hiddenModel = row.querySelector('input[name$="[model]"]');
             if (hiddenModel) hiddenModel.value = event.target.value ? modelText : '';
         }
+        updateWorkspaceSummary();
     });
     if (window.jQuery) {
         window.jQuery(document).on('select2:select select2:clear', '.receiving-brand-select', function () {
@@ -1176,7 +1482,7 @@ document.addEventListener('DOMContentLoaded', function () {
             document.querySelectorAll('.receiving-filter-btn').forEach(function (btn) {
                 btn.classList.toggle('active', btn === button);
             });
-            document.querySelectorAll('.receiving-line-row, .receiving-detail-wrapper').forEach(function (row) {
+            document.querySelectorAll('.receiving-line-row, .receiving-detail-wrapper, .receiving-line-card').forEach(function (row) {
                 var itemType = row.getAttribute('data-item-type');
                 var hasRemaining = row.getAttribute('data-has-remaining') === '1';
                 var show = filter === 'all'
@@ -1184,6 +1490,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     || itemType === filter;
                 row.style.display = show ? '' : 'none';
             });
+            var visibleCards = visibleLineCards();
+            if (visibleCards.length > 0) {
+                setActiveLine(visibleCards[0].getAttribute('data-line-id'));
+            }
         });
     });
 
@@ -1213,6 +1523,66 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function toFixed2(v) { return (Math.round((v + Number.EPSILON) * 100) / 100).toFixed(2); }
+
+    function setActiveLine(lineId) {
+        document.querySelectorAll('.receiving-line-card').forEach(function (card) {
+            card.classList.toggle('active', card.getAttribute('data-line-id') === String(lineId));
+        });
+        document.querySelectorAll('.receiving-line-row').forEach(function (row) {
+            row.classList.toggle('table-primary', row.getAttribute('data-line-id') === String(lineId));
+        });
+        document.querySelectorAll('.receiving-detail-wrapper').forEach(function (wrapper) {
+            var active = wrapper.getAttribute('data-line-id') === String(lineId);
+            wrapper.classList.toggle('show', active);
+            wrapper.classList.toggle('d-none', !active);
+        });
+    }
+
+    function visibleLineCards() {
+        return Array.from(document.querySelectorAll('.receiving-line-card')).filter(function (card) {
+            return card.style.display !== 'none';
+        });
+    }
+
+    function updateWorkspaceSummary() {
+        var rows = Array.from(document.querySelectorAll('.receiving-line-row'));
+        var ready = 0;
+        var acceptedAmount = 0;
+        var missingDetails = 0;
+
+        rows.forEach(function (row) {
+            var lineId = row.getAttribute('data-line-id');
+            var deliver = parseNum((row.querySelector('.receiving-deliver-input') || {}).value || 0);
+            var accept = parseNum((row.querySelector('.receiving-accept-input') || {}).value || 0);
+            var unitCost = parseNum(row.getAttribute('data-unit-cost') || 0);
+            if (deliver > 0 || accept > 0) {
+                ready++;
+            }
+            acceptedAmount += accept * unitCost;
+
+            var detailContainer = document.querySelector('.receiving-detail-rows[data-item-id="' + lineId + '"]');
+            if (detailContainer) {
+                var expected = Math.max(0, Math.round(accept));
+                if (expected > detailContainer.querySelectorAll('.receiving-detail-row').length) {
+                    missingDetails++;
+                }
+            }
+        });
+
+        var progressLabel = document.getElementById('workspaceProgressLabel');
+        var missingLabel = document.getElementById('workspaceMissingDetailsLabel');
+        var amountLabel = document.getElementById('workspaceAcceptedAmountLabel');
+        if (progressLabel) progressLabel.textContent = ready + ' of ' + rows.length + ' lines';
+        if (missingLabel) missingLabel.textContent = missingDetails + ' line(s)';
+        if (amountLabel) amountLabel.textContent = toFixed2(acceptedAmount);
+
+        document.querySelectorAll('.receiving-line-card').forEach(function (card) {
+            var lineId = card.getAttribute('data-line-id');
+            var row = document.querySelector('.receiving-line-row[data-line-id="' + lineId + '"]');
+            var deliver = parseNum((row && row.querySelector('.receiving-deliver-input') ? row.querySelector('.receiving-deliver-input').value : 0));
+            card.classList.toggle('done', deliver > 0);
+        });
+    }
 
     document.addEventListener('input', function (ev) {
         var t = ev.target;
@@ -1246,6 +1616,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 acceptInput.value = '0.00';
                 rejectInput.value = '0.00';
             }
+            var deliverDetailContainer = document.querySelector('.receiving-detail-rows[data-item-id="' + row.querySelector('input[name$="[accept_quantity]"]').name.match(/items\[(\d+)\]/)[1] + '"]');
+            if (deliverDetailContainer) {
+                ensureTrackedDetailRows(deliverDetailContainer.getAttribute('data-item-id'));
+            }
+            updateWorkspaceSummary();
             return;
         }
 
@@ -1260,6 +1635,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 rejectInput.value = toFixed2(newReject);
             }
+            var detailContainer = document.querySelector('.receiving-detail-rows[data-item-id="' + row.querySelector('input[name$="[accept_quantity]"]').name.match(/items\[(\d+)\]/)[1] + '"]');
+            if (detailContainer) {
+                ensureTrackedDetailRows(detailContainer.getAttribute('data-item-id'));
+            }
+            updateWorkspaceSummary();
             return;
         }
 
@@ -1272,6 +1652,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 acceptInput.value = toFixed2(newAccept);
             }
+            var rejectDetailContainer = document.querySelector('.receiving-detail-rows[data-item-id="' + row.querySelector('input[name$="[accept_quantity]"]').name.match(/items\[(\d+)\]/)[1] + '"]');
+            if (rejectDetailContainer) {
+                ensureTrackedDetailRows(rejectDetailContainer.getAttribute('data-item-id'));
+            }
+            updateWorkspaceSummary();
             return;
         }
     });
@@ -1366,6 +1751,68 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         });
     });
+
+    document.querySelectorAll('.receiving-step[data-scroll-target]').forEach(function (stepBtn) {
+        stepBtn.addEventListener('click', function () {
+            var target = document.getElementById(stepBtn.getAttribute('data-scroll-target') || '');
+            document.querySelectorAll('.receiving-step[data-scroll-target]').forEach(function (btn) {
+                btn.classList.remove('active');
+            });
+            stepBtn.classList.add('active');
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+    });
+
+    document.querySelectorAll('.receiving-line-card').forEach(function (card) {
+        card.addEventListener('click', function () {
+            var lineId = card.getAttribute('data-line-id');
+            setActiveLine(lineId);
+            var row = document.querySelector('.receiving-line-row[data-line-id="' + lineId + '"]');
+            if (row) {
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        });
+    });
+
+    document.getElementById('receivingPrevLineBtn')?.addEventListener('click', function () {
+        var cards = visibleLineCards();
+        var active = document.querySelector('.receiving-line-card.active');
+        var index = cards.indexOf(active);
+        if (index > 0) {
+            cards[index - 1].click();
+        }
+    });
+
+    document.getElementById('receivingNextLineBtn')?.addEventListener('click', function () {
+        var cards = visibleLineCards();
+        var active = document.querySelector('.receiving-line-card.active');
+        var index = cards.indexOf(active);
+        if (index > -1 && index < cards.length - 1) {
+            cards[index + 1].click();
+        }
+    });
+
+    document.getElementById('receivingLineSearch')?.addEventListener('input', function () {
+        var q = this.value.trim().toLowerCase();
+        document.querySelectorAll('.receiving-line-card').forEach(function (card) {
+            card.style.display = card.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+        });
+    });
+
+    document.getElementById('receivingJumpBtn')?.addEventListener('click', function () {
+        var lineNo = String((document.getElementById('receivingJumpLine') || {}).value || '');
+        var targetCard = document.querySelector('.receiving-line-card[data-line-no="' + lineNo + '"]');
+        if (targetCard) {
+            targetCard.click();
+        }
+    });
+
+    document.querySelectorAll('.receiving-detail-rows[data-item-id]').forEach(function (container) {
+        ensureTrackedDetailRows(container.getAttribute('data-item-id'));
+    });
+    updateWorkspaceSummary();
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

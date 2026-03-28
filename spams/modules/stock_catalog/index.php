@@ -42,10 +42,10 @@ if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
     $classificationResult = $db->query("
-        SELECT id, classification_name, classification_group
+        SELECT id, classification_name, classification_family, classification_group
         FROM classifications
         WHERE is_active = 1
-        ORDER BY classification_name ASC
+        ORDER BY COALESCE(classification_family, ''), classification_name ASC
     ");
     if ($classificationResult) {
         $classifications = $classificationResult->fetch_all(MYSQLI_ASSOC);
@@ -127,8 +127,10 @@ if (!$db) {
                     }
                 }
 
-                if ($action === 'create' && $accountCodeId) {
-                    $form['stock_no'] = stock_catalog_next_number($db, $accountCodeId);
+                $classificationId = $form['classification_id'] !== '' ? (int) $form['classification_id'] : null;
+
+                if ($action === 'create') {
+                    $form['stock_no'] = stock_catalog_next_number($db, $classificationId, $form['item_name'], $form['item_description']);
                 } elseif ($action === 'update' && $recordId > 0) {
                     $currentStockStmt = $db->prepare("SELECT stock_no FROM stock_catalog WHERE id = ? LIMIT 1");
                     if ($currentStockStmt) {
@@ -141,7 +143,7 @@ if (!$db) {
                 }
 
                 if ($form['stock_no'] === '') {
-                    $errors[] = 'Unable to generate a stock number for the selected account code.';
+                    $errors[] = 'Unable to generate a stock number for the item name/description.';
                 }
 
                 $duplicateStmt = $db->prepare("SELECT id FROM stock_catalog WHERE stock_no = ? AND id != ? LIMIT 1");
@@ -172,7 +174,6 @@ if (!$db) {
                     $duplicateItemStmt->close();
                 }
 
-                $classificationId = $form['classification_id'] !== '' ? (int) $form['classification_id'] : null;
                 foreach ($classifications as $classification) {
                     if ((int) $classification['id'] === (int) $classificationId) {
                         $expectedGroup = $form['item_type'] === 'equipment' ? 'asset' : $form['item_type'];
@@ -288,7 +289,7 @@ if (!$db) {
 
     if ($selectedId > 0) {
         $selectedStmt = $db->prepare("
-            SELECT sc.*, c.classification_name, ac.account_code, ac.account_name, u.uom_name, u.abbreviation
+            SELECT sc.*, c.classification_name, c.classification_family, ac.account_code, ac.account_name, u.uom_name, u.abbreviation
             FROM stock_catalog sc
             LEFT JOIN classifications c ON c.id = sc.classification_id
             LEFT JOIN account_codes ac ON ac.id = sc.account_code_id
@@ -319,9 +320,13 @@ if (!$db) {
     }
 
     if ($mode === 'create') {
-        $previewAccountCodeId = $form['account_code_id'] !== '' ? (int) $form['account_code_id'] : 0;
-        if ($previewAccountCodeId > 0) {
-            $generatedStockNoPreview = stock_catalog_next_number($db, $previewAccountCodeId);
+        if ($form['item_name'] !== '' || $form['item_description'] !== '') {
+            $generatedStockNoPreview = stock_catalog_next_number(
+                $db,
+                $form['classification_id'] !== '' ? (int) $form['classification_id'] : null,
+                $form['item_name'],
+                $form['item_description']
+            );
         }
     } elseif (!empty($form['stock_no'])) {
         $generatedStockNoPreview = $form['stock_no'];
@@ -345,7 +350,7 @@ if (!$db) {
 
     $sql = "
         SELECT sc.id, sc.stock_no, sc.item_name, sc.item_type,
-               sc.is_active, c.classification_name, ac.account_code,
+               sc.is_active, c.classification_name, c.classification_family, ac.account_code,
                u.abbreviation AS uom
         FROM stock_catalog sc
         LEFT JOIN classifications c ON c.id = sc.classification_id
@@ -418,7 +423,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 </span>
                                             </div>
                                             <div class="fw-semibold"><?php echo h($item['item_name']); ?></div>
-                                            <div class="small opacity-75"><?php echo h(trim(($item['classification_name'] ?? 'No class') . ' | ' . ($item['account_code'] ?? 'No account') . ' | ' . ($item['uom'] ?? 'No UOM'))); ?></div>
+                                            <div class="small opacity-75"><?php echo h(trim((!empty($item['classification_family']) ? $item['classification_family'] . ' / ' : '') . ($item['classification_name'] ?? 'No class') . ' | ' . ($item['account_code'] ?? 'No account') . ' | ' . ($item['uom'] ?? 'No UOM'))); ?></div>
                                         </div>
                                         <span class="badge <?php echo (int) ($item['is_active'] ?? 0) === 1 ? 'text-bg-light' : 'text-bg-secondary'; ?>"><?php echo (int) ($item['is_active'] ?? 0) === 1 ? 'Active' : 'Inactive'; ?></span>
                                     </div>
@@ -457,11 +462,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="col-md-4">
                                 <label class="form-label">Stock Number</label>
                                 <input type="text" class="form-control" id="stockCatalogStockNoPreview" data-form-mode="<?php echo h($mode); ?>" value="<?php echo h($generatedStockNoPreview !== '' ? $generatedStockNoPreview : 'Auto-generated on save'); ?>" readonly>
-                                <div class="form-text">Generated automatically as two-letter category code plus running series.</div>
+                                <div class="form-text">Generated automatically as a two-letter item code plus running series, for example <code>JS-001</code>.</div>
                             </div>
                             <div class="col-md-8">
                                 <label class="form-label">Item Name *</label>
-                                <input type="text" class="form-control" name="item_name" value="<?php echo h($form['item_name']); ?>" required>
+                                <input type="text" class="form-control" id="stockCatalogItemName" name="item_name" value="<?php echo h($form['item_name']); ?>" required>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Item Type *</label>
@@ -476,8 +481,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <select class="form-select stock-catalog-classification" name="classification_id">
                                     <option value="">Select classification</option>
                                     <?php foreach ($classifications as $classification): ?>
-                                        <option value="<?php echo (int) $classification['id']; ?>" data-item-type="<?php echo h(($classification['classification_group'] ?? '') === 'asset' ? 'equipment' : (string) $classification['classification_group']); ?>" <?php echo $form['classification_id'] === (string) $classification['id'] ? 'selected' : ''; ?>>
-                                            <?php echo h($classification['classification_name']); ?>
+                                        <option value="<?php echo (int) $classification['id']; ?>" data-family="<?php echo h((string) ($classification['classification_family'] ?? '')); ?>" data-item-type="<?php echo h(($classification['classification_group'] ?? '') === 'asset' ? 'equipment' : (string) $classification['classification_group']); ?>" <?php echo $form['classification_id'] === (string) $classification['id'] ? 'selected' : ''; ?>>
+                                            <?php echo h(!empty($classification['classification_family']) ? ($classification['classification_family'] . ' / ' . $classification['classification_name']) : $classification['classification_name']); ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
@@ -506,7 +511,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Full Description</label>
-                                <textarea class="form-control" name="item_description" rows="4"><?php echo h($form['item_description']); ?></textarea>
+                                <textarea class="form-control" id="stockCatalogItemDescription" name="item_description" rows="4"><?php echo h($form['item_description']); ?></textarea>
                             </div>
                             <div class="col-12">
                                 <div class="form-check form-switch">
@@ -543,7 +548,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
 
                     <div class="row g-3 mb-4">
-                        <div class="col-md-4"><div class="small text-muted">Classification</div><div><?php echo h($selectedItem['classification_name'] ?? 'Not set'); ?></div></div>
+                        <div class="col-md-4"><div class="small text-muted">Classification</div><div><?php echo h(!empty($selectedItem['classification_family']) ? ($selectedItem['classification_family'] . ' / ' . ($selectedItem['classification_name'] ?? '')) : ($selectedItem['classification_name'] ?? 'Not set')); ?></div></div>
                         <div class="col-md-4"><div class="small text-muted">Account Code</div><div><?php echo h(!empty($selectedItem['account_code']) ? $selectedItem['account_code'] . ' - ' . ($selectedItem['account_name'] ?? '') : 'Not set'); ?></div></div>
                         <div class="col-md-4"><div class="small text-muted">Unit of Measure</div><div><?php echo h(!empty($selectedItem['uom_name']) ? $selectedItem['uom_name'] . (!empty($selectedItem['abbreviation']) ? ' (' . $selectedItem['abbreviation'] . ')' : '') : 'Not set'); ?></div></div>
                     </div>
@@ -575,17 +580,23 @@ document.addEventListener('DOMContentLoaded', function () {
     var classificationSelect = document.querySelector('.stock-catalog-classification');
     var accountSelect = document.querySelector('.stock-catalog-account');
     var stockNoPreview = document.getElementById('stockCatalogStockNoPreview');
+    var itemNameInput = document.getElementById('stockCatalogItemName');
+    var itemDescriptionInput = document.getElementById('stockCatalogItemDescription');
 
-    function buildCategoryCode(label) {
+    function buildItemCode(label) {
         var cleaned = String(label || '').toUpperCase().replace(/[^A-Z0-9& ]+/g, ' ').trim();
         if (!cleaned) return 'SC';
         var words = cleaned.split(/\s+/).filter(function (word) {
             return ['AND', 'OF', 'THE', '&'].indexOf(word) === -1;
         });
         if (words.length >= 2) {
-            return (words[0].charAt(0) || 'S') + (words[1].charAt(0) || 'C');
+            var first = words[0].replace(/[^A-Z]/g, '');
+            var second = /^[A-Z]/.test(words[1]) ? words[1].replace(/[^A-Z]/g, '') : '';
+            var code = (first.charAt(0) || '') + (second.charAt(0) || '');
+            if (code.length === 2) return code;
+            if (first.length >= 2) return first.substring(0, 2);
         }
-        var single = (words[0] || cleaned).replace(/[^A-Z0-9]/g, '');
+        var single = (words[0] || cleaned).replace(/[^A-Z]/g, '');
         return (single + 'XX').substring(0, 2);
     }
 
@@ -594,13 +605,21 @@ document.addEventListener('DOMContentLoaded', function () {
         if ((stockNoPreview.getAttribute('data-form-mode') || '') !== 'create') {
             return;
         }
-        if (!accountSelect || !accountSelect.value) {
+        var label = '';
+        if (classificationSelect && classificationSelect.value) {
+            var selectedOption = classificationSelect.options[classificationSelect.selectedIndex];
+            if (selectedOption) {
+                label = selectedOption.getAttribute('data-family') || selectedOption.textContent || '';
+            }
+        }
+        if (!label) {
+            label = (itemNameInput && itemNameInput.value ? itemNameInput.value : '') || (itemDescriptionInput && itemDescriptionInput.value ? itemDescriptionInput.value : '');
+        }
+        if (!label) {
             stockNoPreview.value = 'Auto-generated on save';
             return;
         }
-        var selectedOption = accountSelect.options[accountSelect.selectedIndex];
-        var label = selectedOption ? selectedOption.textContent.split(' - ').slice(1).join(' - ') : '';
-        stockNoPreview.value = buildCategoryCode(label) + '-AUTO';
+        stockNoPreview.value = buildItemCode(label) + '-001+';
     }
 
     function filterSelectOptions(select, itemType) {
@@ -635,6 +654,15 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (accountSelect) {
         accountSelect.addEventListener('change', syncStockNoPreview);
+    }
+    if (classificationSelect) {
+        classificationSelect.addEventListener('change', syncStockNoPreview);
+    }
+    if (itemNameInput) {
+        itemNameInput.addEventListener('input', syncStockNoPreview);
+    }
+    if (itemDescriptionInput) {
+        itemDescriptionInput.addEventListener('input', syncStockNoPreview);
     }
 });
 </script>
