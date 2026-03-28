@@ -15,8 +15,10 @@ if ($ref === '') {
 $db = db_connect();
 $row = null;
 if ($db) {
+    ensure_distribution_item_runtime_columns($db);
+
     $stmt = $db->prepare(
-        "SELECT si.system_reference, si.item_description, si.item_type, si.unit_cost, si.quantity_received,\n" .
+        "SELECT si.system_reference, did.property_number, si.item_description, si.item_type, si.unit_cost, si.quantity_received,\n" .
         "       poi.item_description AS original_description,\n" .
         "       c.classification_name,\n" .
         "       ac.account_code, ac.account_name,\n" .
@@ -44,11 +46,11 @@ if ($db) {
         "LEFT JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'\n" .
         "LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)\n" .
         "LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)\n" .
-        "WHERE si.system_reference = ?\n" .
+        "WHERE did.property_number = ? OR si.system_reference = ?\n" .
         "LIMIT 1"
     );
     if ($stmt) {
-        $stmt->bind_param('s', $ref);
+        $stmt->bind_param('ss', $ref, $ref);
         $stmt->execute();
         $res = $stmt->get_result();
         $row = $res ? $res->fetch_assoc() : null;
@@ -57,7 +59,7 @@ if ($db) {
 
     if (!$row) {
         $legacyStmt = $db->prepare(
-            "SELECT la.system_reference, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
+            "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
                     la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
                     '' AS ris_no, la.acquisition_date AS received_date, '' AS po_number, '' AS supplier_name,
                     la.brand, la.model, la.serial_no, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
@@ -115,7 +117,7 @@ $empName = employee_display_name_from_row($row);
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Property <?php echo h($row['system_reference']); ?></title>
+    <title>Property <?php echo h($row['property_number'] ?? $row['system_reference'] ?? $ref); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>body{padding:12px;font-family:Arial, sans-serif;} .card{max-width:760px;margin:0 auto;} .kv {font-weight:600;width:140px;display:inline-block}</style>
 </head>
@@ -124,7 +126,7 @@ $empName = employee_display_name_from_row($row);
         <div class="card-body">
             <h5 class="card-title">University of Antique — Property Information</h5>
             <hr>
-            <div class="mb-2"><span class="kv">Property No:</span> <?php echo h($row['system_reference'] ?: $ref); ?></div>
+            <div class="mb-2"><span class="kv">Property No:</span> <?php echo h($row['property_number'] ?? $row['system_reference'] ?? $ref); ?></div>
             <div class="mb-2"><span class="kv">Description:</span> <?php echo h($row['item_description'] ?? $row['original_description']); ?></div>
             <div class="mb-2"><span class="kv">Classification:</span> <?php echo h($row['classification_name'] ?? ''); ?></div>
             <div class="mb-2"><span class="kv">Account Code:</span> <?php echo h($row['account_code'] ?? '') . ' ' . h($row['account_name'] ?? ''); ?></div>

@@ -10,6 +10,8 @@ $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $asOf = trim((string) ($_GET['as_of'] ?? date('Y-m-d')));
 
 if ($db) {
+    ensure_disposals_runtime_schema($db);
+
     $sql = "
         SELECT
             dp.disposal_date,

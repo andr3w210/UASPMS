@@ -146,6 +146,17 @@ if (!$db) {
                                     $cancelStmt->bind_param('ii', $userId, $cancelId);
                                     $cancelStmt->execute();
                                     $cancelStmt->close();
+                                    write_audit_log($db, [
+                                        'action' => 'update',
+                                        'table_name' => 'purchase_orders',
+                                        'record_id' => $cancelId,
+                                        'module_name' => 'purchase_orders',
+                                        'record_type' => 'purchase_order',
+                                        'action_name' => 'cancel_purchase_order',
+                                        'old_values' => ['status' => 'encoded'],
+                                        'new_values' => ['status' => 'cancelled'],
+                                        'description' => 'Cancelled purchase order.',
+                                    ]);
                                     set_flash('success', 'Purchase order cancelled successfully.');
                                 } else {
                                     set_flash('error', 'Unable to cancel the purchase order.');
@@ -383,6 +394,27 @@ if (!$db) {
                         $itemStmt->execute();
                     }
                     $itemStmt->close();
+
+                    write_audit_log($db, [
+                        'action' => 'insert',
+                        'table_name' => 'purchase_orders',
+                        'record_id' => $purchaseOrderId,
+                        'module_name' => 'purchase_orders',
+                        'record_type' => 'purchase_order',
+                        'action_name' => 'create_purchase_order',
+                        'new_values' => [
+                            'system_reference' => $systemReference,
+                            'po_number' => $form['po_number'],
+                            'po_date' => $form['po_date'],
+                            'supplier_id' => $supplierId,
+                            'fund_id' => $fundId,
+                            'mode_of_procurement_id' => $modeOfProcurementId,
+                            'status' => $status,
+                            'total_amount' => $totalAmount,
+                            'item_count' => count($itemRows),
+                        ],
+                        'description' => 'Created purchase order.',
+                    ]);
 
                     $db->commit();
                     set_flash('success', 'Purchase order encoded successfully.');

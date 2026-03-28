@@ -697,18 +697,17 @@ function generate_property_number(
     string $accountCode,
     string $rcCode
 ): string {
-    // Extract fund number (last numeric segment)
-    $fundParts = explode('-', $fundCode);
-    $fundNumber = '';
-    foreach (array_reverse($fundParts) as $part) {
-        $part = trim($part);
-        if (is_numeric($part)) {
-            $fundNumber = str_pad($part, 2, '0', STR_PAD_LEFT);
-            break;
-        }
+    // Use the numeric fund segment (e.g. 05, 01, 06, 07) in the property number.
+    $fundSegment = trim($fundCode);
+    if ($fundSegment === '') {
+        $fundSegment = 'GEN';
     }
-    if ($fundNumber === '') {
-        $fundNumber = preg_replace('/[^0-9]/', '', $fundCode);
+    $fundSegment = preg_replace('/[^0-9]/', '', $fundSegment);
+    if ($fundSegment !== '') {
+        $fundSegment = str_pad(substr($fundSegment, -2), 2, '0', STR_PAD_LEFT);
+    }
+    if ($fundSegment === '') {
+        $fundSegment = 'GEN';
     }
 
     // Extract 3rd and 4th decimal segments from account code
@@ -721,33 +720,73 @@ function generate_property_number(
 
     // Extract RC short code — remove leading RC- prefix
     $rcShort = preg_replace('/^RC-/i', '', trim($rcCode));
-    if ($rcShort === '') $rcShort = $rcCode;
+    if ($rcShort === '') {
+        $rcShort = trim($rcCode);
+    }
+    if ($rcShort === '') {
+        $rcShort = 'GEN';
+    }
 
-    // Build the LIKE pattern for series lookup
-    $prefix = $year . '-' . $fundNumber . '-' . $acctShort . '-';
-    $like   = $prefix . '%';
-
-    // Get next series number for this prefix
-    $stmt = $db->prepare(
-        "SELECT COALESCE(MAX(
-            CAST(SUBSTRING_INDEX(
-                SUBSTRING_INDEX(property_number, '-RC', 1),
-                '-', -1
-            ) AS UNSIGNED)
-         ), 0) + 1 AS next_seq
-         FROM distribution_item_details
-         WHERE property_number LIKE ?"
-    );
+    $prefix = $year . '-' . $fundSegment . '-' . $acctShort;
+    $seriesModuleKey = 'property_number|' . $prefix . '|' . $rcShort;
+    $padding = 4;
     $nextSeq = 1;
+
+    $stmt = $db->prepare("SELECT current_value FROM series_numbers WHERE module_key = ? LIMIT 1");
     if ($stmt) {
-        $stmt->bind_param('s', $like);
+        $stmt->bind_param('s', $seriesModuleKey);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
-        $nextSeq = (int)($row['next_seq'] ?? 1);
         $stmt->close();
+
+        if ($row) {
+            $nextSeq = ((int) $row['current_value']) + 1;
+        } else {
+            $likePrefix = $prefix . '-%';
+            $likeSuffix = '%-' . $rcShort;
+            $seedStmt = $db->prepare(
+                "SELECT COALESCE(MAX(
+                    CAST(SUBSTRING_INDEX(
+                        SUBSTRING_INDEX(property_number, '-', -2),
+                        '-', 1
+                    ) AS UNSIGNED)
+                 ), 0) AS current_value
+                 FROM distribution_item_details
+                 WHERE property_number LIKE ?
+                   AND property_number LIKE ?"
+            );
+            $currentValue = 0;
+            if ($seedStmt) {
+                $seedStmt->bind_param('ss', $likePrefix, $likeSuffix);
+                $seedStmt->execute();
+                $seedRow = $seedStmt->get_result()->fetch_assoc();
+                $currentValue = (int) ($seedRow['current_value'] ?? 0);
+                $seedStmt->close();
+            }
+
+            $insertStmt = $db->prepare(
+                "INSERT INTO series_numbers (module_key, prefix, year_value, current_value, padding_length)
+                 VALUES (?, ?, NULL, ?, ?)
+                 ON DUPLICATE KEY UPDATE module_key = module_key"
+            );
+            if ($insertStmt) {
+                $insertStmt->bind_param('ssii', $seriesModuleKey, $prefix, $currentValue, $padding);
+                $insertStmt->execute();
+                $insertStmt->close();
+            }
+            $nextSeq = $currentValue + 1;
+        }
+    }
+
+    $updateStmt = $db->prepare("UPDATE series_numbers SET current_value = ? WHERE module_key = ?");
+    if ($updateStmt) {
+        $currentValue = $nextSeq;
+        $updateStmt->bind_param('is', $currentValue, $seriesModuleKey);
+        $updateStmt->execute();
+        $updateStmt->close();
     }
 
     return $prefix
-         . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT)
+         . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT)
          . '-' . $rcShort;
 }

@@ -11,6 +11,8 @@ $disposalId = (int) ($_GET['disposal_id'] ?? 0);
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 
 if ($db) {
+    ensure_disposals_runtime_schema($db);
+
     $listSql = "
         SELECT dp.id, dp.system_reference, dp.disposal_date, did.property_number, poi.item_description, c.classification_name, c.classification_family
         FROM disposals dp

@@ -14,6 +14,7 @@ $transfers = [];
 $assetSearch = trim($_GET['q'] ?? '');
 $assetSourceFilter = trim($_GET['source'] ?? '');
 $assetTypeFilter = trim($_GET['item_type'] ?? '');
+$preselectedAssetKey = trim((string) ($_GET['asset_key'] ?? ''));
 $form = [
     'asset_key' => '',
     'transfer_date' => date('Y-m-d'),
@@ -65,9 +66,7 @@ if (!$db) {
         created_by INT UNSIGNED NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    $db->query("ALTER TABLE distribution_item_details ADD COLUMN IF NOT EXISTS current_office_id INT UNSIGNED NULL AFTER property_number");
-    $db->query("ALTER TABLE distribution_item_details ADD COLUMN IF NOT EXISTS current_employee_id INT UNSIGNED NULL AFTER current_office_id");
-    $db->query("ALTER TABLE distribution_item_details ADD COLUMN IF NOT EXISTS current_responsibility_code_id INT UNSIGNED NULL AFTER current_employee_id");
+    ensure_distribution_item_runtime_columns($db);
 
     $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res) $offices = $res->fetch_all(MYSQLI_ASSOC);
@@ -125,6 +124,15 @@ if (!$db) {
         return strcmp((string) ($a['property_number'] ?? ''), (string) ($b['property_number'] ?? ''));
     });
 
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $preselectedAssetKey !== '') {
+        foreach ($assets as $candidate) {
+            if (($candidate['asset_key'] ?? '') === $preselectedAssetKey) {
+                $form['asset_key'] = $preselectedAssetKey;
+                break;
+            }
+        }
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($form as $k => $v) $form[$k] = trim((string) ($_POST[$k] ?? ''));
         if (!csrf_verify()) $errors[] = 'Invalid CSRF token.';
@@ -159,7 +167,7 @@ if (!$db) {
         if (!$errors && $asset) {
             $db->begin_transaction();
             try {
-                $ref = next_module_code($db, 'distributions');
+                $ref = next_module_code($db, 'transfers');
                 $userId = current_user_id();
                 $sourceType = (string) ($asset['source_type'] ?? '');
                 $distributionItemDetailId = $sourceType === 'system' ? (int) ($asset['source_id'] ?? 0) : 0;
@@ -172,6 +180,7 @@ if (!$db) {
                 $fromRcId = (int) ($asset['current_rc_id'] ?? 0);
                 $stmt->bind_param('sssiiiiiiiiissi', $ref, $form['transfer_date'], $sourceType, $distributionItemDetailId, $legacyAssetId, $propertyNumber, $fromOfficeId, $fromEmployeeId, $fromRcId, $toOfficeId, $toEmployeeId, $toRcId, $form['reason'], $form['remarks'], $userId);
                 $stmt->execute();
+                $transferId = (int) $stmt->insert_id;
                 $stmt->close();
 
                 if ($sourceType === 'system') {
@@ -185,6 +194,28 @@ if (!$db) {
                 }
                 $stmt->execute();
                 $stmt->close();
+
+                write_audit_log($db, [
+                    'action' => 'insert',
+                    'table_name' => 'asset_transfers',
+                    'record_id' => $transferId,
+                    'module_name' => 'transfers',
+                    'record_type' => 'asset_transfer',
+                    'action_name' => 'post_transfer',
+                    'new_values' => [
+                        'system_reference' => $ref,
+                        'transfer_date' => $form['transfer_date'],
+                        'source_type' => $sourceType,
+                        'property_number' => $propertyNumber,
+                        'from_office_id' => $fromOfficeId,
+                        'from_employee_id' => $fromEmployeeId,
+                        'from_responsibility_code_id' => $fromRcId,
+                        'to_office_id' => $toOfficeId,
+                        'to_employee_id' => $toEmployeeId,
+                        'to_responsibility_code_id' => $toRcId,
+                    ],
+                    'description' => 'Posted transfer of accountability.',
+                ]);
 
                 $db->commit();
                 set_flash('success', 'Transfer of accountability posted successfully.');

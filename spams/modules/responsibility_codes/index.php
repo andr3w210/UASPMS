@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
 function responsibility_codes_has_reference(mysqli $db, int $recordId): bool
@@ -111,20 +112,55 @@ if (!$db) {
                     $stmt = $db->prepare("UPDATE responsibility_codes SET office_id = ?, code = ?, description = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
                     if ($stmt) {
                         $stmt->bind_param('issiii', $officeId, $form['code'], $form['description'], $isActive, $userId, $recordId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
                         $stmt->close();
-                        set_flash('success', 'Responsibility code updated successfully.');
-                        redirect('modules/responsibility_codes/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'update',
+                                'table_name' => 'responsibility_codes',
+                                'record_id' => $recordId,
+                                'module_name' => 'responsibility_codes',
+                                'record_type' => 'responsibility_code',
+                                'action_name' => 'update_responsibility_code',
+                                'description' => 'Updated responsibility code.',
+                                'new_values' => [
+                                    'office_id' => $officeId,
+                                    'code' => $form['code'],
+                                    'description' => $form['description'],
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success', 'Responsibility code updated successfully.');
+                            redirect('modules/responsibility_codes/index.php');
+                        }
                     }
                 } else {
                     $form['code'] = next_module_code($db, 'responsibility_codes_' . $officeCode);
                     $stmt = $db->prepare("INSERT INTO responsibility_codes (office_id, code, description, is_active, created_by) VALUES (?, ?, ?, ?, ?)");
                     if ($stmt) {
                         $stmt->bind_param('issii', $officeId, $form['code'], $form['description'], $isActive, $userId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
+                        $newCodeId = (int) $stmt->insert_id;
                         $stmt->close();
-                        set_flash('success', 'Responsibility code created successfully.');
-                        redirect('modules/responsibility_codes/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'insert',
+                                'table_name' => 'responsibility_codes',
+                                'record_id' => $newCodeId,
+                                'module_name' => 'responsibility_codes',
+                                'record_type' => 'responsibility_code',
+                                'action_name' => 'create_responsibility_code',
+                                'description' => 'Created responsibility code.',
+                                'new_values' => [
+                                    'office_id' => $officeId,
+                                    'code' => $form['code'],
+                                    'description' => $form['description'],
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success', 'Responsibility code created successfully.');
+                            redirect('modules/responsibility_codes/index.php');
+                        }
                     }
                 }
 
@@ -136,10 +172,22 @@ if (!$db) {
             $stmt = $db->prepare("UPDATE responsibility_codes SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
             if ($stmt) {
                 $stmt->bind_param('ii', $userId, $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Responsibility code deactivated successfully.');
-                redirect('modules/responsibility_codes/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'responsibility_codes',
+                        'record_id' => $recordId,
+                        'module_name' => 'responsibility_codes',
+                        'record_type' => 'responsibility_code',
+                        'action_name' => 'deactivate_responsibility_code',
+                        'description' => 'Deactivated responsibility code.',
+                        'new_values' => ['is_active' => 0],
+                    ]);
+                    set_flash('success', 'Responsibility code deactivated successfully.');
+                    redirect('modules/responsibility_codes/index.php');
+                }
             }
             $errors[] = 'Unable to deactivate the responsibility code.';
         } elseif ($action === 'hard_delete') {
@@ -152,13 +200,36 @@ if (!$db) {
                 set_flash('error', 'Cannot delete: record is used in existing transactions.');
                 redirect('modules/responsibility_codes/index.php');
             }
+            $auditSnapshot = ['id' => $recordId];
+            $auditStmt = $db->prepare("SELECT code, description, office_id FROM responsibility_codes WHERE id = ? LIMIT 1");
+            if ($auditStmt) {
+                $auditStmt->bind_param('i', $recordId);
+                $auditStmt->execute();
+                $auditRow = $auditStmt->get_result()->fetch_assoc();
+                $auditStmt->close();
+                if ($auditRow) {
+                    $auditSnapshot = $auditRow;
+                }
+            }
             $stmt = $db->prepare("DELETE FROM responsibility_codes WHERE id = ? LIMIT 1");
             if ($stmt) {
                 $stmt->bind_param('i', $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Record permanently deleted.');
-                redirect('modules/responsibility_codes/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'delete',
+                        'table_name' => 'responsibility_codes',
+                        'record_id' => $recordId,
+                        'module_name' => 'responsibility_codes',
+                        'record_type' => 'responsibility_code',
+                        'action_name' => 'hard_delete_responsibility_code',
+                        'description' => 'Permanently deleted responsibility code.',
+                        'old_values' => $auditSnapshot,
+                    ]);
+                    set_flash('success', 'Record permanently deleted.');
+                    redirect('modules/responsibility_codes/index.php');
+                }
             }
             $errors[] = 'Unable to permanently delete the responsibility code.';
         }

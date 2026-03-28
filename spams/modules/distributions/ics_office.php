@@ -14,6 +14,8 @@ $header = null;
 $rows = [];
 
 if ($db) {
+    ensure_distribution_item_runtime_columns($db);
+
     $threshold = get_active_threshold($db);
     $semiHvMin = (float) ($threshold['semi_hv_min'] ?? 5000);
     $poItemSupportsSemiType = function_exists('schema_has_column') ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type') : false;

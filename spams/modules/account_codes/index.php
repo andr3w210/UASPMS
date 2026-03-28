@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
 function account_codes_has_reference(mysqli $db, int $recordId): bool
@@ -60,19 +61,56 @@ if (!$db) {
                     if ($stmt) {
                         $recordId = (int) $form['id'];
                         $stmt->bind_param('ssssiii', $form['account_code'], $form['account_name'], $form['account_group'], $form['description'], $isActive, $userId, $recordId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
                         $stmt->close();
-                        set_flash('success', 'Account code updated successfully.');
-                        redirect('modules/account_codes/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'update',
+                                'table_name' => 'account_codes',
+                                'record_id' => $recordId,
+                                'module_name' => 'account_codes',
+                                'record_type' => 'account_code',
+                                'action_name' => 'update_account_code',
+                                'description' => 'Updated account code record.',
+                                'new_values' => [
+                                    'account_code' => $form['account_code'],
+                                    'account_name' => $form['account_name'],
+                                    'account_group' => $form['account_group'],
+                                    'description' => $form['description'],
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success', 'Account code updated successfully.');
+                            redirect('modules/account_codes/index.php');
+                        }
                     }
                 } else {
                     $stmt = $db->prepare("INSERT INTO account_codes (account_code, account_name, account_group, description, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?)");
                     if ($stmt) {
                         $stmt->bind_param('ssssii', $form['account_code'], $form['account_name'], $form['account_group'], $form['description'], $isActive, $userId);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
+                        $newAccountCodeId = (int) $stmt->insert_id;
                         $stmt->close();
-                        set_flash('success', 'Account code created successfully.');
-                        redirect('modules/account_codes/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'insert',
+                                'table_name' => 'account_codes',
+                                'record_id' => $newAccountCodeId,
+                                'module_name' => 'account_codes',
+                                'record_type' => 'account_code',
+                                'action_name' => 'create_account_code',
+                                'description' => 'Created account code record.',
+                                'new_values' => [
+                                    'account_code' => $form['account_code'],
+                                    'account_name' => $form['account_name'],
+                                    'account_group' => $form['account_group'],
+                                    'description' => $form['description'],
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success', 'Account code created successfully.');
+                            redirect('modules/account_codes/index.php');
+                        }
                     }
                 }
                 $errors[] = 'Unable to save the account code.';
@@ -83,10 +121,22 @@ if (!$db) {
             $stmt = $db->prepare("UPDATE account_codes SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
             if ($stmt) {
                 $stmt->bind_param('ii', $userId, $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Account code deactivated successfully.');
-                redirect('modules/account_codes/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'account_codes',
+                        'record_id' => $recordId,
+                        'module_name' => 'account_codes',
+                        'record_type' => 'account_code',
+                        'action_name' => 'deactivate_account_code',
+                        'description' => 'Deactivated account code record.',
+                        'new_values' => ['is_active' => 0],
+                    ]);
+                    set_flash('success', 'Account code deactivated successfully.');
+                    redirect('modules/account_codes/index.php');
+                }
             }
             $errors[] = 'Unable to deactivate the account code.';
         } elseif ($action === 'hard_delete') {
@@ -99,13 +149,36 @@ if (!$db) {
                 set_flash('error', 'Cannot delete: record is used in existing transactions.');
                 redirect('modules/account_codes/index.php');
             }
+            $auditSnapshot = ['id' => $recordId];
+            $auditStmt = $db->prepare("SELECT account_code, account_name, account_group FROM account_codes WHERE id = ? LIMIT 1");
+            if ($auditStmt) {
+                $auditStmt->bind_param('i', $recordId);
+                $auditStmt->execute();
+                $auditRow = $auditStmt->get_result()->fetch_assoc();
+                $auditStmt->close();
+                if ($auditRow) {
+                    $auditSnapshot = $auditRow;
+                }
+            }
             $stmt = $db->prepare("DELETE FROM account_codes WHERE id = ? LIMIT 1");
             if ($stmt) {
                 $stmt->bind_param('i', $recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success', 'Record permanently deleted.');
-                redirect('modules/account_codes/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'delete',
+                        'table_name' => 'account_codes',
+                        'record_id' => $recordId,
+                        'module_name' => 'account_codes',
+                        'record_type' => 'account_code',
+                        'action_name' => 'hard_delete_account_code',
+                        'description' => 'Permanently deleted account code record.',
+                        'old_values' => $auditSnapshot,
+                    ]);
+                    set_flash('success', 'Record permanently deleted.');
+                    redirect('modules/account_codes/index.php');
+                }
             }
             $errors[] = 'Unable to permanently delete the account code.';
         }

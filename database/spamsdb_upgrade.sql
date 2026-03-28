@@ -188,5 +188,7 @@ WHERE (
 SOURCE 038_stock_catalog_stock_no_reformat.sql;
 SOURCE 039_classification_family.sql;
 SOURCE 040_stock_catalog_stock_no_from_classification_family.sql;
+SOURCE 042_fix_property_number_format.sql;
+SOURCE 043_fix_property_number_fund_segment_and_series.sql;
 
 SET FOREIGN_KEY_CHECKS = 1;

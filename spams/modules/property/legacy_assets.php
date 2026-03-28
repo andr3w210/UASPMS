@@ -177,7 +177,27 @@ if ($db) {
                     $userId
                 );
                 $stmt->execute();
+                $legacyAssetId = (int) $stmt->insert_id;
                 $stmt->close();
+
+                write_audit_log($db, [
+                    'action' => 'insert',
+                    'table_name' => 'legacy_assets',
+                    'record_id' => $legacyAssetId,
+                    'module_name' => 'property',
+                    'record_type' => 'legacy_asset',
+                    'action_name' => 'create_legacy_asset',
+                    'new_values' => [
+                        'system_reference' => $systemReference,
+                        'property_number' => $form['property_number'],
+                        'item_type' => $form['item_type'],
+                        'item_description' => $form['item_description'],
+                        'office_id' => $officeId,
+                        'employee_id' => $employeeId,
+                        'responsibility_code_id' => $rcId,
+                    ],
+                    'description' => 'Created beginning balance asset.',
+                ]);
                 set_flash('success', 'Beginning balance asset recorded successfully.');
                 redirect('modules/property/legacy_assets.php');
             } else {

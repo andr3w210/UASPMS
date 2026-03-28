@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_role('Administrator');
 
 function users_has_reference(mysqli $db, int $recordId): bool
@@ -107,19 +108,60 @@ if (!$db) {
                         $stmt=$db->prepare("UPDATE users SET username = ?, email = ?, full_name = ?, role_id = ?, employee_id = ?, office_id = ?, password_hash = ?, is_active = ?, updated_at = NOW() WHERE id = ?");
                         if($stmt){
                             $stmt->bind_param('sssiiisii',$form['username'],$form['email'],$form['full_name'],$roleId,$employeeId,$officeId,$passwordHash,$isActive,$recordId);
-                            $stmt->execute();
+                            $saved = $stmt->execute();
                             $stmt->close();
-                            set_flash('success','User updated successfully.');
-                            redirect('modules/users/index.php');
+                            if ($saved) {
+                                write_audit_log($db, [
+                                    'action' => 'update',
+                                    'table_name' => 'users',
+                                    'record_id' => $recordId,
+                                    'module_name' => 'users',
+                                    'record_type' => 'user',
+                                    'action_name' => 'update_user',
+                                    'description' => 'Updated user account.',
+                                    'new_values' => [
+                                        'username' => $form['username'],
+                                        'email' => $form['email'],
+                                        'full_name' => $form['full_name'],
+                                        'role_id' => $roleId,
+                                        'employee_id' => $employeeId,
+                                        'office_id' => $officeId,
+                                        'is_active' => $isActive,
+                                        'password_changed' => true,
+                                    ],
+                                ]);
+                                set_flash('success','User updated successfully.');
+                                redirect('modules/users/index.php');
+                            }
                         }
                     } else {
                         $stmt=$db->prepare("UPDATE users SET username = ?, email = ?, full_name = ?, role_id = ?, employee_id = ?, office_id = ?, is_active = ?, updated_at = NOW() WHERE id = ?");
                         if($stmt){
                             $stmt->bind_param('sssiiiii',$form['username'],$form['email'],$form['full_name'],$roleId,$employeeId,$officeId,$isActive,$recordId);
-                            $stmt->execute();
+                            $saved = $stmt->execute();
                             $stmt->close();
-                            set_flash('success','User updated successfully.');
-                            redirect('modules/users/index.php');
+                            if ($saved) {
+                                write_audit_log($db, [
+                                    'action' => 'update',
+                                    'table_name' => 'users',
+                                    'record_id' => $recordId,
+                                    'module_name' => 'users',
+                                    'record_type' => 'user',
+                                    'action_name' => 'update_user',
+                                    'description' => 'Updated user account.',
+                                    'new_values' => [
+                                        'username' => $form['username'],
+                                        'email' => $form['email'],
+                                        'full_name' => $form['full_name'],
+                                        'role_id' => $roleId,
+                                        'employee_id' => $employeeId,
+                                        'office_id' => $officeId,
+                                        'is_active' => $isActive,
+                                    ],
+                                ]);
+                                set_flash('success','User updated successfully.');
+                                redirect('modules/users/index.php');
+                            }
                         }
                     }
                 } else {
@@ -127,10 +169,31 @@ if (!$db) {
                     $stmt=$db->prepare("INSERT INTO users (username, email, password_hash, full_name, role_id, employee_id, office_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
                     if($stmt){
                         $stmt->bind_param('ssssiiii',$form['username'],$form['email'],$passwordHash,$form['full_name'],$roleId,$employeeId,$officeId,$isActive);
-                        $stmt->execute();
+                        $saved = $stmt->execute();
+                        $newUserId = (int) $stmt->insert_id;
                         $stmt->close();
-                        set_flash('success','User created successfully.');
-                        redirect('modules/users/index.php');
+                        if ($saved) {
+                            write_audit_log($db, [
+                                'action' => 'insert',
+                                'table_name' => 'users',
+                                'record_id' => $newUserId,
+                                'module_name' => 'users',
+                                'record_type' => 'user',
+                                'action_name' => 'create_user',
+                                'description' => 'Created user account.',
+                                'new_values' => [
+                                    'username' => $form['username'],
+                                    'email' => $form['email'],
+                                    'full_name' => $form['full_name'],
+                                    'role_id' => $roleId,
+                                    'employee_id' => $employeeId,
+                                    'office_id' => $officeId,
+                                    'is_active' => $isActive,
+                                ],
+                            ]);
+                            set_flash('success','User created successfully.');
+                            redirect('modules/users/index.php');
+                        }
                     }
                 }
                 $errors[]='Unable to save the user.';
@@ -140,10 +203,22 @@ if (!$db) {
             $stmt=$db->prepare("UPDATE users SET is_active = 0, updated_at = NOW() WHERE id = ?");
             if($stmt){
                 $stmt->bind_param('i',$recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success','User deactivated successfully.');
-                redirect('modules/users/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'users',
+                        'record_id' => $recordId,
+                        'module_name' => 'users',
+                        'record_type' => 'user',
+                        'action_name' => 'deactivate_user',
+                        'description' => 'Deactivated user account.',
+                        'new_values' => ['is_active' => 0],
+                    ]);
+                    set_flash('success','User deactivated successfully.');
+                    redirect('modules/users/index.php');
+                }
             }
             $errors[]='Unable to deactivate the user.';
         } elseif($action==='hard_delete'){
@@ -156,13 +231,36 @@ if (!$db) {
                 set_flash('error','Cannot delete: record is used in existing transactions.');
                 redirect('modules/users/index.php');
             }
+            $auditSnapshot = ['id' => $recordId];
+            $auditStmt = $db->prepare("SELECT username, email, full_name FROM users WHERE id = ? LIMIT 1");
+            if ($auditStmt) {
+                $auditStmt->bind_param('i', $recordId);
+                $auditStmt->execute();
+                $auditRow = $auditStmt->get_result()->fetch_assoc();
+                $auditStmt->close();
+                if ($auditRow) {
+                    $auditSnapshot = $auditRow;
+                }
+            }
             $stmt=$db->prepare("DELETE FROM users WHERE id = ? LIMIT 1");
             if($stmt){
                 $stmt->bind_param('i',$recordId);
-                $stmt->execute();
+                $saved = $stmt->execute();
                 $stmt->close();
-                set_flash('success','Record permanently deleted.');
-                redirect('modules/users/index.php');
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'delete',
+                        'table_name' => 'users',
+                        'record_id' => $recordId,
+                        'module_name' => 'users',
+                        'record_type' => 'user',
+                        'action_name' => 'hard_delete_user',
+                        'description' => 'Permanently deleted user account.',
+                        'old_values' => $auditSnapshot,
+                    ]);
+                    set_flash('success','Record permanently deleted.');
+                    redirect('modules/users/index.php');
+                }
             }
             $errors[]='Unable to permanently delete the user.';
         }

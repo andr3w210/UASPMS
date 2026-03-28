@@ -1,5 +1,3 @@
-$php_open = "<?php\nrequire_once __DIR__ . '/../../app/config/init.php';\nrequire_role('Administrator');\n\n";
-
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_role('Administrator');

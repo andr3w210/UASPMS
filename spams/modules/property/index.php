@@ -19,8 +19,11 @@ if (!in_array($sourceFilter, ['', 'system', 'legacy'], true)) {
 $rows = [];
 $offices = [];
 $classifications = [];
+$summary = ['total' => 0, 'equipment' => 0, 'semi_expendable' => 0, 'legacy' => 0];
 
 if ($db) {
+    ensure_distribution_item_runtime_columns($db);
+
     $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res instanceof mysqli_result) {
         $offices = $res->fetch_all(MYSQLI_ASSOC);
@@ -35,6 +38,7 @@ if ($db) {
         $sql = "SELECT
                     did.id AS detail_id,
                     did.property_number AS property_no,
+                    CONCAT('system:', did.id) AS asset_key,
                     poi.item_type,
                     poi.item_description AS description,
                     c.classification_name,
@@ -50,6 +54,7 @@ if ($db) {
                     d.distribution_date AS record_date,
                     d.document_no AS document_no,
                     d.document_type,
+                    d.id AS distribution_id,
                     'system' AS source_type
                 FROM distribution_item_details did
                 INNER JOIN distribution_items di ON di.id = did.distribution_item_id
@@ -111,6 +116,7 @@ if ($db) {
         $legacySql = "SELECT
                         la.id AS detail_id,
                         la.property_number AS property_no,
+                        CONCAT('legacy:', la.id) AS asset_key,
                         la.item_type,
                         la.item_description AS description,
                         c.classification_name,
@@ -126,6 +132,7 @@ if ($db) {
                         la.acquisition_date AS record_date,
                         'Beginning Balance' AS document_no,
                         'legacy' AS document_type,
+                        0 AS distribution_id,
                         'legacy' AS source_type
                     FROM legacy_assets la
                     LEFT JOIN classifications c ON c.id = la.classification_id
@@ -186,6 +193,18 @@ usort($rows, static function (array $a, array $b): int {
     return strcmp((string) $bDate, (string) $aDate);
 });
 
+foreach ($rows as $summaryRow) {
+    $summary['total']++;
+    if (($summaryRow['item_type'] ?? '') === 'semi_expendable') {
+        $summary['semi_expendable']++;
+    } else {
+        $summary['equipment']++;
+    }
+    if (($summaryRow['source_type'] ?? '') === 'legacy') {
+        $summary['legacy']++;
+    }
+}
+
 function employee_display_name_from_row(array $row): string
 {
     if (function_exists('employee_display_name')) {
@@ -216,9 +235,36 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                     <div>
                         <h5 class="card-title mb-0">Asset Registry</h5>
-                        <div class="small text-muted">Unified list of active equipment and semi-expendable assets, including beginning balance entries.</div>
+                        <div class="small text-muted">Unified action workspace for equipment and semi-expendable assets, including beginning balance entries.</div>
                     </div>
                     <span id="recordCount" class="text-muted small"><?php echo count($rows); ?> record(s)</span>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6 col-xl-3">
+                        <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                            <div class="text-muted small">Total Active Assets</div>
+                            <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['total']); ?></div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-xl-3">
+                        <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                            <div class="text-muted small">Equipment</div>
+                            <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['equipment']); ?></div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-xl-3">
+                        <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                            <div class="text-muted small">Semi-Expendable</div>
+                            <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['semi_expendable']); ?></div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-xl-3">
+                        <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                            <div class="text-muted small">Beginning Balance</div>
+                            <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['legacy']); ?></div>
+                        </div>
+                    </div>
                 </div>
 
                 <form method="get" class="row g-2 mb-3 align-items-end">
@@ -312,18 +358,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <table class="table table-sm align-middle" id="dataTable">
                         <thead>
                             <tr>
-                                <th data-sort="property_no">Property No.</th>
-                                <th data-sort="item_type">Type</th>
-                                <th data-sort="classification">Classification</th>
-                                <th data-sort="description">Description</th>
-                                <th data-sort="brand_model">Brand / Model</th>
-                                <th data-sort="serial_no">Serial No.</th>
-                                <th data-sort="office_name">Office</th>
-                                <th data-sort="accountable">Accountable</th>
-                                <th data-sort="document_no">Reference</th>
-                                <th data-sort="record_date">Date</th>
-                                <th data-sort="source_type">Source</th>
-                                <th class="text-end">Actions</th>
+                                <th data-sort="property_no" style="min-width: 180px;">Asset</th>
+                                <th data-sort="classification" style="min-width: 300px;">Classification / Description</th>
+                                <th data-sort="brand_model" style="min-width: 180px;">Item Details</th>
+                                <th data-sort="office_name" style="min-width: 220px;">Assignment</th>
+                                <th data-sort="document_no" style="min-width: 200px;">Reference / Source</th>
+                                <th style="min-width: 180px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -334,48 +374,82 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     $classificationLabel = trim((!empty($row['classification_family']) ? $row['classification_family'] . ' / ' : '') . $classificationText);
                                     $brandModel = trim(trim((string) ($row['brand'] ?? '')) . ' ' . trim((string) ($row['model'] ?? '')));
                                     $accountable = employee_display_name_from_row($row);
-                                    $typeLabel = ($row['item_type'] ?? '') === 'semi_expendable' ? 'Semi-Expendable' : 'Equipment';
                                     $sourceLabel = registry_source_label((string) ($row['source_type'] ?? 'system'));
+                                    $isLegacy = ($row['source_type'] ?? '') === 'legacy';
+                                    $detailId = (int) ($row['detail_id'] ?? 0);
+                                    $distributionId = (int) ($row['distribution_id'] ?? 0);
+                                    $assetKey = (string) ($row['asset_key'] ?? '');
+                                    $propertyNo = (string) ($row['property_no'] ?? '');
                                     ?>
                                     <tr
                                         data-type="<?php echo h((string) ($row['item_type'] ?? '')); ?>"
                                         data-classification="<?php echo h(strtolower($classificationText)); ?>"
                                         data-source="<?php echo h((string) ($row['source_type'] ?? 'system')); ?>"
                                     >
-                                        <td><?php echo h($row['property_no'] ?? ''); ?></td>
                                         <td>
+                                            <div class="fw-semibold"><?php echo h($row['property_no'] ?? ''); ?></div>
                                             <?php if (($row['item_type'] ?? '') === 'semi_expendable'): ?>
                                                 <span class="badge text-bg-info">Semi-Expendable</span>
                                             <?php else: ?>
                                                 <span class="badge text-bg-primary">Equipment</span>
                                             <?php endif; ?>
                                         </td>
-                                        <td><?php echo h($classificationLabel); ?></td>
-                                        <td><?php echo h($row['description'] ?? ''); ?></td>
-                                        <td><?php echo h($brandModel); ?></td>
-                                        <td><?php echo h($row['serial_no'] ?? ''); ?></td>
-                                        <td><?php echo h($row['office_name'] ?? ''); ?></td>
-                                        <td><?php echo h($accountable); ?></td>
-                                        <td><?php echo h($row['document_no'] ?? ''); ?></td>
-                                        <td><?php echo h(!empty($row['record_date']) ? date('M d, Y', strtotime((string) $row['record_date'])) : ''); ?></td>
                                         <td>
+                                            <div class="fw-semibold"><?php echo h($classificationLabel !== '' ? $classificationLabel : 'Unclassified'); ?></div>
+                                            <div class="text-muted small"><?php echo h($row['description'] ?? ''); ?></div>
+                                        </td>
+                                        <td>
+                                            <div><?php echo h($brandModel !== '' ? $brandModel : 'No brand/model'); ?></div>
+                                            <div class="text-muted small">Serial No.: <?php echo h($row['serial_no'] !== '' ? $row['serial_no'] : '-'); ?></div>
+                                        </td>
+                                        <td>
+                                            <div class="fw-semibold"><?php echo h($row['office_name'] ?? '-'); ?></div>
+                                            <div class="text-muted small"><?php echo h($accountable !== '' ? $accountable : 'No accountable employee'); ?></div>
+                                        </td>
+                                        <td>
+                                            <div><?php echo h($row['document_no'] ?? ''); ?></div>
+                                            <div class="text-muted small"><?php echo h(!empty($row['record_date']) ? date('M d, Y', strtotime((string) $row['record_date'])) : ''); ?></div>
                                             <?php if (($row['source_type'] ?? '') === 'legacy'): ?>
-                                                <span class="badge text-bg-secondary"><?php echo h($sourceLabel); ?></span>
+                                                <div class="mt-1"><span class="badge text-bg-secondary"><?php echo h($sourceLabel); ?></span></div>
                                             <?php else: ?>
-                                                <span class="badge text-bg-success"><?php echo h($sourceLabel); ?></span>
+                                                <div class="mt-1"><span class="badge text-bg-success"><?php echo h($sourceLabel); ?></span></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td class="text-end">
-                                            <a href="<?php echo base_url('modules/property/scan.php?ref=' . urlencode((string) ($row['property_no'] ?? ''))); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">View</a>
-                                            <?php if (($row['source_type'] ?? '') !== 'legacy'): ?>
-                                                <a href="<?php echo base_url('modules/property/tags.php?detail_id=' . (int) ($row['detail_id'] ?? 0)); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Print Tag</a>
-                                            <?php endif; ?>
+                                        <td>
+                                            <div class="d-flex gap-2 flex-wrap">
+                                                <a href="<?php echo base_url('modules/property/view.php?source=' . urlencode((string) ($row['source_type'] ?? 'system')) . '&id=' . $detailId); ?>" class="btn btn-sm btn-primary">Open</a>
+                                                <div class="dropdown">
+                                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                                        Actions
+                                                    </button>
+                                                    <ul class="dropdown-menu dropdown-menu-end">
+                                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/transfers/index.php?asset_key=' . urlencode($assetKey)); ?>">Transfer</a></li>
+                                                        <?php if (!$isLegacy): ?>
+                                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/returns/index.php?detail_id=' . $detailId); ?>">Return</a></li>
+                                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/disposals/index.php?detail_id=' . $detailId); ?>">Dispose</a></li>
+                                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/maintenance/index.php?detail_id=' . $detailId); ?>">Maintenance</a></li>
+                                                            <li><hr class="dropdown-divider"></li>
+                                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/property/tags.php?detail_id=' . $detailId); ?>" target="_blank">Print QR</a></li>
+                                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/property/scan.php?ref=' . urlencode($propertyNo)); ?>" target="_blank">Lookup</a></li>
+                                                            <?php if ($distributionId > 0): ?>
+                                                                <?php if (($row['item_type'] ?? '') === 'semi_expendable'): ?>
+                                                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/ics.php?id=' . $distributionId); ?>" target="_blank">Print ICS</a></li>
+                                                                <?php else: ?>
+                                                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/par.php?id=' . $distributionId); ?>" target="_blank">Print PAR</a></li>
+                                                                <?php endif; ?>
+                                                            <?php endif; ?>
+                                                        <?php else: ?>
+                                                            <li><span class="dropdown-item-text text-muted small">Legacy asset lifecycle actions continue from the detail page.</span></li>
+                                                        <?php endif; ?>
+                                                    </ul>
+                                                </div>
+                                            </div>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php else: ?>
                                 <tr>
-                                    <td colspan="12" class="text-center text-muted py-4">No asset records found.</td>
+                                    <td colspan="6" class="text-center text-muted py-4">No asset records found.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>

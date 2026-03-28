@@ -123,109 +123,105 @@ if ($db) {
     }
 }
 
+$dashboardStats = [
+    [
+        'label' => 'Active POs',
+        'value' => $summary['active_pos'],
+        'note' => 'Status not cancelled',
+        'icon' => 'bi-journal-text',
+        'tone' => 'primary',
+    ],
+    [
+        'label' => 'Pending Receivings',
+        'value' => $summary['pending_receivings'],
+        'note' => 'Not fully received',
+        'icon' => 'bi-box-seam',
+        'tone' => 'warning',
+    ],
+    [
+        'label' => 'Pending Distribution',
+        'value' => $summary['pending_distribution_units'],
+        'note' => 'Received units awaiting posting',
+        'icon' => 'bi-hourglass-split',
+        'tone' => 'warning',
+    ],
+    [
+        'label' => 'Distributed Items',
+        'value' => $summary['distributed_items'],
+        'note' => 'Active distributed units',
+        'icon' => 'bi-diagram-3',
+        'tone' => 'success',
+    ],
+    [
+        'label' => 'Disposed This Year',
+        'value' => $summary['disposed_this_year'],
+        'note' => date('Y') . ' posted disposals',
+        'icon' => 'bi-trash3',
+        'tone' => 'danger',
+    ],
+    [
+        'label' => 'Returned This Year',
+        'value' => $summary['returned_this_year'],
+        'note' => date('Y') . ' posted returns',
+        'icon' => 'bi-arrow-counterclockwise',
+        'tone' => 'info',
+    ],
+];
+
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar.php';
 require_once __DIR__ . '/../includes/topbar.php';
 ?>
 <section class="row g-4">
     <div class="col-12">
-        <div class="row g-3">
-            <div class="col-md-6 col-xl-2-4 col-xxl">
-                <div class="card info-card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">Active POs</h5>
-                        <div class="d-flex align-items-center">
-                            <div class="card-icon rounded-circle d-flex align-items-center justify-content-center bg-primary-subtle text-primary">
-                                <i class="bi bi-journal-text"></i>
+        <div class="dashboard-hero card">
+            <div class="card-body p-4 p-xl-5">
+                <div class="row g-4 align-items-center">
+                    <div class="col-xl-7">
+                        <div class="dashboard-hero-eyebrow">Operations Overview</div>
+                        <h2 class="dashboard-hero-title">Manage procurement, receiving, accountability, and asset flow from one cleaner workspace.</h2>
+                        <p class="dashboard-hero-text">
+                            Use the dashboard as a working overview for the queues that need action now, then jump directly into receiving and distribution without digging through modules.
+                        </p>
+                        <div class="dashboard-hero-actions d-flex flex-wrap gap-2">
+                            <a class="btn btn-primary" href="<?php echo base_url('modules/distributions/index.php'); ?>">Open Distribution</a>
+                            <a class="btn btn-outline-primary" href="<?php echo base_url('modules/receivings/index.php'); ?>">Open Receiving</a>
+                            <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/property/index.php'); ?>">Open Asset Registry</a>
+                        </div>
+                        <div class="dashboard-hero-meta">
+                            <div class="dashboard-hero-meta-item">
+                                <span class="dashboard-hero-meta-label">Pending distribution</span>
+                                <strong><?php echo h((string) $summary['pending_distribution_units']); ?></strong>
                             </div>
-                            <div class="ps-3">
-                                <h6><?php echo h((string) $summary['active_pos']); ?></h6>
-                                <span class="text-muted small">Status not cancelled</span>
+                            <div class="dashboard-hero-meta-item">
+                                <span class="dashboard-hero-meta-label">Pending receivings</span>
+                                <strong><?php echo h((string) $summary['pending_receivings']); ?></strong>
+                            </div>
+                            <div class="dashboard-hero-meta-item">
+                                <span class="dashboard-hero-meta-label">Active assets</span>
+                                <strong><?php echo h((string) $summary['distributed_items']); ?></strong>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-
-            <div class="col-md-6 col-xl-2-4 col-xxl">
-                <div class="card info-card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">Pending Receivings</h5>
-                        <div class="d-flex align-items-center">
-                            <div class="card-icon rounded-circle d-flex align-items-center justify-content-center bg-warning-subtle text-warning">
-                                <i class="bi bi-box-seam"></i>
+                    <div class="col-xl-5">
+                        <div class="dashboard-priority-card">
+                            <div class="dashboard-priority-title">Priority Queue</div>
+                            <div class="dashboard-priority-copy">Focus here first to keep receiving and accountability work moving.</div>
+                            <div class="dashboard-priority-item">
+                                <span>Pending distribution</span>
+                                <strong><?php echo h((string) $summary['pending_distribution_units']); ?></strong>
                             </div>
-                            <div class="ps-3">
-                                <h6><?php echo h((string) $summary['pending_receivings']); ?></h6>
-                                <span class="text-muted small">Not fully received</span>
+                            <div class="dashboard-priority-item">
+                                <span>Pending receivings</span>
+                                <strong><?php echo h((string) $summary['pending_receivings']); ?></strong>
                             </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-6 col-xl-2-4 col-xxl">
-                <div class="card info-card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">Pending Distribution</h5>
-                        <div class="d-flex align-items-center">
-                            <div class="card-icon rounded-circle d-flex align-items-center justify-content-center bg-warning-subtle text-warning">
-                                <i class="bi bi-hourglass-split"></i>
+                            <div class="dashboard-priority-item">
+                                <span>Distributed items</span>
+                                <strong><?php echo h((string) $summary['distributed_items']); ?></strong>
                             </div>
-                            <div class="ps-3">
-                                <h6><?php echo h((string) $summary['pending_distribution_units']); ?></h6>
-                                <span class="text-muted small">Received units not yet distributed</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-6 col-xl-2-4 col-xxl">
-                <div class="card info-card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">Distributed Items</h5>
-                        <div class="d-flex align-items-center">
-                            <div class="card-icon rounded-circle d-flex align-items-center justify-content-center bg-success-subtle text-success">
-                                <i class="bi bi-diagram-3"></i>
-                            </div>
-                            <div class="ps-3">
-                                <h6><?php echo h((string) $summary['distributed_items']); ?></h6>
-                                <span class="text-muted small">Active distributed units</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-6 col-xl-2-4 col-xxl">
-                <div class="card info-card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">Disposed This Year</h5>
-                        <div class="d-flex align-items-center">
-                            <div class="card-icon rounded-circle d-flex align-items-center justify-content-center bg-danger-subtle text-danger">
-                                <i class="bi bi-trash3"></i>
-                            </div>
-                            <div class="ps-3">
-                                <h6><?php echo h((string) $summary['disposed_this_year']); ?></h6>
-                                <span class="text-muted small"><?php echo h((string) date('Y')); ?> posted disposals</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-6 col-xl-2-4 col-xxl">
-                <div class="card info-card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">Returned This Year</h5>
-                        <div class="d-flex align-items-center">
-                            <div class="card-icon rounded-circle d-flex align-items-center justify-content-center bg-info-subtle text-info">
-                                <i class="bi bi-arrow-counterclockwise"></i>
-                            </div>
-                            <div class="ps-3">
-                                <h6><?php echo h((string) $summary['returned_this_year']); ?></h6>
-                                <span class="text-muted small"><?php echo h((string) date('Y')); ?> posted returns</span>
+                            <div class="dashboard-priority-item">
+                                <span>Disposed this year</span>
+                                <strong><?php echo h((string) $summary['disposed_this_year']); ?></strong>
                             </div>
                         </div>
                     </div>
@@ -234,15 +230,34 @@ require_once __DIR__ . '/../includes/topbar.php';
         </div>
     </div>
 
+    <div class="col-12">
+        <div class="row g-3">
+            <?php foreach ($dashboardStats as $stat): ?>
+                <div class="col-md-6 col-xl-4 col-xxl-2">
+                    <div class="dashboard-stat-card h-100">
+                        <div class="dashboard-stat-icon bg-<?php echo h($stat['tone']); ?>-subtle text-<?php echo h($stat['tone']); ?>">
+                            <i class="bi <?php echo h($stat['icon']); ?>"></i>
+                        </div>
+                        <div class="dashboard-stat-content">
+                            <div class="dashboard-stat-label"><?php echo h($stat['label']); ?></div>
+                            <div class="dashboard-stat-value"><?php echo h((string) $stat['value']); ?></div>
+                            <div class="dashboard-stat-note"><?php echo h($stat['note']); ?></div>
+                        </div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+
     <div class="col-12 col-xl-6">
-        <div class="card recent-sales overflow-auto">
+        <div class="card dashboard-panel overflow-auto">
             <div class="card-body p-4">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                     <h5 class="card-title mb-0">Recent Purchase Orders</h5>
-                    <span class="badge text-bg-light"><?php echo count($recentPurchaseOrders); ?> record(s)</span>
+                    <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/purchase_orders/index.php'); ?>">View All</a>
                 </div>
                 <div class="table-responsive">
-                    <table class="table table-borderless datatable align-middle">
+                    <table class="table table-borderless align-middle dashboard-table">
                         <thead>
                             <tr>
                                 <th>PO Number</th>
@@ -276,14 +291,14 @@ require_once __DIR__ . '/../includes/topbar.php';
     </div>
 
     <div class="col-12 col-xl-6">
-        <div class="card recent-sales overflow-auto">
+        <div class="card dashboard-panel overflow-auto">
             <div class="card-body p-4">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                     <h5 class="card-title mb-0">Recent Distributions</h5>
-                    <span class="badge text-bg-light"><?php echo count($recentDistributions); ?> record(s)</span>
+                    <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/distributions/index.php'); ?>">View All</a>
                 </div>
                 <div class="table-responsive">
-                    <table class="table table-borderless datatable align-middle">
+                    <table class="table table-borderless align-middle dashboard-table">
                         <thead>
                             <tr>
                                 <th>Doc No</th>
