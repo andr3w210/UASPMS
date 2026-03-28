@@ -7,6 +7,7 @@ $db = db_connect();
 $summary = [
     'active_pos' => 0,
     'pending_receivings' => 0,
+    'pending_distribution_units' => 0,
     'distributed_items' => 0,
     'disposed_this_year' => 0,
     'returned_this_year' => 0,
@@ -42,6 +43,17 @@ if ($db) {
             FROM distribution_item_details
             WHERE is_distributed = 1
               AND is_disposed = 0
+        ",
+        'pending_distribution_units' => "
+            SELECT COUNT(*) AS total
+            FROM receiving_item_details rid
+            INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id
+            INNER JOIN receivings r ON r.id = ri.receiving_id
+            INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+            WHERE r.status != 'cancelled'
+              AND poi.item_type IN ('semi_expendable', 'equipment')
+              AND rid.is_distributed = 0
+              AND COALESCE(rid.is_disposed, 0) = 0
         ",
         'disposed_this_year' => "
             SELECT COUNT(*) AS total
@@ -146,6 +158,23 @@ require_once __DIR__ . '/../includes/topbar.php';
                             <div class="ps-3">
                                 <h6><?php echo h((string) $summary['pending_receivings']); ?></h6>
                                 <span class="text-muted small">Not fully received</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-xl-2-4 col-xxl">
+                <div class="card info-card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Pending Distribution</h5>
+                        <div class="d-flex align-items-center">
+                            <div class="card-icon rounded-circle d-flex align-items-center justify-content-center bg-warning-subtle text-warning">
+                                <i class="bi bi-hourglass-split"></i>
+                            </div>
+                            <div class="ps-3">
+                                <h6><?php echo h((string) $summary['pending_distribution_units']); ?></h6>
+                                <span class="text-muted small">Received units not yet distributed</span>
                             </div>
                         </div>
                     </div>

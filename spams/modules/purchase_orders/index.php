@@ -439,7 +439,7 @@ if (!$db) {
         $whereSql = 'WHERE ' . implode(' AND ', $where);
     }
 
-        $sql = "SELECT po.id, po.system_reference, po.po_number, po.po_date,\n               po.expected_delivery_date, po.status, po.total_amount,\n               po.place_of_delivery,\n               s.supplier_name, f.fund_name,\n               mop.mode_name AS mode_of_procurement_name,\n               COUNT(DISTINCT poi.id) AS total_lines,\n               COALESCE(SUM(poi.quantity), 0) AS total_qty,\n               COALESCE((\n                   SELECT SUM(ri.quantity_accepted)\n                   FROM receiving_items ri\n                   INNER JOIN receivings r ON r.id = ri.receiving_id\n                       AND r.status != 'cancelled'\n                   WHERE ri.purchase_order_item_id IN (\n                       SELECT id FROM purchase_order_items\n                       WHERE purchase_order_id = po.id\n                   )\n               ), 0) AS total_received_qty\n        FROM purchase_orders po\n        INNER JOIN suppliers s ON s.id = po.supplier_id\n        INNER JOIN funds f ON f.id = po.fund_id\n        LEFT JOIN mode_of_procurements mop ON mop.id = po.mode_of_procurement_id\n        LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id\n        " . $whereSql . "\n        GROUP BY po.id, po.system_reference, po.po_number, po.po_date,\n                 po.expected_delivery_date, po.status, po.total_amount,\n                 po.place_of_delivery, s.supplier_name, f.fund_name,\n                 mop.mode_name\n        ORDER BY po.po_date DESC, po.id DESC";
+        $sql = "SELECT po.id, po.system_reference, po.po_number, po.po_date,\n               po.expected_delivery_date, po.status, po.total_amount,\n               po.place_of_delivery,\n               s.supplier_name, f.fund_name,\n               mop.mode_name AS mode_of_procurement_name,\n               COUNT(DISTINCT poi.id) AS total_lines,\n               COALESCE(SUM(poi.quantity), 0) AS total_qty,\n               COALESCE((\n                   SELECT SUM(ri.quantity_accepted)\n                   FROM receiving_items ri\n                   INNER JOIN receivings r ON r.id = ri.receiving_id\n                       AND r.status != 'cancelled'\n                   WHERE ri.purchase_order_item_id IN (\n                       SELECT id FROM purchase_order_items\n                       WHERE purchase_order_id = po.id\n                   )\n               ), 0) AS total_received_qty,\n               COALESCE((\n                   SELECT COUNT(*)\n                   FROM receiving_item_details rid\n                   INNER JOIN receiving_items ri2 ON ri2.id = rid.receiving_item_id\n                   INNER JOIN receivings r2 ON r2.id = ri2.receiving_id AND r2.status != 'cancelled'\n                   INNER JOIN purchase_order_items poi2 ON poi2.id = ri2.purchase_order_item_id\n                   WHERE poi2.purchase_order_id = po.id\n                     AND poi2.item_type IN ('semi_expendable', 'equipment')\n                     AND rid.is_distributed = 0\n                     AND COALESCE(rid.is_disposed, 0) = 0\n               ), 0) AS pending_distribution_units,\n               COALESCE((\n                   SELECT COUNT(*)\n                   FROM purchase_order_delivery_extensions ext\n                   WHERE ext.purchase_order_id = po.id\n                     AND ext.status = 'posted'\n               ), 0) AS extension_count,\n               (\n                   SELECT ext.new_expected_delivery_date\n                   FROM purchase_order_delivery_extensions ext\n                   WHERE ext.purchase_order_id = po.id\n                     AND ext.status = 'posted'\n                   ORDER BY ext.created_at DESC, ext.id DESC\n                   LIMIT 1\n               ) AS latest_extension_date,\n               COALESCE((\n                   SELECT ext.requested_extension_days\n                   FROM purchase_order_delivery_extensions ext\n                   WHERE ext.purchase_order_id = po.id\n                     AND ext.status = 'posted'\n                   ORDER BY ext.created_at DESC, ext.id DESC\n                   LIMIT 1\n               ), 0) AS latest_requested_extension_days\n        FROM purchase_orders po\n        INNER JOIN suppliers s ON s.id = po.supplier_id\n        INNER JOIN funds f ON f.id = po.fund_id\n        LEFT JOIN mode_of_procurements mop ON mop.id = po.mode_of_procurement_id\n        LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id\n        " . $whereSql . "\n        GROUP BY po.id, po.system_reference, po.po_number, po.po_date,\n                 po.expected_delivery_date, po.status, po.total_amount,\n                 po.place_of_delivery, s.supplier_name, f.fund_name,\n                 mop.mode_name\n        ORDER BY po.po_date DESC, po.id DESC";
 
     $stmt = $db->prepare($sql);
     if ($stmt) {
@@ -568,15 +568,40 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </div>
                                             <div class="small text-muted mt-1 fw-semibold"><?php echo $pct; ?>%</div>
                                         </td>
-                                        <td><?php echo $po['expected_delivery_date'] ? h(date('M d, Y', strtotime($po['expected_delivery_date']))) : ''; ?></td>
+                                        <td>
+                                            <?php echo $po['expected_delivery_date'] ? h(date('M d, Y', strtotime($po['expected_delivery_date']))) : ''; ?>
+                                            <?php $extensionCount = (int) ($po['extension_count'] ?? 0); ?>
+                                            <?php if ($extensionCount > 0): ?>
+                                                <div class="small mt-1">
+                                                    <span class="badge text-bg-info"><?php echo $extensionCount; ?> extension<?php echo $extensionCount !== 1 ? 's' : ''; ?></span>
+                                                </div>
+                                                <div class="small text-muted mt-1">
+                                                    Last: <?php echo !empty($po['latest_extension_date']) ? h(date('M d, Y', strtotime($po['latest_extension_date']))) : '-'; ?>
+                                                    <?php if ((int) ($po['latest_requested_extension_days'] ?? 0) > 0): ?>
+                                                        (<?php echo h((string) $po['latest_requested_extension_days']); ?> day(s))
+                                                    <?php endif; ?>
+                                                </div>
+                                            <?php endif; ?>
+                                        </td>
                                         <td style="min-width:130px;"><?php echo h($po['place_of_delivery'] ?? ''); ?></td>
-                                        <td class="text-center"><?php echo po_status_badge($po['status']); ?></td>
+                                        <td class="text-center">
+                                            <?php echo po_status_badge($po['status']); ?>
+                                            <?php $pendingDistributionUnits = (int) ($po['pending_distribution_units'] ?? 0); ?>
+                                            <?php if ($pendingDistributionUnits > 0): ?>
+                                                <div class="small mt-1">
+                                                    <span class="badge text-bg-warning"><?php echo $pendingDistributionUnits; ?> pending distribution</span>
+                                                </div>
+                                            <?php endif; ?>
+                                        </td>
                                         <td class="text-end fw-semibold"><?php echo h(number_format((float) $po['total_amount'], 2)); ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex flex-wrap justify-content-end gap-1">
                                                 <a href="<?php echo base_url('modules/purchase_orders/view.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">
                                                     View / Print
                                                 </a>
+                                                <?php if (($po['status'] ?? '') !== 'completed' && ($po['status'] ?? '') !== 'cancelled'): ?>
+                                                    <a href="<?php echo base_url('modules/purchase_orders/extensions.php?po_id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-warning">Extend</a>
+                                                <?php endif; ?>
                                                 <?php if ($po['status'] === 'encoded'): ?>
                                                     <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
                                                     <button type="button"

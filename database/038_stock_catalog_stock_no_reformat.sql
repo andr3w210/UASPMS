@@ -1,0 +1,41 @@
+USE spamsdb;
+
+-- Normalize existing stock_catalog.stock_no values to the new two-letter item-code format.
+-- Safe to re-run: each row is updated only when the target stock number is not already assigned to another record.
+
+UPDATE stock_catalog SET stock_no = 'BP-001' WHERE id = 100 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'BP-001' AND sc2.id <> 100);
+UPDATE stock_catalog SET stock_no = 'BB-001' WHERE id = 101 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'BB-001' AND sc2.id <> 101);
+UPDATE stock_catalog SET stock_no = 'NC-001' WHERE id = 102 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'NC-001' AND sc2.id <> 102);
+UPDATE stock_catalog SET stock_no = 'EF-001' WHERE id = 103 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'EF-001' AND sc2.id <> 103);
+UPDATE stock_catalog SET stock_no = 'WM-001' WHERE id = 104 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'WM-001' AND sc2.id <> 104);
+UPDATE stock_catalog SET stock_no = 'PI-001' WHERE id = 105 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'PI-001' AND sc2.id <> 105);
+UPDATE stock_catalog SET stock_no = 'TC-001' WHERE id = 106 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'TC-001' AND sc2.id <> 106);
+UPDATE stock_catalog SET stock_no = 'RA-001' WHERE id = 107 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'RA-001' AND sc2.id <> 107);
+UPDATE stock_catalog SET stock_no = 'SF-001' WHERE id = 108 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'SF-001' AND sc2.id <> 108);
+UPDATE stock_catalog SET stock_no = 'LB-001' WHERE id = 109 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'LB-001' AND sc2.id <> 109);
+UPDATE stock_catalog SET stock_no = 'DL-001' WHERE id = 110 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'DL-001' AND sc2.id <> 110);
+UPDATE stock_catalog SET stock_no = 'DF-001' WHERE id = 111 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'DF-001' AND sc2.id <> 111);
+UPDATE stock_catalog SET stock_no = 'UP-001' WHERE id = 112 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'UP-001' AND sc2.id <> 112);
+UPDATE stock_catalog SET stock_no = 'EH-001' WHERE id = 113 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'EH-001' AND sc2.id <> 113);
+UPDATE stock_catalog SET stock_no = 'WF-001' WHERE id = 114 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'WF-001' AND sc2.id <> 114);
+UPDATE stock_catalog SET stock_no = 'EO-001' WHERE id = 115 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'EO-001' AND sc2.id <> 115);
+UPDATE stock_catalog SET stock_no = 'SF-002' WHERE id = 116 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'SF-002' AND sc2.id <> 116);
+UPDATE stock_catalog SET stock_no = 'CT-001' WHERE id = 117 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'CT-001' AND sc2.id <> 117);
+UPDATE stock_catalog SET stock_no = 'PS-001' WHERE id = 118 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'PS-001' AND sc2.id <> 118);
+UPDATE stock_catalog SET stock_no = 'LM-001' WHERE id = 119 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'LM-001' AND sc2.id <> 119);
+UPDATE stock_catalog SET stock_no = 'BS-001' WHERE id = 120 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'BS-001' AND sc2.id <> 120);
+UPDATE stock_catalog SET stock_no = 'DW-001' WHERE id = 121 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'DW-001' AND sc2.id <> 121);
+UPDATE stock_catalog SET stock_no = 'AB-001' WHERE id = 122 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'AB-001' AND sc2.id <> 122);
+UPDATE stock_catalog SET stock_no = 'OT-001' WHERE id = 123 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'OT-001' AND sc2.id <> 123);
+UPDATE stock_catalog SET stock_no = 'DC-001' WHERE id = 124 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'DC-001' AND sc2.id <> 124);
+UPDATE stock_catalog SET stock_no = 'LC-001' WHERE id = 125 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'LC-001' AND sc2.id <> 125);
+UPDATE stock_catalog SET stock_no = 'NS-001' WHERE id = 126 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'NS-001' AND sc2.id <> 126);
+UPDATE stock_catalog SET stock_no = 'LM-002' WHERE id = 127 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'LM-002' AND sc2.id <> 127);
+UPDATE stock_catalog SET stock_no = 'BT-001' WHERE id = 128 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'BT-001' AND sc2.id <> 128);
+UPDATE stock_catalog SET stock_no = 'ST-001' WHERE id = 129 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'ST-001' AND sc2.id <> 129);
+UPDATE stock_catalog SET stock_no = 'LS-001' WHERE id = 130 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'LS-001' AND sc2.id <> 130);
+UPDATE stock_catalog SET stock_no = 'DC-002' WHERE id = 131 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'DC-002' AND sc2.id <> 131);
+UPDATE stock_catalog SET stock_no = 'EB-001' WHERE id = 132 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'EB-001' AND sc2.id <> 132);
+UPDATE stock_catalog SET stock_no = 'CM-001' WHERE id = 133 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'CM-001' AND sc2.id <> 133);
+UPDATE stock_catalog SET stock_no = 'SB-001' WHERE id = 134 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'SB-001' AND sc2.id <> 134);
+UPDATE stock_catalog SET stock_no = 'TH-001' WHERE id = 135 AND NOT EXISTS (SELECT 1 FROM (SELECT id, stock_no FROM stock_catalog) sc2 WHERE sc2.stock_no = 'TH-001' AND sc2.id <> 135);

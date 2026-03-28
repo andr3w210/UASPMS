@@ -66,6 +66,9 @@ if ($db) {
     $threshold    = get_active_threshold($db);
     $equipmentMin = (float)$threshold['equipment_min'];
     $semiHvMin    = (float)$threshold['semi_hv_min'];
+    $poItemSupportsSemiType = function_exists('schema_has_column')
+        ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type')
+        : false;
 
     $form['system_reference'] = preview_module_code($db, 'distributions');
     $form['document_no'] = preview_distribution_doc_no(
@@ -83,16 +86,49 @@ if ($db) {
     // Load employees
     $empResult = $db->query(
         "SELECT id, office_id, employee_no, first_name, middle_name,
-                last_name, suffix_name
+                last_name, suffix_name, position_title, is_unit_head
          FROM employees WHERE is_active = 1
-         ORDER BY last_name ASC, first_name ASC"
+         ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC"
     );
     if ($empResult) $employees = $empResult->fetch_all(MYSQLI_ASSOC);
 
     // Load IAR list for split panel
-    $iarStmt = $db->prepare("SELECT r.id, r.system_reference, r.received_date, po.po_number, s.supplier_name, COUNT(DISTINCT rid.id) AS available_units FROM receivings r INNER JOIN purchase_orders po ON po.id = r.purchase_order_id INNER JOIN suppliers s ON s.id = po.supplier_id INNER JOIN receiving_items ri ON ri.receiving_id = r.id INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id AND poi.item_type = ? INNER JOIN receiving_item_details rid ON rid.receiving_item_id = ri.id AND rid.is_distributed = 0 WHERE r.status != 'cancelled' GROUP BY r.id, r.system_reference, r.received_date, po.po_number, s.supplier_name HAVING COUNT(DISTINCT rid.id) > 0 ORDER BY r.received_date DESC, r.id DESC");
+    $iarSql = "SELECT r.id, r.system_reference, r.received_date, po.po_number, s.supplier_name,
+                      COUNT(DISTINCT rid.id) AS available_units
+               FROM receivings r
+               INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
+               INNER JOIN suppliers s ON s.id = po.supplier_id
+               INNER JOIN receiving_items ri ON ri.receiving_id = r.id
+               INNER JOIN purchase_order_items poi
+                   ON poi.id = ri.purchase_order_item_id
+                  AND poi.item_type = ?";
+    $iarTypes = 's';
+    $iarParams = [$itemTypeFilter];
+    if ($distributionType === 'ics') {
+        if ($poItemSupportsSemiType) {
+            $iarSql .= " AND poi.semi_expendable_type = ?";
+            $iarTypes .= 's';
+            $iarParams[] = $distributionSemiType;
+        } else {
+            if ($distributionSemiType === 'high_value') {
+                $iarSql .= " AND ri.unit_cost >= ?";
+            } else {
+                $iarSql .= " AND ri.unit_cost < ?";
+            }
+            $iarTypes .= 'd';
+            $iarParams[] = $semiHvMin;
+        }
+    }
+    $iarSql .= " INNER JOIN receiving_item_details rid
+                    ON rid.receiving_item_id = ri.id
+                   AND rid.is_distributed = 0
+                WHERE r.status != 'cancelled'
+                GROUP BY r.id, r.system_reference, r.received_date, po.po_number, s.supplier_name
+                HAVING COUNT(DISTINCT rid.id) > 0
+                ORDER BY r.received_date DESC, r.id DESC";
+    $iarStmt = $db->prepare($iarSql);
     if ($iarStmt) {
-        $iarStmt->bind_param('s', $itemTypeFilter);
+        $iarStmt->bind_param($iarTypes, ...$iarParams);
         $iarStmt->execute();
         $iarList = $iarStmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $iarStmt->close();
@@ -496,8 +532,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <!-- SPA: Step 1 + Split panel editor -->
                                 <div class="card mb-3">
                                     <div class="card-body p-3">
-                                        <div class="small fw-semibold text-muted mb-2">Select document type</div>
-                                        <div class="d-flex gap-2 flex-wrap">
+                                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                                            <div>
+                                                <div class="small fw-semibold text-muted mb-1">Step 1: Choose distribution document</div>
+                                                <div class="small text-muted">Pick the accountability flow first, then choose the receiving record and units to assign.</div>
+                                            </div>
+                                            <span class="badge text-bg-light"><?php echo count($iarList); ?> source record(s)</span>
+                                        </div>
+                                        <div class="d-flex gap-2 flex-wrap mt-3">
                                             <a href="?document_type=par" class="btn btn-sm <?php echo $distributionType==='par' ? 'btn-primary' : 'btn-outline-secondary'; ?>">
                                                 PAR
                                                 <span class="d-block" style="font-size:10px;font-weight:400;">Equipment ≥ ₱<?php echo number_format($equipmentMin,0,'.',','); ?></span>
@@ -518,16 +560,38 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="col-lg-4">
                                         <div class="card h-100">
                                             <div class="card-body p-3">
-                                                <div class="small fw-semibold text-muted mb-2">Select receiving record (IAR)</div>
-                                                <input type="text" id="iarSearchInput" class="form-control form-control-sm mb-2" placeholder="Search PO or supplier...">
-                                                <div id="iarListScroll" style="max-height:480px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;">
+                                                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                                                    <div>
+                                                        <div class="small fw-semibold text-muted">Step 2: Choose source receiving</div>
+                                                        <div class="small text-muted">Search the IAR list and open the record that still has units ready for distribution.</div>
+                                                    </div>
+                                                    <span class="badge text-bg-light" id="iarVisibleCount"><?php echo count($iarList); ?> shown</span>
+                                                </div>
+                                                <div class="row g-2 mb-3">
+                                                    <div class="col-sm-8">
+                                                        <input type="text" id="iarSearchInput" class="form-control form-control-sm" placeholder="Search IAR, PO no., or supplier...">
+                                                    </div>
+                                                    <div class="col-sm-4">
+                                                        <select id="iarUnitsFilter" class="form-select form-select-sm">
+                                                            <option value="">All sizes</option>
+                                                            <option value="1-4">1 to 4 units</option>
+                                                            <option value="5-9">5 to 9 units</option>
+                                                            <option value="10+">10+ units</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div id="iarListScroll" style="max-height:560px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
                                                     <?php foreach ($iarList as $iar): $unitCount = (int)($iar['available_units'] ?? 0); ?>
-                                                        <div class="iar-list-row" data-iar-id="<?= (int)$iar['id'] ?>" style="padding:8px 10px;border-radius:6px;cursor:pointer;border:0.5px solid transparent;">
-                                                            <div class="d-flex align-items-center gap-2 mb-1">
-                                                                <span class="fw-semibold" style="font-size:12px;flex:1;"><?= h($iar['po_number']) ?></span>
-                                                                <span class="badge text-bg-secondary" style="font-size:9px;"><?= $unitCount ?> unit<?= $unitCount!==1?'s':'' ?></span>
+                                                        <div class="iar-list-row" data-iar-id="<?= (int)$iar['id'] ?>" data-units="<?= $unitCount ?>" style="padding:10px 12px;border-radius:10px;cursor:pointer;border:1px solid var(--bs-border-color);">
+                                                            <div class="d-flex align-items-center gap-2 mb-2">
+                                                                <span class="badge text-bg-light"><?= h($iar['system_reference']) ?></span>
+                                                                <span class="badge <?= $distributionType==='par' ? 'text-bg-primary' : 'text-bg-success' ?>"><?= h(distribution_doc_label($distributionType)) ?></span>
+                                                                <span class="badge text-bg-secondary ms-auto"><?= $unitCount ?> unit<?= $unitCount!==1?'s':'' ?></span>
                                                             </div>
-                                                            <div style="font-size:11px;color:var(--bs-secondary-color);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">
+                                                            <div class="fw-semibold mb-1"><?= h($iar['po_number']) ?></div>
+                                                            <div class="small text-muted text-truncate"><?= h($iar['supplier_name']) ?></div>
+                                                            <div class="small text-muted mt-1">Received <?= h(date('M d, Y', strtotime($iar['received_date']))) ?></div>
+                                                            <div style="display:none;">
                                                                 <?= h($iar['supplier_name']) ?> · <?= h(date('M d, Y', strtotime($iar['received_date']))) ?>
                                                             </div>
                                                         </div>
@@ -557,13 +621,35 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <input type="hidden" name="_csrf" value="<?= h(csrf_token()) ?>">
                                                 <input type="hidden" name="receiving_id" id="hiddenReceivingId" value="">
 
-                                                <div id="distIarSummary" class="mb-3 p-2 rounded-3" style="background:var(--bs-secondary-bg);font-size:12px;"></div>
+                                                <div class="card mb-3 position-sticky" style="top:90px;z-index:10;">
+                                                    <div class="card-body p-3">
+                                                        <div class="d-flex align-items-start justify-content-between flex-wrap gap-3">
+                                                            <div>
+                                                                <div class="small fw-semibold text-muted mb-1">Workspace progress</div>
+                                                                <div id="distIarSummary" class="small text-muted"></div>
+                                                            </div>
+                                                            <div class="text-sm-end">
+                                                                <div class="small text-muted">Step 3: Select units and assign accountability</div>
+                                                                <div class="fw-semibold">
+                                                                    <span id="selectedUnitCount">0</span> unit(s) selected
+                                                                    <span class="text-muted">across</span>
+                                                                    <span id="selectedGroupCount">0</span> group(s)
+                                                                </div>
+                                                                <div class="small">Total: <strong id="distTotal">Php 0.00</strong></div>
+                                                                <div class="small mt-1" id="distReadyText">Select units to continue.</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
 
                                                 <div class="card mb-3">
                                                     <div class="card-body p-3">
                                                         <div class="d-flex justify-content-between align-items-center mb-2">
-                                                            <div class="small fw-semibold text-muted">Units to distribute</div>
-                                                            <label class="small" style="cursor:pointer;"><input type="checkbox" id="selectAllUnits" class="me-1"> Select all</label>
+                                                            <div>
+                                                                <div class="small fw-semibold text-muted">Step 3A: Units to distribute</div>
+                                                                <div class="small text-muted">Use the group cards for bulk selection, then fine-tune at the unit level.</div>
+                                                            </div>
+                                                            <label class="small" style="cursor:pointer;"><input type="checkbox" id="selectAllUnits" class="me-1"> Select all units</label>
                                                         </div>
                                                         <div id="distUnitsContainer"></div>
                                                         <div id="distUnitsLoading" class="text-center text-muted py-3" style="font-size:12px;display:none;">Loading units...</div>
@@ -572,14 +658,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                                                 <div class="card">
                                                     <div class="card-body p-3">
-                                                        <div class="small fw-semibold text-muted mb-3">Assign to office</div>
+                                                        <div class="small fw-semibold text-muted mb-3">Step 3B: Assign accountability</div>
                                                         <div class="row g-3 mb-3">
                                                             <div class="col-md-6">
                                                                 <label class="form-label">Office *</label>
                                                                 <select class="form-select" id="office_id" name="office_id" required data-placeholder="Select office">
                                                                     <option value="">Select office</option>
                                                                     <?php foreach ($offices as $office): ?>
-                                                                        <option value="<?= (int)$office['id'] ?>"><?= h($office['office_name']) ?></option>
+                                                                        <option value="<?= (int)$office['id'] ?>" <?php echo $form['office_id'] === (string)($office['id'] ?? '') ? 'selected' : ''; ?>><?= h($office['office_name']) ?></option>
                                                                     <?php endforeach; ?>
                                                                 </select>
                                                             </div>
@@ -588,7 +674,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                                 <select class="form-select" id="employee_id" name="employee_id" data-placeholder="Select employee">
                                                                     <option value="">Select employee</option>
                                                                     <?php foreach ($employees as $emp): ?>
-                                                                        <option value="<?= (int)$emp['id'] ?>" data-office-id="<?= (int)($emp['office_id']??0) ?>"><?= h(employee_display_name($emp) . ' - ' . $emp['employee_no']) ?></option>
+                                                                        <option value="<?= (int)$emp['id'] ?>"
+                                                                                data-office-id="<?= (int)($emp['office_id'] ?? 0) ?>"
+                                                                                data-is-unit-head="<?= (int)($emp['is_unit_head'] ?? 0) ?>"
+                                                                                data-position-title="<?= h($emp['position_title'] ?? '') ?>"
+                                                                                <?php echo $form['employee_id'] === (string)($emp['id'] ?? '') ? 'selected' : ''; ?>>
+                                                                            <?= h(employee_display_name($emp) . ' - ' . $emp['employee_no'] . (!empty($emp['position_title']) ? ' (' . $emp['position_title'] . ')' : '')) ?>
+                                                                        </option>
                                                                     <?php endforeach; ?>
                                                                 </select>
                                                             </div>
@@ -613,8 +705,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                                 <textarea class="form-control" name="remarks" rows="2"><?= h($form['remarks']) ?></textarea>
                                                             </div>
                                                         </div>
-                                                        <div class="d-flex align-items-center justify-content-between">
-                                                            <div class="small text-muted"><span id="selectedUnitCount">0</span> unit(s) selected · Total: <strong id="distTotal">₱0.00</strong></div>
+                                                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                                            <div class="small text-muted d-none"><span>0</span> unit(s) selected · Total: <strong>₱0.00</strong></div>
+                                                            <div class="small text-muted">Step 4: Review the summary above, then post the final <?= h(distribution_doc_label($distributionType)) ?>.</div>
                                                             <button type="submit" class="btn btn-primary" id="postDistBtn" disabled>Post <?= h(distribution_doc_label($distributionType)) ?></button>
                                                         </div>
                                                     </div>
@@ -679,6 +772,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td><?php echo $distribution['employee_no'] ? h(employee_display_name($distribution)) . ' - ' . h($distribution['employee_no']) : '<span class="text-muted">Not specified</span>'; ?></td>
                                         <td><span class="badge text-bg-light text-uppercase"><?php echo h($distribution['status']); ?></span></td>
                                         <td class="text-end">
+                                            <a href="<?php echo base_url('modules/messages/index.php?related_table=distributions&related_id=' . (int)$distribution['id']); ?>" class="btn btn-sm btn-outline-info me-1">Discussion</a>
                                             <?php if (($distribution['document_type'] ?? '') === 'par'): ?>
                                                 <a href="<?php echo base_url('modules/distributions/par.php?id=' . (int)$distribution['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print PAR</a>
                                             <?php else: ?>
@@ -758,6 +852,7 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 // SPA: bind IAR list and AJAX unit loading
 document.addEventListener('DOMContentLoaded', function () {
+        return;
         var iarRows = document.querySelectorAll('.iar-list-row');
         var editorEmpty = document.getElementById('distEditorEmpty');
         var editorContent = document.getElementById('distEditorContent');
@@ -813,6 +908,338 @@ document.addEventListener('DOMContentLoaded', function () {
         if (iarSearch) {
             iarSearch.addEventListener('input', function(){ var q = this.value.trim().toLowerCase(); document.querySelectorAll('.iar-list-row').forEach(function(r){ r.style.display = (!q || r.textContent.toLowerCase().includes(q)) ? '' : 'none'; }); });
         }
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var officeSelect = document.getElementById('office_id');
+    var employeeSelect = document.getElementById('employee_id');
+    var iarRows = Array.prototype.slice.call(document.querySelectorAll('.iar-list-row'));
+    var iarSearch = document.getElementById('iarSearchInput');
+    var iarUnitsFilter = document.getElementById('iarUnitsFilter');
+    var iarVisibleCount = document.getElementById('iarVisibleCount');
+    var editorEmpty = document.getElementById('distEditorEmpty');
+    var editorContent = document.getElementById('distEditorContent');
+    var unitsContainer = document.getElementById('distUnitsContainer');
+    var unitsLoading = document.getElementById('distUnitsLoading');
+    var iarSummary = document.getElementById('distIarSummary');
+    var hiddenRid = document.getElementById('hiddenReceivingId');
+    var postBtn = document.getElementById('postDistBtn');
+    var countLabel = document.getElementById('selectedUnitCount');
+    var groupCountLabel = document.getElementById('selectedGroupCount');
+    var totalLabel = document.getElementById('distTotal');
+    var readyText = document.getElementById('distReadyText');
+    var selectAllBtn = document.getElementById('selectAllUnits');
+    var itemType = '<?= h($itemTypeFilter) ?>';
+    var semiType = '<?= h($distributionSemiType) ?>';
+    var selectedIarId = '<?= (int) $selectedReceivingId ?>';
+    var syncingAssignment = false;
+
+    function refreshSelectWidget(select) {
+        if (window.SPAMS && window.SPAMS.refreshSelect2) {
+            window.SPAMS.refreshSelect2(select);
+        }
+    }
+
+    function findUnitHeadOption(officeId) {
+        if (!officeId || !employeeSelect) {
+            return null;
+        }
+
+        return Array.prototype.find.call(employeeSelect.options, function (option) {
+            return option.value &&
+                option.getAttribute('data-office-id') === officeId &&
+                option.getAttribute('data-is-unit-head') === '1';
+        }) || null;
+    }
+
+    function refreshEmployeeFilter(autoSelectHead) {
+        if (!officeSelect || !employeeSelect) {
+            return;
+        }
+
+        var selectedOffice = officeSelect.value;
+        var currentEmployeeStillValid = false;
+        Array.prototype.forEach.call(employeeSelect.options, function (option) {
+            if (!option.value) {
+                option.hidden = false;
+                return;
+            }
+
+            var matches = !selectedOffice || option.getAttribute('data-office-id') === selectedOffice;
+            option.hidden = !matches;
+            if (matches && option.value === employeeSelect.value) {
+                currentEmployeeStillValid = true;
+            }
+        });
+
+        if (!currentEmployeeStillValid && employeeSelect.value) {
+            employeeSelect.value = '';
+        }
+
+        if (autoSelectHead && selectedOffice) {
+            var headOption = findUnitHeadOption(selectedOffice);
+            if (headOption) {
+                employeeSelect.value = headOption.value;
+            }
+        }
+
+        refreshSelectWidget(employeeSelect);
+    }
+
+    function syncOfficeFromEmployee() {
+        if (!officeSelect || !employeeSelect || !employeeSelect.value) {
+            return;
+        }
+
+        var selectedOption = employeeSelect.options[employeeSelect.selectedIndex];
+        if (!selectedOption) {
+            return;
+        }
+
+        var officeId = selectedOption.getAttribute('data-office-id') || '';
+        if (officeId && officeSelect.value !== officeId) {
+            officeSelect.value = officeId;
+            refreshSelectWidget(officeSelect);
+        }
+    }
+
+    function applyIarFilters() {
+        var searchTerm = (iarSearch && iarSearch.value ? iarSearch.value : '').trim().toLowerCase();
+        var unitsFilter = iarUnitsFilter ? iarUnitsFilter.value : '';
+        var visibleCount = 0;
+
+        iarRows.forEach(function (row) {
+            var textMatch = !searchTerm || row.textContent.toLowerCase().indexOf(searchTerm) !== -1;
+            var unitCount = parseInt(row.getAttribute('data-units') || '0', 10);
+            var unitsMatch = true;
+
+            if (unitsFilter === '1-4') {
+                unitsMatch = unitCount >= 1 && unitCount <= 4;
+            } else if (unitsFilter === '5-9') {
+                unitsMatch = unitCount >= 5 && unitCount <= 9;
+            } else if (unitsFilter === '10+') {
+                unitsMatch = unitCount >= 10;
+            }
+
+            var isVisible = textMatch && unitsMatch;
+            row.style.display = isVisible ? '' : 'none';
+            if (isVisible) {
+                visibleCount += 1;
+            }
+        });
+
+        if (iarVisibleCount) {
+            iarVisibleCount.textContent = visibleCount + ' shown';
+        }
+    }
+
+    function refreshSummary() {
+        var checked = Array.prototype.slice.call(document.querySelectorAll('#distUnitsContainer .unit-checkbox:checked'));
+        var total = 0;
+        var selectedGroups = {};
+
+        checked.forEach(function (checkbox) {
+            total += parseFloat(checkbox.getAttribute('data-cost') || '0');
+            var groupId = checkbox.getAttribute('data-group-id') || '';
+            if (groupId) {
+                selectedGroups[groupId] = true;
+            }
+        });
+
+        if (countLabel) {
+            countLabel.textContent = checked.length;
+        }
+        if (groupCountLabel) {
+            groupCountLabel.textContent = Object.keys(selectedGroups).length;
+        }
+        if (totalLabel) {
+            totalLabel.textContent = 'Php ' + total.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        Array.prototype.forEach.call(document.querySelectorAll('#distUnitsContainer .group-select-all'), function (checkbox) {
+            var target = checkbox.getAttribute('data-group-target');
+            var groupUnits = Array.prototype.slice.call(document.querySelectorAll('#distUnitsContainer .unit-checkbox[data-group-id="' + target + '"]'));
+            var checkedUnits = groupUnits.filter(function (unitCheckbox) {
+                return unitCheckbox.checked;
+            });
+            checkbox.checked = groupUnits.length > 0 && checkedUnits.length === groupUnits.length;
+        });
+
+        var notes = [];
+        if (!checked.length) {
+            notes.push('Select at least one unit.');
+        }
+        if (officeSelect && !officeSelect.value) {
+            notes.push('Choose an office.');
+        }
+
+        if (readyText) {
+            readyText.textContent = notes.length ? notes.join(' ') : 'Ready to post this distribution.';
+            readyText.className = 'small mt-1 ' + (notes.length ? 'text-warning' : 'text-success');
+        }
+
+        if (postBtn) {
+            postBtn.disabled = notes.length > 0;
+        }
+
+        if (selectAllBtn) {
+            var allUnitCheckboxes = Array.prototype.slice.call(document.querySelectorAll('#distUnitsContainer .unit-checkbox'));
+            selectAllBtn.checked = allUnitCheckboxes.length > 0 && checked.length === allUnitCheckboxes.length;
+        }
+    }
+
+    function bindUnitHandlers() {
+        Array.prototype.forEach.call(document.querySelectorAll('#distUnitsContainer .unit-checkbox'), function (checkbox) {
+            checkbox.addEventListener('change', refreshSummary);
+        });
+
+        Array.prototype.forEach.call(document.querySelectorAll('#distUnitsContainer .group-select-all'), function (checkbox) {
+            checkbox.addEventListener('change', function () {
+                var target = checkbox.getAttribute('data-group-target');
+                Array.prototype.forEach.call(document.querySelectorAll('#distUnitsContainer .unit-checkbox[data-group-id="' + target + '"]'), function (unitCheckbox) {
+                    unitCheckbox.checked = checkbox.checked;
+                });
+                refreshSummary();
+            });
+        });
+    }
+
+    function setActiveSource(row) {
+        iarRows.forEach(function (item) {
+            item.classList.remove('shadow-sm');
+            item.style.background = '';
+            item.style.borderColor = 'var(--bs-border-color)';
+        });
+
+        row.classList.add('shadow-sm');
+        row.style.background = 'var(--bs-primary-bg-subtle)';
+        row.style.borderColor = 'var(--bs-primary-border-subtle)';
+    }
+
+    function loadUnits(iarId) {
+        if (!hiddenRid) {
+            return;
+        }
+
+        hiddenRid.value = iarId;
+        unitsContainer.innerHTML = '';
+        unitsLoading.style.display = 'block';
+        editorEmpty.style.display = 'none';
+        editorContent.style.display = '';
+
+        fetch('units_preview.php?receiving_id=' + iarId + '&item_type=' + encodeURIComponent(itemType) + '&semi_type=' + encodeURIComponent(semiType))
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                unitsLoading.style.display = 'none';
+                if (!data.ok) {
+                    unitsContainer.innerHTML = '<div class="text-danger small py-2">Failed to load units.</div>';
+                    return;
+                }
+
+                unitsContainer.innerHTML = data.html;
+                var header = data.header || {};
+                iarSummary.innerHTML =
+                    '<div class="fw-semibold">' + (header.system_reference || '') + '</div>' +
+                    '<div class="small text-muted">' + (header.po_number || '') + ' &middot; ' + (header.supplier_name || '') + '</div>' +
+                    '<div class="small text-muted">Received ' + (header.received_date || '') + '</div>';
+
+                bindUnitHandlers();
+                refreshSummary();
+            })
+            .catch(function () {
+                unitsLoading.style.display = 'none';
+                unitsContainer.innerHTML = '<div class="text-danger small py-2">Network error.</div>';
+            });
+    }
+
+    if (officeSelect) {
+        officeSelect.addEventListener('change', function () {
+            if (syncingAssignment) {
+                return;
+            }
+            syncingAssignment = true;
+            refreshEmployeeFilter(true);
+            refreshSummary();
+            syncingAssignment = false;
+        });
+
+        if (window.jQuery) {
+            window.jQuery(officeSelect).on('select2:select select2:clear', function () {
+                if (syncingAssignment) {
+                    return;
+                }
+                syncingAssignment = true;
+                refreshEmployeeFilter(true);
+                refreshSummary();
+                syncingAssignment = false;
+            });
+        }
+    }
+
+    if (employeeSelect) {
+        employeeSelect.addEventListener('change', function () {
+            if (syncingAssignment) {
+                return;
+            }
+            syncingAssignment = true;
+            syncOfficeFromEmployee();
+            refreshEmployeeFilter(false);
+            refreshSummary();
+            syncingAssignment = false;
+        });
+
+        if (window.jQuery) {
+            window.jQuery(employeeSelect).on('select2:select select2:clear', function () {
+                if (syncingAssignment) {
+                    return;
+                }
+                syncingAssignment = true;
+                syncOfficeFromEmployee();
+                refreshEmployeeFilter(false);
+                refreshSummary();
+                syncingAssignment = false;
+            });
+        }
+    }
+
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('change', function () {
+            Array.prototype.forEach.call(document.querySelectorAll('#distUnitsContainer .unit-checkbox'), function (checkbox) {
+                checkbox.checked = selectAllBtn.checked;
+            });
+            Array.prototype.forEach.call(document.querySelectorAll('#distUnitsContainer .group-select-all'), function (checkbox) {
+                checkbox.checked = selectAllBtn.checked;
+            });
+            refreshSummary();
+        });
+    }
+
+    iarRows.forEach(function (row) {
+        row.addEventListener('click', function () {
+            setActiveSource(row);
+            loadUnits(row.getAttribute('data-iar-id'));
+        });
+    });
+
+    if (iarSearch) {
+        iarSearch.addEventListener('input', applyIarFilters);
+    }
+    if (iarUnitsFilter) {
+        iarUnitsFilter.addEventListener('change', applyIarFilters);
+    }
+
+    refreshEmployeeFilter(!$form['employee_id']);
+    applyIarFilters();
+    refreshSummary();
+
+    if (selectedIarId) {
+        var defaultRow = document.querySelector('.iar-list-row[data-iar-id="' + selectedIarId + '"]');
+        if (defaultRow) {
+            setActiveSource(defaultRow);
+            loadUnits(selectedIarId);
+        }
+    }
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

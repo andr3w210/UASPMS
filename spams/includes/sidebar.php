@@ -44,12 +44,14 @@ $menuGroups = [
         'icon' => 'bi bi-arrow-left-right',
         'items' => [
             ['label' => 'Purchase Orders', 'path' => 'modules/purchase_orders/index.php', 'needle' => '/purchase_orders/', 'icon' => 'bi bi-journal-text'],
+            ['label' => 'Delivery Extensions', 'path' => 'modules/purchase_orders/extensions.php', 'needle' => '/purchase_orders/extensions', 'icon' => 'bi bi-calendar2-plus'],
             ['label' => 'Receiving', 'path' => 'modules/receivings/index.php', 'needle' => '/receivings/', 'icon' => 'bi bi-box-seam'],
             ['label' => 'Distribution', 'path' => 'modules/distributions/index.php', 'needle' => '/distributions/', 'icon' => 'bi bi-diagram-3'],
             ['label' => 'Issuances', 'path' => 'modules/issuances/index.php', 'needle' => '/issuances/', 'icon' => 'bi bi-box-arrow-up-right'],
             ['label' => 'Returns', 'path' => 'modules/returns/index.php', 'needle' => '/returns/', 'icon' => 'bi bi-arrow-counterclockwise'],
             ['label' => 'Maintenance', 'path' => 'modules/maintenance/index.php', 'needle' => '/maintenance/', 'icon' => 'bi bi-wrench-adjustable-circle'],
             ['label' => 'Disposals', 'path' => 'modules/disposals/index.php', 'needle' => '/disposals/', 'icon' => 'bi bi-trash3'],
+            ['label' => 'Messages', 'path' => 'modules/messages/index.php', 'needle' => '/messages/', 'icon' => 'bi bi-chat-dots'],
         ],
     ],
     [

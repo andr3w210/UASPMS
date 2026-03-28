@@ -66,7 +66,7 @@ if (!$db || $distributionId <= 0) {
             "SELECT di.id AS di_id, di.quantity_distributed, di.unit_cost, di.line_total,
              poi.item_description,
              u.uom_name, u.abbreviation,
-                 c.useful_life_years AS useful_life_years,
+                 c.classification_name, c.classification_family, c.useful_life_years AS useful_life_years,
              did.brand, did.model, did.serial_no, did.property_number, did.id AS did_id
          FROM distribution_items di
          INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
@@ -101,6 +101,8 @@ foreach ($rows as $r) {
             'item_description'     => $r['item_description'],
             'uom_name'             => $r['uom_name'],
             'abbreviation'         => $r['abbreviation'],
+            'classification_name'  => $r['classification_name'] ?? '',
+            'classification_family'=> $r['classification_family'] ?? '',
             'inventory_item_no'    => $r['inventory_item_no'] ?? '',
             'useful_life_years'    => $r['useful_life_years'] ?? null,
             'details'              => [],
@@ -212,7 +214,11 @@ if (function_exists('employee_display_name')) {
                         <td class="text-end"><?php echo h(number_format($unitCost,2)); ?></td>
                         <td class="text-end"><?php echo h(number_format($totalCost,2)); ?></td>
                         <td>
-                            <?php echo nl2br(h($it['item_description'] ?? '')); ?>
+                            <?php
+                                $icsLabel = trim((!empty($it['classification_family']) ? $it['classification_family'] . ' / ' : '') . ($it['classification_name'] ?? ''));
+                                $icsDescription = trim(($icsLabel !== '' ? $icsLabel . ' - ' : '') . ($it['item_description'] ?? ''));
+                            ?>
+                            <?php echo nl2br(h($icsDescription)); ?>
                             <?php if (!empty($it['details'])): ?>
                                 <div class="mt-1">
                                     <?php foreach ($it['details'] as $d): ?>

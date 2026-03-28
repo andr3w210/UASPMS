@@ -120,7 +120,7 @@ if ($duplicateRow) {
     exit;
 }
 
-$stockNo = stock_catalog_next_number($db, $accountCodeId);
+$stockNo = stock_catalog_next_number($db, $classificationId > 0 ? $classificationId : null, $itemName, $itemDescription);
 if ($stockNo === '') {
     http_response_code(500);
     echo json_encode(['ok' => false, 'error' => 'Unable to generate stock number.']);

@@ -63,6 +63,7 @@ if (!empty($header['document_type']) && $header['document_type'] === 'ics') {
     $itemStmt = $db->prepare(
      "SELECT di.id AS di_id, di.quantity_distributed, di.unit_cost, di.line_total,\n" .
          "       poi.item_description,\n" .
+         "       c.classification_name, c.classification_family,\n" .
          "       u.uom_name, u.abbreviation,\n" .
          "       r.received_date AS date_acquired,\n" .
         "       did.brand, did.model, did.serial_no, did.property_number, did.id AS did_id\n" .
@@ -71,6 +72,7 @@ if (!empty($header['document_type']) && $header['document_type'] === 'ics') {
      "INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id\n" .
      "INNER JOIN receivings r ON r.id = ri.receiving_id\n" .
      "LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id\n" .
+    "LEFT JOIN classifications c ON c.id = poi.classification_id\n" .
     "LEFT JOIN distribution_item_details did ON did.distribution_item_id = di.id\n" .
      "WHERE di.distribution_id = ?\n" .
      "ORDER BY di.id ASC, did.id ASC"
@@ -97,6 +99,8 @@ foreach ($rows as $r) {
             'unit_cost' => $r['unit_cost'],
             'line_total' => $r['line_total'],
             'item_description' => $r['item_description'],
+            'classification_name' => $r['classification_name'] ?? '',
+            'classification_family' => $r['classification_family'] ?? '',
             'uom_name' => $r['uom_name'],
             'abbreviation' => $r['abbreviation'],
             'date_acquired' => $r['date_acquired'],
@@ -194,7 +198,11 @@ if (function_exists('employee_display_name')) {
                         <td class="text-end"><?php echo h(number_format($qty,2)); ?></td>
                         <td><?php echo h($unitLabel); ?></td>
                         <td>
-                            <?php echo nl2br(h($it['item_description'] ?? '')); ?>
+                            <?php
+                                $parLabel = trim((!empty($it['classification_family']) ? $it['classification_family'] . ' / ' : '') . ($it['classification_name'] ?? ''));
+                                $parDescription = trim(($parLabel !== '' ? $parLabel . ' - ' : '') . ($it['item_description'] ?? ''));
+                            ?>
+                            <?php echo nl2br(h($parDescription)); ?>
                             <?php if (!empty($it['details'])): ?>
                                 <div class="mt-1">
                                     <?php foreach ($it['details'] as $d): ?>
@@ -208,7 +216,15 @@ if (function_exists('employee_display_name')) {
                                 </div>
                             <?php endif; ?>
                         </td>
-                                            <td><?php echo h($header['document_no'] ?? ''); ?></td>
+                        <td>
+                            <?php if (!empty($it['details'])): ?>
+                                <?php foreach ($it['details'] as $d): ?>
+                                    <?php echo h($d['property_number'] ?? ''); ?><br>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <?php echo h($it['property_number'] ?? ''); ?>
+                            <?php endif; ?>
+                        </td>
                         <td><?php echo h(!empty($it['date_acquired']) ? date('M d, Y', strtotime($it['date_acquired'])) : ''); ?></td>
                         <td class="text-end"><?php echo h(number_format($amount,2)); ?></td>
                     </tr>

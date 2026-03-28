@@ -185,4 +185,8 @@ WHERE (
     AND r.status != 'cancelled'
 ) AND po.status = 'partial';
 
+SOURCE 038_stock_catalog_stock_no_reformat.sql;
+SOURCE 039_classification_family.sql;
+SOURCE 040_stock_catalog_stock_no_from_classification_family.sql;
+
 SET FOREIGN_KEY_CHECKS = 1;
