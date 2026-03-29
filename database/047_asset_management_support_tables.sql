@@ -57,27 +57,6 @@ CREATE TABLE IF NOT EXISTS `maintenance_logs` (
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS `asset_transfers` (
-    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    `system_reference` VARCHAR(50) NOT NULL,
-    `transfer_date` DATE NOT NULL,
-    `source_type` ENUM('system','legacy') NOT NULL,
-    `distribution_item_detail_id` BIGINT UNSIGNED NULL,
-    `legacy_asset_id` BIGINT UNSIGNED NULL,
-    `property_number` VARCHAR(100) NULL,
-    `from_office_id` INT UNSIGNED NULL,
-    `from_employee_id` INT UNSIGNED NULL,
-    `from_responsibility_code_id` INT UNSIGNED NULL,
-    `to_office_id` INT UNSIGNED NULL,
-    `to_employee_id` INT UNSIGNED NULL,
-    `to_responsibility_code_id` INT UNSIGNED NULL,
-    `reason` TEXT NULL,
-    `remarks` TEXT NULL,
-    `status` ENUM('posted','cancelled') NOT NULL DEFAULT 'posted',
-    `created_by` INT UNSIGNED NULL,
-    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS `purchase_order_delivery_extensions` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `system_reference` VARCHAR(50) NOT NULL,

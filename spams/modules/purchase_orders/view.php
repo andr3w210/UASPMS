@@ -23,7 +23,7 @@ if ($purchaseOrderId <= 0) {
 $stmt = $db->prepare("
     SELECT po.id, po.system_reference, po.po_number, po.po_date, po.supplier_address, po.place_of_delivery,
            po.delivery_term_days, po.expected_delivery_date, po.total_amount, po.status, po.created_at,
-           s.supplier_name, f.fund_name, mop.mode_name AS mode_of_procurement_name
+           s.supplier_name, s.tin_no, f.fund_name, f.fund_code, f.fund_source, mop.mode_name AS mode_of_procurement_name
     FROM purchase_orders po
     INNER JOIN suppliers s ON s.id = po.supplier_id
     INNER JOIN funds f ON f.id = po.fund_id
@@ -240,6 +240,13 @@ foreach ($poItems as $poi) {
 }
 
 $totalAmountInWords = po_amount_in_words((float) $purchaseOrder['total_amount']);
+$fundClusterLabel = trim((string) ($purchaseOrder['fund_source'] ?? ''));
+if ($fundClusterLabel === '') {
+    $fundClusterLabel = trim((string) ($purchaseOrder['fund_code'] ?? ''));
+}
+if ($fundClusterLabel === '') {
+    $fundClusterLabel = trim((string) ($purchaseOrder['fund_name'] ?? ''));
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -288,12 +295,12 @@ $totalAmountInWords = po_amount_in_words((float) $purchaseOrder['total_amount'])
         <section class="po-document coa-po-document">
             <header class="po-document-header">
                 <div class="po-document-form-meta">
-                    <span>&nbsp;</span>
+                    <span>Fund Cluster: <?php echo h($fundClusterLabel ?: '________________'); ?></span>
                     <span>Appendix 61</span>
                 </div>
                 <h1>Purchase Order</h1>
-                <div class="po-document-entity po-entity-name">Entity Name</div>
-                <div class="po-document-subtitle">University of Antique</div>
+                <div class="po-document-entity">Entity Name</div>
+                <div class="po-document-subtitle po-entity-name">University of Antique</div>
             </header>
 
             <table class="table table-bordered po-detail-table po-sample-header-table">
@@ -312,7 +319,7 @@ $totalAmountInWords = po_amount_in_words((float) $purchaseOrder['total_amount'])
                     </tr>
                     <tr>
                         <td class="po-label-cell">TIN</td>
-                        <td class="po-value-cell" colspan="3">&nbsp;</td>
+                        <td class="po-value-cell" colspan="3"><?php echo h($purchaseOrder['tin_no'] ?: '________________'); ?></td>
                         <td class="po-label-cell">Mode of Procurement</td>
                         <td class="po-value-cell"><?php echo h($purchaseOrder['mode_of_procurement_name'] ?: '-'); ?></td>
                     </tr>
@@ -336,7 +343,7 @@ $totalAmountInWords = po_amount_in_words((float) $purchaseOrder['total_amount'])
                         <td class="po-label-cell">Date of Delivery</td>
                         <td class="po-value-cell"><?php echo $purchaseOrder['expected_delivery_date'] ? h(date('F d, Y', strtotime($purchaseOrder['expected_delivery_date']))) : '-'; ?></td>
                         <td class="po-label-cell">Payment Term</td>
-                        <td class="po-value-cell">&nbsp;</td>
+                        <td class="po-value-cell">Charge to Available Funds</td>
                     </tr>
                 </tbody>
             </table>
@@ -365,7 +372,7 @@ $totalAmountInWords = po_amount_in_words((float) $purchaseOrder['total_amount'])
                                             <div class="small po-item-meta"><?php echo h(trim(($item['classification_name'] ?: 'Unclassified') . (!empty($item['account_code']) ? ' | ' . $item['account_code'] : ''))); ?></div>
                                             <div class="small text-muted"><?php echo h(trim(po_item_type_label((string) $item['item_type']) . (!empty($item['account_name']) ? ' | ' . $item['account_name'] : ''))); ?></div>
                                         </td>
-                                        <td class="text-end"><?php echo h(number_format((float) $item['quantity'], 2)); ?></td>
+                                        <td class="text-end"><?php echo h(format_quantity($item['quantity'])); ?></td>
                                         <td class="text-end"><?php echo h(number_format((float) $item['unit_cost'], 2)); ?></td>
                                         <td class="text-end"><?php echo h(number_format((float) $item['line_total'], 2)); ?></td>
                                     </tr>
@@ -423,13 +430,13 @@ $totalAmountInWords = po_amount_in_words((float) $purchaseOrder['total_amount'])
                 <tbody>
                     <tr>
                         <td class="po-label-cell">Fund Cluster :</td>
-                        <td class="po-value-cell"><?php echo h($purchaseOrder['fund_name']); ?></td>
+                        <td class="po-value-cell"><?php echo h($fundClusterLabel ?: '________________'); ?></td>
                         <td class="po-label-cell">ORS/BURS No. :</td>
                         <td class="po-value-cell">&nbsp;</td>
                     </tr>
                     <tr>
                         <td class="po-label-cell">Funds Available :</td>
-                        <td class="po-value-cell">&nbsp;</td>
+                        <td class="po-value-cell"><?php echo h($purchaseOrder['fund_name'] ?: '________________'); ?></td>
                         <td class="po-label-cell">Date of the ORS/BURS:</td>
                         <td class="po-value-cell">&nbsp;</td>
                     </tr>

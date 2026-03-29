@@ -7,6 +7,7 @@ if (is_logged_in()) {
 
 $error = '';
 $username = '';
+$flash = get_flash();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
@@ -20,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Database connection error.';
         } else {
             $roleNameExpr = roles_name_expression($db, 'r');
-            $sql = "SELECT u.id, u.username, u.email, u.password_hash, u.full_name, u.failed_login_attempts, u.locked_until, {$roleNameExpr} AS role_name
+            $sql = "SELECT u.id, u.username, u.email, u.password_hash, u.full_name, u.profile_photo_path, u.failed_login_attempts, u.locked_until, {$roleNameExpr} AS role_name
                     FROM users u
                     LEFT JOIN roles r ON r.id = u.role_id
                     WHERE (u.username = ? OR u.email = ?) AND u.is_active = 1
@@ -73,6 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_SESSION['full_name'] = $row['full_name'];
                         $_SESSION['user_name'] = $row['full_name'] ?: $row['username'];
                         $_SESSION['role_name'] = $row['role_name'] ?: 'User';
+                        $_SESSION['user_photo_path'] = $row['profile_photo_path'] ?? '';
                         // Keep both a display name and a machine-friendly role key
                         $_SESSION['user_role'] = $row['role_name'] ?: 'User';
 
@@ -171,6 +173,9 @@ require_once __DIR__ . '/../includes/header.php';
             <?php if ($error): ?>
                 <div class="alert alert-danger"><?php echo h($error); ?></div>
             <?php endif; ?>
+            <?php if ($flash): ?>
+                <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div>
+            <?php endif; ?>
 
             <form method="post" action="">
                 <div class="mb-3">
@@ -185,6 +190,9 @@ require_once __DIR__ . '/../includes/header.php';
                     <button class="btn btn-primary" type="submit">Sign In</button>
                 </div>
             </form>
+            <div class="text-center mt-3">
+                <a href="<?php echo base_url('auth/forgot_password.php'); ?>" class="small text-decoration-none">Forgot your password?</a>
+            </div>
         </div>
     </div>
 </main>

@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $db = db();
 $page_title = 'RLSDDP - Semi-Expendable';
@@ -9,6 +9,7 @@ $records = [];
 $record = null;
 $disposalId = (int) ($_GET['disposal_id'] ?? 0);
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
+$isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 
 if ($db) {
     $listSql = "
@@ -80,6 +81,21 @@ $isDamaged = $status === 'beyond_repair' || $status === 'unserviceable';
 $isStolen = false;
 $isDestroyed = $status === 'obsolete';
 
+if ($isExport && $record) {
+    export_excel_rows('semi_rlsddp_' . ($record['system_reference'] ?? date('Ymd')) . '.xls', ['RLSDDP No.', 'Date', 'Department/Office', 'Accountable Officer', 'ICS No.', 'Property No.', 'Description', 'Acquisition Cost', 'Reason', 'Remarks'], [[
+        $record['system_reference'] ?? '',
+        !empty($record['disposal_date']) ? date('Y-m-d', strtotime((string) $record['disposal_date'])) : '',
+        $record['office_name'] ?? '',
+        semi_rls_person($record),
+        $record['ics_no'] ?? '',
+        $record['property_number'] ?? '',
+        semi_rls_label($record),
+        number_format((float) ($record['unit_cost'] ?? 0), 2),
+        $record['reason'] ?? '',
+        $record['remarks'] ?? '',
+    ]]);
+}
+
 if ($isPrint && $record) {
     ?>
     <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RLSDDP <?php echo h($record['system_reference']); ?></title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"><style>body{font-size:12px}table{font-size:11px}@media print{.no-print{display:none!important}}</style></head><body>
@@ -108,7 +124,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 <section class="row g-4"><div class="col-12"><div class="card"><div class="card-body p-4">
 <div class="report-page-shell">
-<div class="report-toolbar"><div><h5 class="report-toolbar-title mb-0">Annex A.9</h5><p class="report-toolbar-copy">Choose a posted semi-expendable disposal record to prepare the official RLSDDP printout.</p></div><div class="report-toolbar-actions"><?php if ($record): ?><a href="<?php echo h(base_url('modules/reports/semi_rlsddp.php?disposal_id=' . $disposalId . '&print=1')); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a><?php endif; ?></div></div>
+<div class="report-toolbar"><div><h5 class="report-toolbar-title mb-0">Annex A.9</h5><p class="report-toolbar-copy">Choose a posted semi-expendable disposal record to prepare the official RLSDDP printout.</p></div><div class="report-toolbar-actions"><?php if ($record): ?><a href="<?php echo h(base_url('modules/reports/semi_rlsddp.php?disposal_id=' . $disposalId . '&export=excel')); ?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</a><a href="<?php echo h(base_url('modules/reports/semi_rlsddp.php?disposal_id=' . $disposalId . '&print=1')); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a><?php endif; ?></div></div>
 <div class="report-summary-grid"><div class="report-summary-card"><div class="report-summary-label">Available Records</div><div class="report-summary-value"><?php echo number_format(count($records)); ?></div><div class="report-summary-note">Semi disposal entries that can generate RLSDDP.</div></div><div class="report-summary-card"><div class="report-summary-label">Loaded Record</div><div class="report-summary-value"><?php echo $record ? 'Ready' : 'None'; ?></div><div class="report-summary-note"><?php echo h($record['system_reference'] ?? 'Select one disposal record to preview.'); ?></div></div></div>
 <div class="report-filter-card"><h6 class="report-filter-title">Load Disposal Record</h6><form method="get" class="row g-3 align-items-end"><div class="col-md-8"><label class="form-label">Disposal Record</label><select class="form-select" name="disposal_id"><option value="0">Select semi disposal</option><?php foreach ($records as $rw): ?><option value="<?php echo (int) $rw['id']; ?>" <?php echo $disposalId === (int) $rw['id'] ? 'selected' : ''; ?>><?php echo h(($rw['system_reference'] ?? '') . ' | ' . ($rw['property_number'] ?? '') . ' | ' . semi_rls_label($rw)); ?></option><?php endforeach; ?></select></div><div class="col-md-4 d-flex gap-2"><button type="submit" class="btn btn-primary">Load RLSDDP</button><a href="<?php echo base_url('modules/reports/semi_rlsddp.php'); ?>" class="btn btn-outline-secondary">Clear</a></div></form></div>
 <?php if (!$record): ?><div class="report-empty-state">Select a posted semi-expendable disposal record to preview the RLSDDP.</div><?php endif; ?>

@@ -235,36 +235,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <div class="col-12"><div class="card"><div class="card-body p-4"><div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3"><div><h5 class="card-title mb-0">Supplier List</h5><span id="recordCount" class="text-muted small">Showing <?php echo count($suppliers); ?> of <?php echo count($suppliers); ?> records</span></div><button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse"><i class="bi bi-plus-circle me-1"></i>Add New</button></div><div class="d-flex flex-wrap gap-2 align-items-center mb-3"><input type="search" id="tableSearch" class="form-control form-control-sm" placeholder="Search suppliers..." style="max-width:300px;"><select id="statusFilter" class="form-select form-select-sm" style="max-width:140px;"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div><div class="table-responsive"><table class="table align-middle" id="dataTable"><thead><tr><th data-sort="code">Code <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="supplier">Supplier <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="contact">Contact <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="tin">TIN <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="created">Created <i class="bi bi-arrow-down-up text-muted small"></i></th><th class="text-end">Actions</th></tr></thead><tbody><?php if ($suppliers): foreach ($suppliers as $supplier): ?><tr data-status="<?php echo (int) $supplier['is_active'] ? 'active' : 'inactive'; ?>"><td class="fw-semibold"><?php echo h($supplier['supplier_code']); ?></td><td><div><?php echo h($supplier['supplier_name']); ?></div><small class="text-muted"><?php echo h($supplier['address'] ?? ''); ?></small></td><td><div><?php echo h($supplier['contact_person'] ?? ''); ?></div><small class="text-muted"><?php echo h(trim(($supplier['contact_no'] ?? '') . (($supplier['contact_no'] ?? '') && ($supplier['email'] ?? '') ? ' | ' : '') . ($supplier['email'] ?? ''))); ?></small></td><td><?php echo h($supplier['tin_no'] ?? ''); ?></td><td><span class="badge <?php echo (int) $supplier['is_active'] === 1 ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo (int) $supplier['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span></td><td><div><?php echo h(date('M d, Y', strtotime($supplier['created_at']))); ?></div><small class="text-muted"><?php echo h($supplier['creator_name'] ?: 'System'); ?></small></td><td class="text-end"><div class="d-inline-flex flex-wrap justify-content-end gap-2"><a href="<?php echo base_url('modules/suppliers/index.php?edit=' . (int) $supplier['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a><?php if ((int) $supplier['is_active'] === 1): ?><form method="post" onsubmit="return confirm('Deactivate this supplier?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int) $supplier['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button></form><?php endif; ?><?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?><form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="hard_delete"><input type="hidden" name="id" value="<?php echo (int) $supplier['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button></form><?php endif; ?></div></td></tr><?php endforeach; else: ?><tr data-status="inactive"><td colspan="7" class="text-center text-muted py-4">No suppliers found yet.</td></tr><?php endif; ?></tbody></table></div><div class="d-flex align-items-center gap-3 mt-2 flex-wrap"><button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button><span id="pageInfo" class="small text-muted">Page 1 of 1</span><button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button><select id="perPageSelect" class="form-select form-select-sm" style="width:auto;"><option value="25">25 per page</option><option value="50">50 per page</option><option value="100">100 per page</option></select></div></div></div></div>
 </section>
 <script>
-(function() {
-    var perPage = 25, currentPage = 1, sortCol = -1, sortDir = 'asc';
-    function getRows() { return Array.from(document.querySelectorAll('#dataTable tbody tr')); }
-    function updateRecordCount(total, overall) { var node = document.getElementById('recordCount'); if (node) node.textContent = 'Showing ' + total + ' of ' + overall + ' records'; }
-    function renderPage() {
-        var allRows = getRows(), rows = allRows.filter(function(row) { return row.dataset.visible !== '0'; });
-        var total = rows.length, pages = Math.max(1, Math.ceil(total / perPage));
-        currentPage = Math.min(currentPage, pages);
-        var start = (currentPage - 1) * perPage, end = start + perPage;
-        allRows.forEach(function(row) { row.style.display = 'none'; });
-        rows.slice(start, end).forEach(function(row) { row.style.display = ''; });
-        updateRecordCount(total, allRows.length);
-        document.getElementById('pageInfo').textContent = 'Page ' + currentPage + ' of ' + pages + ' (' + total + ' records)';
-        document.getElementById('prevPage').disabled = currentPage <= 1;
-        document.getElementById('nextPage').disabled = currentPage >= pages;
-    }
-    function applyFilters() {
-        var term = ((document.getElementById('tableSearch') || {}).value || '').toLowerCase();
-        var status = ((document.getElementById('statusFilter') || {}).value || '');
-        getRows().forEach(function(row) { row.dataset.visible = ((!term || row.textContent.toLowerCase().includes(term)) && (!status || row.dataset.status === status)) ? '1' : '0'; });
-        currentPage = 1;
-        renderPage();
-    }
-    document.getElementById('tableSearch')?.addEventListener('input', applyFilters);
-    document.getElementById('statusFilter')?.addEventListener('change', applyFilters);
-    document.getElementById('prevPage')?.addEventListener('click', function() { currentPage--; renderPage(); });
-    document.getElementById('nextPage')?.addEventListener('click', function() { currentPage++; renderPage(); });
-    document.getElementById('perPageSelect')?.addEventListener('change', function() { perPage = parseInt(this.value, 10) || 25; currentPage = 1; renderPage(); });
-    document.querySelectorAll('#dataTable th[data-sort]').forEach(function(th, idx) { th.style.cursor = 'pointer'; th.addEventListener('click', function() { var tbody = document.querySelector('#dataTable tbody'); var rows = Array.from(tbody.querySelectorAll('tr')); var dir = (sortCol === idx && sortDir === 'asc') ? 'desc' : 'asc'; sortCol = idx; sortDir = dir; rows.sort(function(a, b) { var at = a.cells[idx] ? a.cells[idx].textContent.trim().toLowerCase() : ''; var bt = b.cells[idx] ? b.cells[idx].textContent.trim().toLowerCase() : ''; return dir === 'asc' ? at.localeCompare(bt) : bt.localeCompare(at); }); rows.forEach(function(row) { tbody.appendChild(row); }); document.querySelectorAll('#dataTable th[data-sort] i').forEach(function(icon) { icon.className = 'bi bi-arrow-down-up text-muted small'; }); var icon = th.querySelector('i'); if (icon) icon.className = 'bi bi-arrow-' + (dir === 'asc' ? 'up' : 'down') + ' text-primary small'; renderPage(); }); });
-    applyFilters();
-})();
+document.addEventListener('DOMContentLoaded', function () {
+    initDataTable('dataTable');
+});
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
+

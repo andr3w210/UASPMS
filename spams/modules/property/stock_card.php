@@ -20,7 +20,7 @@ $summary = [
     'total_issued' => 0.00,
     'total_on_hand' => 0.00,
 ];
-$stockCardTargetRows = 18;
+$stockCardTargetRows = 34;
 
 if (!$db) {
     http_response_code(500);
@@ -63,6 +63,7 @@ $sql = "
         po.po_number,
         po.po_date,
         f.fund_code,
+        f.fund_source,
         s.supplier_name
     FROM stock_items si
     LEFT JOIN account_codes ac ON ac.id = si.account_code_id
@@ -146,10 +147,7 @@ foreach ($stockLots as $lot) {
 if ($selectedLot) {
     $ledgerRows[] = [
         'date' => $selectedLot['received_date'] ?? '',
-        'reference' => trim(implode(' / ', array_filter([
-            $selectedLot['iar_reference'] ?? '',
-            $selectedLot['ris_no'] ?? '',
-        ]))),
+        'reference' => (string) ($selectedLot['ris_no'] ?? $selectedLot['iar_reference'] ?? ''),
         'receipt_qty' => (float) ($selectedLot['quantity_received'] ?? 0),
         'issue_qty' => 0.00,
         'office' => '',
@@ -163,6 +161,8 @@ if ($selectedLot) {
             iss.system_reference,
             iss.purpose,
             ii.quantity_issued,
+            r.ris_no AS receiving_ris_no,
+            r.system_reference AS receiving_iar_no,
             o.office_name,
             e.first_name,
             e.middle_name,
@@ -170,6 +170,8 @@ if ($selectedLot) {
             e.suffix_name
         FROM issuance_items ii
         INNER JOIN issuances iss ON iss.id = ii.issuance_id AND iss.status = 'posted'
+        LEFT JOIN stock_items si ON si.id = ii.stock_item_id
+        LEFT JOIN receivings r ON r.id = si.receiving_id
         LEFT JOIN offices o ON o.id = iss.office_id
         LEFT JOIN employees e ON e.id = iss.employee_id
         WHERE ii.stock_item_id = ?
@@ -199,6 +201,19 @@ if ($selectedLot) {
             ];
         }
         $issueStmt->close();
+    }
+}
+
+$stockCardFundCluster = '';
+if ($selectedLot) {
+    $stockCardFundCluster = trim((string) ($selectedLot['fund_source'] ?? ''));
+    if ($stockCardFundCluster === '') {
+        $stockCardFundCluster = trim((string) ($selectedLot['fund_code'] ?? ''));
+    }
+    if (preg_match('/(?:^|[^0-9])(0[1567])(?:[^0-9]|$)/', $stockCardFundCluster, $matches)) {
+        $stockCardFundCluster = $matches[1];
+    } elseif (preg_match('/([0-9]{2})/', $stockCardFundCluster, $matches)) {
+        $stockCardFundCluster = $matches[1];
     }
 }
 
@@ -242,19 +257,19 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-md-3">
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                             <div class="text-muted small">Total Received</div>
-                            <div class="fw-semibold"><?php echo h(number_format((float) $summary['total_received'], 2)); ?></div>
+                            <div class="fw-semibold"><?php echo h(format_quantity($summary['total_received'])); ?></div>
                         </div>
                     </div>
                     <div class="col-md-3">
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                             <div class="text-muted small">Total Issued</div>
-                            <div class="fw-semibold"><?php echo h(number_format((float) $summary['total_issued'], 2)); ?></div>
+                            <div class="fw-semibold"><?php echo h(format_quantity($summary['total_issued'])); ?></div>
                         </div>
                     </div>
                     <div class="col-md-3">
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                             <div class="text-muted small">Total On Hand</div>
-                            <div class="fw-semibold"><?php echo h(number_format((float) $summary['total_on_hand'], 2)); ?></div>
+                            <div class="fw-semibold"><?php echo h(format_quantity($summary['total_on_hand'])); ?></div>
                         </div>
                     </div>
                 </div>
@@ -319,7 +334,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                     </div>
                                                     <div class="text-end">
                                                         <div class="small <?php echo $isActive ? 'text-white-50' : 'text-muted'; ?>">On hand</div>
-                                                        <div class="fw-semibold"><?php echo h(number_format((float) ($lot['quantity_on_hand'] ?? 0), 2)); ?></div>
+                                                        <div class="fw-semibold"><?php echo h(format_quantity($lot['quantity_on_hand'] ?? 0)); ?></div>
                                                     </div>
                                                 </div>
                                             </a>
@@ -408,67 +423,195 @@ require_once __DIR__ . '/../../includes/topbar.php';
 </section>
 
 <?php if ($selectedLot): ?>
+    <style>
+        .stock-card-print-only,
+        .stock-card-print-only * {
+            font-family: "Times New Roman", serif !important;
+            color: #000 !important;
+        }
+
+        .stock-card-print-only .stock-card-print-shell {
+            width: 7.55in;
+            min-height: 12in;
+            max-width: 7.55in;
+            margin: 0 auto;
+            background: #fff;
+            padding-top: 0 !important;
+        }
+
+        .stock-card-print-only .stock-card-form-meta {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: flex-start;
+            font-size: 12px !important;
+            font-style: italic !important;
+            margin: 0 0 4px 0 !important;
+        }
+
+        .stock-card-print-only .stock-card-form-title {
+            margin: 0 0 10px 0 !important;
+            text-align: center !important;
+            font-size: 18px !important;
+            font-weight: 700 !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0 !important;
+        }
+
+        .stock-card-print-only .stock-card-head-table,
+        .stock-card-print-only .stock-card-ledger-table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            table-layout: fixed !important;
+            margin: 0 !important;
+            border: 1px solid #000 !important;
+            background: #fff !important;
+        }
+
+        .stock-card-print-only .stock-card-head-table {
+            margin-bottom: 0 !important;
+        }
+
+        .stock-card-print-only .stock-card-head-table td,
+        .stock-card-print-only .stock-card-ledger-table th,
+        .stock-card-print-only .stock-card-ledger-table td {
+            border: 1px solid #000 !important;
+            background: #fff !important;
+            box-shadow: none !important;
+        }
+
+        .stock-card-print-only .stock-card-head-table td {
+            font-size: 11px !important;
+            line-height: 1.05 !important;
+            padding: 2px 4px !important;
+            vertical-align: top !important;
+        }
+
+        .stock-card-print-only .stock-card-label {
+            width: 16% !important;
+            font-weight: 700 !important;
+            white-space: nowrap !important;
+        }
+
+        .stock-card-print-only .stock-card-fill {
+            display: inline-block !important;
+            width: 100% !important;
+            min-height: 12px !important;
+            border-bottom: 1px solid #000 !important;
+            padding: 0 2px !important;
+        }
+
+        .stock-card-print-only .stock-card-ledger-table th,
+        .stock-card-print-only .stock-card-ledger-table td {
+            font-size: 10px !important;
+            line-height: 1.04 !important;
+            padding: 2px 3px !important;
+            vertical-align: top !important;
+        }
+
+        .stock-card-print-only .stock-card-ledger-table thead th {
+            text-align: center !important;
+            font-weight: 700 !important;
+            text-transform: none !important;
+        }
+
+        .stock-card-print-only .stock-card-group-title {
+            font-style: italic !important;
+            font-weight: 700 !important;
+        }
+
+        .stock-card-print-only .stock-card-ledger-table tbody tr {
+            height: 18px !important;
+        }
+
+        .stock-card-print-only .stock-card-blank-row td {
+            color: transparent !important;
+        }
+
+        @media print {
+            @page {
+                size: 8.5in 13in;
+                margin: 0.5in;
+            }
+
+            body {
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
+            .stock-card-print-shell {
+                width: 7.55in !important;
+                min-height: 12in !important;
+                max-width: 7.55in !important;
+            }
+
+            .stock-card-print-only {
+                display: block !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+        }
+    </style>
     <section class="stock-card-print-only">
         <div class="stock-card-print-shell">
             <div class="stock-card-form-meta">
-                <span>&nbsp;</span>
+                <span></span>
                 <span>Appendix 58</span>
             </div>
-            <div class="text-center stock-card-header-block">
-                <img src="<?php echo h(LOGO_PATH); ?>" style="width:60px;height:60px;object-fit:contain;" alt="logo">
-                <h5 class="mt-2 mb-1">University of Antique</h5>
-                <div class="stock-card-form-title">Stock Card</div>
-            </div>
+            <div class="stock-card-form-title">STOCK CARD</div>
 
-            <table class="table table-bordered stock-card-head-table mb-3">
+            <table class="stock-card-head-table">
                 <tbody>
                     <tr>
-                        <td class="stock-card-label">Entity Name</td>
-                        <td>University of Antique</td>
-                        <td class="stock-card-label">Fund Cluster</td>
-                        <td><?php echo h($selectedLot['fund_code'] ?? ''); ?></td>
+                        <td class="stock-card-label">Entity Name:</td>
+                        <td><span class="stock-card-fill"><?php echo h(APP_NAME); ?></span></td>
+                        <td class="stock-card-label">Fund Cluster:</td>
+                        <td><span class="stock-card-fill"><?php echo h($stockCardFundCluster); ?></span></td>
                     </tr>
                     <tr>
-                        <td class="stock-card-label">Item</td>
-                        <td><?php echo h($stockCardItemLabel); ?></td>
-                        <td class="stock-card-label">Stock No.</td>
-                        <td><?php echo h($selectedLot['system_reference'] ?? ''); ?></td>
+                        <td class="stock-card-label">Item:</td>
+                        <td><span class="stock-card-fill"><?php echo h($stockCardItemLabel); ?></span></td>
+                        <td class="stock-card-label">Stock No.:</td>
+                        <td><span class="stock-card-fill"><?php echo h($selectedLot['system_reference'] ?? ''); ?></span></td>
                     </tr>
                     <tr>
-                        <td class="stock-card-label">Description</td>
-                        <td><?php echo h($selectedLot['item_description'] ?? ''); ?></td>
-                        <td class="stock-card-label">Re-order Point</td>
-                        <td>&nbsp;</td>
+                        <td class="stock-card-label">Description:</td>
+                        <td><span class="stock-card-fill"><?php echo h($selectedLot['item_description'] ?? ''); ?></span></td>
+                        <td class="stock-card-label">Re-order Point:</td>
+                        <td><span class="stock-card-fill">&nbsp;</span></td>
                     </tr>
                     <tr>
-                        <td class="stock-card-label">Unit of Measurement</td>
-                        <td colspan="3"><?php echo h($unitLabel); ?></td>
+                        <td class="stock-card-label">Unit of Measurement:</td>
+                        <td colspan="3"><span class="stock-card-fill"><?php echo h($unitLabel); ?></span></td>
                     </tr>
                 </tbody>
             </table>
 
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered align-middle mb-0 stock-card-ledger-table" data-no-table-search>
+            <table class="stock-card-ledger-table" data-no-table-search>
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Reference</th>
-                            <th class="text-end">Receipt Qty</th>
-                            <th class="text-end">Issue Qty</th>
+                            <th rowspan="2" style="width:11%;">Date</th>
+                            <th rowspan="2" style="width:14%;">Reference</th>
+                            <th colspan="1" style="width:11%;"><span class="stock-card-group-title">Receipt</span></th>
+                            <th colspan="2" style="width:34%;"><span class="stock-card-group-title">Issue</span></th>
+                            <th colspan="1" style="width:15%;"><span class="stock-card-group-title">Balance</span></th>
+                            <th rowspan="2" style="width:15%;">No. of Days to<br>Consume</th>
+                        </tr>
+                        <tr>
+                            <th>Qty.</th>
+                            <th>Qty.</th>
                             <th>Office</th>
-                            <th class="text-end">Balance Qty</th>
-                            <th>No. of Days to Consume</th>
+                            <th>Qty.</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($ledgerRows as $row): ?>
                             <tr>
-                                <td><?php echo h(!empty($row['date']) ? date('M d, Y', strtotime((string) $row['date'])) : ''); ?></td>
+                                <td><?php echo h(!empty($row['date']) ? date('m/d/Y', strtotime((string) $row['date'])) : ''); ?></td>
                                 <td><?php echo h($row['reference'] ?? ''); ?></td>
-                                <td class="text-end"><?php echo h(number_format((float) ($row['receipt_qty'] ?? 0), 2)); ?></td>
-                                <td class="text-end"><?php echo h(number_format((float) ($row['issue_qty'] ?? 0), 2)); ?></td>
+                                <td class="text-end"><?php echo h(format_quantity($row['receipt_qty'] ?? 0)); ?></td>
+                                <td class="text-end"><?php echo h(format_quantity($row['issue_qty'] ?? 0)); ?></td>
                                 <td><?php echo h($row['office'] ?? ''); ?></td>
-                                <td class="text-end"><?php echo h(number_format((float) ($row['balance_qty'] ?? 0), 2)); ?></td>
+                                <td class="text-end"><?php echo h(format_quantity($row['balance_qty'] ?? 0)); ?></td>
                                 <td><?php echo h($row['days_to_consume'] ?? ''); ?></td>
                             </tr>
                         <?php endforeach; ?>
@@ -485,7 +628,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <?php endfor; ?>
                     </tbody>
                 </table>
-            </div>
         </div>
     </section>
 <?php endif; ?>

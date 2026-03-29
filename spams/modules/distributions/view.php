@@ -146,7 +146,7 @@ if (!$distribution) {
                                 </div>
                             <?php endif; ?>
                         </td>
-                        <td class="text-end"><?php echo h(number_format((float) $item['quantity_distributed'], 2)); ?></td>
+                        <td class="text-end"><?php echo h(format_quantity($item['quantity_distributed'])); ?></td>
                         <td class="text-end"><?php echo h(number_format((float) $item['unit_cost'], 2)); ?></td>
                         <td class="text-end"><?php echo h(number_format((float) $item['line_total'], 2)); ?></td>
                     </tr>

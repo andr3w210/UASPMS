@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $db = db();
 $page_title = 'Report of Semi-Expendable Property Issued';
@@ -13,6 +13,7 @@ $dateTo = trim((string) ($_GET['date_to'] ?? ''));
 $officeId = (int) ($_GET['office_id'] ?? 0);
 $semiType = trim((string) ($_GET['semi_type'] ?? 'all'));
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
+$isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 
 if (!in_array($semiType, ['all', 'high_value', 'low_value'], true)) {
     $semiType = 'all';
@@ -185,7 +186,7 @@ if ($isPrint) {
                         <td><?php echo h($row['semi_property_number'] ?? ''); ?></td>
                         <td><?php echo h(semi_issued_label($row)); ?></td>
                         <td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
-                        <td class="text-end"><?php echo h(number_format((float) ($row['quantity_distributed'] ?? 0), 2)); ?></td>
+                        <td class="text-end"><?php echo h(format_quantity($row['quantity_distributed'] ?? 0)); ?></td>
                         <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
                         <td class="text-end"><?php echo h(number_format((float) ($row['line_total'] ?? 0), 2)); ?></td>
                     </tr>
@@ -200,6 +201,23 @@ if ($isPrint) {
     </html>
     <?php
     exit;
+}
+
+if ($isExport) {
+    $exportRows = [];
+    foreach ($rows as $row) {
+        $exportRows[] = [
+            $row['ics_no'] ?? '',
+            $row['responsibility_center_code'] ?? '',
+            $row['semi_property_number'] ?? '',
+            semi_issued_label($row),
+            trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
+            format_quantity($row['quantity_distributed'] ?? 0),
+            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            number_format((float) ($row['line_total'] ?? 0), 2),
+        ];
+    }
+    export_excel_rows('semi_issued_report_' . date('Ymd') . '.xls', ['ICS No.', 'Responsibility Center Code', 'Semi-Expendable Property No.', 'Item Description', 'Unit', 'Quantity Issued', 'Unit Cost', 'Amount'], $exportRows);
 }
 
 require_once __DIR__ . '/../../includes/header.php';
@@ -217,6 +235,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <p class="report-toolbar-copy">Track posted semi-expendable issuances by office, period, and value bucket before printing the official issued-property report.</p>
                     </div>
                     <div class="report-toolbar-actions">
+                        <a href="<?php echo h(base_url('modules/reports/semi_issued_report.php?export=excel&date_from=' . urlencode($dateFrom) . '&date_to=' . urlencode($dateTo) . '&office_id=' . $officeId . '&semi_type=' . urlencode($semiType))); ?>" class="btn btn-outline-success">
+                            <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+                        </a>
                         <a href="<?php echo h(base_url('modules/reports/semi_issued_report.php?print=1&date_from=' . urlencode($dateFrom) . '&date_to=' . urlencode($dateTo) . '&office_id=' . $officeId . '&semi_type=' . urlencode($semiType))); ?>" class="btn btn-primary" target="_blank">
                             <i class="bi bi-printer me-1"></i>Print
                         </a>
@@ -230,7 +251,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                     <div class="report-summary-card">
                         <div class="report-summary-label">Total Quantity</div>
-                        <div class="report-summary-value"><?php echo number_format($totalQuantity, 2); ?></div>
+                        <div class="report-summary-value"><?php echo format_quantity($totalQuantity); ?></div>
                         <div class="report-summary-note">Combined distributed quantity in this report run.</div>
                     </div>
                     <div class="report-summary-card">
@@ -300,7 +321,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <td><?php echo h($row['semi_property_number'] ?? ''); ?></td>
                                 <td><?php echo h(semi_issued_label($row)); ?></td>
                                 <td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
-                                <td class="text-end"><?php echo h(number_format((float) ($row['quantity_distributed'] ?? 0), 2)); ?></td>
+                                <td class="text-end"><?php echo h(format_quantity($row['quantity_distributed'] ?? 0)); ?></td>
                                 <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
                                 <td class="text-end"><?php echo h(number_format((float) ($row['line_total'] ?? 0), 2)); ?></td>
                             </tr>

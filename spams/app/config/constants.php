@@ -75,7 +75,9 @@ define('DB_USER', spams_env('DB_USER', 'root'));
 define('DB_PASS', spams_env('DB_PASS', ''));
 
 // Misc
+define('APP_NAME', spams_env('APP_NAME', 'University of Antique'));
 define('TIMEZONE', spams_env('TIMEZONE', 'Asia/Manila'));
+define('LOW_STOCK_THRESHOLD', (int) spams_env('LOW_STOCK_THRESHOLD', '5'));
 
 // Uploads
 define('UPLOADS_DIR', APP_ROOT . 'uploads' . DIRECTORY_SEPARATOR);

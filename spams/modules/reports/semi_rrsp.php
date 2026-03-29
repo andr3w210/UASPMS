@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $db = db();
 $page_title = 'Receipt of Returned Semi-Expendable Property';
@@ -9,6 +9,7 @@ $returns = [];
 $record = null;
 $returnId = (int) ($_GET['return_id'] ?? 0);
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
+$isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
@@ -95,6 +96,19 @@ function rrsp_person(array $row): string
     ])));
 }
 
+if ($isExport && $record) {
+    export_excel_rows('semi_rrsp_' . ($record['system_reference'] ?? date('Ymd')) . '.xls', ['RRSP No.', 'Date', 'Item Description', 'Property Number', 'Quantity', 'ICS No.', 'End-user', 'Remarks'], [[
+        $record['system_reference'] ?? '',
+        !empty($record['return_date']) ? date('Y-m-d', strtotime((string) $record['return_date'])) : '',
+        rrsp_label($record),
+        $record['property_number'] ?? '',
+        '1',
+        $record['ics_no'] ?? '',
+        trim(implode(' / ', array_filter([$record['office_name'] ?? '', rrsp_person($record)]))),
+        trim(implode(' | ', array_filter([$record['reason'] ?? '', $record['remarks'] ?? '']))),
+    ]]);
+}
+
 if ($isPrint && $record) {
     ?>
     <!doctype html>
@@ -169,6 +183,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                     <div class="report-toolbar-actions">
                     <?php if ($record): ?>
+                        <a href="<?php echo h(base_url('modules/reports/semi_rrsp.php?return_id=' . $returnId . '&export=excel')); ?>" class="btn btn-outline-success">
+                            <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+                        </a>
                         <a href="<?php echo h(base_url('modules/reports/semi_rrsp.php?return_id=' . $returnId . '&print=1')); ?>" class="btn btn-primary" target="_blank">
                             <i class="bi bi-printer me-1"></i>Print
                         </a>

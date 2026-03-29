@@ -4,6 +4,9 @@ require_login();
 
 $page_title = 'Dashboard';
 $db = db();
+$displayName = trim((string) ($_SESSION['user_name'] ?? $_SESSION['full_name'] ?? $_SESSION['username'] ?? 'User'));
+$roleName = trim((string) ($_SESSION['role_name'] ?? $_SESSION['user_role'] ?? 'User'));
+$isAdministrator = $roleName === 'Administrator';
 $summary = [
     'active_pos' => 0,
     'pending_receivings' => 0,
@@ -11,9 +14,16 @@ $summary = [
     'distributed_items' => 0,
     'disposed_this_year' => 0,
     'returned_this_year' => 0,
+    'open_inventory_counts' => 0,
+    'unresolved_property_discrepancies' => 0,
+    'open_supply_counts' => 0,
+    'pending_stock_adjustments' => 0,
+    'unserviceable_review_items' => 0,
 ];
 $recentPurchaseOrders = [];
 $recentDistributions = [];
+$lowStockItems = [];
+$lowStockThreshold = defined('LOW_STOCK_THRESHOLD') ? max(0, (int) LOW_STOCK_THRESHOLD) : 5;
 
 if ($db) {
     $currentYear = (int) date('Y');
@@ -67,6 +77,32 @@ if ($db) {
             WHERE status = 'posted'
               AND YEAR(return_date) = ?
         ",
+        'open_inventory_counts' => "
+            SELECT COUNT(*) AS total
+            FROM inventory_count_sessions
+            WHERE status = 'open'
+        ",
+        'unresolved_property_discrepancies' => "
+            SELECT COUNT(*) AS total
+            FROM inventory_count_items
+            WHERE status IN ('missing', 'for_repair', 'for_disposal', 'wrong_office', 'wrong_accountable')
+              AND resolution_status = 'unresolved'
+        ",
+        'open_supply_counts' => "
+            SELECT COUNT(*) AS total
+            FROM supply_count_sessions
+            WHERE status = 'open'
+        ",
+        'pending_stock_adjustments' => "
+            SELECT COUNT(*) AS total
+            FROM stock_adjustments
+            WHERE status = 'pending'
+        ",
+        'unserviceable_review_items' => "
+            SELECT COUNT(*) AS total
+            FROM inventory_count_items
+            WHERE status IN ('for_repair', 'for_disposal')
+        ",
     ];
 
     foreach ($queries as $key => $sql) {
@@ -110,6 +146,32 @@ if ($db) {
         $recentDistributions = $distributionStmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $distributionStmt->close();
     }
+
+    $lowStockStmt = $db->prepare("
+        SELECT
+            COALESCE(sc.stock_no, si.system_reference) AS stock_no,
+            COALESCE(sc.item_name, si.item_description) AS item_name,
+            COALESCE(c.classification_name, '') AS classification_name,
+            SUM(si.quantity_on_hand) AS quantity_on_hand
+        FROM stock_items si
+        LEFT JOIN stock_catalog sc ON sc.id = si.stock_catalog_id
+        LEFT JOIN classifications c ON c.id = COALESCE(sc.classification_id, si.classification_id)
+        WHERE si.item_type = 'supply'
+        GROUP BY
+            COALESCE(sc.id, 0),
+            COALESCE(sc.stock_no, si.system_reference),
+            COALESCE(sc.item_name, si.item_description),
+            COALESCE(c.classification_name, '')
+        HAVING SUM(si.quantity_on_hand) <= ?
+        ORDER BY SUM(si.quantity_on_hand) ASC, COALESCE(sc.item_name, si.item_description) ASC
+        LIMIT 5
+    ");
+    if ($lowStockStmt) {
+        $lowStockStmt->bind_param('i', $lowStockThreshold);
+        $lowStockStmt->execute();
+        $lowStockItems = $lowStockStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $lowStockStmt->close();
+    }
 }
 
 $focusItems = [
@@ -139,6 +201,24 @@ $focusItems = [
         'tone' => 'success',
         'href' => base_url('modules/property/index.php'),
         'cta' => 'Open Registry',
+    ],
+    [
+        'label' => 'Open Inventory Counts',
+        'value' => $summary['open_inventory_counts'],
+        'note' => 'Property count sessions still in progress',
+        'icon' => 'bi-clipboard-check',
+        'tone' => 'info',
+        'href' => base_url('modules/property/inventory_counts.php'),
+        'cta' => 'Open Counts',
+    ],
+    [
+        'label' => 'Pending Stock Adjustments',
+        'value' => $summary['pending_stock_adjustments'],
+        'note' => 'Supply adjustments waiting for approval',
+        'icon' => 'bi-sliders2-vertical',
+        'tone' => 'danger',
+        'href' => base_url('modules/property/stock_adjustments.php'),
+        'cta' => 'Review Adjustments',
     ],
 ];
 
@@ -171,6 +251,27 @@ $snapshotItems = [
         'icon' => 'bi-arrow-counterclockwise',
         'tone' => 'info',
     ],
+    [
+        'label' => 'Property Discrepancies',
+        'value' => $summary['unresolved_property_discrepancies'],
+        'note' => 'Unresolved count exceptions',
+        'icon' => 'bi-exclamation-diamond',
+        'tone' => 'warning',
+    ],
+    [
+        'label' => 'Supply Count Sessions',
+        'value' => $summary['open_supply_counts'],
+        'note' => 'Open supply count workspaces',
+        'icon' => 'bi-boxes',
+        'tone' => 'secondary',
+    ],
+    [
+        'label' => 'Unserviceable Review',
+        'value' => $summary['unserviceable_review_items'],
+        'note' => 'Assets flagged for repair/disposal',
+        'icon' => 'bi-tools',
+        'tone' => 'dark',
+    ],
 ];
 
 require_once __DIR__ . '/../includes/header.php';
@@ -181,7 +282,7 @@ require_once __DIR__ . '/../includes/topbar.php';
     <div class="col-12 col-xl-7">
         <div class="dashboard-command card h-100">
             <div class="card-body p-4">
-                <div class="dashboard-command-eyebrow">System Administrator</div>
+                <div class="dashboard-command-eyebrow"><?php echo h($displayName . ' · ' . $roleName); ?></div>
                 <h2 class="dashboard-command-title">Operations Dashboard</h2>
                 <p class="dashboard-command-text">
                     Use this page as your working control center for procurement, receiving, accountability, and asset movement.
@@ -190,7 +291,11 @@ require_once __DIR__ . '/../includes/topbar.php';
                     <a class="btn btn-primary" href="<?php echo base_url('modules/distributions/index.php'); ?>">Open Distribution</a>
                     <a class="btn btn-outline-primary" href="<?php echo base_url('modules/receivings/index.php'); ?>">Open Receiving</a>
                     <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/property/index.php'); ?>">Asset Registry</a>
-                    <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/audit_log/index.php'); ?>">Audit Log</a>
+                    <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/property/inventory_counts.php'); ?>">Inventory Counts</a>
+                    <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/property/stock_adjustments.php'); ?>">Stock Adjustments</a>
+                    <?php if ($isAdministrator): ?>
+                        <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/audit_log/index.php'); ?>">Audit Log</a>
+                    <?php endif; ?>
                 </div>
                 <div class="dashboard-command-points">
                     <div class="dashboard-command-point">
@@ -199,7 +304,7 @@ require_once __DIR__ . '/../includes/topbar.php';
                     </div>
                     <div class="dashboard-command-point">
                         <span class="dashboard-command-point-label">Best next check</span>
-                        <strong>Review receiving and distribution gaps</strong>
+                        <strong>Review counts, discrepancies, and pending approvals</strong>
                     </div>
                 </div>
             </div>
@@ -214,7 +319,7 @@ require_once __DIR__ . '/../includes/topbar.php';
                         <div class="dashboard-queue-title">Urgent Queue</div>
                         <div class="dashboard-queue-copy">Open the items that need attention now.</div>
                     </div>
-                    <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/distributions/index.php'); ?>">Open Queue</a>
+                    <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/property/inventory_reconciliation.php'); ?>">Open Control Queue</a>
                 </div>
                 <div class="dashboard-focus-list">
                     <?php foreach ($focusItems as $item): ?>
@@ -252,6 +357,101 @@ require_once __DIR__ . '/../includes/topbar.php';
             <?php endforeach; ?>
         </div>
     </div>
+
+    <?php if ($lowStockItems): ?>
+        <div class="col-12">
+            <div class="card border-warning shadow-sm">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+                        <div>
+                            <div class="text-uppercase small fw-semibold text-warning-emphasis">Stock Alert</div>
+                            <h5 class="card-title mb-1">Low Stock Supplies</h5>
+                            <div class="text-muted">
+                                The following supply items are at or below the low stock threshold of <?php echo h((string) $lowStockThreshold); ?>.
+                            </div>
+                        </div>
+                        <a class="btn btn-sm btn-outline-warning" href="<?php echo base_url('modules/stock_catalog/index.php'); ?>">
+                            Open Stock Catalog
+                        </a>
+                    </div>
+
+                    <div class="row g-3">
+                        <?php foreach ($lowStockItems as $item): ?>
+                            <div class="col-md-6 col-xl-4">
+                                <div class="border rounded-3 p-3 bg-warning-subtle h-100">
+                                    <div class="d-flex justify-content-between align-items-start gap-3">
+                                        <div>
+                                            <div class="fw-semibold"><?php echo h((string) ($item['item_name'] ?? 'Supply Item')); ?></div>
+                                            <div class="small text-muted">
+                                                <?php echo h((string) ($item['stock_no'] ?? '')); ?>
+                                                <?php if (!empty($item['classification_name'])): ?>
+                                                    · <?php echo h((string) $item['classification_name']); ?>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        <div class="text-end">
+                                            <div class="small text-muted">On Hand</div>
+                                            <div class="fs-5 fw-semibold text-warning-emphasis">
+                                                <?php echo h(format_quantity($item['quantity_on_hand'] ?? 0)); ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($summary['unresolved_property_discrepancies'] > 0 || $summary['pending_stock_adjustments'] > 0 || $summary['unserviceable_review_items'] > 0): ?>
+        <div class="col-12">
+            <div class="card border-danger-subtle shadow-sm">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+                        <div>
+                            <div class="text-uppercase small fw-semibold text-danger-emphasis">Control Alerts</div>
+                            <h5 class="card-title mb-1">Inventory Follow-up Needs Action</h5>
+                            <div class="text-muted">
+                                These control items need review so counts, discrepancies, and adjustments are fully closed.
+                            </div>
+                        </div>
+                        <a class="btn btn-sm btn-outline-danger" href="<?php echo base_url('modules/property/inventory_reconciliation.php'); ?>">
+                            Open Reconciliation
+                        </a>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <a class="text-decoration-none" href="<?php echo base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'); ?>">
+                                <div class="border rounded-3 p-3 bg-danger-subtle h-100">
+                                    <div class="small text-muted">Unresolved Property Discrepancies</div>
+                                    <div class="fs-4 fw-semibold text-danger-emphasis"><?php echo number_format($summary['unresolved_property_discrepancies']); ?></div>
+                                </div>
+                            </a>
+                        </div>
+                        <div class="col-md-4">
+                            <a class="text-decoration-none" href="<?php echo base_url('modules/property/stock_adjustments.php'); ?>">
+                                <div class="border rounded-3 p-3 bg-warning-subtle h-100">
+                                    <div class="small text-muted">Pending Stock Adjustments</div>
+                                    <div class="fs-4 fw-semibold text-warning-emphasis"><?php echo number_format($summary['pending_stock_adjustments']); ?></div>
+                                </div>
+                            </a>
+                        </div>
+                        <div class="col-md-4">
+                            <a class="text-decoration-none" href="<?php echo base_url('modules/property/unserviceable_review.php'); ?>">
+                                <div class="border rounded-3 p-3 bg-secondary-subtle h-100">
+                                    <div class="small text-muted">Repair / Disposal Review Items</div>
+                                    <div class="fs-4 fw-semibold text-dark"><?php echo number_format($summary['unserviceable_review_items']); ?></div>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <div class="col-12 col-xl-6">
         <div class="card dashboard-panel overflow-auto">

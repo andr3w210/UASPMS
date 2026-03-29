@@ -1,14 +1,17 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/roles.php';
+require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
 $db = db();
 $page_title = 'Asset Details';
+$flash = get_flash();
 $source = trim((string) ($_GET['source'] ?? ''));
 $id = (int) ($_GET['id'] ?? 0);
 $asset = null;
 $notices = [];
+$assetPhotos = [];
 $timeline = [];
 $transfers = [];
 $maintenanceRows = [];
@@ -44,6 +47,11 @@ function asset_view_type_label(string $itemType): string
 function asset_view_source_label(string $source): string
 {
     return $source === 'legacy' ? 'Beginning Balance' : 'System Transaction';
+}
+
+function asset_view_can_manage_photos(): bool
+{
+    return in_array((string) ($_SESSION['user_role'] ?? ''), ['Administrator', 'Property Officer', 'Supply Officer'], true);
 }
 
 function asset_view_classification(array $row): string
@@ -203,6 +211,155 @@ if ($source === 'system') {
 if (!$asset) {
     http_response_code(404);
     exit('Asset not found.');
+}
+
+$canManagePhotos = asset_view_can_manage_photos();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManagePhotos) {
+    if (!csrf_verify()) {
+        set_flash('error', 'Invalid CSRF token.');
+        redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+    }
+
+    $action = trim((string) ($_POST['action'] ?? ''));
+    if ($action === 'upload_photo') {
+        $caption = old($_POST, 'caption');
+        $uploadErrors = [];
+        $storedPhoto = store_uploaded_image($_FILES['asset_photo'] ?? [], 'assets', $uploadErrors);
+        if ($storedPhoto === null) {
+            set_flash('error', $uploadErrors ? implode(' ', $uploadErrors) : 'Please choose an image to upload.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+
+        $countStmt = $db->prepare("SELECT COUNT(*) AS total FROM asset_photos WHERE asset_source = ? AND asset_id = ?");
+        $existingCount = 0;
+        if ($countStmt) {
+            $countStmt->bind_param('si', $source, $id);
+            $countStmt->execute();
+            $existingCount = (int) (($countStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $countStmt->close();
+        }
+
+        $insertStmt = $db->prepare("
+            INSERT INTO asset_photos (asset_source, asset_id, photo_path, caption, is_primary, uploaded_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ");
+        if ($insertStmt) {
+            $isPrimary = $existingCount === 0 ? 1 : 0;
+            $userId = (int) (current_user_id() ?? 0);
+            $insertStmt->bind_param('sissii', $source, $id, $storedPhoto, $caption, $isPrimary, $userId);
+            $saved = $insertStmt->execute();
+            $newPhotoId = (int) $insertStmt->insert_id;
+            $insertStmt->close();
+            if ($saved) {
+                write_audit_log($db, [
+                    'action' => 'insert',
+                    'table_name' => 'asset_photos',
+                    'record_id' => $newPhotoId,
+                    'module_name' => 'property',
+                    'record_type' => 'asset_photo',
+                    'action_name' => 'upload_asset_photo',
+                    'description' => 'Uploaded an asset photo.',
+                    'new_values' => [
+                        'asset_source' => $source,
+                        'asset_id' => $id,
+                        'caption' => $caption,
+                        'is_primary' => $isPrimary,
+                    ],
+                ]);
+                set_flash('success', 'Asset photo uploaded successfully.');
+                redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+            }
+        }
+
+        delete_uploaded_file($storedPhoto);
+        set_flash('error', 'Unable to upload asset photo right now.');
+        redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+    }
+
+    if ($action === 'set_primary_photo') {
+        $photoId = (int) ($_POST['photo_id'] ?? 0);
+        $db->query("START TRANSACTION");
+        $resetStmt = $db->prepare("UPDATE asset_photos SET is_primary = 0 WHERE asset_source = ? AND asset_id = ?");
+        $setStmt = $db->prepare("UPDATE asset_photos SET is_primary = 1 WHERE id = ? AND asset_source = ? AND asset_id = ?");
+        $ok = false;
+        if ($resetStmt && $setStmt) {
+            $resetStmt->bind_param('si', $source, $id);
+            $setStmt->bind_param('isi', $photoId, $source, $id);
+            $ok = $resetStmt->execute() && $setStmt->execute();
+            $resetStmt->close();
+            $setStmt->close();
+        }
+        if ($ok) {
+            $db->commit();
+            set_flash('success', 'Primary asset photo updated.');
+        } else {
+            $db->rollback();
+            set_flash('error', 'Unable to update the primary photo right now.');
+        }
+        redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+    }
+
+    if ($action === 'delete_photo') {
+        $photoId = (int) ($_POST['photo_id'] ?? 0);
+        $photoStmt = $db->prepare("
+            SELECT id, photo_path, is_primary
+            FROM asset_photos
+            WHERE id = ? AND asset_source = ? AND asset_id = ?
+            LIMIT 1
+        ");
+        $photoRow = null;
+        if ($photoStmt) {
+            $photoStmt->bind_param('isi', $photoId, $source, $id);
+            $photoStmt->execute();
+            $photoRow = $photoStmt->get_result()->fetch_assoc();
+            $photoStmt->close();
+        }
+
+        if ($photoRow) {
+            $deleteStmt = $db->prepare("DELETE FROM asset_photos WHERE id = ? LIMIT 1");
+            if ($deleteStmt) {
+                $deleteStmt->bind_param('i', $photoId);
+                $saved = $deleteStmt->execute();
+                $deleteStmt->close();
+                if ($saved) {
+                    delete_uploaded_file((string) $photoRow['photo_path']);
+                    if ((int) ($photoRow['is_primary'] ?? 0) === 1) {
+                        $nextStmt = $db->prepare("
+                            UPDATE asset_photos
+                            SET is_primary = 1
+                            WHERE asset_source = ? AND asset_id = ?
+                            ORDER BY created_at DESC, id DESC
+                            LIMIT 1
+                        ");
+                        if ($nextStmt) {
+                            $nextStmt->bind_param('si', $source, $id);
+                            $nextStmt->execute();
+                            $nextStmt->close();
+                        }
+                    }
+                    set_flash('success', 'Asset photo deleted.');
+                    redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+                }
+            }
+        }
+
+        set_flash('error', 'Unable to delete that asset photo.');
+        redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+    }
+}
+
+$photoStmt = $db->prepare("
+    SELECT id, photo_path, caption, is_primary, created_at
+    FROM asset_photos
+    WHERE asset_source = ? AND asset_id = ?
+    ORDER BY is_primary DESC, created_at DESC, id DESC
+");
+if ($photoStmt) {
+    $photoStmt->bind_param('si', $source, $id);
+    $photoStmt->execute();
+    $assetPhotos = $photoStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $photoStmt->close();
 }
 
 if ($source === 'system') {
@@ -508,6 +665,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                 <?php endif; ?>
 
+                <?php if ($flash): ?>
+                    <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'danger'; ?>">
+                        <?php echo h($flash['message']); ?>
+                    </div>
+                <?php endif; ?>
+
                 <div class="row g-3 mb-4">
                     <div class="col-md-3">
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
@@ -536,6 +699,87 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
 
                 <div class="row g-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <h6 class="mb-0">Asset Photos</h6>
+                                <span class="badge text-bg-light"><?php echo count($assetPhotos); ?></span>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-4">
+                                    <div class="col-lg-7">
+                                        <?php $primaryPhoto = $assetPhotos[0] ?? null; ?>
+                                        <div class="asset-photo-main">
+                                            <?php if ($primaryPhoto): ?>
+                                                <img src="<?php echo h(upload_url($primaryPhoto['photo_path'])); ?>" alt="<?php echo h($detailTitle); ?>">
+                                            <?php else: ?>
+                                                <div class="asset-photo-empty">
+                                                    <i class="bi bi-camera"></i>
+                                                    <div>No asset photo uploaded yet.</div>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                        <?php if ($assetPhotos): ?>
+                                            <div class="asset-photo-grid mt-3">
+                                                <?php foreach ($assetPhotos as $photo): ?>
+                                                    <div class="asset-photo-thumb-card">
+                                                        <img src="<?php echo h(upload_url($photo['photo_path'])); ?>" alt="<?php echo h($photo['caption'] ?: $detailTitle); ?>">
+                                                        <div class="small mt-2 text-muted"><?php echo h($photo['caption'] ?: (($photo['is_primary'] ?? 0) ? 'Primary photo' : 'Asset photo')); ?></div>
+                                                        <?php if ($canManagePhotos): ?>
+                                                            <div class="d-flex gap-2 mt-2 flex-wrap">
+                                                                <?php if ((int) ($photo['is_primary'] ?? 0) !== 1): ?>
+                                                                    <form method="post">
+                                                                        <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                                        <input type="hidden" name="action" value="set_primary_photo">
+                                                                        <input type="hidden" name="photo_id" value="<?php echo (int) $photo['id']; ?>">
+                                                                        <button type="submit" class="btn btn-sm btn-outline-primary">Make Primary</button>
+                                                                    </form>
+                                                                <?php else: ?>
+                                                                    <span class="badge text-bg-primary">Primary</span>
+                                                                <?php endif; ?>
+                                                                <form method="post" onsubmit="return confirm('Delete this asset photo?');">
+                                                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                                    <input type="hidden" name="action" value="delete_photo">
+                                                                    <input type="hidden" name="photo_id" value="<?php echo (int) $photo['id']; ?>">
+                                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                                                </form>
+                                                            </div>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="col-lg-5">
+                                        <?php if ($canManagePhotos): ?>
+                                            <form method="post" enctype="multipart/form-data" class="border rounded-3 p-3 bg-light-subtle">
+                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="upload_photo">
+                                                <div class="fw-semibold mb-2">Upload New Photo</div>
+                                                <div class="text-muted small mb-3">Add clear equipment or semi-expendable photos for verification, audit support, and physical inventory reference.</div>
+                                                <div class="mb-3">
+                                                    <label class="form-label">Asset Photo</label>
+                                                    <input type="file" class="form-control" name="asset_photo" accept="image/jpeg,image/png,image/gif,image/webp" required>
+                                                </div>
+                                                <div class="mb-3">
+                                                    <label class="form-label">Caption</label>
+                                                    <input type="text" class="form-control" name="caption" maxlength="255" placeholder="Front view, serial plate, room photo, etc.">
+                                                </div>
+                                                <button type="submit" class="btn btn-primary">
+                                                    <i class="bi bi-upload me-2"></i>Upload Photo
+                                                </button>
+                                            </form>
+                                        <?php else: ?>
+                                            <div class="border rounded-3 p-3 bg-light-subtle text-muted small">
+                                                Only Administrator, Supply Officer, and Property Officer accounts can manage asset photos.
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="col-lg-7">
                         <div class="card h-100">
                             <div class="card-header bg-white">

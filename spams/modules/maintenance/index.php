@@ -691,116 +691,17 @@ document.addEventListener('DOMContentLoaded', function () {
     itemSelect?.addEventListener('change', updateAssetPreview);
     updateAssetPreview();
 
-    var perPage = 25;
-    var currentPage = 1;
-    var sortCol = -1;
-    var sortDir = 'asc';
-
-    function getRows() {
-        return Array.from(document.querySelectorAll('#dataTable tbody tr'));
-    }
-
-    function updateRecordCount(total, overall) {
-        var countNode = document.getElementById('recordCount');
-        if (countNode) {
-            countNode.textContent = 'Showing ' + total + ' of ' + overall + ' records';
-        }
-    }
-
-    function renderPage() {
-        var allRows = getRows();
-        var rows = allRows.filter(function(row) { return row.dataset.visible !== '0'; });
-        var total = rows.length;
-        var pages = Math.max(1, Math.ceil(total / perPage));
-        currentPage = Math.min(currentPage, pages);
-        var start = (currentPage - 1) * perPage;
-        var end = start + perPage;
-
-        allRows.forEach(function(row) { row.style.display = 'none'; });
-        rows.slice(start, end).forEach(function(row) { row.style.display = ''; });
-
-        updateRecordCount(total, allRows.length);
-
-        var pi = document.getElementById('pageInfo');
-        if (pi) {
-            pi.textContent = 'Page ' + currentPage + ' of ' + pages + ' (' + total + ' records)';
-        }
-
-        var prev = document.getElementById('prevPage');
-        var next = document.getElementById('nextPage');
-        if (prev) prev.disabled = currentPage <= 1;
-        if (next) next.disabled = currentPage >= pages;
-    }
-
-    function applyFilters() {
-        var term = ((document.getElementById('tableSearch') || {}).value || '').toLowerCase();
-        var status = ((document.getElementById('statusFilter') || {}).value || '');
-        var itemType = ((document.getElementById('typeFilter') || {}).value || '');
-        var office = ((document.getElementById('officeFilter') || {}).value || '').toLowerCase();
-
-        getRows().forEach(function(row) {
-            var textMatch = !term || row.textContent.toLowerCase().includes(term);
-            var statusMatch = !status || row.dataset.status === status;
+    initDataTable('dataTable', {
+        clearButtonId: 'clearFilters',
+        extraFilterIds: ['typeFilter', 'officeFilter'],
+        rowFilter: function (row, state) {
+            var itemType = state.extraFilters.typeFilter || '';
+            var office = (state.extraFilters.officeFilter || '').toLowerCase();
             var typeMatch = !itemType || row.dataset.itemType === itemType;
             var officeMatch = !office || (row.dataset.office || '').toLowerCase() === office;
-            row.dataset.visible = (textMatch && statusMatch && typeMatch && officeMatch) ? '1' : '0';
-        });
-
-        currentPage = 1;
-        renderPage();
-    }
-
-    document.getElementById('tableSearch')?.addEventListener('input', applyFilters);
-    document.getElementById('statusFilter')?.addEventListener('change', applyFilters);
-    document.getElementById('typeFilter')?.addEventListener('change', applyFilters);
-    document.getElementById('officeFilter')?.addEventListener('change', applyFilters);
-    document.getElementById('clearFilters')?.addEventListener('click', function () {
-        var search = document.getElementById('tableSearch');
-        var status = document.getElementById('statusFilter');
-        var itemType = document.getElementById('typeFilter');
-        var office = document.getElementById('officeFilter');
-        if (search) search.value = '';
-        if (status) status.value = '';
-        if (itemType) itemType.value = '';
-        if (office) office.value = '';
-        applyFilters();
+            return typeMatch && officeMatch;
+        }
     });
-    document.getElementById('prevPage')?.addEventListener('click', function() { currentPage--; renderPage(); });
-    document.getElementById('nextPage')?.addEventListener('click', function() { currentPage++; renderPage(); });
-    document.getElementById('perPageSelect')?.addEventListener('change', function() {
-        perPage = parseInt(this.value, 10) || 25;
-        currentPage = 1;
-        renderPage();
-    });
-
-    document.querySelectorAll('#dataTable th[data-sort]').forEach(function(th, idx) {
-        th.style.cursor = 'pointer';
-        th.addEventListener('click', function() {
-            var tbody = document.querySelector('#dataTable tbody');
-            var rows = Array.from(tbody.querySelectorAll('tr'));
-            var dir = (sortCol === idx && sortDir === 'asc') ? 'desc' : 'asc';
-            sortCol = idx;
-            sortDir = dir;
-
-            rows.sort(function(a, b) {
-                var at = a.cells[idx] ? a.cells[idx].textContent.trim().toLowerCase() : '';
-                var bt = b.cells[idx] ? b.cells[idx].textContent.trim().toLowerCase() : '';
-                return dir === 'asc' ? at.localeCompare(bt) : bt.localeCompare(at);
-            });
-
-            rows.forEach(function(row) { tbody.appendChild(row); });
-            document.querySelectorAll('#dataTable th[data-sort] i').forEach(function(icon) {
-                icon.className = 'bi bi-arrow-down-up text-muted small';
-            });
-            var icon = th.querySelector('i');
-            if (icon) {
-                icon.className = 'bi bi-arrow-' + (dir === 'asc' ? 'up' : 'down') + ' text-primary small';
-            }
-            renderPage();
-        });
-    });
-
-    applyFilters();
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

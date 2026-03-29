@@ -6,66 +6,107 @@ $db = db();
 $page_title = 'Property Thresholds';
 $flash = get_flash();
 $errors = [];
+$risApprovedBy = $db ? get_system_setting($db, 'ris_approved_by', '') : '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } else {
-        $effective_date = trim((string)($_POST['effective_date'] ?? ''));
-        $equipment_min = isset($_POST['equipment_min']) ? (float) $_POST['equipment_min'] : 0.0;
-        $semi_hv_min = isset($_POST['semi_hv_min']) ? (float) $_POST['semi_hv_min'] : 0.0;
-        $basis = trim((string)($_POST['basis'] ?? ''));
+        $action = trim((string) ($_POST['action'] ?? 'save_threshold'));
+        if ($action === 'save_ris_approver') {
+            $risApprovedBy = trim((string) ($_POST['ris_approved_by'] ?? ''));
 
-        if ($effective_date === '' || !preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $effective_date)) {
-            $errors[] = 'Effective date is required.';
-        }
-        if ($equipment_min <= 0) {
-            $errors[] = 'Equipment minimum must be greater than zero.';
-        }
-        if ($semi_hv_min <= 0) {
-            $errors[] = 'Semi HV minimum must be greater than zero.';
-        }
-        if ($equipment_min <= $semi_hv_min) {
-            $errors[] = 'Equipment minimum must be greater than Semi HV minimum.';
-        }
-
-        if (empty($errors) && $db) {
-            $userId = current_user_id();
-            $stmt = $db->prepare(
-                "INSERT INTO property_thresholds (equipment_min, semi_hv_min, effective_date, basis, created_by, created_at) VALUES (?, ?, ?, ?, ?, NOW())"
-            );
-            if ($stmt) {
-                $stmt->bind_param('ddsis', $equipment_min, $semi_hv_min, $effective_date, $basis, $userId);
-                $ok = $stmt->execute();
-                $stmt->close();
-                if ($ok) {
-                    // Audit log: insert record for created threshold
-                    $newId = $db->insert_id;
-                    $desc = json_encode([
-                        'equipment_min' => $equipment_min,
-                        'semi_hv_min' => $semi_hv_min,
-                        'effective_date' => $effective_date,
-                        'basis' => $basis,
-                    ]);
-                    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
-                    $alog = $db->prepare('INSERT INTO audit_logs (user_id, action, table_name, record_id, new_values, module_name, record_type, action_name, description, ip_address, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
-                    if ($alog) {
-                        $action = 'insert';
-                        $tableName = 'property_thresholds';
-                        $mod = 'settings';
-                        $rtype = 'property_thresholds';
-                        $actionName = 'create_threshold';
-                        $alog->bind_param('ississssss', $userId, $action, $tableName, $newId, $desc, $mod, $rtype, $actionName, $desc, $ip);
-                        $alog->execute();
-                        $alog->close();
+            if ($db && empty($errors)) {
+                $userId = current_user_id();
+                $stmt = $db->prepare(
+                    "INSERT INTO system_settings (setting_key, setting_value, updated_by)
+                     VALUES ('ris_approved_by', ?, ?)
+                     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)"
+                );
+                if ($stmt) {
+                    $stmt->bind_param('si', $risApprovedBy, $userId);
+                    $ok = $stmt->execute();
+                    $stmt->close();
+                    if ($ok) {
+                        if (function_exists('write_audit_log')) {
+                            write_audit_log($db, [
+                                'action' => 'update',
+                                'table_name' => 'system_settings',
+                                'record_id' => 0,
+                                'module_name' => 'settings',
+                                'record_type' => 'system_setting',
+                                'action_name' => 'save_ris_approver',
+                                'new_values' => [
+                                    'setting_key' => 'ris_approved_by',
+                                    'setting_value' => $risApprovedBy,
+                                ],
+                            ]);
+                        }
+                        set_flash('success', 'RIS approver saved successfully.');
+                        redirect('modules/settings/thresholds.php');
+                    } else {
+                        $errors[] = 'Database error while saving RIS approver.';
                     }
-                    set_flash('success', 'Threshold saved successfully.');
-                    redirect('modules/settings/thresholds.php');
                 } else {
-                    $errors[] = 'Database error while saving threshold.';
+                    $errors[] = 'Unable to prepare RIS approver statement.';
                 }
-            } else {
-                $errors[] = 'Unable to prepare database statement.';
+            }
+        } else {
+            $effective_date = trim((string)($_POST['effective_date'] ?? ''));
+            $equipment_min = isset($_POST['equipment_min']) ? (float) $_POST['equipment_min'] : 0.0;
+            $semi_hv_min = isset($_POST['semi_hv_min']) ? (float) $_POST['semi_hv_min'] : 0.0;
+            $basis = trim((string)($_POST['basis'] ?? ''));
+
+            if ($effective_date === '' || !preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $effective_date)) {
+                $errors[] = 'Effective date is required.';
+            }
+            if ($equipment_min <= 0) {
+                $errors[] = 'Equipment minimum must be greater than zero.';
+            }
+            if ($semi_hv_min <= 0) {
+                $errors[] = 'Semi HV minimum must be greater than zero.';
+            }
+            if ($equipment_min <= $semi_hv_min) {
+                $errors[] = 'Equipment minimum must be greater than Semi HV minimum.';
+            }
+
+            if (empty($errors) && $db) {
+                $userId = current_user_id();
+                $stmt = $db->prepare(
+                    "INSERT INTO property_thresholds (equipment_min, semi_hv_min, effective_date, basis, created_by, created_at) VALUES (?, ?, ?, ?, ?, NOW())"
+                );
+                if ($stmt) {
+                    $stmt->bind_param('ddsis', $equipment_min, $semi_hv_min, $effective_date, $basis, $userId);
+                    $ok = $stmt->execute();
+                    $stmt->close();
+                    if ($ok) {
+                        $newId = $db->insert_id;
+                        $desc = json_encode([
+                            'equipment_min' => $equipment_min,
+                            'semi_hv_min' => $semi_hv_min,
+                            'effective_date' => $effective_date,
+                            'basis' => $basis,
+                        ]);
+                        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+                        $alog = $db->prepare('INSERT INTO audit_logs (user_id, action, table_name, record_id, new_values, module_name, record_type, action_name, description, ip_address, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+                        if ($alog) {
+                            $actionName = 'create_threshold';
+                            $tableName = 'property_thresholds';
+                            $mod = 'settings';
+                            $rtype = 'property_thresholds';
+                            $actionLabel = 'insert';
+                            $alog->bind_param('ississssss', $userId, $actionLabel, $tableName, $newId, $desc, $mod, $rtype, $actionName, $desc, $ip);
+                            $alog->execute();
+                            $alog->close();
+                        }
+                        set_flash('success', 'Threshold saved successfully.');
+                        redirect('modules/settings/thresholds.php');
+                    } else {
+                        $errors[] = 'Database error while saving threshold.';
+                    }
+                } else {
+                    $errors[] = 'Unable to prepare database statement.';
+                }
             }
         }
     }
@@ -173,11 +214,26 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
 
         <div>
+            <div style="border:1px solid #eee;padding:12px;border-radius:6px;margin-bottom:12px;">
+                <h5 style="margin-top:0;">RIS Approver</h5>
+                <div style="margin-bottom:8px;color:#555;">Set the officer name that prints in the <strong>Approved by</strong> block of the RIS form.</div>
+                <form method="post">
+                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                    <input type="hidden" name="action" value="save_ris_approver">
+                    <div style="margin-bottom:8px;">
+                        <label for="ris_approved_by">Approved by</label><br>
+                        <input type="text" id="ris_approved_by" name="ris_approved_by" value="<?php echo h($_POST['ris_approved_by'] ?? $risApprovedBy); ?>" style="width:100%;" placeholder="Enter officer name">
+                    </div>
+                    <div><button type="submit" style="padding:6px 10px;">Save RIS Approver</button></div>
+                </form>
+            </div>
+
             <div style="border:1px solid #eee;padding:12px;border-radius:6px;">
                 <h5 style="margin-top:0;">Add New Threshold</h5>
                 <div style="margin-bottom:8px;padding:8px;background:#fff3cd;border:1px solid #ffeeba;border-radius:4px;color:#856404;">Adding a new threshold only affects NEW transactions from the effective date onwards. Existing records are not changed.</div>
                 <form method="post">
                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                    <input type="hidden" name="action" value="save_threshold">
                     <div style="margin-bottom:8px;"><label>Effective Date</label><br><input type="date" name="effective_date" value="<?php echo h($_POST['effective_date'] ?? date('Y-m-d')); ?>" required></div>
                     <div style="margin-bottom:8px;"><label>Equipment Minimum (₱)</label><br><input type="number" step="0.01" name="equipment_min" value="<?php echo h($_POST['equipment_min'] ?? '50000.00'); ?>" required></div>
                     <div style="margin-bottom:8px;"><label>Semi-expendable High-Value Minimum (₱)</label><br><input type="number" step="0.01" name="semi_hv_min" value="<?php echo h($_POST['semi_hv_min'] ?? '5000.01'); ?>" required></div>
