@@ -114,7 +114,7 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
-<section class="row g-4">
+<section class="row g-4 page-section">
     <div class="col-12">
         <div class="report-hero">
             <div class="row g-3 align-items-stretch">
@@ -154,12 +154,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <?php foreach ($sections as $section): ?>
         <div class="col-12">
             <div class="report-section">
-                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-4">
-                    <div>
+                <div class="workspace-header mb-4">
+                    <div class="workspace-header-copy">
                         <h2 class="report-section-title"><?php echo h($section['title']); ?></h2>
                         <p class="report-section-copy"><?php echo h($section['description']); ?></p>
                     </div>
-                    <span class="badge rounded-pill text-bg-light"><?php echo count($section['items']); ?> form(s)</span>
+                    <div class="workspace-actions">
+                        <span class="badge rounded-pill text-bg-light"><?php echo count($section['items']); ?> form(s)</span>
+                    </div>
                 </div>
 
                 <div class="row g-3">

@@ -651,9 +651,10 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
-<section class="row g-4">
+<section class="page-section">
+<div class="row g-4">
     <div class="col-xl-4">
-        <div class="card">
+        <div class="card workspace-list-card">
             <div class="card-header d-flex justify-content-between align-items-center gap-2">
                 <div>
                     <h5 class="card-title mb-0">Start Count Session</h5>
@@ -718,7 +719,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
             </div>
         </div>
 
-        <div class="card mt-4">
+        <div class="card mt-4 workspace-list-card">
             <div class="card-header">
                 <h5 class="card-title mb-0">Recent Sessions</h5>
             </div>
@@ -758,7 +759,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
         <?php if ($selectedSession): ?>
             <div class="card mb-4">
                 <div class="card-body p-4">
-                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+                    <div class="workspace-header mb-3">
                         <div>
                             <div class="small text-muted">Inventory Count Workspace</div>
                             <h4 class="mb-1"><?php echo h($selectedSession['system_reference']); ?></h4>
@@ -768,7 +769,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 | <?php echo h(date('M d, Y', strtotime((string) $selectedSession['count_date']))); ?>
                             </div>
                         </div>
-                        <div class="d-flex gap-2">
+                        <div class="workspace-actions">
                             <span class="badge <?php echo ($selectedSession['status'] ?? '') === 'open' ? 'text-bg-success' : 'text-bg-secondary'; ?> align-self-center">
                                 <?php echo h(ucfirst((string) $selectedSession['status'])); ?>
                             </span>
@@ -788,26 +789,26 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
 
-                    <div class="row g-3">
-                        <div class="col-md-3">
+                    <div class="workspace-summary-grid">
+                        <div>
                             <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                                 <div class="text-muted small">Assets Loaded</div>
                                 <div class="fs-4 fw-semibold"><?php echo number_format($sessionStats['total']); ?></div>
                             </div>
                         </div>
-                        <div class="col-md-3">
+                        <div>
                             <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                                 <div class="text-muted small">Pending Verification</div>
                                 <div class="fs-4 fw-semibold text-secondary"><?php echo number_format($sessionStats['pending']); ?></div>
                             </div>
                         </div>
-                        <div class="col-md-3">
+                        <div>
                             <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                                 <div class="text-muted small">Found</div>
                                 <div class="fs-4 fw-semibold text-success"><?php echo number_format($sessionStats['found']); ?></div>
                             </div>
                         </div>
-                        <div class="col-md-3">
+                        <div>
                             <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                                 <div class="text-muted small">Exceptions</div>
                                 <div class="fs-4 fw-semibold text-danger"><?php echo number_format($sessionStats['exceptions']); ?></div>
@@ -833,11 +834,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                             <span class="badge text-bg-warning">Live Count</span>
                         </div>
-                        <form method="post" class="row g-2 align-items-end">
+                        <form method="post" class="workspace-filter-grid">
                             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                             <input type="hidden" name="action" value="scan_asset">
                             <input type="hidden" name="session_id" value="<?php echo (int) $selectedSession['id']; ?>">
-                            <div class="col-md-9">
+                            <div class="workspace-filter-wide">
                                 <label for="scan_value" class="form-label">QR or Property Number</label>
                                 <input
                                     type="text"
@@ -849,7 +850,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     autofocus
                                 >
                             </div>
-                            <div class="col-md-3 d-grid">
+                            <div>
                                 <button type="submit" class="btn btn-primary btn-lg">
                                     <i class="bi bi-qr-code-scan me-1"></i>Scan Asset
                                 </button>
@@ -894,7 +895,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
 
-                    <div class="table-responsive">
+                    <div class="table-responsive mobile-table-frame">
                         <table class="table align-middle">
                             <thead>
                                 <tr>
@@ -991,6 +992,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
             </div>
         <?php endif; ?>
     </div>
+</div>
 </section>
 <script>
 document.addEventListener('DOMContentLoaded', function () {

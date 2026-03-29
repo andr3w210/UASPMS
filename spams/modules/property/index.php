@@ -242,16 +242,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
 $rangeStart = $total > 0 ? (($page - 1) * $perPage) + 1 : 0;
 $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
 ?>
-<section class="row g-4">
+<section class="page-section">
+    <div class="row g-4">
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="workspace-header mb-3">
                     <div>
                         <h5 class="card-title mb-0">Asset Registry</h5>
-                        <div class="small text-muted">Unified action workspace for equipment and semi-expendable assets, including beginning balance entries.</div>
+                        <div class="small text-muted workspace-header-copy">Unified action workspace for equipment and semi-expendable assets, including beginning balance entries.</div>
                     </div>
-                    <span class="text-muted small">
+                    <span class="text-muted small workspace-header-meta">
                         <?php if ($total > 0): ?>
                             Showing <?php echo number_format($rangeStart); ?>-<?php echo number_format($rangeEnd); ?> of <?php echo number_format($total); ?> record(s)
                         <?php else: ?>
@@ -260,26 +261,26 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                     </span>
                 </div>
 
-                <div class="row g-3 mb-4">
-                    <div class="col-md-6 col-xl-3">
+                <div class="workspace-summary-grid mb-4">
+                    <div>
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                             <div class="text-muted small">Total Active Assets</div>
                             <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['total']); ?></div>
                         </div>
                     </div>
-                    <div class="col-md-6 col-xl-3">
+                    <div>
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                             <div class="text-muted small">Equipment</div>
                             <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['equipment']); ?></div>
                         </div>
                     </div>
-                    <div class="col-md-6 col-xl-3">
+                    <div>
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                             <div class="text-muted small">Semi-Expendable</div>
                             <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['semi_expendable']); ?></div>
                         </div>
                     </div>
-                    <div class="col-md-6 col-xl-3">
+                    <div>
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                             <div class="text-muted small">Beginning Balance</div>
                             <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['legacy']); ?></div>
@@ -287,8 +288,8 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                     </div>
                 </div>
 
-                <form method="get" class="row g-2 mb-3 align-items-end">
-                    <div class="col-md-3">
+                <form method="get" class="workspace-filter-grid mb-3">
+                    <div>
                         <label class="form-label mb-0">Office</label>
                         <select name="office_id" class="form-select form-select-sm">
                             <option value="">All Offices</option>
@@ -299,7 +300,7 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-2">
+                    <div>
                         <label class="form-label mb-0">Item Type</label>
                         <select name="item_type" class="form-select form-select-sm">
                             <option value="">All Types</option>
@@ -307,7 +308,7 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                             <option value="semi_expendable" <?php echo $itemType === 'semi_expendable' ? 'selected' : ''; ?>>Semi-Expendable</option>
                         </select>
                     </div>
-                    <div class="col-md-2">
+                    <div>
                         <label class="form-label mb-0">Source</label>
                         <select name="source" class="form-select form-select-sm">
                             <option value="">All Sources</option>
@@ -315,15 +316,15 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                             <option value="legacy" <?php echo $sourceFilter === 'legacy' ? 'selected' : ''; ?>>Beginning Balance</option>
                         </select>
                     </div>
-                    <div class="col-md-2">
+                    <div>
                         <label class="form-label mb-0">From</label>
                         <input type="date" name="date_from" class="form-control form-control-sm" value="<?php echo h($dateFrom); ?>">
                     </div>
-                    <div class="col-md-2">
+                    <div>
                         <label class="form-label mb-0">To</label>
                         <input type="date" name="date_to" class="form-control form-control-sm" value="<?php echo h($dateTo); ?>">
                     </div>
-                    <div class="col-md-1">
+                    <div>
                         <label class="form-label mb-0">Rows</label>
                         <select name="per_page" class="form-select form-select-sm">
                             <?php foreach ($allowedPerPage as $perPageOption): ?>
@@ -333,12 +334,12 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-2 d-grid">
+                    <div>
                         <button class="btn btn-sm btn-primary">Apply</button>
                     </div>
                 </form>
 
-                <div class="table-responsive">
+                <div class="table-responsive mobile-table-frame">
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>
@@ -466,6 +467,7 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                 <?php endif; ?>
             </div>
         </div>
+    </div>
     </div>
 </section>
 

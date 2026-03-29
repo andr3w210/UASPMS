@@ -288,16 +288,17 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
-<section class="row g-4">
+<section class="row g-4 page-section">
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
-                    <div>
+                <div class="workspace-header mb-4">
+                    <div class="workspace-header-copy">
+                        <p class="page-kicker mb-1">Administration</p>
                         <h4 class="card-title mb-1">Audit Log</h4>
                         <div class="text-muted">Review system activity, master-data changes, sign-ins, and transaction history from one place.</div>
                     </div>
-                    <div class="d-flex gap-2 flex-wrap">
+                    <div class="workspace-actions">
                         <a href="<?php echo h(build_page_url(['export' => 'csv'])); ?>" class="btn btn-outline-primary">
                             <i class="bi bi-download me-1"></i>Export CSV
                         </a>
@@ -342,7 +343,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
 
                 <form method="get" class="border rounded-3 p-3 mb-4">
-                    <div class="row g-3">
+                    <div class="row g-3 workspace-filter-grid">
                         <div class="col-md-4 col-xl-3">
                             <label class="form-label">Search</label>
                             <input type="search" class="form-control" name="q" value="<?php echo h($search); ?>" placeholder="Record ID, description, action, user">
@@ -394,7 +395,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <label class="form-label">End Date</label>
                             <input type="date" class="form-control" name="end_date" value="<?php echo h($endDate); ?>">
                         </div>
-                        <div class="col-md-6 col-xl-8 d-flex align-items-end gap-2 flex-wrap">
+                        <div class="col-md-6 col-xl-8 workspace-actions align-items-end">
                             <button type="submit" class="btn btn-primary">
                                 <i class="bi bi-funnel me-1"></i>Apply Filters
                             </button>
@@ -403,14 +404,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                 </form>
 
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <div>
+                <div class="workspace-header mb-3">
+                    <div class="workspace-header-copy">
                         <h5 class="card-title mb-0">Activity Entries</h5>
                         <div class="text-muted small">Showing <?php echo count($rows); ?> of <?php echo (int) ($total ?? 0); ?> record(s)</div>
                     </div>
                 </div>
 
-                <div class="table-responsive">
+                <div class="table-responsive mobile-table-frame">
                     <table class="table align-middle">
                         <thead>
                             <tr>
@@ -488,9 +489,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </table>
                 </div>
 
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
-                    <div class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) ($totalPages ?? 1); ?></div>
-                    <div class="d-flex gap-2">
+                <div class="workspace-header mt-3">
+                    <div class="workspace-header-copy">
+                        <div class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) ($totalPages ?? 1); ?></div>
+                    </div>
+                    <div class="workspace-actions">
                         <?php if ($page > 1): ?>
                             <a href="<?php echo h(build_page_url(['page' => $page - 1])); ?>" class="btn btn-outline-secondary btn-sm">Previous</a>
                         <?php endif; ?>

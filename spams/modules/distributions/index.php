@@ -557,21 +557,30 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
-<section class="row g-4">
+<section class="row g-4 page-section">
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
+                                <div class="workspace-header mb-3">
+                                    <div class="workspace-header-copy">
+                                        <p class="page-kicker mb-1">Property Operations</p>
+                                        <h5 class="page-title mb-1">Distribution Workspace</h5>
+                                        <p class="text-muted mb-0">Choose the correct accountability document, assign units, and post distributions from one responsive workspace.</p>
+                                    </div>
+                                </div>
                                 <!-- SPA: Step 1 + Split panel editor -->
                                 <div class="card mb-3">
                                     <div class="card-body p-3">
-                                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
-                                            <div>
+                                        <div class="workspace-header">
+                                            <div class="workspace-header-copy">
                                                 <div class="small fw-semibold text-muted mb-1">Step 1: Choose distribution document</div>
                                                 <div class="small text-muted">Pick the accountability flow first, then choose the receiving record and units to assign.</div>
                                             </div>
-                                            <span class="badge text-bg-light"><?php echo count($iarList); ?> source record(s)</span>
+                                            <div class="workspace-actions">
+                                                <span class="badge text-bg-light"><?php echo count($iarList); ?> source record(s)</span>
+                                            </div>
                                         </div>
-                                        <div class="d-flex gap-2 flex-wrap mt-3">
+                                        <div class="workspace-actions mt-3">
                                             <a href="?document_type=par" class="btn btn-sm <?php echo $distributionType==='par' ? 'btn-primary' : 'btn-outline-secondary'; ?>">
                                                 PAR
                                                 <span class="d-block" style="font-size:10px;font-weight:400;">Equipment ≥ ₱<?php echo number_format($equipmentMin,0,'.',','); ?></span>
@@ -655,12 +664,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                                                 <div class="card mb-3 position-sticky" style="top:90px;z-index:10;">
                                                     <div class="card-body p-3">
-                                                        <div class="d-flex align-items-start justify-content-between flex-wrap gap-3">
-                                                            <div>
+                                                        <div class="workspace-header">
+                                                            <div class="workspace-header-copy">
                                                                 <div class="small fw-semibold text-muted mb-1">Workspace progress</div>
                                                                 <div id="distIarSummary" class="small text-muted"></div>
                                                             </div>
-                                                            <div class="text-sm-end">
+                                                            <div class="workspace-header-meta text-sm-end">
                                                                 <div class="small text-muted">Step 3: Select units and assign accountability</div>
                                                                 <div class="fw-semibold">
                                                                     <span id="selectedUnitCount">0</span> unit(s) selected
@@ -691,7 +700,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <div class="card">
                                                     <div class="card-body p-3">
                                                         <div class="small fw-semibold text-muted mb-3">Step 3B: Assign accountability</div>
-                                                        <div class="row g-3 mb-3">
+                                                        <div class="row g-3 mb-3 workspace-filter-grid">
                                                             <div class="col-md-6">
                                                                 <label class="form-label">Office *</label>
                                                                 <select class="form-select" id="office_id" name="office_id" required data-placeholder="Select office">
@@ -737,10 +746,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                                 <textarea class="form-control" name="remarks" rows="2"><?= h($form['remarks']) ?></textarea>
                                                             </div>
                                                         </div>
-                                                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                                        <div class="workspace-header">
                                                             <div class="small text-muted d-none"><span>0</span> unit(s) selected · Total: <strong>₱0.00</strong></div>
                                                             <div class="small text-muted">Step 4: Review the summary above, then post the final <?= h(distribution_doc_label($distributionType)) ?>.</div>
-                                                            <button type="submit" class="btn btn-primary" id="postDistBtn" disabled>Post <?= h(distribution_doc_label($distributionType)) ?></button>
+                                                            <div class="workspace-actions">
+                                                                <button type="submit" class="btn btn-primary" id="postDistBtn" disabled>Post <?= h(distribution_doc_label($distributionType)) ?></button>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -755,16 +766,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <h5 class="card-title mb-0">Posted Distributions</h5>
-                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                <div class="workspace-header mb-3">
+                    <div class="workspace-header-copy">
+                        <h5 class="card-title mb-0">Posted Distributions</h5>
+                    </div>
+                    <div class="workspace-actions">
                         <a href="<?php echo base_url('modules/distributions/par_office.php'); ?>" class="btn btn-sm btn-outline-primary" target="_blank">PAR by Office</a>
                         <a href="<?php echo base_url('modules/distributions/ics_office.php'); ?>" class="btn btn-sm btn-outline-success" target="_blank">ICS by Office</a>
                         <span class="badge text-bg-light"><?php echo count($distributions); ?> record(s)</span>
                     </div>
                 </div>
 
-                <form method="get" class="row g-2 align-items-center mb-3">
+                <form method="get" class="row g-2 align-items-center mb-3 workspace-filter-grid">
                     <input type="hidden" name="document_type" value="<?php echo h($distributionType); ?>">
                     <div class="col-auto">
                         <select name="filter_type" class="form-select form-select-sm">
@@ -776,12 +789,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col">
                         <input type="search" name="dist_q" class="form-control form-control-sm" placeholder="Search reference, document no, office, employee..." value="<?php echo h($filterDistQ ?? ''); ?>">
                     </div>
-                    <div class="col-auto">
+                    <div class="col-auto workspace-actions">
                         <button type="submit" class="btn btn-sm btn-primary">Search</button>
                         <a href="modules/distributions/index.php?document_type=<?php echo h($distributionType); ?>" class="btn btn-sm btn-link">Clear</a>
                     </div>
                 </form>
-                <div class="table-responsive">
+                <div class="table-responsive mobile-table-frame">
                     <table class="table align-middle">
                         <thead>
                             <tr>

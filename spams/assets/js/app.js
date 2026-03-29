@@ -1,11 +1,56 @@
 document.addEventListener('DOMContentLoaded', function () {
     var toggleButton = document.getElementById('sidebarToggle');
+    var sidebar = document.getElementById('sidebar');
+
+    function isMobileViewport() {
+        return window.matchMedia('(max-width: 991.98px)').matches;
+    }
+
+    function closeSidebarOnMobile() {
+        if (isMobileViewport()) {
+            document.body.classList.remove('toggle-sidebar');
+        }
+    }
 
     if (toggleButton) {
         toggleButton.addEventListener('click', function () {
             document.body.classList.toggle('toggle-sidebar');
         });
     }
+
+    if (sidebar) {
+        sidebar.addEventListener('click', function (event) {
+            var link = event.target.closest('a');
+            if (link) {
+                closeSidebarOnMobile();
+            }
+        });
+    }
+
+    document.addEventListener('click', function (event) {
+        if (!isMobileViewport() || !document.body.classList.contains('toggle-sidebar')) {
+            return;
+        }
+
+        var clickedToggle = toggleButton && (event.target === toggleButton || toggleButton.contains(event.target));
+        var clickedInsideSidebar = sidebar && (event.target === sidebar || sidebar.contains(event.target));
+
+        if (!clickedToggle && !clickedInsideSidebar) {
+            document.body.classList.remove('toggle-sidebar');
+        }
+    });
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && isMobileViewport()) {
+            document.body.classList.remove('toggle-sidebar');
+        }
+    });
+
+    window.addEventListener('resize', function () {
+        if (!isMobileViewport()) {
+            document.body.classList.remove('toggle-sidebar');
+        }
+    });
 
     function initSelect2(scope) {
         if (!window.jQuery || !jQuery.fn.select2) {
