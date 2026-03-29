@@ -569,7 +569,7 @@ if ($db) {
                                 <tr>
                                     <td><?php echo h(!empty($row['date']) ? date('M d, Y', strtotime((string) $row['date'])) : ''); ?></td>
                                     <td><?php echo h($row['reference'] ?? ''); ?></td>
-                                    <td class="text-end"><?php echo h(number_format((float) ($row['receipt_qty'] ?? 0), 2)); ?></td>
+                                    <td class="text-end"><?php echo h(format_quantity($row['receipt_qty'] ?? 0)); ?></td>
                                     <td class="text-end"><?php echo h(number_format((float) ($row['receipt_unit_cost'] ?? 0), 2)); ?></td>
                                     <td class="text-end"><?php echo h(number_format((float) ($row['receipt_cost'] ?? 0), 2)); ?></td>
                                     <?php if ($card['item_type'] === 'equipment'): ?>
@@ -577,7 +577,7 @@ if ($db) {
                                     <?php endif; ?>
                                     <td class="text-end"><?php echo h($row['accumulated_impairment'] !== '' ? (string) $row['accumulated_impairment'] : ''); ?></td>
                                     <td><?php echo h($row['issue_reference'] ?? ''); ?></td>
-                                    <td class="text-end"><?php echo h(number_format((float) ($row['issue_qty'] ?? 0), 2)); ?></td>
+                                    <td class="text-end"><?php echo h(format_quantity($row['issue_qty'] ?? 0)); ?></td>
                                     <td><?php echo h($row['issue_party'] ?? ''); ?></td>
                                     <td class="text-end"><?php echo h(number_format((float) ($row['adjusted_cost'] !== '' ? $row['adjusted_cost'] : $balCost), 2)); ?></td>
                                     <?php if ($card['item_type'] === 'equipment'): ?>

@@ -1,0 +1,5 @@
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS profile_photo_path VARCHAR(255) NULL AFTER full_name;
+
+ALTER TABLE employees
+    ADD COLUMN IF NOT EXISTS photo_path VARCHAR(255) NULL AFTER email;

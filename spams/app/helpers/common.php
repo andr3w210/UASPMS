@@ -44,6 +44,30 @@ function old(array $source, string $key, string $default = ''): string
     return isset($source[$key]) ? trim((string) $source[$key]) : $default;
 }
 
+function format_date(?string $value, string $format = 'M d, Y'): string
+{
+    $clean = trim((string) $value);
+    if ($clean === '') {
+        return '';
+    }
+
+    $timestamp = strtotime($clean);
+    if ($timestamp === false) {
+        return $clean;
+    }
+
+    return date($format, $timestamp);
+}
+
+function format_quantity($value): string
+{
+    if ($value === null || $value === '') {
+        return '';
+    }
+
+    return number_format((float) $value, 0);
+}
+
 function employee_display_name(array $employee): string
 {
     $parts = [
@@ -219,6 +243,25 @@ function get_active_threshold(mysqli $db): array
         'equipment_min' => isset($row['equipment_min']) ? (float) $row['equipment_min'] : $defaults['equipment_min'],
         'semi_hv_min' => isset($row['semi_hv_min']) ? (float) $row['semi_hv_min'] : $defaults['semi_hv_min'],
     ];
+}
+
+function get_system_setting(mysqli $db, string $key, string $default = ''): string
+{
+    $stmt = $db->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1");
+    if (!$stmt) {
+        return $default;
+    }
+
+    $stmt->bind_param('s', $key);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if (!$row || !array_key_exists('setting_value', $row) || $row['setting_value'] === null) {
+        return $default;
+    }
+
+    return (string) $row['setting_value'];
 }
 
 function classify_item_by_cost(float $unitCost, array $threshold): string

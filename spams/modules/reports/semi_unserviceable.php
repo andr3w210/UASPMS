@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $db = db();
 $page_title = 'Unserviceable Semi-Expendable Property';
@@ -8,6 +8,7 @@ $errors = [];
 $rows = [];
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $asOf = trim((string) ($_GET['as_of'] ?? date('Y-m-d')));
+$isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 
 if ($db) {
     $sql = "
@@ -42,6 +43,26 @@ foreach ($rows as $row) {
     $totalValue += (float) ($row['unit_cost'] ?? 0);
 }
 
+if ($isExport) {
+    $exportRows = [];
+    foreach ($rows as $row) {
+        $exportRows[] = [
+            !empty($row['date_acquired']) ? date('Y-m-d', strtotime((string) $row['date_acquired'])) : '',
+            semi_uns_label($row),
+            $row['property_number'] ?? '',
+            '1',
+            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            '',
+            '',
+            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            $row['reason'] ?? '',
+            ucwords(str_replace('_', ' ', (string) ($row['reason'] ?? ''))),
+        ];
+    }
+    export_excel_rows('semi_unserviceable_' . date('Ymd') . '.xls', ['Date Acquired', 'Particulars / Articles', 'Semi-Expendable Property No.', 'Qty', 'Unit Cost', 'Total Cost', 'Accumulated Depreciation', 'Accumulated Impairment Losses', 'Carrying Amount', 'Remarks', 'Disposal'], $exportRows);
+}
+
 function semi_uns_label(array $row): string
 {
     $prefix = trim(implode(' / ', array_filter([
@@ -70,7 +91,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 <section class="row g-4"><div class="col-12"><div class="card"><div class="card-body p-4">
 <div class="report-page-shell">
-<div class="report-toolbar"><div><h5 class="report-toolbar-title mb-0">Annex A.10</h5><p class="report-toolbar-copy">Prepare the inspection list for semi-expendable property already tagged as unserviceable, obsolete, or beyond repair.</p></div><div class="report-toolbar-actions"><a href="<?php echo h(base_url('modules/reports/semi_unserviceable.php?as_of=' . urlencode($asOf) . '&print=1')); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a></div></div>
+<div class="report-toolbar"><div><h5 class="report-toolbar-title mb-0">Annex A.10</h5><p class="report-toolbar-copy">Prepare the inspection list for semi-expendable property already tagged as unserviceable, obsolete, or beyond repair.</p></div><div class="report-toolbar-actions"><a href="<?php echo h(base_url('modules/reports/semi_unserviceable.php?as_of=' . urlencode($asOf) . '&export=excel')); ?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</a><a href="<?php echo h(base_url('modules/reports/semi_unserviceable.php?as_of=' . urlencode($asOf) . '&print=1')); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a></div></div>
 <div class="report-summary-grid"><div class="report-summary-card"><div class="report-summary-label">Loaded Assets</div><div class="report-summary-value"><?php echo number_format($rowCount); ?></div><div class="report-summary-note">Semi-expendable items marked unserviceable or obsolete.</div></div><div class="report-summary-card"><div class="report-summary-label">Total Unit Value</div><div class="report-summary-value"><?php echo number_format($totalValue, 2); ?></div><div class="report-summary-note">Combined unit cost of the current unserviceable list.</div></div><div class="report-summary-card"><div class="report-summary-label">As Of</div><div class="report-summary-value"><?php echo h(!empty($asOf) ? date('M d, Y', strtotime($asOf)) : '-'); ?></div><div class="report-summary-note">Date printed in the report header.</div></div></div>
 <div class="report-filter-card"><h6 class="report-filter-title">Filter Report</h6><form method="get" class="row g-3 align-items-end"><div class="col-md-4"><label class="form-label">As Of</label><input type="date" class="form-control" name="as_of" value="<?php echo h($asOf); ?>"></div><div class="col-md-8 d-flex gap-2"><button type="submit" class="btn btn-primary">Load Report</button><a href="<?php echo base_url('modules/reports/semi_unserviceable.php'); ?>" class="btn btn-outline-secondary">Reset</a></div></form></div>
 <div class="report-table-card table-responsive"><table class="table align-middle"><thead><tr><th>Date Acquired</th><th>Articles</th><th>Property No.</th><th class="text-end">Unit Cost</th><th>Reason</th><th>Disposal</th></tr></thead><tbody><?php if ($rows): foreach ($rows as $row): ?><tr><td><?php echo h(!empty($row['date_acquired']) ? date('M d, Y', strtotime((string) $row['date_acquired'])) : ''); ?></td><td><?php echo h(semi_uns_label($row)); ?></td><td><?php echo h($row['property_number'] ?? ''); ?></td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td><?php echo h($row['reason'] ?? ''); ?></td><td><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['reason'] ?? '')))); ?></td></tr><?php endforeach; else: ?><tr><td colspan="6" class="text-center text-muted py-4">No unserviceable semi-expendable property found.</td></tr><?php endif; ?></tbody></table></div>

@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $db = db();
 $page_title = 'Registry of Semi Expendable Property Issued';
@@ -13,6 +13,7 @@ $dateTo = trim((string) ($_GET['date_to'] ?? ''));
 $officeId = (int) ($_GET['office_id'] ?? 0);
 $semiType = trim((string) ($_GET['semi_type'] ?? 'all'));
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
+$isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 
 if (!in_array($semiType, ['all', 'high_value', 'low_value'], true)) {
     $semiType = 'all';
@@ -197,6 +198,29 @@ foreach ($rows as $row) {
     $totalAmount += (float) ($row['unit_cost'] ?? 0);
 }
 
+if ($isExport) {
+    $exportRows = [];
+    foreach ($rows as $row) {
+        $exportRows[] = [
+            !empty($row['distribution_date']) ? date('Y-m-d', strtotime((string) $row['distribution_date'])) : '',
+            $row['ics_no'] ?? '',
+            $row['rrsp_no'] ?? '',
+            semi_registry_label($row),
+            $row['semi_property_number'] ?? '',
+            !empty($row['useful_life_years']) ? $row['useful_life_years'] . ' year(s)' : '',
+            '1',
+            trim(implode(' / ', array_filter([$row['office_name'] ?? '', semi_registry_person($row)]))),
+            !empty($row['return_date']) ? '1' : '0',
+            trim(implode(' / ', array_filter([$row['return_office_name'] ?? '', semi_registry_person($row, 'return_')]))),
+            !empty($row['disposal_date']) ? '1' : '0',
+            trim(implode(' / ', array_filter([$row['disposal_office_name'] ?? '', semi_registry_person($row, 'disposal_')]))),
+            format_quantity($row['balance_qty'] ?? 0),
+            number_format((float) ($row['unit_cost'] ?? 0), 2),
+        ];
+    }
+    export_excel_rows('semi_registry_' . date('Ymd') . '.xls', ['Date', 'ICS No.', 'RRSP No.', 'Item Description', 'Semi-Expendable Property No.', 'Estimated Useful Life', 'Issued Qty', 'Issued Office/Officer', 'Returned Qty', 'Returned Office/Officer', 'Disposal Qty', 'Disposal Office/Officer', 'Balance Qty', 'Amount'], $exportRows);
+}
+
 if ($isPrint) {
     ?>
     <!doctype html>
@@ -264,7 +288,7 @@ if ($isPrint) {
                         <td></td>
                         <td class="text-end"><?php echo !empty($row['disposal_date']) ? '1.00' : '0.00'; ?></td>
                         <td><?php echo h(trim(implode(' / ', array_filter([$row['disposal_office_name'] ?? '', semi_registry_person($row, 'disposal_')])))); ?></td>
-                        <td class="text-end"><?php echo h(number_format((float) ($row['balance_qty'] ?? 0), 2)); ?></td>
+                        <td class="text-end"><?php echo h(format_quantity($row['balance_qty'] ?? 0)); ?></td>
                         <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
                     </tr>
                 <?php endforeach; else: ?>
@@ -295,6 +319,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <p class="report-toolbar-copy">Monitor semi-expendable property movements across issue, return, and disposal in one running registry view.</p>
                     </div>
                     <div class="report-toolbar-actions">
+                        <a href="<?php echo h(base_url('modules/reports/semi_registry.php?export=excel&date_from=' . urlencode($dateFrom) . '&date_to=' . urlencode($dateTo) . '&office_id=' . $officeId . '&semi_type=' . urlencode($semiType))); ?>" class="btn btn-outline-success">
+                            <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+                        </a>
                         <a href="<?php echo h(base_url('modules/reports/semi_registry.php?print=1&date_from=' . urlencode($dateFrom) . '&date_to=' . urlencode($dateTo) . '&office_id=' . $officeId . '&semi_type=' . urlencode($semiType))); ?>" class="btn btn-primary" target="_blank">
                             <i class="bi bi-printer me-1"></i>Print
                         </a>
@@ -371,7 +398,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <td><?php echo h(!empty($row['return_date']) ? (($row['return_office_name'] ?? '') . ' / ' . semi_registry_person($row, 'return_')) : ''); ?></td>
                                 <td></td>
                                 <td><?php echo h(!empty($row['disposal_date']) ? (($row['disposal_office_name'] ?? '') . ' / ' . semi_registry_person($row, 'disposal_')) : ''); ?></td>
-                                <td><?php echo h(number_format((float) ($row['balance_qty'] ?? 0), 2)); ?></td>
+                                <td><?php echo h(format_quantity($row['balance_qty'] ?? 0)); ?></td>
                                 <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
                             </tr>
                         <?php endforeach; else: ?>

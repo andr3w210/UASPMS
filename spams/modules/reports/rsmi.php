@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $db = db();
 $page_title = 'RSMI';
@@ -12,6 +12,7 @@ $dateFrom = trim((string) ($_GET['date_from'] ?? ''));
 $dateTo = trim((string) ($_GET['date_to'] ?? ''));
 $officeId = (int) ($_GET['office_id'] ?? 0);
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
+$isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
@@ -101,6 +102,25 @@ foreach ($rows as $row) {
     $totalAmount += (float) ($row['line_total'] ?? 0);
 }
 
+if ($isExport) {
+    $exportRows = [];
+    foreach ($rows as $row) {
+        $exportRows[] = [
+            $row['ris_no'] ?? '',
+            !empty($row['issuance_date']) ? date('Y-m-d', strtotime((string) $row['issuance_date'])) : '',
+            $row['item_description'] ?? '',
+            trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
+            format_quantity($row['quantity_issued'] ?? 0),
+            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            number_format((float) ($row['line_total'] ?? 0), 2),
+            $row['office_name'] ?? '',
+            trim(employee_display_name($row) . (!empty($row['employee_no']) ? ' - ' . $row['employee_no'] : '')),
+            $row['account_code'] ?? '',
+        ];
+    }
+    export_excel_rows('rsmi_' . date('Ymd') . '.xls', ['RIS No', 'Date', 'Item Description', 'Unit', 'Qty Issued', 'Unit Cost', 'Total Amount', 'Office/Department', 'Issued To', 'Account Code'], $exportRows);
+}
+
 if ($isPrint) {
     ?>
     <!doctype html>
@@ -158,7 +178,7 @@ if ($isPrint) {
                                 <td><?php echo h(date('M d, Y', strtotime($row['issuance_date']))); ?></td>
                                 <td><?php echo h($row['item_description'] ?? ''); ?></td>
                                 <td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
-                                <td class="text-end"><?php echo h(number_format((float) $row['quantity_issued'], 2)); ?></td>
+                                <td class="text-end"><?php echo h(format_quantity($row['quantity_issued'])); ?></td>
                                 <td class="text-end"><?php echo h(number_format((float) $row['unit_cost'], 2)); ?></td>
                                 <td class="text-end"><?php echo h(number_format((float) $row['line_total'], 2)); ?></td>
                                 <td><?php echo h($row['office_name'] ?? ''); ?></td>
@@ -193,6 +213,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <p class="report-toolbar-copy">Review posted RIS issuances by date and office, then print the official Report of Supplies and Materials Issued directly from the same screen.</p>
                         </div>
                         <div class="report-toolbar-actions">
+                            <a href="<?php echo h(base_url('modules/reports/rsmi.php?export=excel&date_from=' . urlencode($dateFrom) . '&date_to=' . urlencode($dateTo) . '&office_id=' . $officeId)); ?>" class="btn btn-outline-success">
+                                <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+                            </a>
                             <a href="<?php echo h(base_url('modules/reports/rsmi.php?print=1&date_from=' . urlencode($dateFrom) . '&date_to=' . urlencode($dateTo) . '&office_id=' . $officeId)); ?>" class="btn btn-primary" target="_blank">
                                 <i class="bi bi-printer me-1"></i>Print
                             </a>
@@ -207,7 +230,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="report-summary-card">
                             <div class="report-summary-label">Total Quantity</div>
-                            <div class="report-summary-value"><?php echo number_format($totalQuantity, 2); ?></div>
+                            <div class="report-summary-value"><?php echo format_quantity($totalQuantity); ?></div>
                             <div class="report-summary-note">Combined issued quantity for the selected filters.</div>
                         </div>
                         <div class="report-summary-card">
@@ -274,7 +297,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td><?php echo h(date('M d, Y', strtotime($row['issuance_date']))); ?></td>
                                         <td><?php echo h($row['item_description'] ?? ''); ?></td>
                                         <td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
-                                        <td class="text-end"><?php echo h(number_format((float) $row['quantity_issued'], 2)); ?></td>
+                                        <td class="text-end"><?php echo h(format_quantity($row['quantity_issued'])); ?></td>
                                         <td class="text-end"><?php echo h(number_format((float) $row['unit_cost'], 2)); ?></td>
                                         <td class="text-end"><?php echo h(number_format((float) $row['line_total'], 2)); ?></td>
                                         <td><?php echo h($row['office_name'] ?? ''); ?></td>

@@ -2,6 +2,7 @@
 $displayName = $_SESSION['user_name'] ?? 'User';
 $roleName = $_SESSION['role_name'] ?? 'Administrator';
 $userRole = $_SESSION['user_role'] ?? 'User';
+$userPhotoPath = (string) ($_SESSION['user_photo_path'] ?? '');
 $notificationDb = (isset($db) && $db instanceof mysqli) ? $db : db();
 $pendingDistributionUnits = 0;
 $pendingDistributionRecords = 0;
@@ -12,6 +13,18 @@ $repeatExtensionCount = 0;
 $lowStockItemCount = 0;
 $unreadMessageCount = 0;
 if ($notificationDb) {
+    if ($userPhotoPath === '' && current_user_id()) {
+        $photoStmt = $notificationDb->prepare("SELECT profile_photo_path FROM users WHERE id = ? LIMIT 1");
+        if ($photoStmt) {
+            $currentTopbarPhotoUserId = (int) current_user_id();
+            $photoStmt->bind_param('i', $currentTopbarPhotoUserId);
+            $photoStmt->execute();
+            $userPhotoPath = (string) (($photoStmt->get_result()->fetch_assoc()['profile_photo_path'] ?? ''));
+            $photoStmt->close();
+            $_SESSION['user_photo_path'] = $userPhotoPath;
+        }
+    }
+
     if (current_user_id()) {
         $currentTopbarUserId = (int) current_user_id();
         $unreadMessageStmt = $notificationDb->prepare("
@@ -132,6 +145,7 @@ if ($notificationDb) {
         $lowStockStmt->close();
     }
 }
+$userPhotoUrl = upload_url($userPhotoPath);
 $notificationBadgeCount =
     $pendingDistributionUnits +
     $pendingReceivingCount +
@@ -284,7 +298,11 @@ $hasNotifications = $notificationBadgeCount > 0;
                         <div class="fw-semibold"><?php echo h($displayName); ?> <span class="text-muted small ms-2"><?php echo h($userRole); ?></span></div>
                     </div>
                     <div class="topbar-avatar">
-                        <?php echo h(strtoupper(substr($displayName, 0, 1))); ?>
+                        <?php if ($userPhotoUrl !== ''): ?>
+                            <img src="<?php echo h($userPhotoUrl); ?>" alt="<?php echo h($displayName); ?>">
+                        <?php else: ?>
+                            <?php echo h(strtoupper(substr($displayName, 0, 1))); ?>
+                        <?php endif; ?>
                     </div>
                 </button>
                 <div class="dropdown-menu dropdown-menu-end topbar-user-menu">
@@ -292,6 +310,13 @@ $hasNotifications = $notificationBadgeCount > 0;
                         <div class="fw-semibold"><?php echo h($displayName); ?></div>
                         <div class="small text-muted"><?php echo h($roleName); ?></div>
                     </div>
+                    <a class="dropdown-item" href="<?php echo base_url('modules/settings/profile.php'); ?>">
+                        <i class="bi bi-person-circle me-2"></i>Edit Profile
+                    </a>
+                    <a class="dropdown-item" href="<?php echo base_url('modules/settings/change_password.php'); ?>">
+                        <i class="bi bi-key me-2"></i>Change Password
+                    </a>
+                    <div class="dropdown-divider"></div>
                     <a class="dropdown-item text-danger" href="<?php echo base_url('auth/logout.php'); ?>">
                         <i class="bi bi-box-arrow-right me-2"></i>Sign out
                     </a>

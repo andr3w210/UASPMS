@@ -314,7 +314,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 if ($distributeQty > $remainingQty + 0.001) {
                     $lineNo = isset($candidate['line_no']) ? $candidate['line_no'] : 'N/A';
-                    $errors[] = 'Quantity to distribute cannot exceed remaining quantity (' . number_format($remainingQty, 2) . ') for item on line ' . $lineNo . '.';
+                    $errors[] = 'Quantity to distribute cannot exceed remaining quantity (' . format_quantity($remainingQty) . ') for item on line ' . $lineNo . '.';
                     continue;
                 }
 

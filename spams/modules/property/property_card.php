@@ -171,10 +171,10 @@ foreach ($rows as $r) {
                                 <tr>
                                     <td><?php echo h(!empty($row['date']) ? date('M d, Y', strtotime($row['date'])) : ''); ?></td>
                                     <td><?php echo h($row['reference'] ?? ''); ?></td>
-                                    <td class="text-end"><?php echo h(number_format($row['receipt_qty'] ?? 0, 2)); ?></td>
+                                    <td class="text-end"><?php echo h(format_quantity($row['receipt_qty'] ?? 0)); ?></td>
                                     <td class="text-end"><?php echo h(number_format($row['receipt_cost'] ?? 0, 2)); ?></td>
-                                    <td class="text-end"><?php echo h(number_format($row['issue_qty'] ?? 0, 2)); ?></td>
-                                    <td class="text-end"><?php echo h(number_format($balQty, 2)); ?></td>
+                                    <td class="text-end"><?php echo h(format_quantity($row['issue_qty'] ?? 0)); ?></td>
+                                    <td class="text-end"><?php echo h(format_quantity($balQty)); ?></td>
                                     <td class="text-end"><?php echo h(number_format($balCost, 2)); ?></td>
                                     <td><?php echo h($row['remarks'] ?? ''); ?></td>
                                 </tr>

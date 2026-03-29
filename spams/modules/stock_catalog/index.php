@@ -29,6 +29,7 @@ if (!in_array($mode, ['', 'create', 'edit'], true)) {
 $form = [
     'id' => 0,
     'stock_no' => '',
+    'barcode' => '',
     'item_name' => '',
     'item_description' => '',
     'item_type' => 'supply',
@@ -80,6 +81,7 @@ if (!$db) {
             $form = [
                 'id' => (int) ($_POST['id'] ?? 0),
                 'stock_no' => '',
+                'barcode' => old($_POST, 'barcode'),
                 'item_name' => old($_POST, 'item_name'),
                 'item_description' => old($_POST, 'item_description'),
                 'item_type' => old($_POST, 'item_type', 'supply'),
@@ -170,6 +172,21 @@ if (!$db) {
                     $errors[] = 'Unable to generate a stock number for the item name/description.';
                 }
 
+                $barcode = trim((string) $form['barcode']);
+                if ($barcode !== '') {
+                    $barcodeDuplicateStmt = $db->prepare("SELECT id FROM stock_catalog WHERE barcode = ? AND id != ? LIMIT 1");
+                    if ($barcodeDuplicateStmt) {
+                        $barcodeDuplicateStmt->bind_param('si', $barcode, $recordId);
+                        $barcodeDuplicateStmt->execute();
+                        if ($barcodeDuplicateStmt->get_result()->fetch_assoc()) {
+                            $errors[] = 'Barcode already exists on another stock catalog item.';
+                        }
+                        $barcodeDuplicateStmt->close();
+                    }
+                } else {
+                    $barcode = null;
+                }
+
                 $duplicateStmt = $db->prepare("SELECT id FROM stock_catalog WHERE stock_no = ? AND id != ? LIMIT 1");
                 if ($duplicateStmt) {
                     $duplicateStmt->bind_param('si', $form['stock_no'], $recordId);
@@ -248,13 +265,14 @@ if (!$db) {
                     if ($action === 'create') {
                         $stmt = $db->prepare("
                             INSERT INTO stock_catalog
-                            (stock_no, item_name, item_description, item_type, classification_id, account_code_id, unit_of_measure_id, is_active, created_by)
-                            VALUES (?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?)
+                            (stock_no, barcode, item_name, item_description, item_type, classification_id, account_code_id, unit_of_measure_id, is_active, created_by)
+                            VALUES (?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?)
                         ");
                         if ($stmt) {
                             $stmt->bind_param(
-                                'ssssiiiii',
+                                'sssssiiiii',
                                 $form['stock_no'],
+                                $barcode,
                                 $form['item_name'],
                                 $form['item_description'],
                                 $form['item_type'],
@@ -278,6 +296,7 @@ if (!$db) {
                                     'description' => 'Created stock catalog item.',
                                     'new_values' => [
                                         'stock_no' => $form['stock_no'],
+                                        'barcode' => $barcode,
                                         'item_name' => $form['item_name'],
                                         'item_description' => $form['item_description'],
                                         'item_type' => $form['item_type'],
@@ -296,15 +315,16 @@ if (!$db) {
                     if ($action === 'update') {
                         $stmt = $db->prepare("
                             UPDATE stock_catalog
-                            SET stock_no = ?, item_name = ?, item_description = ?, item_type = ?,
+                            SET stock_no = ?, barcode = ?, item_name = ?, item_description = ?, item_type = ?,
                                 classification_id = NULLIF(?, 0), account_code_id = NULLIF(?, 0),
                                 unit_of_measure_id = NULLIF(?, 0), is_active = ?, updated_by = ?, updated_at = NOW()
                             WHERE id = ?
                         ");
                         if ($stmt) {
                             $stmt->bind_param(
-                                'ssssiiiiii',
+                                'sssssiiiiii',
                                 $form['stock_no'],
+                                $barcode,
                                 $form['item_name'],
                                 $form['item_description'],
                                 $form['item_type'],
@@ -328,6 +348,7 @@ if (!$db) {
                                     'description' => 'Updated stock catalog item.',
                                     'new_values' => [
                                         'stock_no' => $form['stock_no'],
+                                        'barcode' => $barcode,
                                         'item_name' => $form['item_name'],
                                         'item_description' => $form['item_description'],
                                         'item_type' => $form['item_type'],
@@ -374,6 +395,7 @@ if (!$db) {
             $form = [
                 'id' => (int) $selectedItem['id'],
                 'stock_no' => $selectedItem['stock_no'],
+                'barcode' => $selectedItem['barcode'] ?? '',
                 'item_name' => $selectedItem['item_name'],
                 'item_description' => $selectedItem['item_description'] ?? '',
                 'item_type' => $selectedItem['item_type'],
@@ -402,9 +424,10 @@ if (!$db) {
     $params = [];
     $types = '';
     if ($search !== '') {
-        $where[] = '(sc.stock_no LIKE ? OR sc.item_name LIKE ?)';
-        $types .= 'ss';
+        $where[] = '(sc.stock_no LIKE ? OR sc.barcode LIKE ? OR sc.item_name LIKE ?)';
+        $types .= 'sss';
         $like = '%' . $search . '%';
+        $params[] = $like;
         $params[] = $like;
         $params[] = $like;
     }
@@ -415,7 +438,7 @@ if (!$db) {
     }
 
     $sql = "
-        SELECT sc.id, sc.stock_no, sc.item_name, sc.item_type,
+        SELECT sc.id, sc.stock_no, sc.barcode, sc.item_name, sc.item_type,
                sc.is_active, c.classification_name, c.classification_family, ac.account_code,
                u.abbreviation AS uom
         FROM stock_catalog sc
@@ -490,6 +513,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </div>
                                             <div class="fw-semibold"><?php echo h($item['item_name']); ?></div>
                                             <div class="small opacity-75"><?php echo h(trim((!empty($item['classification_family']) ? $item['classification_family'] . ' / ' : '') . ($item['classification_name'] ?? 'No class') . ' | ' . ($item['account_code'] ?? 'No account') . ' | ' . ($item['uom'] ?? 'No UOM'))); ?></div>
+                                            <?php if (!empty($item['barcode'])): ?><div class="small opacity-75">Barcode: <?php echo h($item['barcode']); ?></div><?php endif; ?>
                                         </div>
                                         <span class="badge <?php echo (int) ($item['is_active'] ?? 0) === 1 ? 'text-bg-light' : 'text-bg-secondary'; ?>"><?php echo (int) ($item['is_active'] ?? 0) === 1 ? 'Active' : 'Inactive'; ?></span>
                                     </div>
@@ -529,6 +553,26 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <label class="form-label">Stock Number</label>
                                 <input type="text" class="form-control" id="stockCatalogStockNoPreview" data-form-mode="<?php echo h($mode); ?>" value="<?php echo h($generatedStockNoPreview !== '' ? $generatedStockNoPreview : 'Auto-generated on save'); ?>" readonly>
                                 <div class="form-text">Generated automatically as a two-letter item code plus running series, for example <code>JS-001</code>.</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Packaging Barcode</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="stockCatalogBarcode" name="barcode" value="<?php echo h($form['barcode']); ?>" placeholder="Scan or enter existing product barcode">
+                                    <button type="button" class="btn btn-outline-secondary" id="stockCatalogStartScan">
+                                        <i class="bi bi-upc-scan me-1"></i>Scan
+                                    </button>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2 mt-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="stockCatalogStopScan">
+                                        <i class="bi bi-stop-circle me-1"></i>Stop Camera
+                                    </button>
+                                    <span class="small text-muted align-self-center" id="stockCatalogScanStatus">Use the existing barcode printed on the supply packaging when available.</span>
+                                </div>
+                                <div class="inventory-camera-panel d-none mt-2" id="stockCatalogScanPanel">
+                                    <div class="ratio ratio-16x9 rounded overflow-hidden bg-dark">
+                                        <video id="stockCatalogScanVideo" autoplay playsinline muted></video>
+                                    </div>
+                                </div>
                             </div>
                             <div class="col-md-8">
                                 <label class="form-label">Item Name *</label>
@@ -617,6 +661,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-4"><div class="small text-muted">Classification</div><div><?php echo h(!empty($selectedItem['classification_family']) ? ($selectedItem['classification_family'] . ' / ' . ($selectedItem['classification_name'] ?? '')) : ($selectedItem['classification_name'] ?? 'Not set')); ?></div></div>
                         <div class="col-md-4"><div class="small text-muted">Account Code</div><div><?php echo h(!empty($selectedItem['account_code']) ? $selectedItem['account_code'] . ' - ' . ($selectedItem['account_name'] ?? '') : 'Not set'); ?></div></div>
                         <div class="col-md-4"><div class="small text-muted">Unit of Measure</div><div><?php echo h(!empty($selectedItem['uom_name']) ? $selectedItem['uom_name'] . (!empty($selectedItem['abbreviation']) ? ' (' . $selectedItem['abbreviation'] . ')' : '') : 'Not set'); ?></div></div>
+                        <div class="col-md-6"><div class="small text-muted">Stock Number</div><div><?php echo h($selectedItem['stock_no']); ?></div></div>
+                        <div class="col-md-6"><div class="small text-muted">Packaging Barcode</div><div><?php echo h($selectedItem['barcode'] ?: 'Not set'); ?></div></div>
                     </div>
 
                     <div class="d-flex gap-2">
@@ -648,6 +694,17 @@ document.addEventListener('DOMContentLoaded', function () {
     var stockNoPreview = document.getElementById('stockCatalogStockNoPreview');
     var itemNameInput = document.getElementById('stockCatalogItemName');
     var itemDescriptionInput = document.getElementById('stockCatalogItemDescription');
+    var barcodeInput = document.getElementById('stockCatalogBarcode');
+    var startScanButton = document.getElementById('stockCatalogStartScan');
+    var stopScanButton = document.getElementById('stockCatalogStopScan');
+    var scanPanel = document.getElementById('stockCatalogScanPanel');
+    var scanVideo = document.getElementById('stockCatalogScanVideo');
+    var scanStatus = document.getElementById('stockCatalogScanStatus');
+    var scanStream = null;
+    var scanDetector = null;
+    var scanTimer = null;
+    var scanActive = false;
+    var html5QrScanner = null;
 
     function buildItemCode(label) {
         var cleaned = String(label || '').toUpperCase().replace(/[^A-Z0-9& ]+/g, ' ').trim();
@@ -730,6 +787,205 @@ document.addEventListener('DOMContentLoaded', function () {
     if (itemDescriptionInput) {
         itemDescriptionInput.addEventListener('input', syncStockNoPreview);
     }
+
+    function setScanStatus(message) {
+        if (scanStatus) {
+            scanStatus.textContent = message;
+        }
+    }
+
+    function fillBarcodeValue(value) {
+        if (!value || !barcodeInput) {
+            return;
+        }
+        barcodeInput.value = String(value).trim();
+        barcodeInput.focus();
+        barcodeInput.select();
+        stopBarcodeScanner(false);
+        setScanStatus('Barcode captured. Review or save the item.');
+    }
+
+    function stopBarcodeScanner(resetMessage) {
+        scanActive = false;
+        if (scanTimer) {
+            window.clearInterval(scanTimer);
+            scanTimer = null;
+        }
+        if (html5QrScanner) {
+            try {
+                html5QrScanner.stop().catch(function () {}).finally(function () {
+                    try {
+                        html5QrScanner.clear();
+                    } catch (error) {
+                        // Ignore cleanup failures.
+                    }
+                });
+            } catch (error) {
+                // Ignore cleanup failures.
+            }
+            html5QrScanner = null;
+        }
+        if (scanStream) {
+            scanStream.getTracks().forEach(function (track) {
+                track.stop();
+            });
+            scanStream = null;
+        }
+        if (scanVideo) {
+            scanVideo.srcObject = null;
+            scanVideo.classList.remove('d-none');
+        }
+        if (scanPanel) {
+            scanPanel.classList.add('d-none');
+        }
+        if (startScanButton) {
+            startScanButton.classList.remove('d-none');
+        }
+        if (stopScanButton) {
+            stopScanButton.classList.add('d-none');
+        }
+        if (resetMessage) {
+            setScanStatus('Use the existing barcode printed on the supply packaging when available.');
+        }
+    }
+
+    async function detectBarcodeFrame() {
+        if (!scanActive || !scanDetector || !scanVideo || scanVideo.readyState < 2) {
+            return;
+        }
+
+        try {
+            var barcodes = await scanDetector.detect(scanVideo);
+            if (!barcodes || !barcodes.length) {
+                return;
+            }
+
+            var rawValue = (barcodes[0].rawValue || '').trim();
+            if (rawValue) {
+                fillBarcodeValue(rawValue);
+            }
+        } catch (error) {
+            setScanStatus('Camera is active, but the browser has not read a barcode yet.');
+        }
+    }
+
+    async function startHtml5ScannerFallback() {
+        if (!window.Html5Qrcode || !scanPanel) {
+            setScanStatus('Fallback barcode scanner is not available on this browser.');
+            return;
+        }
+
+        var readerId = 'stockCatalogBarcodeReader';
+        var readerNode = document.getElementById(readerId);
+        if (!readerNode) {
+            readerNode = document.createElement('div');
+            readerNode.id = readerId;
+            readerNode.className = 'inventory-camera-reader';
+            scanPanel.appendChild(readerNode);
+        }
+
+        html5QrScanner = new window.Html5Qrcode(readerId);
+        await html5QrScanner.start(
+            { facingMode: 'environment' },
+            {
+                fps: 10,
+                qrbox: { width: 260, height: 140 },
+                formatsToSupport: [
+                    window.Html5QrcodeSupportedFormats.CODE_128,
+                    window.Html5QrcodeSupportedFormats.CODE_39,
+                    window.Html5QrcodeSupportedFormats.EAN_13,
+                    window.Html5QrcodeSupportedFormats.EAN_8,
+                    window.Html5QrcodeSupportedFormats.UPC_A,
+                    window.Html5QrcodeSupportedFormats.UPC_E
+                ]
+            },
+            function (decodedText) {
+                if (decodedText) {
+                    fillBarcodeValue(decodedText);
+                }
+            },
+            function () {
+                // Ignore decode misses.
+            }
+        );
+        setScanStatus('Camera barcode scanner is live. Point the packaging barcode inside the frame.');
+    }
+
+    async function startBarcodeScanner() {
+        if (!barcodeInput) {
+            return;
+        }
+
+        if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
+            setScanStatus('Camera scanning is not available on this browser.');
+            return;
+        }
+
+        try {
+            scanActive = true;
+            if (scanPanel) {
+                scanPanel.classList.remove('d-none');
+            }
+            if (startScanButton) {
+                startScanButton.classList.add('d-none');
+            }
+            if (stopScanButton) {
+                stopScanButton.classList.remove('d-none');
+            }
+
+            if ('BarcodeDetector' in window) {
+                scanDetector = new window.BarcodeDetector({
+                    formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39']
+                });
+                scanStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: 'environment' } },
+                    audio: false
+                });
+                if (scanVideo) {
+                    scanVideo.srcObject = scanStream;
+                }
+                setScanStatus('Camera barcode scanner is live. Point the packaging barcode inside the frame.');
+                scanTimer = window.setInterval(detectBarcodeFrame, 600);
+            } else {
+                if (scanVideo) {
+                    scanVideo.classList.add('d-none');
+                }
+                await startHtml5ScannerFallback();
+            }
+        } catch (error) {
+            stopBarcodeScanner(false);
+            setScanStatus('Unable to start the camera. Check camera permission and try again.');
+        }
+    }
+
+    if (startScanButton) {
+        startScanButton.addEventListener('click', function () {
+            startBarcodeScanner();
+        });
+    }
+
+    if (stopScanButton) {
+        stopScanButton.addEventListener('click', function () {
+            stopBarcodeScanner(true);
+        });
+    }
+
+    window.addEventListener('beforeunload', function () {
+        stopBarcodeScanner(false);
+    });
 });
 </script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+.inventory-camera-panel video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.inventory-camera-reader {
+    width: 100%;
+    min-height: 240px;
+}
+</style>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

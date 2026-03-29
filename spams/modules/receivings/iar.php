@@ -7,6 +7,21 @@ function receiving_type_label(string $type): string
     return $type === 'equipment' ? 'Equipment' : ($type === 'semi_expendable' ? 'Semi-Expendable' : 'Supplies');
 }
 
+function iar_fund_cluster_label(array $row): string
+{
+    $value = trim((string) ($row['fund_source'] ?? ''));
+    if ($value !== '') {
+        return $value;
+    }
+
+    $value = trim((string) ($row['fund_code'] ?? ''));
+    if ($value !== '') {
+        return $value;
+    }
+
+    return '';
+}
+
 $db = db();
 $receivingId = (int) ($_GET['id'] ?? 0);
 
@@ -17,9 +32,9 @@ if (!$db || $receivingId <= 0) {
 }
 
 $headerStmt = $db->prepare(
-    "SELECT r.id, r.system_reference, r.ris_no, r.received_date, r.delivery_receipt_no, r.invoice_no, r.remarks, r.status,
+    "SELECT r.id, r.system_reference, r.ris_no, r.received_date, r.delivery_receipt_no, r.invoice_no, r.inspected_by, r.remarks, r.status,
             po.po_number, po.po_date, po.supplier_address,
-            s.supplier_name, f.fund_code,
+            s.supplier_name, s.tin_no, f.fund_code, f.fund_source, f.fund_name,
             o.office_name, o.office_code,
             d.name AS department_name, rc.code AS responsibility_center_code
      FROM receivings r
@@ -92,6 +107,8 @@ foreach ($items as $itm) {
     $totalRejected += (float) ($itm['quantity_rejected'] ?? 0);
     $grandTotal += (float) ($itm['unit_cost'] ?? 0) * (float) ($itm['quantity_accepted'] ?? 0);
 }
+$fundClusterLabel = iar_fund_cluster_label($receiving);
+$blankRows = max(0, 10 - count($items));
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -101,12 +118,11 @@ foreach ($items as $itm) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { color:#000; font-family:"Times New Roman", Times, serif; font-size:12px; }
-        .iar-wrap { margin:0 auto; max-width:980px; }
+        .iar-wrap { margin:0 auto; max-width:900px; }
         .iar-toolbar { margin:1rem 0; }
         .iar-appendix { font-size:11px; font-style:italic; text-align:right; }
-        .iar-title { font-size:18px; font-weight:700; letter-spacing:.03em; text-align:center; text-transform:uppercase; }
-        .iar-subtitle { font-size:11px; text-align:center; }
-        .iar-entity { border-bottom:1px solid #000; display:inline-block; font-weight:700; min-width:260px; padding:0 1rem .1rem; }
+        .iar-title { font-size:22px; font-weight:700; text-align:center; text-transform:uppercase; }
+        .iar-header-line { border-bottom:1px solid #000; display:inline-block; min-height:16px; min-width:120px; padding:0 .25rem; }
         .iar-meta-table td,
         .iar-items-table td,
         .iar-items-table th,
@@ -115,21 +131,23 @@ foreach ($items as $itm) {
         .iar-items-table,
         .iar-footer-table { width:100%; border-collapse:collapse; }
         .iar-meta-table td,
-        .iar-footer-table td { font-size:11px; padding:.18rem .32rem; vertical-align:top; }
-        .iar-label { font-weight:700; white-space:nowrap; width:16%; }
+        .iar-footer-table td { font-size:11px; padding:.12rem .24rem; vertical-align:top; }
+        .iar-label { font-weight:700; white-space:nowrap; width:18%; }
         .iar-items-table th,
-        .iar-items-table td { font-size:10.5px; padding:.24rem .28rem; vertical-align:top; }
-        .iar-items-table th { text-align:center; }
-        .iar-description-meta { color:#333; font-size:10px; }
-        .iar-signatures td { height:96px; vertical-align:bottom; }
-        .iar-line { border-bottom:1px solid #000; height:34px; margin-bottom:4px; }
+        .iar-items-table td { font-size:10.5px; padding:.2rem .28rem; vertical-align:top; }
+        .iar-items-table th { font-size:11px; padding:.18rem .28rem; font-style:italic; text-align:center; }
+        .iar-signatures td { height:118px; vertical-align:top; }
         .iar-note { font-size:10.5px; line-height:1.25; }
-        .iar-cell-title { font-weight:700; }
-        .iar-min-rows td { height:28px; }
+        .iar-cell-title { font-size:18px; font-style:italic; font-weight:700; text-align:center; }
+        .iar-min-rows td { height:27px; }
+        .iar-sign-line { border-bottom:1px solid #000; height:20px; margin:.7rem auto .2rem; width:88%; }
+        .iar-checkbox { border:1px solid #000; display:inline-block; height:20px; margin-right:.35rem; vertical-align:middle; width:20px; }
+        .iar-check-row { align-items:center; display:flex; gap:.35rem; margin-top:.45rem; }
+        .iar-blank { border-bottom:1px solid #000; display:inline-block; min-width:120px; min-height:14px; }
         .no-print { display:block; }
         @media print {
             .no-print { display:none !important; }
-            @page { size: A4 portrait; margin: 0.45in; }
+            @page { size: 8.5in 13in; margin: 0.5in 0.45in; }
             body { margin:0; }
         }
     </style>
@@ -144,68 +162,54 @@ foreach ($items as $itm) {
         </div>
 
         <div class="iar-appendix">Appendix 62</div>
-        <div class="iar-title">Inspection and Acceptance Report</div>
-        <div class="iar-subtitle">Entity Name</div>
-        <div class="text-center mb-3"><span class="iar-entity">University of Antique</span></div>
+        <div class="iar-title mb-3">Inspection and Acceptance Report</div>
 
         <table class="iar-meta-table mb-2">
             <tr>
-                <td class="iar-label">Supplier</td>
-                <td colspan="3"><?php echo h($receiving['supplier_name']); ?></td>
-                <td class="iar-label">Fund Cluster</td>
-                <td><?php echo h($receiving['fund_code']); ?></td>
+                <td class="iar-label">Entity Name :</td>
+                <td colspan="3"><?php echo h('University of Antique'); ?></td>
+                <td class="iar-label">Fund Cluster :</td>
+                <td><?php echo h($fundClusterLabel); ?></td>
             </tr>
             <tr>
-                <td class="iar-label">Address</td>
-                <td colspan="3"><?php echo h($receiving['supplier_address'] ?: ''); ?></td>
-                <td class="iar-label">IAR No.</td>
+                <td class="iar-label">Supplier :</td>
+                <td colspan="3"><?php echo h($receiving['supplier_name']); ?></td>
+                <td class="iar-label">IAR No. :</td>
                 <td><?php echo h($receiving['ris_no'] ?: $receiving['system_reference']); ?></td>
             </tr>
             <tr>
-                <td class="iar-label">P.O. No. / Date</td>
-                <td colspan="3"><?php echo h($receiving['po_number']); ?> / <?php echo h(date('M d, Y', strtotime((string) $receiving['po_date']))); ?></td>
-                <td class="iar-label">Date</td>
-                <td><?php echo h(date('M d, Y', strtotime((string) $receiving['received_date']))); ?></td>
+                <td class="iar-label">PO No./Date :</td>
+                <td colspan="3"><?php echo h($receiving['po_number']); ?> / <?php echo h(format_date((string) $receiving['po_date'])); ?></td>
+                <td class="iar-label">Date :</td>
+                <td><?php echo h(format_date((string) $receiving['received_date'])); ?></td>
             </tr>
             <tr>
-                <td class="iar-label">Office / Department</td>
+                <td class="iar-label">Requisitioning Office/Dept. :</td>
                 <td colspan="3"><?php echo h(trim((string) ($receiving['office_name'] ?? '')) . (!empty($receiving['department_name']) ? ' / ' . (string) $receiving['department_name'] : '')); ?></td>
-                <td class="iar-label">RC Code</td>
-                <td><?php echo h($receiving['responsibility_center_code'] ?: ''); ?></td>
+                <td class="iar-label">Invoice No. :</td>
+                <td><?php echo h($receiving['invoice_no'] ?: ''); ?></td>
             </tr>
             <tr>
-                <td class="iar-label">Delivery Receipt No.</td>
+                <td class="iar-label">Responsibility Center Code :</td>
+                <td colspan="3"><?php echo h($receiving['responsibility_center_code'] ?: ''); ?></td>
+                <td class="iar-label">Date :</td>
                 <td><?php echo h($receiving['delivery_receipt_no'] ?: ''); ?></td>
-                <td class="iar-label">Invoice No.</td>
-                <td><?php echo h($receiving['invoice_no'] ?: ''); ?></td>
-                <td class="iar-label">Remarks</td>
-                <td><?php echo h($receiving['remarks'] ?: ''); ?></td>
             </tr>
         </table>
 
         <table class="iar-items-table mb-2">
             <thead>
                 <tr>
-                    <th style="width:16%;">Stock / Property No.</th>
+                    <th style="width:17%;">Stock/<br>Property No.</th>
                     <th>Description</th>
-                    <th style="width:8%;">Unit</th>
-                    <th style="width:8%;">Qty Ordered</th>
-                    <th style="width:8%;">Qty Delivered</th>
-                    <th style="width:8%;">Qty Accepted</th>
-                    <th style="width:8%;">Qty Rejected</th>
-                    <th style="width:10%;">Unit Cost</th>
-                    <th style="width:12%;">Amount</th>
+                    <th style="width:14%;">Unit</th>
+                    <th style="width:14%;">Quantity</th>
                 </tr>
             </thead>
             <tbody class="iar-min-rows">
                 <?php foreach ($items as $it): ?>
                     <?php
-                        $qtyOrdered = (float) ($it['qty_ordered'] ?? 0);
-                        $qtyDelivered = (float) ($it['quantity_delivered'] ?? 0);
                         $qtyAccepted = (float) ($it['quantity_accepted'] ?? 0);
-                        $qtyRejected = (float) ($it['quantity_rejected'] ?? 0);
-                        $unitCost = (float) ($it['unit_cost'] ?? 0);
-                        $lineTotal = round($unitCost * $qtyAccepted, 2);
                         $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
                         $description = trim((string) ($it['classification_name'] ?? ''));
                         if (!empty($it['item_description'])) {
@@ -217,56 +221,54 @@ foreach ($items as $itm) {
                             <?php if ((string) ($it['item_type'] ?? '') === 'supply' && !empty($it['stock_no'])): ?>
                                 <?php echo h($it['stock_no']); ?>
                             <?php elseif (in_array((string) ($it['item_type'] ?? ''), ['semi_expendable', 'equipment'], true)): ?>
-                                <span class="text-muted">To be assigned upon distribution</span>
+                                &nbsp;
                             <?php endif; ?>
                         </td>
-                        <td>
-                            <div><?php echo nl2br(h($description)); ?></div>
-                            <div class="iar-description-meta"><?php echo h(receiving_type_label((string) $it['item_type'])); ?><?php echo !empty($it['account_code']) ? ' | ' . h($it['account_code']) : ''; ?></div>
-                        </td>
+                        <td><?php echo nl2br(h($description)); ?></td>
                         <td><?php echo h($unitLabel); ?></td>
-                        <td class="text-end"><?php echo h(number_format($qtyOrdered, 2)); ?></td>
-                        <td class="text-end"><?php echo h(number_format($qtyDelivered, 2)); ?></td>
-                        <td class="text-end"><?php echo h(number_format($qtyAccepted, 2)); ?></td>
-                        <td class="text-end"><?php echo h(number_format($qtyRejected, 2)); ?></td>
-                        <td class="text-end"><?php echo h(number_format($unitCost, 2)); ?></td>
-                        <td class="text-end"><?php echo h(number_format($lineTotal, 2)); ?></td>
+                        <td class="text-end"><?php echo h(format_quantity($qtyAccepted)); ?></td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (!$items): ?>
-                    <tr><td colspan="9" class="text-center">No accepted items found.</td></tr>
+                    <tr><td colspan="4" class="text-center">No accepted items found.</td></tr>
                 <?php endif; ?>
+                <?php for ($i = 0; $i < $blankRows; $i++): ?>
+                    <tr>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                    </tr>
+                <?php endfor; ?>
             </tbody>
-            <tfoot>
-                <tr>
-                    <td colspan="4" class="text-end fw-bold">Total</td>
-                    <td class="text-end fw-bold"><?php echo h(number_format($totalDelivered, 2)); ?></td>
-                    <td class="text-end fw-bold"><?php echo h(number_format($totalAccepted, 2)); ?></td>
-                    <td class="text-end fw-bold"><?php echo h(number_format($totalRejected, 2)); ?></td>
-                    <td></td>
-                    <td class="text-end fw-bold"><?php echo h(number_format($grandTotal, 2)); ?></td>
-                </tr>
-            </tfoot>
         </table>
 
         <table class="iar-footer-table iar-signatures">
             <tr>
                 <td style="width:50%;">
                     <div class="iar-cell-title">Inspection</div>
-                    <div><strong>Date Inspected:</strong> <?php echo h(date('M d, Y', strtotime((string) $receiving['received_date']))); ?></div>
-                    <div class="mt-2 iar-note">Inspected, verified, and found in order as to quantity and specifications.</div>
-                    <div class="iar-line"></div>
+                    <div><strong>Date Inspected :</strong> <span class="iar-blank"><?php echo h(format_date((string) $receiving['received_date'])); ?></span></div>
+                    <div class="iar-check-row mt-3">
+                        <span class="iar-checkbox"></span>
+                        <span class="iar-note">Inspected, verified and found in order as to quantity and specifications</span>
+                    </div>
+                    <div class="iar-sign-line"></div>
+                    <div class="text-center fw-semibold"><?php echo h($receiving['inspected_by'] ?: ''); ?></div>
                     <div class="text-center">Inspection Officer / Inspection Committee</div>
                 </td>
                 <td style="width:50%;">
                     <div class="iar-cell-title">Acceptance</div>
-                    <div><strong>Date Received:</strong> <?php echo h(date('M d, Y', strtotime((string) $receiving['received_date']))); ?></div>
-                    <div class="mt-2">
-                        <?php $isComplete = ($totalDelivered >= array_sum(array_map(function ($row) { return (float) ($row['qty_ordered'] ?? 0); }, $items))); ?>
-                        <div>[ <?php echo $isComplete ? '/' : '&nbsp;'; ?> ] Complete</div>
-                        <div>[ <?php echo !$isComplete ? '/' : '&nbsp;'; ?> ] Partial (pls. specify quantity)</div>
+                    <div><strong>Date Received :</strong> <span class="iar-blank"><?php echo h(format_date((string) $receiving['received_date'])); ?></span></div>
+                    <?php $isComplete = ($totalDelivered >= array_sum(array_map(function ($row) { return (float) ($row['qty_ordered'] ?? 0); }, $items))); ?>
+                    <div class="iar-check-row mt-3">
+                        <span class="iar-checkbox"><?php echo $isComplete ? '&#10003;' : ''; ?></span>
+                        <span>Complete</span>
                     </div>
-                    <div class="iar-line"></div>
+                    <div class="iar-check-row">
+                        <span class="iar-checkbox"><?php echo !$isComplete ? '&#10003;' : ''; ?></span>
+                        <span>Partial (pls. specify quantity)</span>
+                    </div>
+                    <div class="iar-sign-line"></div>
                     <div class="text-center">Supply and/or Property Custodian</div>
                 </td>
             </tr>

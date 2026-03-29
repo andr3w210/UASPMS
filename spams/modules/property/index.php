@@ -8,6 +8,12 @@ $itemType = trim($_GET['item_type'] ?? '');
 $sourceFilter = trim($_GET['source'] ?? '');
 $dateFrom = trim($_GET['date_from'] ?? '');
 $dateTo = trim($_GET['date_to'] ?? '');
+$page = max(1, (int) ($_GET['page'] ?? 1));
+$perPage = (int) ($_GET['per_page'] ?? 20);
+$allowedPerPage = [20, 50, 100];
+if (!in_array($perPage, $allowedPerPage, true)) {
+    $perPage = 20;
+}
 
 if (!in_array($itemType, ['', 'equipment', 'semi_expendable'], true)) {
     $itemType = '';
@@ -18,8 +24,9 @@ if (!in_array($sourceFilter, ['', 'system', 'legacy'], true)) {
 
 $rows = [];
 $offices = [];
-$classifications = [];
 $summary = ['total' => 0, 'equipment' => 0, 'semi_expendable' => 0, 'legacy' => 0];
+$total = 0;
+$totalPages = 0;
 
 if ($db) {
     $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
@@ -27,179 +34,164 @@ if ($db) {
         $offices = $res->fetch_all(MYSQLI_ASSOC);
     }
 
-    $res = $db->query("SELECT id, classification_name, classification_family FROM classifications WHERE is_active = 1 ORDER BY classification_family ASC, classification_name ASC");
-    if ($res instanceof mysqli_result) {
-        $classifications = $res->fetch_all(MYSQLI_ASSOC);
-    }
+    $queries = [];
+    $params = [];
+    $types = '';
 
     if ($sourceFilter !== 'legacy') {
-        $sql = "SELECT
-                    did.id AS detail_id,
-                    did.property_number AS property_no,
-                    CONCAT('system:', did.id) AS asset_key,
-                    poi.item_type,
-                    poi.item_description AS description,
-                    c.classification_name,
-                    c.classification_family,
-                    did.brand,
-                    did.model,
-                    did.serial_no,
-                    COALESCE(curr_o.office_name, o.office_name) AS office_name,
-                    COALESCE(curr_e.first_name, e.first_name) AS first_name,
-                    COALESCE(curr_e.middle_name, e.middle_name) AS middle_name,
-                    COALESCE(curr_e.last_name, e.last_name) AS last_name,
-                    COALESCE(curr_e.suffix_name, e.suffix_name) AS suffix_name,
-                    d.distribution_date AS record_date,
-                    d.document_no AS document_no,
-                    d.document_type,
-                    d.id AS distribution_id,
-                    'system' AS source_type
-                FROM distribution_item_details did
-                INNER JOIN distribution_items di ON di.id = did.distribution_item_id
-                INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
-                INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
-                INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
-                LEFT JOIN classifications c ON c.id = poi.classification_id
-                LEFT JOIN offices o ON o.id = d.office_id
-                LEFT JOIN employees e ON e.id = d.employee_id
-                LEFT JOIN offices curr_o ON curr_o.id = did.current_office_id
-                LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id
-                WHERE poi.item_type IN ('equipment', 'semi_expendable')
-                  AND did.is_distributed = 1
-                  AND (did.is_disposed IS NULL OR did.is_disposed = 0)";
-        $params = [];
-        $types = '';
+        $systemSql = "SELECT
+                did.id AS detail_id,
+                did.property_number AS property_no,
+                CONCAT('system:', did.id) AS asset_key,
+                poi.item_type,
+                poi.item_description AS description,
+                c.classification_name,
+                c.classification_family,
+                did.brand,
+                did.model,
+                did.serial_no,
+                COALESCE(curr_o.office_name, o.office_name) AS office_name,
+                COALESCE(curr_e.first_name, e.first_name) AS first_name,
+                COALESCE(curr_e.middle_name, e.middle_name) AS middle_name,
+                COALESCE(curr_e.last_name, e.last_name) AS last_name,
+                COALESCE(curr_e.suffix_name, e.suffix_name) AS suffix_name,
+                d.distribution_date AS record_date,
+                d.document_no AS document_no,
+                d.document_type,
+                d.id AS distribution_id,
+                'system' AS source_type
+            FROM distribution_item_details did
+            INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+            INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
+            INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
+            INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+            LEFT JOIN classifications c ON c.id = poi.classification_id
+            LEFT JOIN offices o ON o.id = d.office_id
+            LEFT JOIN employees e ON e.id = d.employee_id
+            LEFT JOIN offices curr_o ON curr_o.id = did.current_office_id
+            LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id
+            WHERE poi.item_type IN ('equipment', 'semi_expendable')
+              AND did.is_distributed = 1
+              AND (did.is_disposed IS NULL OR did.is_disposed = 0)";
 
         if ($officeId > 0) {
-            $sql .= " AND d.office_id = ?";
+            $systemSql .= " AND d.office_id = ?";
             $types .= 'i';
             $params[] = $officeId;
         }
         if ($itemType !== '') {
-            $sql .= " AND poi.item_type = ?";
+            $systemSql .= " AND poi.item_type = ?";
             $types .= 's';
             $params[] = $itemType;
         }
         if ($dateFrom !== '') {
-            $sql .= " AND d.distribution_date >= ?";
+            $systemSql .= " AND d.distribution_date >= ?";
             $types .= 's';
             $params[] = $dateFrom;
         }
         if ($dateTo !== '') {
-            $sql .= " AND d.distribution_date <= ?";
+            $systemSql .= " AND d.distribution_date <= ?";
             $types .= 's';
             $params[] = $dateTo;
         }
-        $sql .= " ORDER BY d.distribution_date DESC, did.id DESC";
 
-        $stmt = $db->prepare($sql);
-        if ($stmt) {
-            if ($types !== '') {
-                $refs = [$types];
-                foreach ($params as $k => $v) {
-                    $refs[] = &$params[$k];
-                }
-                call_user_func_array([$stmt, 'bind_param'], $refs);
-            }
-            $stmt->execute();
-            $res = $stmt->get_result();
-            while ($res && ($row = $res->fetch_assoc())) {
-                $rows[] = $row;
-            }
-            $stmt->close();
-        }
+        $queries[] = $systemSql;
     }
 
     if ($sourceFilter !== 'system') {
         $legacySql = "SELECT
-                        la.id AS detail_id,
-                        la.property_number AS property_no,
-                        CONCAT('legacy:', la.id) AS asset_key,
-                        la.item_type,
-                        la.item_description AS description,
-                        c.classification_name,
-                        c.classification_family,
-                        la.brand,
-                        la.model,
-                        la.serial_no,
-                        o.office_name,
-                        e.first_name,
-                        e.middle_name,
-                        e.last_name,
-                        e.suffix_name,
-                        la.acquisition_date AS record_date,
-                        'Beginning Balance' AS document_no,
-                        'legacy' AS document_type,
-                        0 AS distribution_id,
-                        'legacy' AS source_type
-                    FROM legacy_assets la
-                    LEFT JOIN classifications c ON c.id = la.classification_id
-                    LEFT JOIN offices o ON o.id = la.office_id
-                    LEFT JOIN employees e ON e.id = la.employee_id
-                    WHERE la.is_active = 1
-                      AND la.item_type IN ('equipment', 'semi_expendable')";
-        $legacyParams = [];
-        $legacyTypes = '';
+                la.id AS detail_id,
+                la.property_number AS property_no,
+                CONCAT('legacy:', la.id) AS asset_key,
+                la.item_type,
+                la.item_description AS description,
+                c.classification_name,
+                c.classification_family,
+                la.brand,
+                la.model,
+                la.serial_no,
+                o.office_name,
+                e.first_name,
+                e.middle_name,
+                e.last_name,
+                e.suffix_name,
+                la.acquisition_date AS record_date,
+                'Beginning Balance' AS document_no,
+                'legacy' AS document_type,
+                0 AS distribution_id,
+                'legacy' AS source_type
+            FROM legacy_assets la
+            LEFT JOIN classifications c ON c.id = la.classification_id
+            LEFT JOIN offices o ON o.id = la.office_id
+            LEFT JOIN employees e ON e.id = la.employee_id
+            WHERE la.is_active = 1
+              AND la.item_type IN ('equipment', 'semi_expendable')";
 
         if ($officeId > 0) {
             $legacySql .= " AND la.office_id = ?";
-            $legacyTypes .= 'i';
-            $legacyParams[] = $officeId;
+            $types .= 'i';
+            $params[] = $officeId;
         }
         if ($itemType !== '') {
             $legacySql .= " AND la.item_type = ?";
-            $legacyTypes .= 's';
-            $legacyParams[] = $itemType;
+            $types .= 's';
+            $params[] = $itemType;
         }
         if ($dateFrom !== '') {
             $legacySql .= " AND (la.acquisition_date IS NULL OR la.acquisition_date >= ?)";
-            $legacyTypes .= 's';
-            $legacyParams[] = $dateFrom;
+            $types .= 's';
+            $params[] = $dateFrom;
         }
         if ($dateTo !== '') {
             $legacySql .= " AND (la.acquisition_date IS NULL OR la.acquisition_date <= ?)";
-            $legacyTypes .= 's';
-            $legacyParams[] = $dateTo;
+            $types .= 's';
+            $params[] = $dateTo;
         }
-        $legacySql .= " ORDER BY la.acquisition_date DESC, la.id DESC";
 
-        $legacyStmt = $db->prepare($legacySql);
-        if ($legacyStmt) {
-            if ($legacyTypes !== '') {
-                $refs = [$legacyTypes];
-                foreach ($legacyParams as $k => $v) {
-                    $refs[] = &$legacyParams[$k];
+        $queries[] = $legacySql;
+    }
+
+    if ($queries) {
+        $unionSql = implode(" UNION ALL ", $queries);
+        $countSql = "SELECT COUNT(*) AS total FROM (" . $unionSql . ") asset_registry_rows";
+        $dataSql = "SELECT * FROM (" . $unionSql . ") asset_registry_rows ORDER BY record_date DESC, property_no DESC, detail_id DESC";
+        $summarySql = "
+            SELECT
+                COUNT(*) AS total_count,
+                SUM(CASE WHEN item_type = 'equipment' THEN 1 ELSE 0 END) AS equipment_count,
+                SUM(CASE WHEN item_type = 'semi_expendable' THEN 1 ELSE 0 END) AS semi_count,
+                SUM(CASE WHEN source_type = 'legacy' THEN 1 ELSE 0 END) AS legacy_count
+            FROM (" . $unionSql . ") asset_registry_rows
+        ";
+
+        $pageData = paginate($db, $countSql, $dataSql, $params, $types, $page, $perPage);
+        $rows = $pageData['data'];
+        $total = $pageData['total'];
+        $page = $pageData['page'];
+        $totalPages = $pageData['total_pages'];
+
+        $summaryStmt = $db->prepare($summarySql);
+        if ($summaryStmt) {
+            if ($types !== '') {
+                $refs = [$types];
+                foreach ($params as $key => $value) {
+                    $refs[] = &$params[$key];
                 }
-                call_user_func_array([$legacyStmt, 'bind_param'], $refs);
+                call_user_func_array([$summaryStmt, 'bind_param'], $refs);
             }
-            $legacyStmt->execute();
-            $legacyRes = $legacyStmt->get_result();
-            while ($legacyRes && ($legacyRow = $legacyRes->fetch_assoc())) {
-                $rows[] = $legacyRow;
+            $summaryStmt->execute();
+            $summaryRow = $summaryStmt->get_result()->fetch_assoc();
+            $summaryStmt->close();
+
+            if ($summaryRow) {
+                $summary = [
+                    'total' => (int) ($summaryRow['total_count'] ?? 0),
+                    'equipment' => (int) ($summaryRow['equipment_count'] ?? 0),
+                    'semi_expendable' => (int) ($summaryRow['semi_count'] ?? 0),
+                    'legacy' => (int) ($summaryRow['legacy_count'] ?? 0),
+                ];
             }
-            $legacyStmt->close();
         }
-    }
-}
-
-usort($rows, static function (array $a, array $b): int {
-    $aDate = $a['record_date'] ?? '';
-    $bDate = $b['record_date'] ?? '';
-    if ($aDate === $bDate) {
-        return strcmp((string) ($b['property_no'] ?? ''), (string) ($a['property_no'] ?? ''));
-    }
-    return strcmp((string) $bDate, (string) $aDate);
-});
-
-foreach ($rows as $summaryRow) {
-    $summary['total']++;
-    if (($summaryRow['item_type'] ?? '') === 'semi_expendable') {
-        $summary['semi_expendable']++;
-    } else {
-        $summary['equipment']++;
-    }
-    if (($summaryRow['source_type'] ?? '') === 'legacy') {
-        $summary['legacy']++;
     }
 }
 
@@ -222,9 +214,33 @@ function registry_source_label(string $sourceType): string
     return $sourceType === 'legacy' ? 'Beginning Balance' : 'System Transaction';
 }
 
+function build_registry_url(array $overrides = []): string
+{
+    $params = [
+        'office_id' => $_GET['office_id'] ?? '',
+        'item_type' => $_GET['item_type'] ?? '',
+        'source' => $_GET['source'] ?? '',
+        'date_from' => $_GET['date_from'] ?? '',
+        'date_to' => $_GET['date_to'] ?? '',
+        'per_page' => $_GET['per_page'] ?? 20,
+        'page' => $_GET['page'] ?? 1,
+    ];
+
+    foreach ($overrides as $key => $value) {
+        $params[$key] = $value;
+    }
+
+    return '?' . http_build_query(array_filter($params, static function ($value) {
+        return $value !== '' && $value !== null;
+    }));
+}
+
 require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
+
+$rangeStart = $total > 0 ? (($page - 1) * $perPage) + 1 : 0;
+$rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
 ?>
 <section class="row g-4">
     <div class="col-12">
@@ -235,7 +251,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <h5 class="card-title mb-0">Asset Registry</h5>
                         <div class="small text-muted">Unified action workspace for equipment and semi-expendable assets, including beginning balance entries.</div>
                     </div>
-                    <span id="recordCount" class="text-muted small"><?php echo count($rows); ?> record(s)</span>
+                    <span class="text-muted small">
+                        <?php if ($total > 0): ?>
+                            Showing <?php echo number_format($rangeStart); ?>-<?php echo number_format($rangeEnd); ?> of <?php echo number_format($total); ?> record(s)
+                        <?php else: ?>
+                            0 record(s)
+                        <?php endif; ?>
+                    </span>
                 </div>
 
                 <div class="row g-3 mb-4">
@@ -301,66 +323,30 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <label class="form-label mb-0">To</label>
                         <input type="date" name="date_to" class="form-control form-control-sm" value="<?php echo h($dateTo); ?>">
                     </div>
-                    <div class="col-md-1 d-grid">
+                    <div class="col-md-1">
+                        <label class="form-label mb-0">Rows</label>
+                        <select name="per_page" class="form-select form-select-sm">
+                            <?php foreach ($allowedPerPage as $perPageOption): ?>
+                                <option value="<?php echo $perPageOption; ?>" <?php echo $perPage === $perPageOption ? 'selected' : ''; ?>>
+                                    <?php echo $perPageOption; ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-grid">
                         <button class="btn btn-sm btn-primary">Apply</button>
                     </div>
                 </form>
 
-                <div class="row g-2 align-items-end mb-3">
-                    <div class="col-md-4">
-                        <label for="tableSearch" class="form-label mb-0">Search</label>
-                        <input type="search" id="tableSearch" class="form-control form-control-sm" placeholder="Search property no., description, brand, model, office, accountable...">
-                    </div>
-                    <div class="col-md-2">
-                        <label for="typeFilter" class="form-label mb-0">Quick Type Filter</label>
-                        <select id="typeFilter" class="form-select form-select-sm">
-                            <option value="">All Types</option>
-                            <option value="equipment">Equipment</option>
-                            <option value="semi_expendable">Semi-Expendable</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label for="classificationFilter" class="form-label mb-0">Classification</label>
-                        <select id="classificationFilter" class="form-select form-select-sm">
-                            <option value="">All Classifications</option>
-                            <?php foreach ($classifications as $classification): ?>
-                                <?php
-                                $classificationValue = trim((string) ($classification['classification_name'] ?? ''));
-                                if ($classificationValue === '') {
-                                    continue;
-                                }
-                                $classificationLabel = trim((!empty($classification['classification_family']) ? $classification['classification_family'] . ' / ' : '') . $classificationValue);
-                                ?>
-                                <option value="<?php echo h(strtolower($classificationValue)); ?>"><?php echo h($classificationLabel); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="col-md-1">
-                        <label for="perPageSelect" class="form-label mb-0">Rows</label>
-                        <select id="perPageSelect" class="form-select form-select-sm">
-                            <option value="25">25</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                        </select>
-                    </div>
-                    <div class="col-md-2 text-md-end">
-                        <div id="pageInfo" class="small text-muted mb-1"></div>
-                        <div class="btn-group btn-group-sm">
-                            <button type="button" id="prevPage" class="btn btn-outline-secondary">Prev</button>
-                            <button type="button" id="nextPage" class="btn btn-outline-secondary">Next</button>
-                        </div>
-                    </div>
-                </div>
-
                 <div class="table-responsive">
-                    <table class="table table-sm align-middle" id="dataTable">
+                    <table class="table table-sm align-middle">
                         <thead>
                             <tr>
-                                <th data-sort="property_no" style="min-width: 180px;">Asset</th>
-                                <th data-sort="classification" style="min-width: 300px;">Classification / Description</th>
-                                <th data-sort="brand_model" style="min-width: 180px;">Item Details</th>
-                                <th data-sort="office_name" style="min-width: 220px;">Assignment</th>
-                                <th data-sort="document_no" style="min-width: 200px;">Reference / Source</th>
+                                <th style="min-width: 180px;">Asset</th>
+                                <th style="min-width: 300px;">Classification / Description</th>
+                                <th style="min-width: 180px;">Item Details</th>
+                                <th style="min-width: 220px;">Assignment</th>
+                                <th style="min-width: 200px;">Reference / Source</th>
                                 <th style="min-width: 180px;">Actions</th>
                             </tr>
                         </thead>
@@ -379,11 +365,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     $assetKey = (string) ($row['asset_key'] ?? '');
                                     $propertyNo = (string) ($row['property_no'] ?? '');
                                     ?>
-                                    <tr
-                                        data-type="<?php echo h((string) ($row['item_type'] ?? '')); ?>"
-                                        data-classification="<?php echo h(strtolower($classificationText)); ?>"
-                                        data-source="<?php echo h((string) ($row['source_type'] ?? 'system')); ?>"
-                                    >
+                                    <tr>
                                         <td>
                                             <div class="fw-semibold"><?php echo h($row['property_no'] ?? ''); ?></div>
                                             <?php if (($row['item_type'] ?? '') === 'semi_expendable'): ?>
@@ -453,108 +435,38 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </tbody>
                     </table>
                 </div>
+
+                <?php if ($totalPages > 1): ?>
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+                        <div class="small text-muted">
+                            Page <?php echo number_format($page); ?> of <?php echo number_format($totalPages); ?>
+                        </div>
+                        <nav aria-label="Asset registry pagination">
+                            <ul class="pagination pagination-sm mb-0">
+                                <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
+                                    <a class="page-link" href="<?php echo $page <= 1 ? '#' : h(build_registry_url(['page' => $page - 1])); ?>">Previous</a>
+                                </li>
+                                <?php
+                                $startPage = max(1, $page - 2);
+                                $endPage = min($totalPages, $page + 2);
+                                for ($pageNumber = $startPage; $pageNumber <= $endPage; $pageNumber++):
+                                ?>
+                                    <li class="page-item <?php echo $pageNumber === $page ? 'active' : ''; ?>">
+                                        <a class="page-link" href="<?php echo h(build_registry_url(['page' => $pageNumber])); ?>">
+                                            <?php echo number_format($pageNumber); ?>
+                                        </a>
+                                    </li>
+                                <?php endfor; ?>
+                                <li class="page-item <?php echo $page >= $totalPages ? 'disabled' : ''; ?>">
+                                    <a class="page-link" href="<?php echo $page >= $totalPages ? '#' : h(build_registry_url(['page' => $page + 1])); ?>">Next</a>
+                                </li>
+                            </ul>
+                        </nav>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
 </section>
-
-<script>
-(function () {
-    var perPage = 25;
-    var currentPage = 1;
-    var sortCol = -1;
-    var sortDir = 'asc';
-
-    function getRows() {
-        return Array.from(document.querySelectorAll('#dataTable tbody tr')).filter(function (row) {
-            return row.cells.length > 1;
-        });
-    }
-
-    function applyFilters() {
-        var term = (document.getElementById('tableSearch')?.value || '').toLowerCase();
-        var type = document.getElementById('typeFilter')?.value || '';
-        var classification = document.getElementById('classificationFilter')?.value || '';
-        var rows = getRows();
-
-        rows.forEach(function (row) {
-            var textMatch = !term || row.textContent.toLowerCase().includes(term);
-            var typeMatch = !type || row.dataset.type === type;
-            var classificationMatch = !classification || row.dataset.classification === classification;
-            row.dataset.visible = (textMatch && typeMatch && classificationMatch) ? '1' : '0';
-        });
-
-        currentPage = 1;
-        renderPage();
-    }
-
-    function renderPage() {
-        var allRows = getRows();
-        var rows = allRows.filter(function (row) { return row.dataset.visible !== '0'; });
-        var total = rows.length;
-        var pages = Math.max(1, Math.ceil(total / perPage));
-        currentPage = Math.min(currentPage, pages);
-
-        allRows.forEach(function (row) { row.style.display = 'none'; });
-
-        var start = (currentPage - 1) * perPage;
-        rows.slice(start, start + perPage).forEach(function (row) { row.style.display = ''; });
-
-        var pageInfo = document.getElementById('pageInfo');
-        if (pageInfo) {
-            pageInfo.textContent = 'Page ' + currentPage + ' of ' + pages;
-        }
-
-        var recordCount = document.getElementById('recordCount');
-        if (recordCount) {
-            recordCount.textContent = 'Showing ' + (rows.length ? Math.min(start + 1, total) : 0) + '-' + Math.min(start + perPage, total) + ' of ' + total + ' records';
-        }
-
-        var prev = document.getElementById('prevPage');
-        var next = document.getElementById('nextPage');
-        if (prev) prev.disabled = currentPage <= 1;
-        if (next) next.disabled = currentPage >= pages;
-    }
-
-    document.getElementById('tableSearch')?.addEventListener('input', applyFilters);
-    document.getElementById('typeFilter')?.addEventListener('change', applyFilters);
-    document.getElementById('classificationFilter')?.addEventListener('change', applyFilters);
-    document.getElementById('prevPage')?.addEventListener('click', function () {
-        currentPage--;
-        renderPage();
-    });
-    document.getElementById('nextPage')?.addEventListener('click', function () {
-        currentPage++;
-        renderPage();
-    });
-    document.getElementById('perPageSelect')?.addEventListener('change', function () {
-        perPage = parseInt(this.value, 10) || 25;
-        currentPage = 1;
-        renderPage();
-    });
-
-    document.querySelectorAll('#dataTable th[data-sort]').forEach(function (th, idx) {
-        th.style.cursor = 'pointer';
-        th.addEventListener('click', function () {
-            var tbody = document.querySelector('#dataTable tbody');
-            var rows = getRows();
-            var dir = (sortCol === idx && sortDir === 'asc') ? 'desc' : 'asc';
-            sortCol = idx;
-            sortDir = dir;
-
-            rows.sort(function (a, b) {
-                var at = (a.cells[idx]?.textContent || '').trim().toLowerCase();
-                var bt = (b.cells[idx]?.textContent || '').trim().toLowerCase();
-                return dir === 'asc' ? at.localeCompare(bt) : bt.localeCompare(at);
-            });
-
-            rows.forEach(function (row) { tbody.appendChild(row); });
-            renderPage();
-        });
-    });
-
-    applyFilters();
-})();
-</script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

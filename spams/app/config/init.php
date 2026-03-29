@@ -3,6 +3,23 @@
 require_once __DIR__ . '/constants.php';
 require_once __DIR__ . '/db.php';
 
+ini_set('session.use_strict_mode', '1');
+
+$isHttps = (
+    (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
+    || (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] === '443')
+    || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
+);
+
+session_set_cookie_params([
+    'lifetime' => 60 * 60 * 8,
+    'path' => '/',
+    'domain' => '',
+    'secure' => $isHttps,
+    'httponly' => true,
+    'samesite' => 'Strict',
+]);
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }

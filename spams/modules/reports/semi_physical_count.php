@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $db = db();
 $page_title = 'Physical Count of Semi-Expendable Property';
@@ -11,6 +11,7 @@ $officeId = (int) ($_GET['office_id'] ?? 0);
 $semiType = trim((string) ($_GET['semi_type'] ?? 'all'));
 $asOf = trim((string) ($_GET['as_of'] ?? date('Y-m-d')));
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
+$isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 
 if (!in_array($semiType, ['all', 'high_value', 'low_value'], true)) {
     $semiType = 'all';
@@ -107,6 +108,24 @@ foreach ($rows as $row) {
     $totalValue += (float) ($row['unit_cost'] ?? 0);
 }
 
+if ($isExport) {
+    $exportRows = [];
+    $article = 1;
+    foreach ($rows as $row) {
+        $exportRows[] = [
+            $article++,
+            semi_pc_label($row),
+            $row['property_number'] ?? '',
+            trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
+            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            '1',
+            '1',
+            '0',
+        ];
+    }
+    export_excel_rows('semi_physical_count_' . date('Ymd') . '.xls', ['Article', 'Description', 'Semi-Expendable Property No.', 'Unit', 'Unit Value', 'Balance', 'On Hand', 'Shortage/Overage'], $exportRows);
+}
+
 if ($isPrint) {
     ?>
     <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Physical Count of Semi-Expendable Property</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"><style>body{font-size:12px}table{font-size:11px}@media print{.no-print{display:none!important}}</style></head><body>
@@ -143,7 +162,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 <section class="row g-4"><div class="col-12"><div class="card"><div class="card-body p-4">
 <div class="report-page-shell">
-<div class="report-toolbar"><div><h5 class="report-toolbar-title mb-0">Annex A.8</h5><p class="report-toolbar-copy">Validate current semi-expendable accountability by office and value type before printing the physical count form.</p></div><div class="report-toolbar-actions"><a href="<?php echo h(base_url('modules/reports/semi_physical_count.php?office_id=' . $officeId . '&semi_type=' . urlencode($semiType) . '&as_of=' . urlencode($asOf) . '&print=1')); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a></div></div>
+<div class="report-toolbar"><div><h5 class="report-toolbar-title mb-0">Annex A.8</h5><p class="report-toolbar-copy">Validate current semi-expendable accountability by office and value type before printing the physical count form.</p></div><div class="report-toolbar-actions"><a href="<?php echo h(base_url('modules/reports/semi_physical_count.php?office_id=' . $officeId . '&semi_type=' . urlencode($semiType) . '&as_of=' . urlencode($asOf) . '&export=excel')); ?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</a><a href="<?php echo h(base_url('modules/reports/semi_physical_count.php?office_id=' . $officeId . '&semi_type=' . urlencode($semiType) . '&as_of=' . urlencode($asOf) . '&print=1')); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a></div></div>
 <div class="report-summary-grid"><div class="report-summary-card"><div class="report-summary-label">Loaded Items</div><div class="report-summary-value"><?php echo number_format($rowCount); ?></div><div class="report-summary-note">Semi property rows ready for physical validation.</div></div><div class="report-summary-card"><div class="report-summary-label">Total Unit Value</div><div class="report-summary-value"><?php echo number_format($totalValue, 2); ?></div><div class="report-summary-note">Combined value represented in the current count sheet.</div></div><div class="report-summary-card"><div class="report-summary-label">As Of</div><div class="report-summary-value"><?php echo h(!empty($asOf) ? date('M d, Y', strtotime($asOf)) : '-'); ?></div><div class="report-summary-note">Reference cutoff date for the printed form.</div></div></div>
 <div class="report-filter-card"><h6 class="report-filter-title">Filter Report</h6><form method="get" class="row g-3 align-items-end">
 <div class="col-md-4"><label class="form-label">Office</label><select class="form-select" name="office_id"><option value="0">All offices</option><?php foreach ($offices as $office): ?><option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>><?php echo h($office['office_name']); ?></option><?php endforeach; ?></select></div>

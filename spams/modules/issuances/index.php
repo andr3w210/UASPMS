@@ -338,7 +338,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-4">
                             <div class="border rounded-3 p-3 bg-light-subtle h-100">
                                 <div class="text-muted small">Total On Hand</div>
-                                <div class="fs-5 fw-semibold"><?php echo h(number_format($stockOnHandTotal, 2)); ?></div>
+                                <div class="fs-5 fw-semibold"><?php echo h(format_quantity($stockOnHandTotal)); ?></div>
                             </div>
                         </div>
                         <div class="col-md-4">
@@ -408,7 +408,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         <span class="text-muted"> - <?php echo h($group['item_description']); ?></span>
                                                     </div>
                                                     <div class="small text-muted">
-                                                        <?php echo h(number_format((float) $group['total_on_hand'], 2)); ?> on hand across <?php echo h((string) $group['lot_count']); ?> lot(s)
+                                                        <?php echo h(format_quantity($group['total_on_hand'] ?? 0)); ?> on hand across <?php echo h((string) $group['lot_count']); ?> lot(s)
                                                     </div>
                                                 </div>
                                             </td>
@@ -437,11 +437,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                     <?php echo $stockItem['po_number'] ? ' | PO ' . h($stockItem['po_number']) : ''; ?>
                                                 </div>
                                             </td>
-                                            <td class="text-end"><?php echo h(number_format((float) $stockItem['quantity_received'], 2)); ?></td>
-                                            <td class="text-end"><?php echo h(number_format((float) $stockItem['quantity_issued'], 2)); ?></td>
-                                            <td class="text-end fw-semibold"><?php echo h(number_format((float) $stockItem['quantity_on_hand'], 2)); ?></td>
+                                            <td class="text-end"><?php echo h(format_quantity($stockItem['quantity_received'])); ?></td>
+                                            <td class="text-end"><?php echo h(format_quantity($stockItem['quantity_issued'])); ?></td>
+                                            <td class="text-end fw-semibold"><?php echo h(format_quantity($stockItem['quantity_on_hand'])); ?></td>
                                             <td>
-                                                <input type="number" class="form-control form-control-sm" step="0.01" min="0" max="<?php echo h((string) $stockItem['quantity_on_hand']); ?>" name="items[<?php echo (int) $stockItem['id']; ?>][issue_quantity]" value="0.00">
+                                                <input type="number" class="form-control form-control-sm" step="1" min="0" max="<?php echo h((string) floor((float) $stockItem['quantity_on_hand'])); ?>" name="items[<?php echo (int) $stockItem['id']; ?>][issue_quantity]" value="0">
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm" name="items[<?php echo (int) $stockItem['id']; ?>][remarks]" value="">

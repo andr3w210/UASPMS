@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $db = db();
 $page_title = 'RPCPPE';
@@ -10,6 +10,7 @@ $offices = [];
 $officeId = (int) ($_GET['office_id'] ?? 0);
 $asOf = trim((string) ($_GET['as_of'] ?? date('Y-m-d')));
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
+$isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
@@ -152,10 +153,32 @@ foreach ($rows as $row) {
         $legacyCount++;
     }
 }
+
+if ($isExport) {
+    $exportRows = [];
+    $article = 1;
+    foreach ($rows as $row) {
+        $exportRows[] = [
+            $article++,
+            rpcppe_label($row),
+            $row['property_number'] ?? '',
+            trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
+            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            '1',
+            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            '1',
+            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            '0',
+            '0.00',
+            ($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : '',
+        ];
+    }
+    export_excel_rows('rpcppe_' . date('Ymd') . '.xls', ['Article', 'Description', 'Property Number', 'Unit of Measure', 'Unit Value', 'Qty per Property Card', 'Value per Property Card', 'Qty per Physical Count', 'Value per Physical Count', 'Shortage/Overage Qty', 'Shortage/Overage Value', 'Remarks'], $exportRows);
+}
 ?>
 <section class="row g-4"><div class="col-12"><div class="card"><div class="card-body p-4">
 <div class="report-page-shell">
-<div class="report-toolbar"><div><h5 class="report-toolbar-title mb-0">RPCPPE</h5><p class="report-toolbar-copy">Review current accountable equipment from both posted system transactions and beginning-balance assets, then print the official physical count report.</p></div><div class="report-toolbar-actions"><a href="<?php echo h(base_url('modules/reports/rpcppe.php?office_id=' . $officeId . '&as_of=' . urlencode($asOf) . '&print=1')); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a></div></div>
+<div class="report-toolbar"><div><h5 class="report-toolbar-title mb-0">RPCPPE</h5><p class="report-toolbar-copy">Review current accountable equipment from both posted system transactions and beginning-balance assets, then print the official physical count report.</p></div><div class="report-toolbar-actions"><a href="<?php echo h(base_url('modules/reports/rpcppe.php?office_id=' . $officeId . '&as_of=' . urlencode($asOf) . '&export=excel')); ?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</a><a href="<?php echo h(base_url('modules/reports/rpcppe.php?office_id=' . $officeId . '&as_of=' . urlencode($asOf) . '&print=1')); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a></div></div>
 <div class="report-summary-grid"><div class="report-summary-card"><div class="report-summary-label">Loaded Assets</div><div class="report-summary-value"><?php echo number_format($rowCount); ?></div><div class="report-summary-note">Equipment records in the current count sheet.</div></div><div class="report-summary-card"><div class="report-summary-label">Total Value</div><div class="report-summary-value"><?php echo number_format($totalValue, 2); ?></div><div class="report-summary-note">Combined unit value of the loaded equipment.</div></div><div class="report-summary-card"><div class="report-summary-label">Beginning Balance</div><div class="report-summary-value"><?php echo number_format($legacyCount); ?></div><div class="report-summary-note">Legacy equipment merged into this RPCPPE run.</div></div></div>
 <div class="report-filter-card"><h6 class="report-filter-title">Filter Report</h6><form method="get" class="row g-3 align-items-end"><div class="col-md-4"><label class="form-label">Office</label><select class="form-select" name="office_id"><option value="0">All offices</option><?php foreach ($offices as $office): ?><option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>><?php echo h($office['office_name']); ?></option><?php endforeach; ?></select></div><div class="col-md-4"><label class="form-label">As Of</label><input type="date" class="form-control" name="as_of" value="<?php echo h($asOf); ?>"></div><div class="col-md-4 d-flex gap-2"><button type="submit" class="btn btn-primary">Load Report</button><a href="<?php echo base_url('modules/reports/rpcppe.php'); ?>" class="btn btn-outline-secondary">Reset</a></div></form></div>
 <div class="report-table-card table-responsive"><table class="table align-middle"><thead><tr><th>Article</th><th>Description</th><th>Property No.</th><th class="text-end">Unit Value</th><th>Office / Officer</th><th>Source</th></tr></thead><tbody><?php if ($rows): $i=1; foreach ($rows as $row): ?><tr><td><?php echo $i++; ?></td><td><?php echo h(rpcppe_label($row)); ?></td><td><?php echo h($row['property_number'] ?? ''); ?></td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td><?php echo h(trim(implode(' / ', array_filter([$row['office_name'] ?? '', rpcppe_person($row)])))); ?></td><td><?php echo h(($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : 'System'); ?></td></tr><?php endforeach; else: ?><tr><td colspan="6" class="text-center text-muted py-4">No PPE records found for the selected filters.</td></tr><?php endif; ?></tbody></table></div>

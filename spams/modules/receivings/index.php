@@ -103,6 +103,7 @@ $form = [
     'received_date' => date('Y-m-d'),
     'delivery_receipt_no' => '',
     'invoice_no' => '',
+    'inspected_by' => '',
     'remarks' => '',
 ];
 
@@ -237,6 +238,7 @@ if (!$db) {
         $form['ris_no'] = preview_ris_number($db, $form['received_date']);
         $form['delivery_receipt_no'] = old($_POST, 'delivery_receipt_no');
         $form['invoice_no'] = old($_POST, 'invoice_no');
+        $form['inspected_by'] = old($_POST, 'inspected_by');
         $form['remarks'] = old($_POST, 'remarks');
         $postedItems = $_POST['items'] ?? [];
         $validatedItems = [];
@@ -380,12 +382,12 @@ if (!$db) {
             try {
                 $systemReference = next_module_code($db, 'receivings');
                 $userId = current_user_id();
-                $headerStmt = $db->prepare("INSERT INTO receivings (system_reference, purchase_order_id, ris_no, received_date, delivery_receipt_no, invoice_no, status, remarks, total_received_amount, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $headerStmt = $db->prepare("INSERT INTO receivings (system_reference, purchase_order_id, ris_no, received_date, delivery_receipt_no, invoice_no, inspected_by, status, remarks, total_received_amount, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 if (!$headerStmt) {
                     throw new RuntimeException('Unable to prepare receiving header insert.');
                 }
                 $purchaseOrderId = (int) $form['purchase_order_id'];
-                $headerStmt->bind_param('sissssssdi', $systemReference, $purchaseOrderId, $form['ris_no'], $form['received_date'], $form['delivery_receipt_no'], $form['invoice_no'], $status, $form['remarks'], $totalReceivedAmount, $userId);
+                $headerStmt->bind_param('sisssssssdi', $systemReference, $purchaseOrderId, $form['ris_no'], $form['received_date'], $form['delivery_receipt_no'], $form['invoice_no'], $form['inspected_by'], $status, $form['remarks'], $totalReceivedAmount, $userId);
                 $headerStmt->execute();
                 $receivingId = (int) $headerStmt->insert_id;
                 $headerStmt->close();
@@ -1090,6 +1092,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="col-md-3"><label for="received_date" class="form-label">Received Date</label><input type="date" class="form-control" id="received_date" name="received_date" value="<?php echo h($form['received_date']); ?>" required></div>
                             <div class="col-md-3"><label for="delivery_receipt_no" class="form-label">Delivery Receipt No.</label><input type="text" class="form-control" id="delivery_receipt_no" name="delivery_receipt_no" value="<?php echo h($form['delivery_receipt_no']); ?>"></div>
                             <div class="col-md-3"><label for="invoice_no" class="form-label">Invoice No.</label><input type="text" class="form-control" id="invoice_no" name="invoice_no" value="<?php echo h($form['invoice_no']); ?>"></div>
+                            <div class="col-md-3"><label for="inspected_by" class="form-label">Inspected By</label><input type="text" class="form-control" id="inspected_by" name="inspected_by" value="<?php echo h($form['inspected_by']); ?>" placeholder="Inspection officer / committee"></div>
                             <div class="col-12"><label for="remarks" class="form-label">Receiving Remarks</label><textarea class="form-control" id="remarks" name="remarks" rows="2"><?php echo h($form['remarks']); ?></textarea></div>
                         </div>
 
@@ -1120,7 +1123,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div class="receiving-line-meta"><?php echo h(mb_strimwidth(str_replace(["\r", "\n"], ' ', $item['item_description']), 0, 90, '...')); ?></div>
                                             <div class="d-flex justify-content-between mt-2 receiving-line-meta">
                                                 <span><?php echo h($item['catalog_stock_no'] ?: ($item['account_code'] ?: '')); ?></span>
-                                                <span>Rem: <?php echo h(number_format((float) $item['remaining_quantity'], 2)); ?></span>
+                                                <span>Rem: <?php echo h(format_quantity($item['remaining_quantity'])); ?></span>
                                             </div>
                                         </div>
                                     <?php endforeach; ?>
@@ -1192,12 +1195,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td>
                                                 <span class="badge text-bg-primary-subtle text-primary"><?php echo h(receiving_type_label((string) $item['item_type'])); ?></span>
                                             </td>
-                                            <td class="text-end"><?php echo h(number_format((float) $item['quantity'], 2)); ?></td>
-                                            <td class="text-end"><?php echo h(number_format((float) $item['quantity_already_received'], 2)); ?></td>
-                                            <td class="text-end fw-semibold"><?php echo h(number_format((float) $item['remaining_quantity'], 2)); ?></td>
-                                            <td><input type="number" class="form-control form-control-sm receiving-deliver-input" step="0.01" min="0" max="<?php echo h((string) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][deliver_quantity]" value="<?php echo h($item['deliver_quantity']); ?>"></td>
-                                            <td><input type="number" class="form-control form-control-sm receiving-accept-input" step="0.01" min="0" max="<?php echo h((string) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][accept_quantity]" value="<?php echo h($item['accept_quantity']); ?>"></td>
-                                            <td><input type="number" class="form-control form-control-sm" step="0.01" min="0" max="<?php echo h((string) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][reject_quantity]" value="<?php echo h($item['reject_quantity']); ?>"></td>
+                                            <td class="text-end"><?php echo h(format_quantity($item['quantity'])); ?></td>
+                                            <td class="text-end"><?php echo h(format_quantity($item['quantity_already_received'])); ?></td>
+                                            <td class="text-end fw-semibold"><?php echo h(format_quantity($item['remaining_quantity'])); ?></td>
+                                            <td><input type="number" class="form-control form-control-sm receiving-deliver-input" step="1" min="0" max="<?php echo h((string) floor((float) $item['remaining_quantity'])); ?>" name="items[<?php echo $itemId; ?>][deliver_quantity]" value="<?php echo h((string) round((float) $item['deliver_quantity'])); ?>"></td>
+                                            <td><input type="number" class="form-control form-control-sm receiving-accept-input" step="1" min="0" max="<?php echo h((string) floor((float) $item['remaining_quantity'])); ?>" name="items[<?php echo $itemId; ?>][accept_quantity]" value="<?php echo h((string) round((float) $item['accept_quantity'])); ?>"></td>
+                                            <td><input type="number" class="form-control form-control-sm" step="1" min="0" max="<?php echo h((string) floor((float) $item['remaining_quantity'])); ?>" name="items[<?php echo $itemId; ?>][reject_quantity]" value="<?php echo h((string) round((float) $item['reject_quantity'])); ?>"></td>
                                             <td>
                                                 <?php
                                                 $condition = trim((string) $item['item_condition']);
