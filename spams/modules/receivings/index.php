@@ -887,11 +887,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
     }
 }
 </style>
-<section class="row g-4">
+<section class="row g-4 page-section">
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
-                <h5 class="card-title mb-3">Encode Receiving</h5>
+                <div class="workspace-header mb-3">
+                    <div class="workspace-header-copy">
+                        <p class="page-kicker mb-1">Supply Operations</p>
+                        <h5 class="page-title mb-1">Encode Receiving</h5>
+                        <p class="text-muted mb-0">Capture deliveries, inspect accepted quantities, and prepare IAR output from a receiving workspace that stays usable on smaller screens.</p>
+                    </div>
+                </div>
                 <?php if ($errors): ?><div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
                 <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?>
 
@@ -918,7 +924,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         <input type="text" id="poSearchInput" class="form-control form-control-sm" placeholder="Search PO number or supplier...">
                                                     </div>
 
-                                                    <div class="d-flex gap-2 mb-2">
+                                                    <div class="workspace-actions mb-2">
                                                         <button type="button" class="btn btn-sm btn-outline-warning po-filter-btn active" data-filter="partial">
                                                             Partial (<?= (int)$partialCount ?>)
                                                         </button>
@@ -1001,7 +1007,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                                                         <!-- Items preview table -->
                                                         <div style="font-size:11px; font-weight:500; color:var(--bs-secondary-color); text-transform:uppercase; letter-spacing:.3px; margin-bottom:6px;">Line items</div>
-                                                        <div class="table-responsive" style="max-height:240px;overflow-y:auto;">
+                                                        <div class="table-responsive mobile-table-frame" style="max-height:240px;overflow-y:auto;">
                                                             <table class="table table-sm" style="font-size:12px;" data-no-table-search>
                                                                 <thead>
                                                                     <tr>
@@ -1032,13 +1038,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <?php endif; ?>
 
                                 <?php if ($selectedPurchaseOrder): ?>
-                                        <div class="d-flex align-items-center gap-3 flex-wrap mb-3 p-3 rounded-3" style="background:var(--bs-secondary-bg); font-size:12px;">
-                                            <div>
+                                        <div class="workspace-header mb-3 p-3 rounded-3" style="background:var(--bs-secondary-bg); font-size:12px;">
+                                            <div class="workspace-header-copy">
                                                 <span class="fw-semibold"><?php echo h($selectedPurchaseOrder['po_number']); ?></span>
                                                 <span class="text-muted ms-2"><?php echo h($selectedPurchaseOrder['supplier_name']); ?></span>
                                                 <span class="text-muted ms-2"><?php echo h(date('M d, Y', strtotime($selectedPurchaseOrder['po_date']))); ?></span>
                                             </div>
-                                            <div class="ms-auto d-flex gap-2">
+                                            <div class="workspace-actions">
                                                 <a href="<?php echo base_url('modules/receivings/index.php'); ?>" class="btn btn-sm btn-outline-secondary">← Change PO</a>
                                                 <a href="<?php echo base_url('modules/messages/index.php?related_table=purchase_orders&related_id=' . (int) $selectedPurchaseOrder['id']); ?>" class="btn btn-sm btn-outline-info">PO Discussion</a>
                                             </div>
@@ -1069,7 +1075,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </button>
                                         </div>
                                         <div class="border rounded-3 p-3 mb-4 bg-light-subtle" id="receivingPoOverview">
-                                                <div class="row g-3">
+                                                <div class="row g-3 workspace-summary-grid">
                                                         <div class="col-md-3"><div class="small text-muted">PO Number</div><div class="fw-semibold"><?php echo h($selectedPurchaseOrder['po_number']); ?></div></div>
                                                         <div class="col-md-3"><div class="small text-muted">PO Date</div><div class="fw-semibold"><?php echo h(date('M d, Y', strtotime($selectedPurchaseOrder['po_date']))); ?></div></div>
                                                         <div class="col-md-3"><div class="small text-muted">Supplier</div><div class="fw-semibold"><?php echo h($selectedPurchaseOrder['supplier_name']); ?></div></div>
@@ -1086,7 +1092,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <input type="hidden" name="action" value="save">
                             <?php echo '<input type="hidden" name="_csrf" value="' . h(csrf_token()) . '">'; ?>
                             <input type="hidden" name="purchase_order_id" value="<?php echo (int) $selectedPurchaseOrder['id']; ?>">
-                        <div class="row g-3 mb-4" id="receivingHeaderSection">
+                        <div class="row g-3 mb-4 workspace-filter-grid" id="receivingHeaderSection">
                             <div class="col-md-3"><label class="form-label">System Reference</label><input type="text" class="form-control" value="<?php echo h($form['system_reference']); ?>" readonly></div>
                             <div class="col-md-3"><label for="ris_no" class="form-label">RIS Number</label><input type="text" class="form-control" id="ris_no" name="ris_no" value="<?php echo h($form['ris_no']); ?>" readonly><div class="form-text">Generated as `RIS-YEAR-MONTH-SERIES`.</div></div>
                             <div class="col-md-3"><label for="received_date" class="form-label">Received Date</label><input type="date" class="form-control" id="received_date" name="received_date" value="<?php echo h($form['received_date']); ?>" required></div>
@@ -1131,9 +1137,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </aside>
 
                             <div>
-                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                            <div class="small text-muted">Use the compact grid below for fast encoding. Expand details only for semi-expendable and equipment lines.</div>
-                            <div class="d-flex gap-2 flex-wrap">
+                        <div class="workspace-header mb-3">
+                            <div class="workspace-header-copy">
+                                <div class="small text-muted">Use the compact grid below for fast encoding. Expand details only for semi-expendable and equipment lines.</div>
+                            </div>
+                            <div class="workspace-actions">
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn active" data-filter="all">All</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="supply">Supplies</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="semi_expendable">Semi</button>
@@ -1144,7 +1152,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                         </div>
 
-                        <div class="table-responsive">
+                        <div class="table-responsive mobile-table-frame">
                             <table class="table table-sm align-middle" data-no-table-search>
                                 <thead>
                                     <tr>
@@ -1269,12 +1277,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <h5 class="card-title mb-0">Receiving Records</h5>
-                    <span class="badge text-bg-light"><?php echo count($receivings); ?> record(s)</span>
+                <div class="workspace-header mb-3">
+                    <div class="workspace-header-copy">
+                        <h5 class="card-title mb-0">Receiving Records</h5>
+                    </div>
+                    <div class="workspace-actions">
+                        <span class="badge text-bg-light"><?php echo count($receivings); ?> record(s)</span>
+                    </div>
                 </div>
 
-                <form method="get" class="row g-2 align-items-end mb-3">
+                <form method="get" class="row g-2 align-items-end mb-3 workspace-filter-grid">
                     <div class="col-md-5">
                         <input type="text" name="q" class="form-control form-control-sm" placeholder="Search PO number, supplier, or reference..." value="<?php echo h($filterPoNumber); ?>">
                     </div>
@@ -1286,13 +1298,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <option value="cancelled" <?php echo $filterStatus==='cancelled' ?'selected':'' ?>>Cancelled</option>
                         </select>
                     </div>
-                    <div class="col-auto">
+                    <div class="col-auto workspace-actions">
                         <button type="submit" class="btn btn-outline-secondary btn-sm">Filter</button>
                         <a href="<?php echo base_url('modules/receivings/index.php'); ?>" class="btn btn-link btn-sm">Clear</a>
                     </div>
                 </form>
 
-                <div class="table-responsive">
+                <div class="table-responsive mobile-table-frame">
                     <table class="table align-middle">
                         <thead><tr><th>Reference</th><th>RIS No.</th><th>Received Date</th><th>PO Number</th><th>Supplier</th><th>DR No.</th><th>Status</th><th class="text-end">Amount</th><th class="text-end">Actions</th></tr></thead>
                         <tbody>

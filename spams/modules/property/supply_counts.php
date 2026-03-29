@@ -460,12 +460,12 @@ require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 <section class="page-section">
-    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div class="workspace-header mb-4">
         <div>
             <h1 class="page-title mb-1">Supply Count Workspace</h1>
-            <p class="text-muted mb-0">Run annual counts or surprise checks for supply stock using counted quantities and packaging barcodes.</p>
+            <p class="text-muted mb-0 workspace-header-copy">Run annual counts or surprise checks for supply stock using counted quantities and packaging barcodes.</p>
         </div>
-        <div class="text-end">
+        <div class="workspace-header-meta">
             <div class="small text-muted">Next reference</div>
             <div class="fw-semibold"><?php echo h($referencePreview ?: 'SCI-' . date('Y') . '-0001'); ?></div>
         </div>
@@ -485,7 +485,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
     <div class="row g-4">
         <div class="col-xl-4">
-            <div class="card h-100">
+            <div class="card h-100 workspace-list-card">
                 <div class="card-body">
                     <h5 class="card-title mb-3">Create Count Session</h5>
                     <form method="post" class="row g-3">
@@ -515,9 +515,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
             </div>
         </div>
         <div class="col-xl-8">
-            <div class="card h-100">
+            <div class="card h-100 workspace-list-card">
                 <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                    <div class="workspace-header mb-3">
                         <h5 class="card-title mb-0">Recent Sessions</h5>
                         <?php if ($selectedSession): ?>
                             <a href="<?php echo h(base_url('modules/property/supply_count_print.php?session_id=' . (int) $selectedSession['id'])); ?>" class="btn btn-outline-secondary btn-sm">Print Result</a>
@@ -549,30 +549,30 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     </div>
     <?php if ($selectedSession): ?>
-        <div class="row g-3 mt-1 mb-4">
-            <div class="col-md-4 col-xl-2">
+        <div class="workspace-summary-grid mt-1 mb-4">
+            <div>
                 <div class="card"><div class="card-body"><div class="small text-muted">Loaded Lines</div><div class="fs-4 fw-bold"><?php echo number_format((float) $sessionStats['total_items']); ?></div></div></div>
             </div>
-            <div class="col-md-4 col-xl-2">
+            <div>
                 <div class="card"><div class="card-body"><div class="small text-muted">System Qty</div><div class="fs-4 fw-bold"><?php echo format_quantity($sessionStats['system_qty']); ?></div></div></div>
             </div>
-            <div class="col-md-4 col-xl-2">
+            <div>
                 <div class="card"><div class="card-body"><div class="small text-muted">Counted Qty</div><div class="fs-4 fw-bold"><?php echo format_quantity($sessionStats['counted_qty']); ?></div></div></div>
             </div>
-            <div class="col-md-4 col-xl-2">
+            <div>
                 <div class="card"><div class="card-body"><div class="small text-muted">Matched</div><div class="fs-4 fw-bold"><?php echo number_format((float) $sessionStats['matched']); ?></div></div></div>
             </div>
-            <div class="col-md-4 col-xl-2">
+            <div>
                 <div class="card"><div class="card-body"><div class="small text-muted">Exceptions</div><div class="fs-4 fw-bold"><?php echo number_format((float) $sessionStats['exceptions']); ?></div></div></div>
             </div>
-            <div class="col-md-4 col-xl-2">
+            <div>
                 <div class="card"><div class="card-body"><div class="small text-muted">Variance Qty</div><div class="fs-4 fw-bold"><?php echo format_quantity($sessionStats['variance_qty']); ?></div></div></div>
             </div>
         </div>
 
         <div class="card mb-4">
             <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-3">
+                    <div class="workspace-header mb-3">
                         <div>
                             <h5 class="card-title mb-1"><?php echo h($selectedSession['system_reference']); ?></h5>
                             <div class="text-muted small">
@@ -581,7 +581,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             Created by <?php echo h($selectedSession['created_by_name'] ?: 'Unknown User'); ?>
                         </div>
                         </div>
-                        <div class="d-flex gap-2">
+                        <div class="workspace-actions">
                             <a href="<?php echo h(base_url('modules/property/stock_adjustments.php?session_id=' . (int) $selectedSession['id'])); ?>" class="btn btn-outline-secondary">Open Adjustments</a>
                             <?php if (($selectedSession['status'] ?? '') === 'open'): ?>
                                 <form method="post">
@@ -595,15 +595,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
 
                 <?php if (($selectedSession['status'] ?? '') === 'open'): ?>
-                    <form method="post" class="row g-3 align-items-end">
+                    <form method="post" class="workspace-filter-grid">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="scan_item">
                         <input type="hidden" name="session_id" value="<?php echo (int) $selectedSession['id']; ?>">
-                        <div class="col-lg-9">
+                        <div class="workspace-filter-wide">
                             <label class="form-label">Scan Packaging Barcode</label>
                             <input type="text" name="scan_value" id="scan_value" class="form-control form-control-lg" placeholder="Scan packaging barcode, stock no., or stock reference" autocomplete="off">
                         </div>
-                        <div class="col-lg-3 d-grid">
+                        <div>
                             <button type="submit" class="btn btn-primary btn-lg">Scan Supply</button>
                         </div>
                     </form>
@@ -632,7 +632,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
         <div class="card">
             <div class="card-body">
-                <div class="table-responsive">
+                <div class="table-responsive mobile-table-frame">
                     <table class="table align-middle">
                         <thead>
                             <tr>

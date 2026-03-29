@@ -287,7 +287,7 @@ require_once __DIR__ . '/../includes/topbar.php';
                 <p class="dashboard-command-text">
                     Use this page as your working control center for procurement, receiving, accountability, and asset movement.
                 </p>
-                <div class="dashboard-command-actions d-flex flex-wrap gap-2">
+                <div class="dashboard-command-actions workspace-actions">
                     <a class="btn btn-primary" href="<?php echo base_url('modules/distributions/index.php'); ?>">Open Distribution</a>
                     <a class="btn btn-outline-primary" href="<?php echo base_url('modules/receivings/index.php'); ?>">Open Receiving</a>
                     <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/property/index.php'); ?>">Asset Registry</a>

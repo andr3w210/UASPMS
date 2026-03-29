@@ -350,10 +350,17 @@ require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 
-<section class="row g-4">
+<section class="row g-4 page-section">
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
+                <div class="workspace-header mb-3">
+                    <div class="workspace-header-copy">
+                        <p class="page-kicker mb-1">Supply Operations</p>
+                        <h5 class="page-title mb-1">Encode Purchase Order</h5>
+                        <p class="text-muted mb-0">Create and complete purchase orders from a single workspace that adjusts cleanly across desktop, tablet, and phone.</p>
+                    </div>
+                </div>
                 <?php if (!empty($errors)): ?>
                     <div class="alert alert-danger">
                         <ul class="mb-0">
@@ -367,12 +374,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                                         <div class="card mb-4" style="border-color: var(--bs-primary-border-subtle);">
                                             <div class="card-body p-3">
-                                                <div class="d-flex align-items-start gap-3 flex-wrap">
+                                                <div class="workspace-header">
                                                     <div style="flex:1; min-width:200px;">
                                                         <div class="fw-semibold mb-1" style="font-size:13px;">Scan Hard Copy PO</div>
                                                         <div class="text-muted" style="font-size:12px; line-height:1.5;">Upload a clear photo or scanned PDF of your physical PO. Gemini AI will read it and fill in the form automatically. Always review before saving.</div>
                                                     </div>
-                                                    <div class="d-flex align-items-center gap-2 flex-wrap" style="flex-shrink:0;">
+                                                    <div class="workspace-actions" style="flex-shrink:0;">
                                                         <input type="file" id="poScanFile" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf" class="form-control form-control-sm" style="max-width:220px; font-size:12px;">
                                                         <button type="button" id="poScanBtn" class="btn btn-outline-primary btn-sm">Read PO</button>
                                                     </div>
@@ -382,7 +389,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </div>
                                         </div>
 
-                                        <div class="row g-3">
+                                        <div class="row g-3 workspace-filter-grid">
                         <div class="col-md-4">
                             <label for="po_number" class="form-label">Hard Copy PO Number</label>
                             <input type="text" class="form-control" id="po_number" name="po_number" value="<?php echo h($form['po_number']); ?>" required>
@@ -442,9 +449,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
 
-                    <div class="d-flex justify-content-between align-items-center mb-3 mt-4">
-                        <h6 class="mb-0">PO Items</h6>
-                        <div class="d-flex gap-2 flex-wrap justify-content-end">
+                    <div class="workspace-header mb-3 mt-4">
+                        <div class="workspace-header-copy">
+                            <h6 class="mb-0">PO Items</h6>
+                        </div>
+                        <div class="workspace-actions">
                             <button class="btn btn-success btn-sm add-line-btn" type="button" data-type="supply">+ Supply</button>
                             <button class="btn btn-primary btn-sm add-line-btn" type="button" data-type="semi_expendable">+ Semi-Expendable</button>
                             <button class="btn btn-warning btn-sm add-line-btn" type="button" data-type="equipment">+ Equipment</button>
@@ -455,7 +464,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-lg-4">
                             <div class="card h-100">
                                 <div class="card-body p-3 d-flex flex-column" style="gap:10px;">
-                                    <div class="d-flex gap-2 flex-wrap">
+                                    <div class="workspace-actions">
                                         <div class="input-group input-group-sm" style="max-width:160px;">
                                             <input type="text" class="form-control form-control-sm" id="lineSearchInput" placeholder="Search lines...">
                                         </div>
@@ -495,12 +504,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <div class="small">Use the add buttons above to create your first PO line.</div>
                                     </div>
                                     <div id="poEditorContent" style="display:none;">
-                                        <div class="d-flex align-items-center gap-2 mb-3">
-                                            <span class="fw-semibold" id="editorLineLabel">Line 1</span>
-                                            <span class="badge" id="editorTypeBadge">Supply</span>
-                                            <span class="badge text-bg-secondary" id="editorSemiTypeBadge" style="display:none;">LV</span>
-                                            <div class="flex-fill"></div>
-                                            <span class="small text-muted" id="editorLineCounter">1 of 1</span>
+                                        <div class="workspace-header mb-3">
+                                            <div class="workspace-header-copy d-flex align-items-center gap-2 flex-wrap">
+                                                <span class="fw-semibold" id="editorLineLabel">Line 1</span>
+                                                <span class="badge" id="editorTypeBadge">Supply</span>
+                                                <span class="badge text-bg-secondary" id="editorSemiTypeBadge" style="display:none;">LV</span>
+                                            </div>
+                                            <div class="workspace-header-meta">
+                                                <span class="small text-muted" id="editorLineCounter">1 of 1</span>
+                                            </div>
                                         </div>
 
                                         <div class="alert alert-light border py-2 px-3 mb-3" id="editorWorkflowHelp" style="font-size:12px;"></div>
@@ -516,7 +528,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div id="editorCatalogHint" class="small text-muted mt-1" style="display:none;">
                                                 Catalog defaults loaded. You can still refine the PO description below if needed.
                                             </div>
-                                            <div class="mt-2 d-flex gap-2 flex-wrap">
+                                            <div class="mt-2 workspace-actions">
                                                 <button type="button" class="btn btn-outline-secondary btn-sm" id="openCatalogQuickAdd" style="font-size:12px;">
                                                     Add to Catalog
                                                 </button>
@@ -547,7 +559,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div class="small text-muted mt-1" id="editorDescriptionHint">Paste the PO description exactly as written on the hard copy when needed.</div>
                                         </div>
 
-                                        <div class="row g-2 mb-2">
+                                        <div class="row g-2 mb-2 workspace-filter-grid">
                                             <div class="col-3">
                                                 <label class="form-label" style="font-size:11px;">Quantity <span class="text-danger">*</span></label>
                                                 <input type="number" class="form-control form-control-sm text-center" id="editorQty" min="0.01" step="0.01" value="1" style="font-size:13px;">
@@ -572,7 +584,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div class="progress mb-2" style="height:4px;">
                                                 <div class="progress-bar" id="editorProgress" style="width:0%; transition:width .3s;"></div>
                                             </div>
-                                            <div class="d-flex gap-2 align-items-center">
+                                            <div class="workspace-actions align-items-center">
                                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="editorPrev">← Prev</button>
                                                 <div class="flex-fill text-center small text-muted" id="editorProgressLabel">0 / 0 completed</div>
                                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="editorNext">Next →</button>
@@ -588,10 +600,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div id="poHiddenInputs"></div>
 
                     <div style="position:sticky; bottom:0; z-index:10; background:var(--bs-body-bg); border-top:0.5px solid var(--bs-border-color); padding:10px 0; margin-top:4px;">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-muted small" id="footerLineCount">0 line(s)</span>
-                            <span class="fw-semibold">Total: <span id="poGrandTotal">0.00</span></span>
-                            <button type="submit" class="btn btn-primary btn-sm">Save Purchase Order</button>
+                        <div class="workspace-header">
+                            <div class="workspace-header-copy">
+                                <span class="text-muted small" id="footerLineCount">0 line(s)</span>
+                            </div>
+                            <div class="workspace-actions align-items-center">
+                                <span class="fw-semibold">Total: <span id="poGrandTotal">0.00</span></span>
+                                <button type="submit" class="btn btn-primary btn-sm">Save Purchase Order</button>
+                            </div>
                         </div>
                     </div>
 

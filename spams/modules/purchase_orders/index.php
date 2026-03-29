@@ -502,11 +502,15 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
-<section class="row g-4">
+<section class="row g-4 page-section">
     <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <h5 class="mb-0">Encoded Purchase Orders</h5>
-            <div class="d-flex gap-2 align-items-center">
+        <div class="workspace-header mb-3">
+            <div class="workspace-header-copy">
+                <p class="page-kicker mb-1">Supply Operations</p>
+                <h5 class="page-title mb-1">Encoded Purchase Orders</h5>
+                <p class="text-muted mb-0">Review encoded, partial, completed, and cancelled purchase orders from a workspace that adapts cleanly on phone and tablet.</p>
+            </div>
+            <div class="workspace-actions">
                 <a href="<?php echo base_url('modules/purchase_orders/create.php'); ?>" class="btn btn-primary btn-sm">Encode New PO</a>
             </div>
         </div>
@@ -514,7 +518,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
         <div class="card">
             <div class="card-body p-3 p-lg-4">
                 <div class="mb-4">
-                    <form method="get" class="row g-2 g-lg-3 align-items-end">
+                    <form method="get" class="row g-2 g-lg-3 align-items-end workspace-filter-grid">
                         <div class="col-12 col-md-2 col-lg-1">
                             <label class="form-label small mb-1">Status</label>
                             <select name="status" class="form-select form-select-sm">
@@ -553,14 +557,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <input type="text" name="q" class="form-control form-control-sm" placeholder="PO number or system ref" value="<?php echo h($_GET['q'] ?? ''); ?>">
                         </div>
 
-                        <div class="col-12 col-lg-auto">
+                        <div class="col-12 col-lg-auto workspace-actions">
                             <button class="btn btn-sm btn-outline-secondary px-3">Filter</button>
                             <a href="<?php echo base_url('modules/purchase_orders/index.php'); ?>" class="btn btn-sm btn-link">Clear</a>
                         </div>
                     </form>
                 </div>
 
-                <div class="table-responsive">
+                <div class="table-responsive mobile-table-frame">
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>

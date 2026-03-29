@@ -386,12 +386,12 @@ require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 <section class="page-section">
-    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div class="workspace-header mb-4">
         <div>
             <h1 class="page-title mb-1">Stock Adjustments</h1>
-            <p class="text-muted mb-0">Review supply count variances, prepare pending adjustments, and control approval before posting any stock change.</p>
+            <p class="text-muted mb-0 workspace-header-copy">Review supply count variances, prepare pending adjustments, and control approval before posting any stock change.</p>
         </div>
-        <div class="text-end">
+        <div class="workspace-header-meta">
             <div class="small text-muted">Next reference</div>
             <div class="fw-semibold"><?php echo h($referencePreview ?: 'ADJ-' . date('Y') . '-0001'); ?></div>
         </div>
@@ -409,17 +409,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     <?php endif; ?>
 
-    <div class="row g-3 mb-4">
-        <div class="col-md-6 col-xl-3">
+    <div class="workspace-summary-grid mb-4">
+        <div>
             <div class="card"><div class="card-body"><div class="small text-muted">Variance Lines</div><div class="fs-4 fw-bold"><?php echo number_format($adjustmentStats['lines']); ?></div></div></div>
         </div>
-        <div class="col-md-6 col-xl-3">
+        <div>
             <div class="card"><div class="card-body"><div class="small text-muted">Shortages</div><div class="fs-4 fw-bold text-warning"><?php echo number_format($adjustmentStats['shortage']); ?></div></div></div>
         </div>
-        <div class="col-md-6 col-xl-3">
+        <div>
             <div class="card"><div class="card-body"><div class="small text-muted">Overages</div><div class="fs-4 fw-bold text-danger"><?php echo number_format($adjustmentStats['overage']); ?></div></div></div>
         </div>
-        <div class="col-md-6 col-xl-3">
+        <div>
             <div class="card"><div class="card-body"><div class="small text-muted">Pending Adjustments</div><div class="fs-4 fw-bold text-primary"><?php echo number_format($adjustmentStats['pending']); ?></div></div></div>
         </div>
     </div>
@@ -428,14 +428,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
         <div class="col-xl-8">
             <div class="card">
                 <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+                    <div class="workspace-header mb-4">
                         <div>
                             <div class="small text-muted">Adjustment Workspace</div>
                             <h5 class="mb-1">Build Adjustment from Count Session</h5>
                             <div class="text-muted small">Load one supply count session, review discrepancy lines, and create one pending adjustment batch.</div>
                         </div>
                         <?php if ($selectedSession): ?>
-                            <div class="text-end">
+                            <div class="workspace-header-meta">
                                 <div class="small text-muted">Selected Session</div>
                                 <div class="fw-semibold"><?php echo h($selectedSession['system_reference'] ?? ''); ?></div>
                                 <div class="small text-muted"><?php echo h(!empty($selectedSession['count_date']) ? format_date($selectedSession['count_date']) : ''); ?><?php echo !empty($selectedSession['status']) ? ' | ' . h(ucfirst((string) $selectedSession['status'])) : ''; ?></div>
@@ -443,8 +443,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <?php endif; ?>
                     </div>
 
-                    <form method="get" class="row g-3 align-items-end mb-4">
-                        <div class="col-md-8">
+                    <form method="get" class="workspace-filter-grid mb-4">
+                        <div class="workspace-filter-wide">
                             <label class="form-label">Supply Count Session</label>
                             <select name="session_id" class="form-select">
                                 <?php foreach ($sessions as $session): ?>
@@ -454,7 +454,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-4 d-grid">
+                        <div>
                             <button class="btn btn-outline-secondary">Load Session</button>
                         </div>
                     </form>
@@ -463,18 +463,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="post_adjustment">
                         <input type="hidden" name="session_id" value="<?php echo (int) $selectedSessionId; ?>">
-                        <div class="row g-3 mb-3">
-                            <div class="col-md-4">
+                        <div class="workspace-filter-grid mb-3">
+                            <div>
                                 <label class="form-label">Adjustment Date</label>
                                 <input type="date" class="form-control" name="adjustment_date" value="<?php echo h(date('Y-m-d')); ?>">
                             </div>
-                            <div class="col-md-8">
+                            <div class="workspace-filter-wide">
                                 <label class="form-label">Remarks</label>
                                 <input type="text" class="form-control" name="remarks" placeholder="Optional overall adjustment note">
                             </div>
                         </div>
 
-                        <div class="table-responsive">
+                        <div class="table-responsive mobile-table-frame">
                             <table class="table align-middle">
                                 <thead>
                                     <tr>
