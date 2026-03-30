@@ -1,16 +1,19 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_role('Administrator', 'Supply Officer', 'Property Officer');
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
 $db = db();
 $page_title = 'Registry of Semi Expendable Property Issued';
 $errors = [];
 $rows = [];
 $offices = [];
+$accountCodes = [];
 
 $dateFrom = trim((string) ($_GET['date_from'] ?? ''));
 $dateTo = trim((string) ($_GET['date_to'] ?? ''));
 $officeId = (int) ($_GET['office_id'] ?? 0);
+$accountCodeId = (int) ($_GET['account_code_id'] ?? 0);
+$fundNumber = trim((string) ($_GET['fund_number'] ?? ''));
 $semiType = trim((string) ($_GET['semi_type'] ?? 'all'));
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
@@ -18,14 +21,23 @@ $isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 if (!in_array($semiType, ['all', 'high_value', 'low_value'], true)) {
     $semiType = 'all';
 }
+if (!in_array($fundNumber, ['', '01', '05', '06', '07'], true)) {
+    $fundNumber = '';
+}
+
+function semi_registry_fund_number(?string $fundCode, ?string $fundSource = null): string
+{
+    return fund_number_from_source($fundCode, $fundSource);
+}
 
 function semi_registry_label(array $row): string
 {
-    $prefix = trim(implode(' / ', array_filter([
-        trim((string) ($row['classification_family'] ?? '')),
-        trim((string) ($row['classification_name'] ?? '')),
+    return trim(implode(', ', array_filter([
+        trim((string) ($row['item_description'] ?? '')),
+        trim((string) ($row['brand'] ?? '')),
+        trim((string) ($row['model'] ?? '')),
+        trim((string) ($row['serial_no'] ?? '')),
     ])));
-    return trim(($prefix !== '' ? $prefix . ' - ' : '') . (string) ($row['item_description'] ?? ''));
 }
 
 function semi_registry_person(array $row, string $prefix = ''): string
@@ -44,6 +56,10 @@ if (!$db) {
     $officeResult = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeResult) {
         $offices = $officeResult->fetch_all(MYSQLI_ASSOC);
+    }
+    $accountCodeResult = $db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC, account_name ASC");
+    if ($accountCodeResult) {
+        $accountCodes = $accountCodeResult->fetch_all(MYSQLI_ASSOC);
     }
 
     if ($dateFrom !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
@@ -103,9 +119,16 @@ if (!$db) {
                 d.document_no AS ics_no,
                 did.property_number AS semi_property_number,
                 poi.item_description,
+                rid.brand,
+                rid.model,
+                rid.serial_no,
                 c.classification_name,
                 c.classification_family,
                 c.useful_life_years,
+                ac.account_code,
+                ac.account_name,
+                f.fund_code,
+                f.fund_source,
                 o.office_name,
                 e.first_name,
                 e.middle_name,
@@ -132,7 +155,12 @@ if (!$db) {
             INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted' AND d.document_type = 'ics'
             INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
             INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id AND poi.item_type = 'semi_expendable'
+            LEFT JOIN receiving_item_details rid ON rid.id = did.receiving_item_detail_id
             LEFT JOIN classifications c ON c.id = poi.classification_id
+            LEFT JOIN account_codes ac ON ac.id = poi.account_code_id
+            LEFT JOIN receivings rcv ON rcv.id = ri.receiving_id
+            LEFT JOIN purchase_orders po ON po.id = rcv.purchase_order_id
+            LEFT JOIN funds f ON f.id = po.fund_id
             LEFT JOIN offices o ON o.id = d.office_id
             LEFT JOIN employees e ON e.id = d.employee_id
             {$returnsJoin}
@@ -158,6 +186,17 @@ if (!$db) {
             $types .= 'i';
             $params[] = $officeId;
         }
+        if ($accountCodeId > 0) {
+            $sql .= " AND poi.account_code_id = ?";
+            $types .= 'i';
+            $params[] = $accountCodeId;
+        }
+        if ($fundNumber !== '') {
+            $sql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
+            $types .= 'ss';
+            $params[] = '%' . $fundNumber . '%';
+            $params[] = '%' . $fundNumber . '%';
+        }
         if ($semiType !== 'all') {
             if ($poItemSupportsSemiType) {
                 $sql .= " AND poi.semi_expendable_type = ?";
@@ -182,8 +221,12 @@ if (!$db) {
                 $stmt->bind_param($types, ...$params);
             }
             $stmt->execute();
-            $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $queryRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
             $stmt->close();
+            foreach ($queryRows as $row) {
+                $row['fund_number'] = semi_registry_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
+                $rows[] = $row;
+            }
         } else {
             $errors[] = 'Unable to prepare the semi registry query.';
         }
@@ -211,17 +254,19 @@ if ($isExport) {
             '1',
             trim(implode(' / ', array_filter([$row['office_name'] ?? '', semi_registry_person($row)]))),
             !empty($row['return_date']) ? '1' : '0',
-            trim(implode(' / ', array_filter([$row['return_office_name'] ?? '', semi_registry_person($row, 'return_')]))),
+            !empty($row['return_date']) ? trim(implode(' / ', array_filter([$row['return_office_name'] ?? '', semi_registry_person($row, 'return_')]))) : '',
             !empty($row['disposal_date']) ? '1' : '0',
             trim(implode(' / ', array_filter([$row['disposal_office_name'] ?? '', semi_registry_person($row, 'disposal_')]))),
             format_quantity($row['balance_qty'] ?? 0),
             number_format((float) ($row['unit_cost'] ?? 0), 2),
+            trim((string) ($row['fund_number'] ?? '')),
         ];
     }
-    export_excel_rows('semi_registry_' . date('Ymd') . '.xls', ['Date', 'ICS No.', 'RRSP No.', 'Item Description', 'Semi-Expendable Property No.', 'Estimated Useful Life', 'Issued Qty', 'Issued Office/Officer', 'Returned Qty', 'Returned Office/Officer', 'Disposal Qty', 'Disposal Office/Officer', 'Balance Qty', 'Amount'], $exportRows);
+    export_excel_rows('semi_registry_' . date('Ymd') . '.xls', ['Date', 'ICS No.', 'RRSP No.', 'Item Description', 'Semi-Expendable Property No.', 'Estimated Useful Life', 'Issued Qty', 'Issued Office/Officer', 'Returned Qty', 'Returned Office/Officer', 'Disposal Qty', 'Disposal Office/Officer', 'Balance Qty', 'Amount', 'Fund Number'], $exportRows);
 }
 
 if ($isPrint) {
+    $reportFundCluster = report_fund_cluster($rows, $fundNumber);
     ?>
     <!doctype html>
     <html lang="en">
@@ -231,38 +276,52 @@ if ($isPrint) {
         <title>Registry of Semi Expendable Property Issued</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <style>
-            body { font-size: 12px; }
-            table { font-size: 11px; }
+            @page { size: landscape; margin: 0.35in; }
+            body { color: #000; font-family: "Times New Roman", serif; font-size: 12px; overflow-x: auto; }
+            .registry-wrap { max-width: 1560px; margin: 0 auto; }
+            .appendix { text-align: right; font-style: italic; font-size: 14px; margin-bottom: 24px; }
+            .title { text-align: center; font-size: 20px; font-weight: 700; text-transform: uppercase; margin-bottom: 28px; }
+            .meta-line { display: flex; justify-content: space-between; gap: 1rem; font-size: 14px; margin-bottom: 10px; }
+            .meta-fill { display: inline-block; min-width: 200px; border-bottom: 1px solid #000; padding: 0 6px 2px; }
+            .meta-fill.emphasis { font-weight: 700; text-transform: uppercase; }
+            .registry-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+            .registry-table th, .registry-table td { border: 1px solid #000; padding: 4px 5px; vertical-align: top; }
+            .registry-table th { text-align: center; font-weight: 700; line-height: 1.15; }
+            .registry-table .qty { text-align: center; }
+            .registry-table .money { text-align: right; white-space: nowrap; }
+            .registry-table tbody td { height: 24px; }
+            @media screen and (max-width: 991.98px) { .registry-wrap { min-width: 1320px; padding-bottom: 1rem; } }
             @media print { .no-print { display: none !important; } }
         </style>
     </head>
     <body>
-    <div class="container-fluid py-3">
-        <div class="d-flex justify-content-between align-items-center mb-3 no-print">
-            <button class="btn btn-outline-secondary btn-sm" onclick="window.close()">Close</button>
-            <button class="btn btn-primary btn-sm" onclick="window.print()">Print</button>
-        </div>
-        <div class="text-center mb-3">
-            <div class="small fst-italic">Annex A.4</div>
-            <h4 class="mb-1">Registry of Semi Expendable Property Issued</h4>
-            <div>Entity Name: University of Antique | Fund Cluster: _____________________</div>
+    <div class="registry-wrap py-3">
+        <?php render_print_action_bar(); ?>
+        <div class="appendix">Annex A.4</div>
+        <div class="title">Registry Semi Expendable Property Issued</div>
+        <div class="meta-line">
+            <div>Entity Name: <span class="meta-fill emphasis"><?php echo h(APP_NAME); ?></span></div>
+            <div>Fund Cluster : <span class="meta-fill emphasis"><?php echo h($reportFundCluster); ?></span></div>
         </div>
         <div class="table-responsive">
-            <table class="table table-bordered align-middle">
+            <table class="registry-table">
                 <thead>
                 <tr>
                     <th rowspan="2">Date</th>
-                    <th rowspan="2">Reference<br><small>ICS / RRSP No.</small></th>
-                    <th rowspan="2">Item Description<br><small>Semi-expendable Property No.</small></th>
+                    <th colspan="2">Reference</th>
+                    <th rowspan="2">Item Description</th>
                     <th rowspan="2">Estimated Useful Life</th>
                     <th colspan="2" class="text-center">Issued</th>
                     <th colspan="2" class="text-center">Returned</th>
                     <th colspan="2" class="text-center">Re-issued</th>
-                    <th colspan="2" class="text-center">Disposal</th>
-                    <th rowspan="2" class="text-end">Balance Qty.</th>
+                    <th class="text-center">Disposal</th>
+                    <th class="text-center">Balance</th>
                     <th rowspan="2" class="text-end">Amount</th>
+                    <th rowspan="2">Remarks</th>
                 </tr>
                 <tr>
+                    <th>ICS/RRSP No.</th>
+                    <th>Semi-expendable Property No.</th>
                     <th class="text-end">Qty.</th>
                     <th>Office / Officer</th>
                     <th class="text-end">Qty.</th>
@@ -270,7 +329,7 @@ if ($isPrint) {
                     <th class="text-end">Qty.</th>
                     <th>Office / Officer</th>
                     <th class="text-end">Qty.</th>
-                    <th>Office / Officer</th>
+                    <th class="text-end">Qty.</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -278,22 +337,28 @@ if ($isPrint) {
                     <tr>
                         <td><?php echo h(!empty($row['distribution_date']) ? date('M d, Y', strtotime((string) $row['distribution_date'])) : ''); ?></td>
                         <td><div><?php echo h($row['ics_no'] ?? ''); ?></div><?php if (!empty($row['rrsp_no'])): ?><div><?php echo h($row['rrsp_no']); ?></div><?php endif; ?></td>
-                        <td><div><?php echo h(semi_registry_label($row)); ?></div><div class="small text-muted"><?php echo h($row['semi_property_number'] ?? ''); ?></div></td>
+                        <td><?php echo h($row['semi_property_number'] ?? ''); ?></td>
+                        <td><?php echo h(semi_registry_label($row)); ?></td>
                         <td><?php echo h(!empty($row['useful_life_years']) ? $row['useful_life_years'] . ' year(s)' : ''); ?></td>
-                        <td class="text-end">1.00</td>
+                        <td class="qty">1</td>
                         <td><?php echo h(trim(implode(' / ', array_filter([$row['office_name'] ?? '', semi_registry_person($row)])))); ?></td>
-                        <td class="text-end"><?php echo !empty($row['return_date']) ? '1.00' : '0.00'; ?></td>
-                        <td><?php echo h(trim(implode(' / ', array_filter([$row['return_office_name'] ?? '', semi_registry_person($row, 'return_')])))); ?></td>
-                        <td class="text-end">0.00</td>
+                        <td class="qty"><?php echo !empty($row['return_date']) ? '1' : ''; ?></td>
+                        <td><?php echo h(!empty($row['return_date']) ? trim(implode(' / ', array_filter([$row['return_office_name'] ?? '', semi_registry_person($row, 'return_')]))) : ''); ?></td>
+                        <td class="qty"></td>
                         <td></td>
-                        <td class="text-end"><?php echo !empty($row['disposal_date']) ? '1.00' : '0.00'; ?></td>
-                        <td><?php echo h(trim(implode(' / ', array_filter([$row['disposal_office_name'] ?? '', semi_registry_person($row, 'disposal_')])))); ?></td>
-                        <td class="text-end"><?php echo h(format_quantity($row['balance_qty'] ?? 0)); ?></td>
-                        <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                        <td class="qty"><?php echo !empty($row['disposal_date']) ? '1' : ''; ?></td>
+                        <td class="qty"><?php echo h(format_quantity($row['balance_qty'] ?? 0)); ?></td>
+                        <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                        <td></td>
                     </tr>
                 <?php endforeach; else: ?>
                     <tr><td colspan="14" class="text-center text-muted py-4">No registry data found for the selected filters.</td></tr>
                 <?php endif; ?>
+                <?php for ($i = count($rows); $i < 18; $i++): ?>
+                    <tr>
+                        <td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                    </tr>
+                <?php endfor; ?>
                 </tbody>
             </table>
         </div>
@@ -319,10 +384,26 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <p class="report-toolbar-copy">Monitor semi-expendable property movements across issue, return, and disposal in one running registry view.</p>
                     </div>
                     <div class="report-toolbar-actions">
-                        <a href="<?php echo h(base_url('modules/reports/semi_registry.php?export=excel&date_from=' . urlencode($dateFrom) . '&date_to=' . urlencode($dateTo) . '&office_id=' . $officeId . '&semi_type=' . urlencode($semiType))); ?>" class="btn btn-outline-success">
+                        <a href="<?php echo h(base_url('modules/reports/semi_registry.php?' . http_build_query(array_filter([
+                            'export' => 'excel',
+                            'date_from' => $dateFrom !== '' ? $dateFrom : null,
+                            'date_to' => $dateTo !== '' ? $dateTo : null,
+                            'office_id' => $officeId ?: null,
+                            'semi_type' => $semiType !== 'all' ? $semiType : null,
+                            'fund_number' => $fundNumber !== '' ? $fundNumber : null,
+                            'account_code_id' => $accountCodeId ?: null,
+                        ])))); ?>" class="btn btn-outline-success">
                             <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
                         </a>
-                        <a href="<?php echo h(base_url('modules/reports/semi_registry.php?print=1&date_from=' . urlencode($dateFrom) . '&date_to=' . urlencode($dateTo) . '&office_id=' . $officeId . '&semi_type=' . urlencode($semiType))); ?>" class="btn btn-primary" target="_blank">
+                        <a href="<?php echo h(base_url('modules/reports/semi_registry.php?' . http_build_query(array_filter([
+                            'print' => '1',
+                            'date_from' => $dateFrom !== '' ? $dateFrom : null,
+                            'date_to' => $dateTo !== '' ? $dateTo : null,
+                            'office_id' => $officeId ?: null,
+                            'semi_type' => $semiType !== 'all' ? $semiType : null,
+                            'fund_number' => $fundNumber !== '' ? $fundNumber : null,
+                            'account_code_id' => $accountCodeId ?: null,
+                        ])))); ?>" class="btn btn-primary" target="_blank">
                             <i class="bi bi-printer me-1"></i>Print
                         </a>
                     </div>
@@ -363,10 +444,29 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <option value="low_value" <?php echo $semiType === 'low_value' ? 'selected' : ''; ?>>Low Value</option>
                         </select>
                     </div>
-                    <div class="col-md-1 d-flex gap-2">
-                        <button type="submit" class="btn btn-primary w-100">Go</button>
+                    <div class="col-md-2">
+                        <label for="fund_number" class="form-label">Fund Number</label>
+                        <select class="form-select" id="fund_number" name="fund_number">
+                            <option value="">All fund numbers</option>
+                            <option value="01" <?php echo $fundNumber === '01' ? 'selected' : ''; ?>>01</option>
+                            <option value="05" <?php echo $fundNumber === '05' ? 'selected' : ''; ?>>05</option>
+                            <option value="06" <?php echo $fundNumber === '06' ? 'selected' : ''; ?>>06</option>
+                            <option value="07" <?php echo $fundNumber === '07' ? 'selected' : ''; ?>>07</option>
+                        </select>
                     </div>
-                    <div class="col-md-12">
+                    <div class="col-md-2">
+                        <label for="account_code_id" class="form-label">Account Code</label>
+                        <select class="form-select" id="account_code_id" name="account_code_id">
+                            <option value="0">All account codes</option>
+                            <?php foreach ($accountCodes as $accountCode): ?>
+                                <option value="<?php echo (int) $accountCode['id']; ?>" <?php echo $accountCodeId === (int) $accountCode['id'] ? 'selected' : ''; ?>>
+                                    <?php echo h(trim(($accountCode['account_code'] ?? '') . ' - ' . ($accountCode['account_name'] ?? ''))); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-12 d-flex gap-2">
+                        <button type="submit" class="btn btn-primary w-100">Go</button>
                         <a href="<?php echo base_url('modules/reports/semi_registry.php'); ?>" class="btn btn-outline-secondary">Reset</a>
                     </div>
                 </form>

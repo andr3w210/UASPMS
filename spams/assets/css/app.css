@@ -348,6 +348,12 @@ a {
     margin: 0.2rem 0 0;
 }
 
+.workspace-header-copy .text-muted,
+.workspace-header-copy div,
+.workspace-header-copy p {
+    line-height: 1.5;
+}
+
 .workspace-header-meta {
     color: #5f6f89;
     min-width: 0;
@@ -355,13 +361,19 @@ a {
 }
 
 .workspace-actions {
+    align-items: center;
     display: flex;
     flex-wrap: wrap;
     gap: 0.65rem;
+    justify-content: flex-end;
 }
 
 .workspace-actions .btn {
     border-radius: 999px;
+}
+
+.workspace-actions .badge {
+    align-self: center;
 }
 
 .workspace-summary-grid {
@@ -381,6 +393,60 @@ a {
     grid-column: span 2;
 }
 
+.workspace-filter-panel {
+    background: linear-gradient(180deg, rgba(248, 250, 255, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
+    border: 1px solid rgba(95, 111, 137, 0.14);
+    border-radius: 16px;
+    padding: 1rem;
+}
+
+.workspace-filter-panel .form-label {
+    color: #5f6f89;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.35rem;
+}
+
+.workspace-filter-panel .btn {
+    border-radius: 999px;
+}
+
+.workspace-form-section {
+    background: linear-gradient(180deg, rgba(248, 250, 255, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
+    border: 1px solid rgba(95, 111, 137, 0.12);
+    border-radius: 16px;
+    padding: 1rem;
+}
+
+.workspace-editor-shell {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(249, 251, 255, 0.98) 100%);
+    border: 1px solid rgba(95, 111, 137, 0.12);
+    border-radius: 16px;
+}
+
+.workspace-inline-help {
+    border-radius: 14px;
+    line-height: 1.5;
+}
+
+.workspace-toolbar-cluster {
+    gap: 0.5rem;
+}
+
+.workspace-toolbar-cluster .btn,
+.workspace-toolbar-cluster .input-group {
+    margin: 0;
+}
+
+.workspace-sticky-bar {
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid rgba(95, 111, 137, 0.14);
+    margin-top: 0.25rem;
+    padding: 0.85rem 0 0;
+}
+
 .mobile-table-frame {
     border: 1px solid rgba(95, 111, 137, 0.12);
     border-radius: 16px;
@@ -390,6 +456,59 @@ a {
 
 .mobile-table-frame .table {
     margin-bottom: 0;
+}
+
+.mobile-table-frame .table thead th {
+    background: #f8faff;
+    border-bottom: 1px solid rgba(95, 111, 137, 0.16);
+    color: #5f6f89;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.85rem 0.85rem;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+.mobile-table-frame .table tbody td {
+    border-color: rgba(95, 111, 137, 0.1);
+    font-size: 0.92rem;
+    padding: 0.9rem 0.85rem;
+    vertical-align: top;
+}
+
+.mobile-table-frame .table tbody tr + tr td {
+    border-top-width: 1px;
+}
+
+.mobile-table-frame .table tbody .small,
+.mobile-table-frame .table tbody small {
+    line-height: 1.45;
+}
+
+.mobile-table-frame .badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.card-body > .table-responsive,
+.card-header + .collapse .card-body > .table-responsive {
+    border: 1px solid rgba(95, 111, 137, 0.12);
+    border-radius: 16px;
+    background: #fff;
+}
+
+.card-body > .table-responsive > .table,
+.card-body > .table-responsive > table {
+    margin-bottom: 0;
+}
+
+.card-body > .d-flex.justify-content-between.align-items-center.flex-wrap.gap-2.mb-3,
+.card-header.d-flex.justify-content-between.align-items-center.flex-wrap.gap-2,
+.card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3,
+.card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap {
+    gap: 0.75rem !important;
 }
 
 .workspace-list-card .list-group-item {
@@ -1114,6 +1233,24 @@ a {
         grid-column: auto;
     }
 
+    .workspace-filter-panel {
+        padding: 0.9rem;
+    }
+
+    .workspace-form-section,
+    .workspace-editor-shell {
+        padding: 0.9rem;
+    }
+
+    .mobile-table-frame .table thead th {
+        padding: 0.75rem 0.75rem;
+    }
+
+    .mobile-table-frame .table tbody td {
+        font-size: 0.9rem;
+        padding: 0.8rem 0.75rem;
+    }
+
     .table-search-toolbar,
     .table-pagination-controls,
     .report-toolbar,
@@ -1141,6 +1278,30 @@ a {
 
     .mobile-table-frame {
         border-radius: 14px;
+    }
+
+    .card-body > .d-flex.justify-content-between.align-items-center.flex-wrap.gap-2.mb-3,
+    .card-header.d-flex.justify-content-between.align-items-center.flex-wrap.gap-2,
+    .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3,
+    .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap {
+        align-items: stretch !important;
+        flex-direction: column;
+    }
+
+    .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > .form-control,
+    .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > .form-select,
+    .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > input,
+    .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > select,
+    .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap > .form-select {
+        max-width: none !important;
+        width: 100% !important;
+    }
+
+    .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap > .btn,
+    .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap > .form-select,
+    .card-body > .d-flex.justify-content-between.align-items-center.flex-wrap.gap-2.mb-3 .btn,
+    .card-header.d-flex.justify-content-between.align-items-center.flex-wrap.gap-2 .btn {
+        width: 100%;
     }
 
     .form-control,
@@ -1412,6 +1573,30 @@ a {
 
 .report-table-card .table {
     margin-bottom: 0;
+}
+
+.report-table-card .table thead th {
+    background: #f8faff;
+    border-bottom: 1px solid rgba(95, 111, 137, 0.16);
+    color: #5f6f89;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.85rem 0.85rem;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+.report-table-card .table tbody td {
+    border-color: rgba(95, 111, 137, 0.1);
+    font-size: 0.92rem;
+    padding: 0.9rem 0.85rem;
+    vertical-align: top;
+}
+
+.report-table-card .table tbody .small,
+.report-table-card .table tbody small {
+    line-height: 1.45;
 }
 
 .report-empty-state {

@@ -253,7 +253,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="text-muted small">Filter one count session, then resolve missing, repair, disposal, and accountability issues from one queue.</div>
                 </div>
             </div>
-            <form method="get" class="row g-3 align-items-end">
+            <form method="get" class="row g-3 align-items-end workspace-filter-panel">
                 <div class="col-md-6">
                     <label class="form-label">Count Session</label>
                     <select name="session_id" class="form-select">
@@ -288,7 +288,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
                 <span class="badge text-bg-light"><?php echo number_format($summary['exceptions']); ?> item(s)</span>
             </div>
-            <div class="table-responsive">
+            <div class="table-responsive mobile-table-frame">
                 <table class="table align-middle">
                     <thead>
                         <tr>

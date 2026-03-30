@@ -383,7 +383,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
 
-                    <div class="table-responsive mb-4">
+                    <div class="table-responsive mobile-table-frame mb-4">
                         <table class="table table-sm align-middle" data-no-table-search id="stockTable">
                             <thead>
                                 <tr>
@@ -471,7 +471,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <h5 class="card-title mb-0">Issued Records</h5>
                     <span class="badge text-bg-light"><?php echo count($issuances); ?> record(s)</span>
                 </div>
-                <div class="table-responsive">
+                <div class="table-responsive mobile-table-frame">
                     <table class="table align-middle">
                         <thead>
                             <tr>

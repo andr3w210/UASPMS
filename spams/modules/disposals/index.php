@@ -430,7 +430,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </form>
                     </div>
 
-                    <div class="report-table-card table-responsive">
+                    <div class="report-table-card table-responsive mobile-table-frame">
                         <table class="table align-middle">
                             <thead>
                                 <tr>

@@ -1092,7 +1092,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <input type="hidden" name="action" value="save">
                             <?php echo '<input type="hidden" name="_csrf" value="' . h(csrf_token()) . '">'; ?>
                             <input type="hidden" name="purchase_order_id" value="<?php echo (int) $selectedPurchaseOrder['id']; ?>">
-                        <div class="row g-3 mb-4 workspace-filter-grid" id="receivingHeaderSection">
+                        <div class="row g-3 mb-4 workspace-filter-panel" id="receivingHeaderSection">
                             <div class="col-md-3"><label class="form-label">System Reference</label><input type="text" class="form-control" value="<?php echo h($form['system_reference']); ?>" readonly></div>
                             <div class="col-md-3"><label for="ris_no" class="form-label">RIS Number</label><input type="text" class="form-control" id="ris_no" name="ris_no" value="<?php echo h($form['ris_no']); ?>" readonly><div class="form-text">Generated as `RIS-YEAR-MONTH-SERIES`.</div></div>
                             <div class="col-md-3"><label for="received_date" class="form-label">Received Date</label><input type="date" class="form-control" id="received_date" name="received_date" value="<?php echo h($form['received_date']); ?>" required></div>
@@ -1102,7 +1102,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="col-12"><label for="remarks" class="form-label">Receiving Remarks</label><textarea class="form-control" id="remarks" name="remarks" rows="2"><?php echo h($form['remarks']); ?></textarea></div>
                         </div>
 
-                        <div class="receiving-summary-strip mb-3">
+                        <div class="receiving-summary-strip mb-3 workspace-form-section">
                             <div class="row g-3 align-items-center">
                                 <div class="col-md-4"><div class="small text-muted">Lines ready</div><div class="fw-semibold" id="workspaceProgressLabel">0 of <?php echo count($receivingItems); ?> lines</div></div>
                                 <div class="col-md-4"><div class="small text-muted">Tracked lines missing details</div><div class="fw-semibold text-danger" id="workspaceMissingDetailsLabel">0 line(s)</div></div>
@@ -1141,7 +1141,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="workspace-header-copy">
                                 <div class="small text-muted">Use the compact grid below for fast encoding. Expand details only for semi-expendable and equipment lines.</div>
                             </div>
-                            <div class="workspace-actions">
+                            <div class="workspace-actions workspace-toolbar-cluster">
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn active" data-filter="all">All</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="supply">Supplies</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="semi_expendable">Semi</button>
@@ -1286,7 +1286,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                 </div>
 
-                <form method="get" class="row g-2 align-items-end mb-3 workspace-filter-grid">
+                <form method="get" class="row g-2 align-items-end mb-3 workspace-filter-panel">
                     <div class="col-md-5">
                         <input type="text" name="q" class="form-control form-control-sm" placeholder="Search PO number, supplier, or reference..." value="<?php echo h($filterPoNumber); ?>">
                     </div>
@@ -1298,9 +1298,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <option value="cancelled" <?php echo $filterStatus==='cancelled' ?'selected':'' ?>>Cancelled</option>
                         </select>
                     </div>
-                    <div class="col-auto workspace-actions">
-                        <button type="submit" class="btn btn-outline-secondary btn-sm">Filter</button>
-                        <a href="<?php echo base_url('modules/receivings/index.php'); ?>" class="btn btn-link btn-sm">Clear</a>
+                    <div class="col-12 col-md-auto">
+                        <div class="d-grid gap-2 d-sm-flex">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">Filter</button>
+                            <a href="<?php echo base_url('modules/receivings/index.php'); ?>" class="btn btn-link btn-sm">Clear</a>
+                        </div>
                     </div>
                 </form>
 

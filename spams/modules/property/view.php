@@ -862,7 +862,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <h6 class="mb-0">Lifecycle Timeline</h6>
                     </div>
                     <div class="card-body p-0">
-                        <div class="table-responsive">
+                        <div class="table-responsive mobile-table-frame">
                             <table class="table table-sm align-middle mb-0">
                                 <thead>
                                     <tr>
@@ -901,7 +901,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <span class="badge text-bg-light"><?php echo count($transfers); ?></span>
                             </div>
                             <div class="card-body p-0">
-                                <div class="table-responsive">
+                                <div class="table-responsive mobile-table-frame">
                                     <table class="table table-sm mb-0 align-middle">
                                         <thead>
                                             <tr>
@@ -938,7 +938,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <span class="badge text-bg-light"><?php echo count($returnRows); ?></span>
                             </div>
                             <div class="card-body p-0">
-                                <div class="table-responsive">
+                                <div class="table-responsive mobile-table-frame">
                                     <table class="table table-sm mb-0 align-middle">
                                         <thead>
                                             <tr>
@@ -977,7 +977,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <span class="badge text-bg-light"><?php echo count($disposalRows); ?></span>
                             </div>
                             <div class="card-body p-0">
-                                <div class="table-responsive">
+                                <div class="table-responsive mobile-table-frame">
                                     <table class="table table-sm mb-0 align-middle">
                                         <thead>
                                             <tr>
@@ -1024,7 +1024,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <span class="badge text-bg-light"><?php echo count($maintenanceRows); ?></span>
                             </div>
                             <div class="card-body p-0">
-                                <div class="table-responsive">
+                                <div class="table-responsive mobile-table-frame">
                                     <table class="table table-sm mb-0 align-middle">
                                         <thead>
                                             <tr>

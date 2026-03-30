@@ -59,12 +59,15 @@ if (!$db) {
             $errors[] = 'Invalid CSRF token.';
         } elseif ($action === 'save') {
             $form['id'] = (int) ($_POST['id'] ?? 0);
-            $form['office_code'] = $form['id'] > 0 ? strtoupper(old($_POST, 'office_code')) : $generatedCode;
+            $form['office_code'] = strtoupper(old($_POST, 'office_code'));
             $form['office_name'] = old($_POST, 'office_name');
             $form['office_head_employee_id'] = old($_POST, 'office_head_employee_id');
             $form['description'] = old($_POST, 'description');
             $form['is_active'] = isset($_POST['is_active']) ? '1' : '0';
 
+            if ($form['office_code'] === '') {
+                $errors[] = 'Office code is required.';
+            }
             if ($form['office_name'] === '') {
                 $errors[] = 'Office name is required.';
             }
@@ -115,7 +118,6 @@ if (!$db) {
                         }
                     }
                 } else {
-                    $form['office_code'] = next_module_code($db, 'offices');
                     $stmt = $db->prepare("INSERT INTO offices (office_code, office_name, department_id, office_head_employee_id, description, is_active, created_by) VALUES (?, ?, NULL, ?, ?, ?, ?)");
                     if ($stmt) {
                         $stmt->bind_param('ssisii', $form['office_code'], $form['office_name'], $officeHeadId, $form['description'], $isActive, $userId);
@@ -295,8 +297,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label class="form-label">Office Code</label>
-                                <input type="text" class="form-control" name="office_code" value="<?php echo h($form['id'] > 0 ? $form['office_code'] : $generatedCode); ?>" readonly>
-                                <div class="form-text">Generated automatically using `OFF-YYYY-0001` format.</div>
+                                <input type="text" class="form-control" name="office_code" value="<?php echo h($form['office_code']); ?>" placeholder="Enter office code" required>
+                                <div class="form-text">Enter the office code manually.</div>
                             </div>
                             <div class="col-md-8">
                                 <label class="form-label">Office Name</label>
@@ -421,3 +423,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

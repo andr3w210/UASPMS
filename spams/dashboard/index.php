@@ -27,94 +27,170 @@ $lowStockThreshold = defined('LOW_STOCK_THRESHOLD') ? max(0, (int) LOW_STOCK_THR
 
 if ($db) {
     $currentYear = (int) date('Y');
+    $tableExists = static function (mysqli $connection, string $tableName): bool {
+        $escapedTable = $connection->real_escape_string($tableName);
+        $result = $connection->query("SHOW TABLES LIKE '{$escapedTable}'");
+        if ($result instanceof mysqli_result) {
+            $exists = $result->num_rows > 0;
+            $result->close();
+            return $exists;
+        }
+
+        return false;
+    };
+    $receivingDetailHasDisposedFlag = false;
+    $receivingDetailDisposedCondition = '1 = 1';
+    $receivingDetailDisposedColumnResult = $db->query("SHOW COLUMNS FROM receiving_item_details LIKE 'is_disposed'");
+    if ($receivingDetailDisposedColumnResult instanceof mysqli_result) {
+        $receivingDetailHasDisposedFlag = $receivingDetailDisposedColumnResult->num_rows > 0;
+        $receivingDetailDisposedColumnResult->close();
+    }
+    if ($receivingDetailHasDisposedFlag) {
+        $receivingDetailDisposedCondition = 'COALESCE(rid.is_disposed, 0) = 0';
+    }
 
     $queries = [
-        'active_pos' => "
-            SELECT COUNT(*) AS total
-            FROM purchase_orders
-            WHERE status != 'cancelled'
-        ",
-        'pending_receivings' => "
-            SELECT COUNT(*) AS total
-            FROM (
-                SELECT po.id
-                FROM purchase_orders po
-                LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
-                LEFT JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
-                LEFT JOIN receivings r ON r.id = ri.receiving_id AND r.status != 'cancelled'
-                WHERE po.status != 'cancelled'
-                GROUP BY po.id
-                HAVING COALESCE(SUM(poi.quantity), 0) > COALESCE(SUM(CASE WHEN r.id IS NOT NULL THEN ri.quantity_delivered ELSE 0 END), 0)
-                    OR SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) > 0
-            ) pending_receiving_rows
-        ",
-        'distributed_items' => "
-            SELECT COUNT(*) AS total
-            FROM distribution_item_details
-            WHERE is_distributed = 1
-              AND is_disposed = 0
-        ",
-        'pending_distribution_units' => "
-            SELECT COUNT(*) AS total
-            FROM receiving_item_details rid
-            INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id
-            INNER JOIN receivings r ON r.id = ri.receiving_id
-            INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
-            WHERE r.status != 'cancelled'
-              AND poi.item_type IN ('semi_expendable', 'equipment')
-              AND rid.is_distributed = 0
-              AND COALESCE(rid.is_disposed, 0) = 0
-        ",
-        'disposed_this_year' => "
-            SELECT COUNT(*) AS total
-            FROM disposals
-            WHERE status = 'posted'
-              AND YEAR(disposal_date) = ?
-        ",
-        'returned_this_year' => "
-            SELECT COUNT(*) AS total
-            FROM returns
-            WHERE status = 'posted'
-              AND YEAR(return_date) = ?
-        ",
-        'open_inventory_counts' => "
-            SELECT COUNT(*) AS total
-            FROM inventory_count_sessions
-            WHERE status = 'open'
-        ",
-        'unresolved_property_discrepancies' => "
-            SELECT COUNT(*) AS total
-            FROM inventory_count_items
-            WHERE status IN ('missing', 'for_repair', 'for_disposal', 'wrong_office', 'wrong_accountable')
-              AND resolution_status = 'unresolved'
-        ",
-        'open_supply_counts' => "
-            SELECT COUNT(*) AS total
-            FROM supply_count_sessions
-            WHERE status = 'open'
-        ",
-        'pending_stock_adjustments' => "
-            SELECT COUNT(*) AS total
-            FROM stock_adjustments
-            WHERE status = 'pending'
-        ",
-        'unserviceable_review_items' => "
-            SELECT COUNT(*) AS total
-            FROM inventory_count_items
-            WHERE status IN ('for_repair', 'for_disposal')
-        ",
+        'active_pos' => [
+            'tables' => ['purchase_orders'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM purchase_orders
+                WHERE status != 'cancelled'
+            ",
+        ],
+        'pending_receivings' => [
+            'tables' => ['purchase_orders', 'purchase_order_items', 'receiving_items', 'receivings'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM (
+                    SELECT po.id
+                    FROM purchase_orders po
+                    LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
+                    LEFT JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
+                    LEFT JOIN receivings r ON r.id = ri.receiving_id AND r.status != 'cancelled'
+                    WHERE po.status != 'cancelled'
+                    GROUP BY po.id
+                    HAVING COALESCE(SUM(poi.quantity), 0) > COALESCE(SUM(CASE WHEN r.id IS NOT NULL THEN ri.quantity_delivered ELSE 0 END), 0)
+                        OR SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) > 0
+                ) pending_receiving_rows
+            ",
+        ],
+        'distributed_items' => [
+            'tables' => ['distribution_item_details'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM distribution_item_details
+                WHERE is_distributed = 1
+                  AND is_disposed = 0
+            ",
+        ],
+        'pending_distribution_units' => [
+            'tables' => ['receiving_item_details', 'receiving_items', 'receivings', 'purchase_order_items'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM receiving_item_details rid
+                INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id
+                INNER JOIN receivings r ON r.id = ri.receiving_id
+                INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+                WHERE r.status != 'cancelled'
+                  AND poi.item_type IN ('semi_expendable', 'equipment')
+                  AND rid.is_distributed = 0
+                  AND {$receivingDetailDisposedCondition}
+            ",
+        ],
+        'disposed_this_year' => [
+            'tables' => ['disposals'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM disposals
+                WHERE status = 'posted'
+                  AND YEAR(disposal_date) = ?
+            ",
+        ],
+        'returned_this_year' => [
+            'tables' => ['returns'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM returns
+                WHERE status = 'posted'
+                  AND YEAR(return_date) = ?
+            ",
+        ],
+        'open_inventory_counts' => [
+            'tables' => ['inventory_count_sessions'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM inventory_count_sessions
+                WHERE status = 'open'
+            ",
+        ],
+        'unresolved_property_discrepancies' => [
+            'tables' => ['inventory_count_items'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM inventory_count_items
+                WHERE status IN ('missing', 'for_repair', 'for_disposal', 'wrong_office', 'wrong_accountable')
+                  AND resolution_status = 'unresolved'
+            ",
+        ],
+        'open_supply_counts' => [
+            'tables' => ['supply_count_sessions'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM supply_count_sessions
+                WHERE status = 'open'
+            ",
+        ],
+        'pending_stock_adjustments' => [
+            'tables' => ['stock_adjustments'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM stock_adjustments
+                WHERE status = 'pending'
+            ",
+        ],
+        'unserviceable_review_items' => [
+            'tables' => ['inventory_count_items'],
+            'sql' => "
+                SELECT COUNT(*) AS total
+                FROM inventory_count_items
+                WHERE status IN ('for_repair', 'for_disposal')
+            ",
+        ],
     ];
 
-    foreach ($queries as $key => $sql) {
-        $stmt = $db->prepare($sql);
+    foreach ($queries as $key => $queryConfig) {
+        $requiredTables = $queryConfig['tables'] ?? [];
+        $canRunQuery = true;
+        foreach ($requiredTables as $requiredTable) {
+            if (!$tableExists($db, $requiredTable)) {
+                $canRunQuery = false;
+                break;
+            }
+        }
+        if (!$canRunQuery) {
+            continue;
+        }
+
+        try {
+            $stmt = $db->prepare($queryConfig['sql']);
+        } catch (mysqli_sql_exception $exception) {
+            $stmt = false;
+        }
+
         if ($stmt) {
             if (in_array($key, ['disposed_this_year', 'returned_this_year'], true)) {
                 $stmt->bind_param('i', $currentYear);
             }
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc();
-            $summary[$key] = (int) ($row['total'] ?? 0);
-            $stmt->close();
+            try {
+                $stmt->execute();
+                $row = $stmt->get_result()->fetch_assoc();
+                $summary[$key] = (int) ($row['total'] ?? 0);
+            } catch (mysqli_sql_exception $exception) {
+                $summary[$key] = 0;
+            } finally {
+                $stmt->close();
+            }
         }
     }
 
@@ -147,30 +223,41 @@ if ($db) {
         $distributionStmt->close();
     }
 
-    $lowStockStmt = $db->prepare("
-        SELECT
-            COALESCE(sc.stock_no, si.system_reference) AS stock_no,
-            COALESCE(sc.item_name, si.item_description) AS item_name,
-            COALESCE(c.classification_name, '') AS classification_name,
-            SUM(si.quantity_on_hand) AS quantity_on_hand
-        FROM stock_items si
-        LEFT JOIN stock_catalog sc ON sc.id = si.stock_catalog_id
-        LEFT JOIN classifications c ON c.id = COALESCE(sc.classification_id, si.classification_id)
-        WHERE si.item_type = 'supply'
-        GROUP BY
-            COALESCE(sc.id, 0),
-            COALESCE(sc.stock_no, si.system_reference),
-            COALESCE(sc.item_name, si.item_description),
-            COALESCE(c.classification_name, '')
-        HAVING SUM(si.quantity_on_hand) <= ?
-        ORDER BY SUM(si.quantity_on_hand) ASC, COALESCE(sc.item_name, si.item_description) ASC
-        LIMIT 5
-    ");
-    if ($lowStockStmt) {
-        $lowStockStmt->bind_param('i', $lowStockThreshold);
-        $lowStockStmt->execute();
-        $lowStockItems = $lowStockStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $lowStockStmt->close();
+    if ($tableExists($db, 'stock_items') && $tableExists($db, 'stock_catalog') && $tableExists($db, 'classifications')) {
+        try {
+            $lowStockStmt = $db->prepare("
+                SELECT
+                    COALESCE(sc.stock_no, si.system_reference) AS stock_no,
+                    COALESCE(sc.item_name, si.item_description) AS item_name,
+                    COALESCE(c.classification_name, '') AS classification_name,
+                    SUM(si.quantity_on_hand) AS quantity_on_hand
+                FROM stock_items si
+                LEFT JOIN stock_catalog sc ON sc.id = si.stock_catalog_id
+                LEFT JOIN classifications c ON c.id = COALESCE(sc.classification_id, si.classification_id)
+                WHERE si.item_type = 'supply'
+                GROUP BY
+                    COALESCE(sc.id, 0),
+                    COALESCE(sc.stock_no, si.system_reference),
+                    COALESCE(sc.item_name, si.item_description),
+                    COALESCE(c.classification_name, '')
+                HAVING SUM(si.quantity_on_hand) <= ?
+                ORDER BY SUM(si.quantity_on_hand) ASC, COALESCE(sc.item_name, si.item_description) ASC
+                LIMIT 5
+            ");
+        } catch (mysqli_sql_exception $exception) {
+            $lowStockStmt = false;
+        }
+        if ($lowStockStmt) {
+            $lowStockStmt->bind_param('i', $lowStockThreshold);
+            try {
+                $lowStockStmt->execute();
+                $lowStockItems = $lowStockStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            } catch (mysqli_sql_exception $exception) {
+                $lowStockItems = [];
+            } finally {
+                $lowStockStmt->close();
+            }
+        }
     }
 }
 

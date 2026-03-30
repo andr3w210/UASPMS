@@ -1,8 +1,29 @@
 <?php
 
+function message_table_exists(mysqli $db, string $tableName): bool
+{
+    if ($tableName === '') {
+        return false;
+    }
+
+    $escapedTable = $db->real_escape_string($tableName);
+    $result = $db->query("SHOW TABLES LIKE '{$escapedTable}'");
+    if ($result instanceof mysqli_result) {
+        $exists = $result->num_rows > 0;
+        $result->close();
+        return $exists;
+    }
+
+    return false;
+}
+
 function message_mark_channel_read(mysqli $db, string $channelKey, int $userId): void
 {
     if ($channelKey === '' || $userId <= 0) {
+        return;
+    }
+
+    if (!message_table_exists($db, 'channel_messages') || !message_table_exists($db, 'message_channel_reads')) {
         return;
     }
 
@@ -31,6 +52,12 @@ function message_mark_channel_read(mysqli $db, string $channelKey, int $userId):
 function message_channel_unread_count(mysqli $db, string $channelKey, int $userId): int
 {
     if ($channelKey === '' || $userId <= 0) {
+        return 0;
+    }
+
+    if (!message_table_exists($db, 'channel_messages')
+        || !message_table_exists($db, 'message_channel_reads')
+        || !message_table_exists($db, 'message_channel_hidden')) {
         return 0;
     }
 
@@ -63,6 +90,10 @@ function message_channel_unread_count(mysqli $db, string $channelKey, int $userI
 function message_hide_channel_message(mysqli $db, int $messageId, int $userId): bool
 {
     if ($messageId <= 0 || $userId <= 0) {
+        return false;
+    }
+
+    if (!message_table_exists($db, 'message_channel_hidden')) {
         return false;
     }
 

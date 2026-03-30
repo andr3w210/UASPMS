@@ -382,14 +382,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Prepare statement to fetch fund/account/rc for property number generation
                 $fundStmt = $db->prepare(
-                    "SELECT f.fund_source, f.fund_code, ac.account_code, rc.code AS rc_code
+                    "SELECT f.fund_source, f.fund_code, ac.account_code, o.office_code
                      FROM receiving_items ri
                      INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
                      INNER JOIN receivings r ON r.id = ri.receiving_id
                      INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
                      INNER JOIN funds f ON f.id = po.fund_id
                      LEFT JOIN account_codes ac ON ac.id = poi.account_code_id
-                     LEFT JOIN responsibility_codes rc ON rc.office_id = ?
+                     LEFT JOIN offices o ON o.id = ?
                      WHERE ri.id = ?
                      LIMIT 1"
                 );
@@ -415,8 +415,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $year        = date('Y', strtotime($form['distribution_date']));
                             $fundCode    = $fundRow['fund_source'] ?? ($fundRow['fund_code'] ?? '');
                             $accountCode = $fundRow['account_code'] ?? '';
-                            $rcCode      = $fundRow['rc_code'] ?? '';
-                            $propertyNo  = generate_property_number($db, $year, $fundCode, $accountCode, $rcCode);
+                            $officeCode = $fundRow['office_code'] ?? '';
+                            $propertyNo = generate_property_number($db, $year, $fundCode, $accountCode, $officeCode);
                         }
 
                         $detailStmt->bind_param('iisssss', $distributionItemId, $detailId, $detail['brand'], $detail['model'], $detail['serial_no'], $detail['remarks'], $propertyNo);
@@ -569,18 +569,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </div>
                                 </div>
                                 <!-- SPA: Step 1 + Split panel editor -->
-                                <div class="card mb-3">
+                                <div class="card mb-3 workspace-form-section">
                                     <div class="card-body p-3">
                                         <div class="workspace-header">
                                             <div class="workspace-header-copy">
                                                 <div class="small fw-semibold text-muted mb-1">Step 1: Choose distribution document</div>
                                                 <div class="small text-muted">Pick the accountability flow first, then choose the receiving record and units to assign.</div>
                                             </div>
-                                            <div class="workspace-actions">
+                                            <div class="workspace-actions workspace-toolbar-cluster">
                                                 <span class="badge text-bg-light"><?php echo count($iarList); ?> source record(s)</span>
                                             </div>
                                         </div>
-                                        <div class="workspace-actions mt-3">
+                                        <div class="workspace-actions workspace-toolbar-cluster mt-3">
                                             <a href="?document_type=par" class="btn btn-sm <?php echo $distributionType==='par' ? 'btn-primary' : 'btn-outline-secondary'; ?>">
                                                 PAR
                                                 <span class="d-block" style="font-size:10px;font-weight:400;">Equipment ≥ ₱<?php echo number_format($equipmentMin,0,'.',','); ?></span>
@@ -662,8 +662,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <input type="hidden" name="_csrf" value="<?= h(csrf_token()) ?>">
                                                 <input type="hidden" name="receiving_id" id="hiddenReceivingId" value="">
 
-                                                <div class="card mb-3 position-sticky" style="top:90px;z-index:10;">
-                                                    <div class="card-body p-3">
+                                                <div class="card mb-3 position-sticky workspace-sticky-bar" style="top:90px;z-index:10;">
+                                                    <div class="card-body p-3 workspace-editor-shell">
                                                         <div class="workspace-header">
                                                             <div class="workspace-header-copy">
                                                                 <div class="small fw-semibold text-muted mb-1">Workspace progress</div>
@@ -683,7 +683,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                     </div>
                                                 </div>
 
-                                                <div class="card mb-3">
+                                                <div class="card mb-3 workspace-editor-shell">
                                                     <div class="card-body p-3">
                                                         <div class="d-flex justify-content-between align-items-center mb-2">
                                                             <div>
@@ -697,10 +697,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                     </div>
                                                 </div>
 
-                                                <div class="card">
+                                                <div class="card workspace-editor-shell">
                                                     <div class="card-body p-3">
                                                         <div class="small fw-semibold text-muted mb-3">Step 3B: Assign accountability</div>
-                                                        <div class="row g-3 mb-3 workspace-filter-grid">
+                                                        <div class="row g-3 mb-3 workspace-filter-panel">
                                                             <div class="col-md-6">
                                                                 <label class="form-label">Office *</label>
                                                                 <select class="form-select" id="office_id" name="office_id" required data-placeholder="Select office">
@@ -749,7 +749,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         <div class="workspace-header">
                                                             <div class="small text-muted d-none"><span>0</span> unit(s) selected · Total: <strong>₱0.00</strong></div>
                                                             <div class="small text-muted">Step 4: Review the summary above, then post the final <?= h(distribution_doc_label($distributionType)) ?>.</div>
-                                                            <div class="workspace-actions">
+                                                            <div class="workspace-actions workspace-toolbar-cluster">
                                                                 <button type="submit" class="btn btn-primary" id="postDistBtn" disabled>Post <?= h(distribution_doc_label($distributionType)) ?></button>
                                                             </div>
                                                         </div>
@@ -777,7 +777,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                 </div>
 
-                <form method="get" class="row g-2 align-items-center mb-3 workspace-filter-grid">
+                <form method="get" class="row g-2 align-items-center mb-3 workspace-filter-panel">
                     <input type="hidden" name="document_type" value="<?php echo h($distributionType); ?>">
                     <div class="col-auto">
                         <select name="filter_type" class="form-select form-select-sm">
@@ -789,9 +789,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col">
                         <input type="search" name="dist_q" class="form-control form-control-sm" placeholder="Search reference, document no, office, employee..." value="<?php echo h($filterDistQ ?? ''); ?>">
                     </div>
-                    <div class="col-auto workspace-actions">
-                        <button type="submit" class="btn btn-sm btn-primary">Search</button>
-                        <a href="modules/distributions/index.php?document_type=<?php echo h($distributionType); ?>" class="btn btn-sm btn-link">Clear</a>
+                    <div class="col-12 col-md-auto">
+                        <div class="d-grid gap-2 d-sm-flex">
+                            <button type="submit" class="btn btn-sm btn-primary">Search</button>
+                            <a href="modules/distributions/index.php?document_type=<?php echo h($distributionType); ?>" class="btn btn-sm btn-link">Clear</a>
+                        </div>
                     </div>
                 </form>
                 <div class="table-responsive mobile-table-frame">
@@ -1292,3 +1294,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

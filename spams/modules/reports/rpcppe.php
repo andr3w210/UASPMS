@@ -1,23 +1,56 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_role('Administrator', 'Supply Officer', 'Property Officer');
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
 $db = db();
 $page_title = 'RPCPPE';
 $errors = [];
 $rows = [];
 $offices = [];
+$accountCodes = [];
 $officeId = (int) ($_GET['office_id'] ?? 0);
+$accountCodeId = (int) ($_GET['account_code_id'] ?? 0);
 $asOf = trim((string) ($_GET['as_of'] ?? date('Y-m-d')));
+$fundNumber = trim((string) ($_GET['fund_number'] ?? ''));
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
+
+if (!in_array($fundNumber, ['', '01', '05', '06', '07'], true)) {
+    $fundNumber = '';
+}
+
+function rpcppe_fund_number(?string $fundCode, ?string $fundSource = null): string
+{
+    return fund_number_from_source($fundCode, $fundSource);
+}
+
+function rpcppe_article(array $row): string
+{
+    return trim((string) ($row['classification_name'] ?? ''));
+}
+
+function rpcppe_label(array $row): string
+{
+    return trim(implode(', ', array_filter([
+        trim((string) ($row['description_detail'] ?? '')),
+        trim((string) ($row['brand'] ?? '')),
+        trim((string) ($row['model'] ?? '')),
+        trim((string) ($row['serial_no'] ?? '')),
+    ])));
+}
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    ensure_legacy_assets_fund_column($db);
     $officeResult = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeResult) {
         $offices = $officeResult->fetch_all(MYSQLI_ASSOC);
+    }
+
+    $accountCodeResult = $db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC, account_name ASC");
+    if ($accountCodeResult) {
+        $accountCodes = $accountCodeResult->fetch_all(MYSQLI_ASSOC);
     }
 
     $systemSql = "
@@ -25,45 +58,79 @@ if (!$db) {
             'system' AS source_type,
             did.property_number,
             poi.item_description,
+            poi.item_description AS description_detail,
             c.classification_name,
             c.classification_family,
             u.uom_name,
             u.abbreviation,
             ri.unit_cost,
+            rid.brand,
+            rid.model,
+            rid.serial_no,
             COALESCE(curr_o.office_name, o.office_name) AS office_name,
             COALESCE(curr_e.first_name, e.first_name) AS first_name,
             COALESCE(curr_e.middle_name, e.middle_name) AS middle_name,
             COALESCE(curr_e.last_name, e.last_name) AS last_name,
-            COALESCE(curr_e.suffix_name, e.suffix_name) AS suffix_name
+            COALESCE(curr_e.suffix_name, e.suffix_name) AS suffix_name,
+            ac.account_code,
+            ac.account_name,
+            f.fund_code,
+            f.fund_source
         FROM distribution_item_details did
         INNER JOIN distribution_items di ON di.id = did.distribution_item_id
         INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted' AND d.document_type = 'par'
         INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
         INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id AND poi.item_type = 'equipment'
+        LEFT JOIN receiving_item_details rid ON rid.id = did.receiving_item_detail_id
         LEFT JOIN classifications c ON c.id = poi.classification_id
         LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id
+        LEFT JOIN account_codes ac ON ac.id = poi.account_code_id
+        LEFT JOIN receivings r ON r.id = ri.receiving_id
+        LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+        LEFT JOIN funds f ON f.id = po.fund_id
         LEFT JOIN offices o ON o.id = d.office_id
         LEFT JOIN employees e ON e.id = d.employee_id
         LEFT JOIN offices curr_o ON curr_o.id = did.current_office_id
         LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id
-        WHERE (did.is_disposed IS NULL OR did.is_disposed = 0)
+        LEFT JOIN disposals dp ON dp.distribution_item_detail_id = did.id AND dp.status = 'posted' AND dp.disposal_date <= ?
+        LEFT JOIN returns rt ON rt.distribution_item_detail_id = did.id AND rt.status = 'posted' AND rt.return_date <= ?
+        WHERE d.distribution_date <= ?
+          AND dp.id IS NULL
+          AND rt.id IS NULL
     ";
-    $types = '';
-    $params = [];
+    $types = 'sss';
+    $params = [$asOf, $asOf, $asOf];
+
     if ($officeId > 0) {
         $systemSql .= " AND COALESCE(did.current_office_id, d.office_id) = ?";
         $types .= 'i';
         $params[] = $officeId;
     }
-    $systemSql .= " ORDER BY c.classification_name ASC, poi.item_description ASC, did.property_number ASC";
+    if ($accountCodeId > 0) {
+        $systemSql .= " AND poi.account_code_id = ?";
+        $types .= 'i';
+        $params[] = $accountCodeId;
+    }
+    if ($fundNumber !== '') {
+        $systemSql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
+        $types .= 'ss';
+        $params[] = '%' . $fundNumber . '%';
+        $params[] = '%' . $fundNumber . '%';
+    }
+
+    $systemSql .= " ORDER BY ac.account_code ASC, c.classification_name ASC, poi.item_description ASC, did.property_number ASC";
     $stmt = $db->prepare($systemSql);
     if ($stmt) {
-        if ($params) {
-            $stmt->bind_param($types, ...$params);
-        }
+        $stmt->bind_param($types, ...$params);
         $stmt->execute();
-        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $systemRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
+        foreach ($systemRows as $row) {
+            $row['fund_number'] = rpcppe_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
+            $rows[] = $row;
+        }
+    } else {
+        $errors[] = 'Unable to prepare the RPCPPE system-assets query.';
     }
 
     $legacySql = "
@@ -71,78 +138,69 @@ if (!$db) {
             'legacy' AS source_type,
             la.property_number,
             la.item_description,
+            la.item_description AS description_detail,
             c.classification_name,
             c.classification_family,
             '' AS uom_name,
             '' AS abbreviation,
             la.unit_cost,
+            la.brand,
+            la.model,
+            la.serial_no,
             o.office_name,
             e.first_name,
             e.middle_name,
             e.last_name,
-            e.suffix_name
+            e.suffix_name,
+            ac.account_code,
+            ac.account_name,
+            f.fund_code,
+            f.fund_source
         FROM legacy_assets la
         LEFT JOIN classifications c ON c.id = la.classification_id
+        LEFT JOIN account_codes ac ON ac.id = la.account_code_id
+        LEFT JOIN funds f ON f.id = la.fund_id
         LEFT JOIN offices o ON o.id = la.office_id
         LEFT JOIN employees e ON e.id = la.employee_id
         WHERE la.is_active = 1
           AND la.item_type = 'equipment'
+          AND (la.acquisition_date IS NULL OR la.acquisition_date <= ?)
     ";
-    $legacyTypes = '';
-    $legacyParams = [];
+    $legacyTypes = 's';
+    $legacyParams = [$asOf];
+
     if ($officeId > 0) {
         $legacySql .= " AND la.office_id = ?";
         $legacyTypes .= 'i';
         $legacyParams[] = $officeId;
     }
-    $legacySql .= " ORDER BY c.classification_name ASC, la.item_description ASC, la.property_number ASC";
+    if ($accountCodeId > 0) {
+        $legacySql .= " AND la.account_code_id = ?";
+        $legacyTypes .= 'i';
+        $legacyParams[] = $accountCodeId;
+    }
+    if ($fundNumber !== '') {
+        $legacySql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
+        $legacyTypes .= 'ss';
+        $legacyParams[] = '%' . $fundNumber . '%';
+        $legacyParams[] = '%' . $fundNumber . '%';
+    }
+
+    $legacySql .= " ORDER BY ac.account_code ASC, c.classification_name ASC, la.item_description ASC, la.property_number ASC";
     $legacyStmt = $db->prepare($legacySql);
     if ($legacyStmt) {
-        if ($legacyParams) {
-            $legacyStmt->bind_param($legacyTypes, ...$legacyParams);
-        }
+        $legacyStmt->bind_param($legacyTypes, ...$legacyParams);
         $legacyStmt->execute();
         $legacyRows = $legacyStmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $legacyStmt->close();
-        $rows = array_merge($rows, $legacyRows);
+        foreach ($legacyRows as $row) {
+            $row['fund_number'] = rpcppe_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
+            $rows[] = $row;
+        }
+    } else {
+        $errors[] = 'Unable to prepare the RPCPPE beginning-balance query.';
     }
 }
-
-function rpcppe_label(array $row): string
-{
-    $prefix = trim(implode(' / ', array_filter([
-        trim((string) ($row['classification_family'] ?? '')),
-        trim((string) ($row['classification_name'] ?? '')),
-    ])));
-    return trim(($prefix !== '' ? $prefix . ' - ' : '') . (string) ($row['item_description'] ?? ''));
-}
-
-function rpcppe_person(array $row): string
-{
-    return trim(implode(' ', array_filter([
-        trim((string) ($row['first_name'] ?? '')),
-        trim((string) ($row['middle_name'] ?? '')),
-        trim((string) ($row['last_name'] ?? '')),
-        trim((string) ($row['suffix_name'] ?? '')),
-    ])));
-}
-
-if ($isPrint) {
-    ?>
-    <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RPCPPE</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"><style>body{font-size:12px}table{font-size:11px}@media print{.no-print{display:none!important}}</style></head><body>
-    <div class="container-fluid py-3">
-        <div class="d-flex justify-content-between align-items-center mb-3 no-print"><button class="btn btn-outline-secondary btn-sm" onclick="window.close()">Close</button><button class="btn btn-primary btn-sm" onclick="window.print()">Print</button></div>
-        <div class="text-center mb-3"><div class="small fst-italic">Appendix 73</div><h4 class="mb-1">Report on the Physical Count of Property, Plant and Equipment</h4><div>As at <?php echo h(!empty($asOf) ? date('M d, Y', strtotime($asOf)) : ''); ?></div><div>Fund Cluster: ________________________________</div></div>
-        <table class="table table-bordered align-middle">
-            <thead><tr><th rowspan="2">Article</th><th rowspan="2">Description</th><th rowspan="2">Property Number</th><th rowspan="2">Unit of Measure</th><th rowspan="2" class="text-end">Unit Value</th><th colspan="2" class="text-center">Quantity per Property Card</th><th colspan="2" class="text-center">Quantity per Physical Count</th><th colspan="2" class="text-center">Shortage / Overage</th><th rowspan="2">Remarks</th></tr><tr><th class="text-end">Qty</th><th class="text-end">Value</th><th class="text-end">Qty</th><th class="text-end">Value</th><th class="text-end">Qty</th><th class="text-end">Value</th></tr></thead>
-            <tbody><?php if ($rows): $i=1; foreach ($rows as $row): ?><tr><td><?php echo $i++; ?></td><td><?php echo h(rpcppe_label($row)); ?></td><td><?php echo h($row['property_number'] ?? ''); ?></td><td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td class="text-end">1.00</td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td class="text-end">1.00</td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td class="text-end">0.00</td><td class="text-end">0.00</td><td><?php echo h(($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : ''); ?></td></tr><?php endforeach; else: ?><tr><td colspan="12" class="text-center text-muted py-4">No PPE records found for the selected filters.</td></tr><?php endif; ?></tbody>
-        </table>
-    </div></body></html>
-    <?php exit; }
-
-require_once __DIR__ . '/../../includes/header.php';
-require_once __DIR__ . '/../../includes/sidebar.php';
-require_once __DIR__ . '/../../includes/topbar.php';
 
 $rowCount = count($rows);
 $totalValue = 0.0;
@@ -154,34 +212,340 @@ foreach ($rows as $row) {
     }
 }
 
+$selectedOfficeName = '';
+foreach ($offices as $office) {
+    if ((int) $office['id'] === $officeId) {
+        $selectedOfficeName = (string) ($office['office_name'] ?? '');
+        break;
+    }
+}
+
+$presidentProfile = $db ? get_university_president_profile($db) : ['name' => '', 'title' => 'University President', 'appointment_date' => ''];
+$presidentName = (string) ($presidentProfile['name'] ?? '');
+$presidentPosition = (string) ($presidentProfile['title'] ?? 'University President');
+$appointmentDate = (string) ($presidentProfile['appointment_date'] ?? '');
+$entityName = APP_NAME;
+$reportFundCluster = report_fund_cluster($rows, $fundNumber);
+
+$selectedAccountCode = null;
+foreach ($accountCodes as $accountCode) {
+    if ((int) $accountCode['id'] === $accountCodeId) {
+        $selectedAccountCode = $accountCode;
+        break;
+    }
+}
+
+$typeOfProperty = report_account_name($rows, $selectedAccountCode, 'Equipment');
+
 if ($isExport) {
     $exportRows = [];
-    $article = 1;
     foreach ($rows as $row) {
         $exportRows[] = [
-            $article++,
+            rpcppe_article($row),
             rpcppe_label($row),
             $row['property_number'] ?? '',
             trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
             number_format((float) ($row['unit_cost'] ?? 0), 2),
             '1',
-            number_format((float) ($row['unit_cost'] ?? 0), 2),
             '1',
-            number_format((float) ($row['unit_cost'] ?? 0), 2),
             '0',
             '0.00',
             ($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : '',
         ];
     }
-    export_excel_rows('rpcppe_' . date('Ymd') . '.xls', ['Article', 'Description', 'Property Number', 'Unit of Measure', 'Unit Value', 'Qty per Property Card', 'Value per Property Card', 'Qty per Physical Count', 'Value per Physical Count', 'Shortage/Overage Qty', 'Shortage/Overage Value', 'Remarks'], $exportRows);
+
+    export_excel_rows(
+        'rpcppe_' . date('Ymd') . '.xls',
+        ['Article', 'Description', 'Property Number', 'Unit of Measure', 'Unit Value', 'Qty per Property Card', 'Qty per Physical Count', 'Shortage/Overage Qty', 'Shortage/Overage Value', 'Remarks'],
+        $exportRows
+    );
 }
+
+if ($isPrint) {
+    ?>
+    <!doctype html>
+    <html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>RPCPPE</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+            @page { size: landscape; margin: 0.35in; }
+            body { color: #000; font-family: "Times New Roman", serif; font-size: 12px; overflow-x: auto; }
+            .rpcppe-wrap { max-width: 1320px; margin: 0 auto; }
+            .appendix { text-align: right; font-style: italic; font-size: 14px; margin-bottom: 24px; }
+            .title { text-align: center; font-size: 20px; font-weight: 700; text-transform: uppercase; margin-bottom: 18px; }
+            .type-line { text-align: center; margin-bottom: 6px; }
+            .type-fill { display: inline-block; min-width: 290px; border-bottom: 1px solid #000; padding: 0 8px 2px; }
+            .type-fill.emphasis { font-weight: 700; text-transform: uppercase; }
+            .type-caption { font-size: 12px; margin-top: 2px; }
+            .asof-line { text-align: center; font-size: 16px; margin-bottom: 32px; }
+            .asof-fill { display: inline-block; min-width: 260px; border-bottom: 1px solid #000; padding: 0 8px 2px; }
+            .meta-line { font-size: 14px; margin-bottom: 8px; }
+            .meta-fill { display: inline-block; min-width: 260px; border-bottom: 1px solid #000; padding: 0 6px 2px; }
+            .meta-fill.short { min-width: 160px; }
+            .meta-fill.long { min-width: 220px; }
+            .meta-fill.emphasis { font-weight: 700; text-transform: uppercase; }
+            .rpcppe-table, .rpcppe-sign { width: 100%; border-collapse: collapse; table-layout: fixed; }
+            .rpcppe-table th, .rpcppe-table td, .rpcppe-sign td { border: 1px solid #000; padding: 4px 5px; }
+            .rpcppe-table th { text-align: center; font-weight: 700; vertical-align: middle; }
+            .rpcppe-table td { vertical-align: top; }
+            .rpcppe-table .qty, .rpcppe-table .val { text-align: center; }
+            .rpcppe-table .money { text-align: right; white-space: nowrap; }
+            .rpcppe-table tbody td { height: 28px; }
+            .rpcppe-sign { margin-top: 0; }
+            .rpcppe-sign td { height: 132px; vertical-align: top; }
+            .sign-label { font-size: 14px; margin-bottom: 34px; }
+            .sign-line { width: 82%; margin: 0 auto 6px; border-bottom: 1px solid #000; height: 18px; }
+            .sign-caption { text-align: center; line-height: 1.2; font-size: 14px; }
+            @media screen and (max-width: 991.98px) {
+                .rpcppe-wrap { min-width: 1120px; padding-bottom: 1rem; }
+            }
+            @media print { .no-print { display: none !important; } }
+        </style>
+    </head>
+    <body>
+    <div class="rpcppe-wrap">
+        <?php render_print_action_bar(); ?>
+
+        <div class="appendix">Appendix 73</div>
+        <div class="title">Report on the Physical Count of Property, Plant and Equipment</div>
+
+        <div class="type-line">
+            <span class="type-fill emphasis"><?php echo h($typeOfProperty); ?></span>
+            <div class="type-caption">(Type of Property, Plant and Equipment)</div>
+        </div>
+
+        <div class="asof-line">As at <span class="asof-fill"><?php echo h(!empty($asOf) ? date('F d, Y', strtotime($asOf)) : ''); ?></span></div>
+
+        <div class="meta-line">Fund Cluster : <span class="meta-fill emphasis"><?php echo h($reportFundCluster); ?></span></div>
+        <div class="meta-line">
+            For which
+            <span class="meta-fill short emphasis"><?php echo h($presidentName); ?></span>,
+            <span class="meta-fill short emphasis"><?php echo h($presidentPosition); ?></span>,
+            <span class="meta-fill short emphasis"><?php echo h($entityName); ?></span>
+            is accountable, having assumed such accountability on
+            <span class="meta-fill long emphasis"><?php echo h($appointmentDate !== '' ? format_date($appointmentDate, 'F d, Y') : ''); ?></span>.
+        </div>
+
+        <table class="rpcppe-table">
+            <colgroup>
+                <col style="width:7%">
+                <col style="width:18%">
+                <col style="width:8.5%">
+                <col style="width:6%">
+                <col style="width:5.5%">
+                <col style="width:11.5%">
+                <col style="width:11.5%">
+                <col style="width:7.5%">
+                <col style="width:7%">
+                <col style="width:13.5%">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th rowspan="2">ARTICLE</th>
+                    <th rowspan="2">DESCRIPTION</th>
+                    <th rowspan="2">PROPERTY<br>NUMBER</th>
+                    <th rowspan="2">UNIT OF<br>MEASURE</th>
+                    <th rowspan="2">UNIT<br>VALUE</th>
+                    <th rowspan="2">QUANTITY<br>per<br>PROPERTY CARD</th>
+                    <th rowspan="2">QUANTITY<br>per<br>PHYSICAL COUNT</th>
+                    <th colspan="2">SHORTAGE/OVERAGE</th>
+                    <th rowspan="2">REMARKS</th>
+                </tr>
+                <tr>
+                    <th>Quantity</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if ($rows): ?>
+                    <?php foreach ($rows as $row): ?>
+                        <tr>
+                            <td><?php echo h(rpcppe_article($row)); ?></td>
+                            <td><?php echo h(rpcppe_label($row)); ?></td>
+                            <td><?php echo h($row['property_number'] ?? ''); ?></td>
+                            <td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
+                            <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                            <td class="qty">1</td>
+                            <td class="qty">1</td>
+                            <td class="qty">0</td>
+                            <td class="money">0.00</td>
+                            <td><?php echo h(($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : ''); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <tr>
+                        <td colspan="10" class="text-center py-4">No PPE records found for the selected filters.</td>
+                    </tr>
+                <?php endif; ?>
+                <?php for ($i = count($rows); $i < 10; $i++): ?>
+                    <tr>
+                        <td>&nbsp;</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                <?php endfor; ?>
+            </tbody>
+        </table>
+
+        <?php render_inventory_committee_signature_grid('rpcppe-sign'); ?>
+    </div>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
+require_once __DIR__ . '/../../includes/header.php';
+require_once __DIR__ . '/../../includes/sidebar.php';
+require_once __DIR__ . '/../../includes/topbar.php';
 ?>
-<section class="row g-4"><div class="col-12"><div class="card"><div class="card-body p-4">
-<div class="report-page-shell">
-<div class="report-toolbar"><div><h5 class="report-toolbar-title mb-0">RPCPPE</h5><p class="report-toolbar-copy">Review current accountable equipment from both posted system transactions and beginning-balance assets, then print the official physical count report.</p></div><div class="report-toolbar-actions"><a href="<?php echo h(base_url('modules/reports/rpcppe.php?office_id=' . $officeId . '&as_of=' . urlencode($asOf) . '&export=excel')); ?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</a><a href="<?php echo h(base_url('modules/reports/rpcppe.php?office_id=' . $officeId . '&as_of=' . urlencode($asOf) . '&print=1')); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a></div></div>
-<div class="report-summary-grid"><div class="report-summary-card"><div class="report-summary-label">Loaded Assets</div><div class="report-summary-value"><?php echo number_format($rowCount); ?></div><div class="report-summary-note">Equipment records in the current count sheet.</div></div><div class="report-summary-card"><div class="report-summary-label">Total Value</div><div class="report-summary-value"><?php echo number_format($totalValue, 2); ?></div><div class="report-summary-note">Combined unit value of the loaded equipment.</div></div><div class="report-summary-card"><div class="report-summary-label">Beginning Balance</div><div class="report-summary-value"><?php echo number_format($legacyCount); ?></div><div class="report-summary-note">Legacy equipment merged into this RPCPPE run.</div></div></div>
-<div class="report-filter-card"><h6 class="report-filter-title">Filter Report</h6><form method="get" class="row g-3 align-items-end"><div class="col-md-4"><label class="form-label">Office</label><select class="form-select" name="office_id"><option value="0">All offices</option><?php foreach ($offices as $office): ?><option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>><?php echo h($office['office_name']); ?></option><?php endforeach; ?></select></div><div class="col-md-4"><label class="form-label">As Of</label><input type="date" class="form-control" name="as_of" value="<?php echo h($asOf); ?>"></div><div class="col-md-4 d-flex gap-2"><button type="submit" class="btn btn-primary">Load Report</button><a href="<?php echo base_url('modules/reports/rpcppe.php'); ?>" class="btn btn-outline-secondary">Reset</a></div></form></div>
-<div class="report-table-card table-responsive"><table class="table align-middle"><thead><tr><th>Article</th><th>Description</th><th>Property No.</th><th class="text-end">Unit Value</th><th>Office / Officer</th><th>Source</th></tr></thead><tbody><?php if ($rows): $i=1; foreach ($rows as $row): ?><tr><td><?php echo $i++; ?></td><td><?php echo h(rpcppe_label($row)); ?></td><td><?php echo h($row['property_number'] ?? ''); ?></td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td><?php echo h(trim(implode(' / ', array_filter([$row['office_name'] ?? '', rpcppe_person($row)])))); ?></td><td><?php echo h(($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : 'System'); ?></td></tr><?php endforeach; else: ?><tr><td colspan="6" class="text-center text-muted py-4">No PPE records found for the selected filters.</td></tr><?php endif; ?></tbody></table></div>
-</div>
-</div></div></div></section>
+<section class="row g-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body p-4">
+                <div class="report-page-shell">
+                    <div class="report-toolbar">
+                        <div>
+                            <h5 class="report-toolbar-title mb-0">RPCPPE</h5>
+                            <p class="report-toolbar-copy">Review current accountable equipment from posted system transactions and beginning-balance assets, then print the COA physical count report.</p>
+                        </div>
+                        <div class="report-toolbar-actions">
+                            <a href="<?php echo h(base_url('modules/reports/rpcppe.php?' . http_build_query(array_filter([
+                                'office_id' => $officeId ?: null,
+                                'as_of' => $asOf !== '' ? $asOf : null,
+                                'fund_number' => $fundNumber !== '' ? $fundNumber : null,
+                                'account_code_id' => $accountCodeId ?: null,
+                                'export' => 'excel',
+                            ])))); ?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</a>
+                            <a href="<?php echo h(base_url('modules/reports/rpcppe.php?' . http_build_query(array_filter([
+                                'office_id' => $officeId ?: null,
+                                'as_of' => $asOf !== '' ? $asOf : null,
+                                'fund_number' => $fundNumber !== '' ? $fundNumber : null,
+                                'account_code_id' => $accountCodeId ?: null,
+                                'print' => '1',
+                            ])))); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a>
+                        </div>
+                    </div>
+
+                    <div class="report-summary-grid">
+                        <div class="report-summary-card">
+                            <div class="report-summary-label">Loaded Assets</div>
+                            <div class="report-summary-value"><?php echo number_format($rowCount); ?></div>
+                            <div class="report-summary-note">Equipment records in the current count sheet.</div>
+                        </div>
+                        <div class="report-summary-card">
+                            <div class="report-summary-label">Total Value</div>
+                            <div class="report-summary-value"><?php echo number_format($totalValue, 2); ?></div>
+                            <div class="report-summary-note">Combined unit value of the loaded equipment.</div>
+                        </div>
+                        <div class="report-summary-card">
+                            <div class="report-summary-label">Beginning Balance</div>
+                            <div class="report-summary-value"><?php echo number_format($legacyCount); ?></div>
+                            <div class="report-summary-note">Legacy equipment merged into this RPCPPE run.</div>
+                        </div>
+                    </div>
+
+                    <?php if ($errors): ?>
+                        <div class="alert alert-danger">
+                            <?php foreach ($errors as $error): ?>
+                                <div><?php echo h($error); ?></div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <div class="report-filter-card">
+                        <h6 class="report-filter-title">Filter Report</h6>
+                        <form method="get" class="row g-3 align-items-end">
+                            <div class="col-md-3">
+                                <label class="form-label">Office</label>
+                                <select class="form-select" name="office_id">
+                                    <option value="0">All offices</option>
+                                    <?php foreach ($offices as $office): ?>
+                                        <option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>>
+                                            <?php echo h($office['office_name']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Fund Number</label>
+                                <select class="form-select" name="fund_number">
+                                    <option value="">All fund numbers</option>
+                                    <option value="01" <?php echo $fundNumber === '01' ? 'selected' : ''; ?>>01</option>
+                                    <option value="05" <?php echo $fundNumber === '05' ? 'selected' : ''; ?>>05</option>
+                                    <option value="06" <?php echo $fundNumber === '06' ? 'selected' : ''; ?>>06</option>
+                                    <option value="07" <?php echo $fundNumber === '07' ? 'selected' : ''; ?>>07</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Account Code</label>
+                                <select class="form-select" name="account_code_id">
+                                    <option value="0">All account codes</option>
+                                    <?php foreach ($accountCodes as $accountCode): ?>
+                                        <option value="<?php echo (int) $accountCode['id']; ?>" <?php echo $accountCodeId === (int) $accountCode['id'] ? 'selected' : ''; ?>>
+                                            <?php echo h(trim(($accountCode['account_code'] ?? '') . ' - ' . ($accountCode['account_name'] ?? ''))); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">As Of</label>
+                                <input type="date" class="form-control" name="as_of" value="<?php echo h($asOf); ?>">
+                            </div>
+                            <div class="col-12 d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">Load Report</button>
+                                <a href="<?php echo base_url('modules/reports/rpcppe.php'); ?>" class="btn btn-outline-secondary">Reset</a>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="report-table-card table-responsive">
+                        <table class="table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Article</th>
+                                    <th>Description</th>
+                                    <th>Property No.</th>
+                                    <th>Fund No.</th>
+                                    <th class="text-end">Unit Value</th>
+                                    <th>Office / Officer</th>
+                                    <th>Source</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if ($rows): ?>
+                                    <?php foreach ($rows as $row): ?>
+                                        <tr>
+                                            <td><?php echo h(rpcppe_article($row)); ?></td>
+                                            <td><?php echo h(rpcppe_label($row)); ?></td>
+                                            <td><?php echo h($row['property_number'] ?? ''); ?></td>
+                                            <td><?php echo h($row['fund_number'] ?? ''); ?></td>
+                                            <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                                            <td><?php echo h(trim(implode(' / ', array_filter([$row['office_name'] ?? '', person_full_name($row)])))); ?></td>
+                                            <td><?php echo h(($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : 'System'); ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <tr>
+                                        <td colspan="7" class="text-center text-muted py-4">No PPE records found for the selected filters.</td>
+                                    </tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

@@ -143,6 +143,7 @@ if (!$db) {
 } else {
     $classifications = ($db->query("SELECT id, classification_name FROM classifications WHERE is_active = 1 ORDER BY classification_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
     $accountCodes = ($db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
+    $funds = ($db->query("SELECT id, fund_code, fund_name, fund_source FROM funds WHERE is_active = 1 ORDER BY fund_code ASC, fund_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
     $suppliers = ($db->query("SELECT id, supplier_name FROM suppliers WHERE is_active = 1 ORDER BY supplier_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
     $brands = ($db->query("SELECT id, brand_name FROM brands WHERE is_active = 1 ORDER BY brand_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
     $models = ($db->query("SELECT id, model_name, brand_id FROM models WHERE is_active = 1 ORDER BY model_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
@@ -150,9 +151,16 @@ if (!$db) {
     $employees = ($db->query("SELECT id, office_id, responsibility_code_id, is_unit_head, first_name, middle_name, last_name, suffix_name FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
     $responsibilityCodes = ($db->query("SELECT id, office_id, code FROM responsibility_codes WHERE is_active = 1 ORDER BY code ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
 
-    $maps = ['classification'=>[],'account'=>[],'supplier'=>[],'brand'=>[],'model'=>[],'office'=>[],'employee'=>[],'rc'=>[]];
+    ensure_legacy_assets_fund_column($db);
+
+    $maps = ['classification'=>[],'account'=>[],'fund'=>[],'supplier'=>[],'brand'=>[],'model'=>[],'office'=>[],'employee'=>[],'rc'=>[]];
     foreach ($classifications as $r) $maps['classification'][li_norm($r['classification_name'])] = $r;
     foreach ($accountCodes as $r) { $maps['account'][li_norm($r['account_code'])] = $r; $maps['account'][li_norm($r['account_name'])] = $r; }
+    foreach ($funds as $r) {
+        $maps['fund'][li_norm($r['fund_code'])] = $r;
+        $maps['fund'][li_norm($r['fund_name'])] = $r;
+        if (!empty($r['fund_source'])) $maps['fund'][li_norm((string) $r['fund_source'])] = $r;
+    }
     foreach ($suppliers as $r) $maps['supplier'][li_norm($r['supplier_name'])] = $r;
     foreach ($brands as $r) $maps['brand'][li_norm($r['brand_name'])] = $r;
     foreach ($models as $r) $maps['model'][li_norm($r['model_name'])] = $r;
@@ -171,7 +179,7 @@ if (!$db) {
             if (!$preview) {
                 $errors[] = 'No preview data to import.';
             } else {
-                $stmt = $db->prepare("INSERT INTO legacy_assets (system_reference, property_number, item_type, item_description, classification_id, account_code_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt = $db->prepare("INSERT INTO legacy_assets (system_reference, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 if (!$stmt) {
                     $errors[] = 'Unable to prepare import statement.';
                 } else {
@@ -184,13 +192,14 @@ if (!$db) {
                         $totalCost = round($qty * $unitCost, 2);
                         $classificationId = $row['classification_id'] ? (int) $row['classification_id'] : null;
                         $accountCodeId = $row['account_code_id'] ? (int) $row['account_code_id'] : null;
+                        $fundId = $row['fund_id'] ? (int) $row['fund_id'] : null;
                         $supplierId = $row['supplier_id'] ? (int) $row['supplier_id'] : null;
                         $brandId = $row['brand_id'] ? (int) $row['brand_id'] : null;
                         $modelId = $row['model_id'] ? (int) $row['model_id'] : null;
                         $officeId = $row['office_id'] ? (int) $row['office_id'] : null;
                         $employeeId = $row['employee_id'] ? (int) $row['employee_id'] : null;
                         $rcId = $row['responsibility_code_id'] ? (int) $row['responsibility_code_id'] : null;
-                        $stmt->bind_param('ssssiiiissssiddiiissi', $systemReference, $row['property_number'], $row['item_type'], $row['item_description'], $classificationId, $accountCodeId, $supplierId, $brandId, $modelId, $row['brand_name'], $row['model_name'], $row['serial_no'], $row['acquisition_date'], $qty, $unitCost, $totalCost, $officeId, $employeeId, $rcId, $row['condition_status'], $row['remarks'], $userId);
+                        $stmt->bind_param('ssssiiiiissssiddiiissi', $systemReference, $row['property_number'], $row['item_type'], $row['item_description'], $classificationId, $accountCodeId, $fundId, $supplierId, $brandId, $modelId, $row['brand_name'], $row['model_name'], $row['serial_no'], $row['acquisition_date'], $qty, $unitCost, $totalCost, $officeId, $employeeId, $rcId, $row['condition_status'], $row['remarks'], $userId);
                         $stmt->execute();
                     }
                     $stmt->close();
@@ -222,6 +231,7 @@ if (!$db) {
                                     'item_type' => strtolower(str_replace([' ', '-'], '_', (string) ($src[$col['inventory_type']] ?? ''))),
                                     'item_description' => trim((string) ($src[$col['description']] ?? '')),
                                     'classification' => trim((string) ($src[$col['classification']] ?? '')),
+                                    'fund' => trim((string) ($src[$col['fund']] ?? ($src[$col['fund_number']] ?? ''))),
                                     'account_code' => trim((string) ($src[$col['account_code']] ?? '')),
                                     'supplier' => trim((string) ($src[$col['supplier']] ?? '')),
                                     'brand' => trim((string) ($src[$col['brand']] ?? '')),
@@ -245,6 +255,7 @@ if (!$db) {
 
                                 $classification = $maps['classification'][li_norm($r['classification'])] ?? null;
                                 $account = $maps['account'][li_norm($r['account_code'])] ?? null;
+                                $fund = $maps['fund'][li_norm($r['fund'])] ?? null;
                                 $supplier = $maps['supplier'][li_norm($r['supplier'])] ?? null;
                                 $brand = $maps['brand'][li_norm($r['brand'])] ?? null;
                                 $model = $maps['model'][li_norm($r['model'])] ?? null;
@@ -254,6 +265,7 @@ if (!$db) {
 
                                 if ($r['classification'] !== '' && !$classification) $r['errors'][] = 'Unknown classification.';
                                 if ($r['account_code'] !== '' && !$account) $r['errors'][] = 'Unknown account code.';
+                                if ($r['fund'] !== '' && !$fund) $r['errors'][] = 'Unknown fund.';
                                 if ($r['supplier'] !== '' && !$supplier) $r['errors'][] = 'Unknown supplier.';
                                 if ($r['brand'] !== '' && !$brand) $r['errors'][] = 'Unknown brand.';
                                 if ($r['model'] !== '' && !$model) $r['errors'][] = 'Unknown model.';
@@ -279,6 +291,7 @@ if (!$db) {
 
                                 $r['classification_id'] = $classification['id'] ?? null;
                                 $r['account_code_id'] = $account['id'] ?? null;
+                                $r['fund_id'] = $fund['id'] ?? null;
                                 $r['supplier_id'] = $supplier['id'] ?? null;
                                 $r['brand_id'] = $brand['id'] ?? null;
                                 $r['model_id'] = $model['id'] ?? null;
@@ -287,6 +300,7 @@ if (!$db) {
                                 $r['responsibility_code_id'] = $rc['id'] ?? null;
                                 $r['brand_name'] = $brand['brand_name'] ?? $r['brand'];
                                 $r['model_name'] = $model['model_name'] ?? $r['model'];
+                                $r['resolved_fund'] = $fund ? trim(implode(' - ', array_filter([(string) ($fund['fund_code'] ?? ''), (string) ($fund['fund_name'] ?? '')]))) : '';
                                 $r['resolved_office'] = $office['office_name'] ?? '';
                                 $r['resolved_employee'] = $employee ? li_name($employee) : '';
                                 $r['resolved_rc'] = $rc['code'] ?? '';
@@ -327,7 +341,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-md-8">
                         <label class="form-label">Legacy File</label>
                         <input type="file" name="legacy_file" class="form-control" accept=".csv,.xlsx" required>
-                        <div class="form-text">Required headers: `property_number`, `inventory_type`, `description`. Optional: `classification`, `account_code`, `supplier`, `brand`, `model`, `serial_no`, `acquisition_date`, `quantity`, `unit_cost`, `office`, `employee`, `responsibility_code`, `condition_status`, `remarks`.</div>
+                        <div class="form-text">Required headers: `property_number`, `inventory_type`, `description`. Optional: `fund` or `fund_number`, `classification`, `account_code`, `supplier`, `brand`, `model`, `serial_no`, `acquisition_date`, `quantity`, `unit_cost`, `office`, `employee`, `responsibility_code`, `condition_status`, `remarks`.</div>
                     </div>
                     <div class="col-md-4 d-flex gap-2">
                         <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-1"></i>Preview Import</button>
@@ -350,7 +364,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table table-sm align-middle">
-                            <thead><tr><th>Row</th><th>Property No.</th><th>Type</th><th>Description</th><th>Office</th><th>Unit Head</th><th>RC</th><th>Status</th></tr></thead>
+                            <thead><tr><th>Row</th><th>Property No.</th><th>Type</th><th>Description</th><th>Fund</th><th>Office</th><th>Unit Head</th><th>RC</th><th>Status</th></tr></thead>
                             <tbody>
                             <?php foreach ($preview as $row): ?>
                                 <tr>
@@ -358,6 +372,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo h($row['property_number']); ?></td>
                                     <td><?php echo h($row['item_type']); ?></td>
                                     <td><div class="fw-semibold"><?php echo h($row['item_description']); ?></div><small class="text-muted"><?php echo h($row['brand_name'] . ($row['model_name'] ? ' • ' . $row['model_name'] : '')); ?></small></td>
+                                    <td><?php echo h($row['resolved_fund'] ?: $row['fund']); ?></td>
                                     <td><?php echo h($row['resolved_office'] ?: $row['office']); ?></td>
                                     <td><?php echo h($row['resolved_employee'] ?: $row['employee']); ?></td>
                                     <td><?php echo h($row['resolved_rc'] ?: $row['responsibility_code']); ?></td>

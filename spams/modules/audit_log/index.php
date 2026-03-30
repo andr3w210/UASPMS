@@ -342,8 +342,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                 </div>
 
-                <form method="get" class="border rounded-3 p-3 mb-4">
-                    <div class="row g-3 workspace-filter-grid">
+                <form method="get" class="workspace-filter-panel mb-4">
+                    <div class="row g-3 align-items-end">
                         <div class="col-md-4 col-xl-3">
                             <label class="form-label">Search</label>
                             <input type="search" class="form-control" name="q" value="<?php echo h($search); ?>" placeholder="Record ID, description, action, user">
@@ -395,11 +395,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <label class="form-label">End Date</label>
                             <input type="date" class="form-control" name="end_date" value="<?php echo h($endDate); ?>">
                         </div>
-                        <div class="col-md-6 col-xl-8 workspace-actions align-items-end">
+                        <div class="col-md-6 col-xl-8">
+                            <div class="d-grid gap-2 d-sm-flex justify-content-xl-end">
                             <button type="submit" class="btn btn-primary">
                                 <i class="bi bi-funnel me-1"></i>Apply Filters
                             </button>
                             <a href="<?php echo base_url('modules/audit_log/index.php'); ?>" class="btn btn-outline-secondary">Clear</a>
+                            </div>
                         </div>
                     </div>
                 </form>

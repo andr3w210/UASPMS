@@ -76,23 +76,12 @@ if (!$db) {
             if ($form['office_id'] === '') {
                 $errors[] = 'Office is required.';
             }
+            if ($form['code'] === '') {
+                $errors[] = 'Responsibility code is required.';
+            }
             $officeId = (int) ($form['office_id'] ?: 0);
             $recordId = (int) $form['id'];
-            $officeCode = '';
-            if ($officeId > 0) {
-                foreach ($offices as $office) {
-                    if ((int) $office['id'] === $officeId) {
-                        $officeCode = $office['office_code'];
-                        break;
-                    }
-                }
-            }
-            if ($recordId === 0 && $officeCode === '') {
-                $errors[] = 'Office is required.';
-            }
-            if ($recordId === 0 && $officeCode !== '') {
-                $form['code'] = preview_module_code($db, 'responsibility_codes_' . $officeCode, 'RSP-' . $officeCode, null);
-            }
+
 
             $duplicateStmt = $db->prepare("SELECT id FROM responsibility_codes WHERE office_id = ? AND code = ? AND id != ? LIMIT 1");
             if ($duplicateStmt) {
@@ -135,7 +124,6 @@ if (!$db) {
                         }
                     }
                 } else {
-                    $form['code'] = next_module_code($db, 'responsibility_codes_' . $officeCode);
                     $stmt = $db->prepare("INSERT INTO responsibility_codes (office_id, code, description, is_active, created_by) VALUES (?, ?, ?, ?, ?)");
                     if ($stmt) {
                         $stmt->bind_param('issii', $officeId, $form['code'], $form['description'], $isActive, $userId);
@@ -307,8 +295,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Responsibility Code</label>
-                                <input type="text" class="form-control" name="code" value="<?php echo h($form['id'] > 0 ? $form['code'] : ($form['code'] ?: 'Select an office to generate a code')); ?>" readonly>
-                                <div class="form-text">Generated automatically using `RSP-{OFFICECODE}-0001` format.</div>
+                                <input type="text" class="form-control" name="code" value="<?php echo h($form['code']); ?>" placeholder="Enter responsibility code" required>
+                                <div class="form-text">Enter the responsibility code manually.</div>
                             </div>
                             <div class="col-md-8">
                                 <label class="form-label">Description</label>
@@ -420,3 +408,6 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
+
+
