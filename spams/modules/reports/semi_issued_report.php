@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_role('Administrator', 'Supply Officer', 'Property Officer');
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
 $db = db();
 $page_title = 'Report of Semi-Expendable Property Issued';
@@ -19,12 +19,9 @@ if (!in_array($semiType, ['all', 'high_value', 'low_value'], true)) {
     $semiType = 'all';
 }
 
-$rowCount = count($rows);
-$totalQuantity = 0.0;
-$totalAmount = 0.0;
-foreach ($rows as $row) {
-    $totalQuantity += (float) ($row['quantity_distributed'] ?? 0);
-    $totalAmount += (float) ($row['line_total'] ?? 0);
+function semi_issued_fund_number(?string $fundCode, ?string $fundSource = null): string
+{
+    return fund_number_from_source($fundCode, $fundSource);
 }
 
 function semi_issued_label(array $row): string
@@ -71,6 +68,8 @@ if (!$db) {
                 c.classification_family,
                 u.uom_name,
                 u.abbreviation,
+                f.fund_code,
+                f.fund_source,
                 di.quantity_distributed,
                 di.unit_cost,
                 di.line_total
@@ -82,6 +81,9 @@ if (!$db) {
             LEFT JOIN responsibility_codes rc ON rc.office_id = d.office_id
             LEFT JOIN classifications c ON c.id = poi.classification_id
             LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id
+            LEFT JOIN receivings rcv ON rcv.id = ri.receiving_id
+            LEFT JOIN purchase_orders po ON po.id = rcv.purchase_order_id
+            LEFT JOIN funds f ON f.id = po.fund_id
             WHERE d.status = 'posted'
               AND d.document_type = 'ics'
         ";
@@ -128,15 +130,28 @@ if (!$db) {
                 $stmt->bind_param($types, ...$params);
             }
             $stmt->execute();
-            $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $queryRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
             $stmt->close();
+            foreach ($queryRows as $row) {
+                $row['fund_number'] = semi_issued_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
+                $rows[] = $row;
+            }
         } else {
             $errors[] = 'Unable to prepare the semi-expendable issued report query.';
         }
     }
 }
 
+$rowCount = count($rows);
+$totalQuantity = 0.0;
+$totalAmount = 0.0;
+foreach ($rows as $row) {
+    $totalQuantity += (float) ($row['quantity_distributed'] ?? 0);
+    $totalAmount += (float) ($row['line_total'] ?? 0);
+}
+
 if ($isPrint) {
+    $reportFundCluster = report_fund_cluster($rows);
     ?>
     <!doctype html>
     <html lang="en">
@@ -146,36 +161,72 @@ if ($isPrint) {
         <title>Report of Semi-Expendable Property Issued</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <style>
-            body { font-size: 12px; }
-            table { font-size: 11px; }
+            @page { size: portrait; margin: 0.3in; }
+            body { color: #000; font-family: "Times New Roman", serif; font-size: 12px; overflow-x: auto; }
+            .issued-wrap { max-width: 900px; margin: 0 auto; }
+            .appendix { text-align: right; font-style: italic; font-size: 14px; margin-bottom: 10px; }
+            .title { text-align: center; font-size: 18px; font-weight: 700; text-transform: uppercase; margin-bottom: 14px; }
+            .meta-grid { display: grid; grid-template-columns: 1fr 220px; gap: 10px 18px; margin-bottom: 8px; font-size: 13px; }
+            .meta-row { display: flex; align-items: baseline; gap: 6px; }
+            .meta-label { font-weight: 700; }
+            .meta-fill { display: inline-block; min-width: 120px; flex: 1 1 auto; border-bottom: 1px solid #000; padding: 0 4px 1px; }
+            .meta-fill.emphasis { font-weight: 700; text-transform: uppercase; }
+            .issued-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+            .issued-table th, .issued-table td { border: 1px solid #000; padding: 4px 5px; vertical-align: top; }
+            .issued-table th { text-align: center; font-weight: 700; line-height: 1.1; }
+            .issued-table .guide-row th { font-size: 10px; font-style: italic; font-weight: 400; padding: 2px 4px; }
+            .issued-table .qty, .issued-table .unit { text-align: center; }
+            .issued-table .money { text-align: right; white-space: nowrap; }
+            .issued-table tbody td { height: 24px; }
+            .footer-grid { width: 100%; border-collapse: collapse; margin-top: -1px; table-layout: fixed; }
+            .footer-grid td { border: 1px solid #000; vertical-align: top; }
+            .footer-cell { min-height: 96px; padding: 6px; position: relative; }
+            .footer-label { font-size: 12px; }
+            .signature-line { margin: 32px 18px 0; border-top: 1px solid #000; padding-top: 3px; text-align: center; font-size: 11px; }
+            .posted-by-tag { position: absolute; top: 6px; left: 6px; right: 6px; border-bottom: 1px solid #000; padding-bottom: 2px; font-size: 12px; }
+            @media screen and (max-width: 991.98px) { .issued-wrap { min-width: 860px; padding-bottom: 1rem; } }
             @media print { .no-print { display: none !important; } }
         </style>
     </head>
     <body>
-    <div class="container-fluid py-3">
-        <div class="d-flex justify-content-between align-items-center mb-3 no-print">
-            <button class="btn btn-outline-secondary btn-sm" onclick="window.close()">Close</button>
-            <button class="btn btn-primary btn-sm" onclick="window.print()">Print</button>
+    <div class="issued-wrap py-3">
+        <?php render_print_action_bar(); ?>
+        <div class="appendix">Annex A.7</div>
+        <div class="title">Report of Semi-Expendable Property Issued</div>
+        <div class="meta-grid">
+            <div class="meta-row">
+                <span class="meta-label">Entity Name :</span>
+                <span class="meta-fill emphasis"><?php echo h(strtoupper(APP_NAME)); ?></span>
+            </div>
+            <div class="meta-row">
+                <span class="meta-label">Serial No. :</span>
+                <span class="meta-fill">&nbsp;</span>
+            </div>
+            <div class="meta-row">
+                <span class="meta-label">Fund Cluster :</span>
+                <span class="meta-fill emphasis"><?php echo h($reportFundCluster); ?></span>
+            </div>
+            <div class="meta-row">
+                <span class="meta-label">Date :</span>
+                <span class="meta-fill"><?php echo h($dateTo !== '' ? date('F d, Y', strtotime($dateTo)) : date('F d, Y')); ?></span>
+            </div>
         </div>
-        <div class="text-center mb-3">
-            <div class="small fst-italic">Annex A.7</div>
-            <h4 class="mb-1">Report of Semi-Expendable Property Issued</h4>
-            <div>Entity Name: University of Antique</div>
-            <div>Fund Cluster: _____________________ | Date: <?php echo h($dateTo !== '' ? date('M d, Y', strtotime($dateTo)) : date('M d, Y')); ?></div>
-        </div>
-        <div class="small mb-2 text-muted">To be filled by the Property and / or Supply Division / Unit | To be filled out by the Accounting Division / Unit</div>
         <div class="table-responsive">
-            <table class="table table-bordered align-middle">
+            <table class="issued-table">
                 <thead>
                 <tr>
+                    <th colspan="5">To be filled by the Property and / or Supply Division / Unit</th>
+                    <th colspan="3">To be filled out by the Accounting Division / Unit</th>
+                </tr>
+                <tr class="guide-row">
                     <th>ICS No.</th>
                     <th>Responsibility Center Code</th>
-                    <th>Semi-expendable Property No.</th>
+                    <th>Semi-expendable Property</th>
                     <th>Item Description</th>
                     <th>Unit</th>
-                    <th class="text-end">Quantity Issued</th>
-                    <th class="text-end">Unit Cost</th>
-                    <th class="text-end">Amount</th>
+                    <th>Quantity<br>Issue</th>
+                    <th>Unit Cost</th>
+                    <th>Amount</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -185,15 +236,36 @@ if ($isPrint) {
                         <td><?php echo h($row['responsibility_center_code'] ?? ''); ?></td>
                         <td><?php echo h($row['semi_property_number'] ?? ''); ?></td>
                         <td><?php echo h(semi_issued_label($row)); ?></td>
-                        <td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
-                        <td class="text-end"><?php echo h(format_quantity($row['quantity_distributed'] ?? 0)); ?></td>
-                        <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
-                        <td class="text-end"><?php echo h(number_format((float) ($row['line_total'] ?? 0), 2)); ?></td>
+                        <td class="unit"><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
+                        <td class="qty"><?php echo h(format_quantity($row['quantity_distributed'] ?? 0)); ?></td>
+                        <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                        <td class="money"><?php echo h(number_format((float) ($row['line_total'] ?? 0), 2)); ?></td>
                     </tr>
                 <?php endforeach; else: ?>
                     <tr><td colspan="8" class="text-center text-muted py-4">No semi-expendable issued data found for the selected filters.</td></tr>
                 <?php endif; ?>
+                <?php for ($i = count($rows); $i < 18; $i++): ?>
+                    <tr>
+                        <td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                    </tr>
+                <?php endfor; ?>
                 </tbody>
+            </table>
+            <table class="footer-grid">
+                <tr>
+                    <td style="width:68%;">
+                        <div class="footer-cell">
+                            <div class="footer-label">I hereby certify to the correctness of the above information.</div>
+                            <div class="signature-line">Signature Over Printed Name of Property and/ or Supply Custodian</div>
+                        </div>
+                    </td>
+                    <td style="width:32%;">
+                        <div class="footer-cell">
+                            <div class="posted-by-tag">Posted by:</div>
+                            <div class="signature-line" style="margin-top: 42px;">Signature over Printed Name of Designated</div>
+                        </div>
+                    </td>
+                </tr>
             </table>
         </div>
     </div>

@@ -264,6 +264,63 @@ function get_system_setting(mysqli $db, string $key, string $default = ''): stri
     return (string) $row['setting_value'];
 }
 
+function person_full_name(array $row): string
+{
+    return trim(implode(' ', array_filter([
+        trim((string) ($row['first_name'] ?? '')),
+        trim((string) ($row['middle_name'] ?? '')),
+        trim((string) ($row['last_name'] ?? '')),
+        trim((string) ($row['suffix_name'] ?? '')),
+    ])));
+}
+
+function get_university_president_profile(mysqli $db): array
+{
+    $profile = [
+        'name' => get_system_setting($db, 'university_president_name', ''),
+        'title' => get_system_setting($db, 'university_president_title', ''),
+        'appointment_date' => get_system_setting($db, 'university_president_appointment_date', ''),
+    ];
+
+    if ($profile['name'] !== '' && $profile['title'] !== '') {
+        return $profile;
+    }
+
+    $presidentSql = "
+        SELECT e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title
+        FROM offices o
+        LEFT JOIN employees e ON e.id = o.office_head_employee_id
+        WHERE o.is_active = 1
+          AND (
+                o.office_name LIKE '%President%'
+                OR o.office_code LIKE '%PRES%'
+              )
+        ORDER BY
+            CASE
+                WHEN o.office_name LIKE '%Office of the President%' THEN 0
+                WHEN o.office_name LIKE '%President%' THEN 1
+                ELSE 2
+            END,
+            o.office_name ASC
+        LIMIT 1
+    ";
+
+    $presidentRes = $db->query($presidentSql);
+    $president = $presidentRes ? ($presidentRes->fetch_assoc() ?: []) : [];
+
+    if ($profile['name'] === '') {
+        $profile['name'] = person_full_name($president);
+    }
+    if ($profile['title'] === '') {
+        $profile['title'] = trim((string) ($president['position_title'] ?? ''));
+    }
+    if ($profile['title'] === '') {
+        $profile['title'] = 'University President';
+    }
+
+    return $profile;
+}
+
 function classify_item_by_cost(float $unitCost, array $threshold): string
 {
     if ($unitCost >= (float) $threshold['equipment_min']) {
@@ -275,12 +332,116 @@ function classify_item_by_cost(float $unitCost, array $threshold): string
     return 'semi_expendable_lv';
 }
 
+function fund_number_from_source(?string $fundCode, ?string $fundSource = null): string
+{
+    $haystack = trim((string) $fundCode . ' ' . (string) $fundSource);
+    if ($haystack !== '' && preg_match('/(?:^|[^0-9])(0[1567])(?:[^0-9]|$)/', $haystack, $matches)) {
+        return $matches[1];
+    }
+
+    return '';
+}
+
+function collect_non_empty_column_values(array $rows, string $key): array
+{
+    $values = [];
+    foreach ($rows as $row) {
+        $value = trim((string) ($row[$key] ?? ''));
+        if ($value !== '') {
+            $values[$value] = true;
+        }
+    }
+
+    return array_keys($values);
+}
+
+function report_fund_cluster(array $rows, string $selectedFundNumber = ''): string
+{
+    $selectedFundNumber = trim($selectedFundNumber);
+    if ($selectedFundNumber !== '') {
+        return $selectedFundNumber;
+    }
+
+    return implode(', ', collect_non_empty_column_values($rows, 'fund_number'));
+}
+
+function report_account_name(array $rows, ?array $selectedAccountCode, string $default = ''): string
+{
+    if ($selectedAccountCode) {
+        $selectedName = trim((string) ($selectedAccountCode['account_name'] ?? ''));
+        if ($selectedName !== '') {
+            return $selectedName;
+        }
+    }
+
+    $accountNames = collect_non_empty_column_values($rows, 'account_name');
+    if ($accountNames) {
+        return implode(', ', $accountNames);
+    }
+
+    return $default;
+}
+
+function render_print_action_bar(): void
+{
+    ?>
+    <div class="d-flex justify-content-between align-items-center mb-3 no-print">
+        <button class="btn btn-outline-secondary btn-sm" onclick="window.close()">Close</button>
+        <button class="btn btn-primary btn-sm" onclick="window.print()">Print</button>
+    </div>
+    <?php
+}
+
+function render_simple_report_header(string $appendix, string $title, string $asOf, string $fundCluster, string $entityName = APP_NAME): void
+{
+    ?>
+    <div class="text-center mb-3">
+        <div class="small fst-italic"><?php echo h($appendix); ?></div>
+        <h4 class="mb-1"><?php echo h($title); ?></h4>
+        <div>As at <?php echo h($asOf); ?></div>
+        <div>Entity Name: <?php echo h($entityName); ?> | Fund Cluster: <?php echo h($fundCluster); ?></div>
+    </div>
+    <?php
+}
+
+function render_inventory_committee_signature_grid(string $tableClass): void
+{
+    ?>
+    <table class="<?php echo h($tableClass); ?>">
+        <tr>
+            <td style="width:33.33%;">
+                <div class="sign-label">Certified Correct by:</div>
+                <div class="sign-line"></div>
+                <div class="sign-caption">Signature over Printed Name of<br>Inventory Committee Chair and<br>Members</div>
+            </td>
+            <td style="width:33.33%;">
+                <div class="sign-label">Approved by:</div>
+                <div class="sign-line"></div>
+                <div class="sign-caption">Signature over Printed Name of Head of<br>Agency/Entity or Authorized Representative</div>
+            </td>
+            <td style="width:33.33%;">
+                <div class="sign-label">Verified by:</div>
+                <div class="sign-line"></div>
+                <div class="sign-caption">Signature over Printed Name of COA<br>Representative</div>
+            </td>
+        </tr>
+    </table>
+    <?php
+}
+
+function ensure_legacy_assets_fund_column(mysqli $db): void
+{
+    if (function_exists('schema_has_column') && !schema_has_column($db, 'legacy_assets', 'fund_id')) {
+        $db->query("ALTER TABLE legacy_assets ADD COLUMN fund_id INT NULL AFTER account_code_id");
+    }
+}
+
 function generate_property_number(
     $db,
     string $year,
     string $fundCode,
     string $accountCode,
-    string $rcCode
+    string $officeCode
 ): string {
     // Use the numeric fund segment (e.g. 05, 01, 06, 07) in the property number.
     $fundSegment = trim($fundCode);
@@ -302,18 +463,19 @@ function generate_property_number(
     } else {
         $acctShort = $accountCode;
     }
-
-    // Extract RC short code — remove leading RC- prefix
-    $rcShort = preg_replace('/^RC-/i', '', trim($rcCode));
-    if ($rcShort === '') {
-        $rcShort = trim($rcCode);
+    $acctShort = trim((string) $acctShort);
+    if ($acctShort === '') {
+        $acctShort = 'GEN';
     }
-    if ($rcShort === '') {
-        $rcShort = 'GEN';
+
+    // Use office code as the last property number segment.
+    $officeShort = trim($officeCode);
+    if ($officeShort === '') {
+        $officeShort = 'GEN';
     }
 
     $prefix = $year . '-' . $fundSegment . '-' . $acctShort;
-    $seriesModuleKey = 'property_number|' . $prefix . '|' . $rcShort;
+    $seriesModuleKey = 'property_number|' . $prefix . '|' . $officeShort;
     $padding = 4;
     $nextSeq = 1;
 
@@ -328,7 +490,7 @@ function generate_property_number(
             $nextSeq = ((int) $row['current_value']) + 1;
         } else {
             $likePrefix = $prefix . '-%';
-            $likeSuffix = '%-' . $rcShort;
+            $likeSuffix = '%-' . $officeShort;
             $seedStmt = $db->prepare(
                 "SELECT COALESCE(MAX(
                     CAST(SUBSTRING_INDEX(
@@ -373,5 +535,6 @@ function generate_property_number(
 
     return $prefix
          . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT)
-         . '-' . $rcShort;
+         . '-' . $officeShort;
 }
+

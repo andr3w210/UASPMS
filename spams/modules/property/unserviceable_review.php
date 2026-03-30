@@ -197,7 +197,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="text-muted small">Filter flagged assets, record the endorsement, and jump directly to the right follow-up transaction.</div>
                 </div>
             </div>
-            <form method="get" class="row g-3 align-items-end">
+            <form method="get" class="row g-3 align-items-end workspace-filter-panel">
                 <div class="col-md-6">
                     <label class="form-label">Count Session ID</label>
                     <input type="number" name="session_id" class="form-control" value="<?php echo $sessionId > 0 ? (int) $sessionId : ''; ?>" placeholder="Optional specific session">
@@ -226,7 +226,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
                 <span class="badge text-bg-light"><?php echo number_format($summary['repair_candidates'] + $summary['disposal_candidates']); ?> item(s)</span>
             </div>
-            <div class="table-responsive">
+            <div class="table-responsive mobile-table-frame">
                 <table class="table align-middle">
                     <thead>
                         <tr>

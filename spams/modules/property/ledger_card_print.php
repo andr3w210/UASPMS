@@ -21,6 +21,10 @@ $purchaseOrders = [];
 $offices = [];
 $cards = [];
 
+if ($db) {
+    ensure_legacy_assets_fund_column($db);
+}
+
 function ledger_card_meta(array $card): array
 {
     $type = (string) ($card['item_type'] ?? '');
@@ -65,6 +69,11 @@ function ledger_sort_rows(array &$rows): void
     });
 }
 
+function ledger_card_fund_number(?string $fundCode, ?string $fundSource = null): string
+{
+    return fund_number_from_source($fundCode, $fundSource);
+}
+
 if ($db) {
     $poRes = $db->query("SELECT id, po_number FROM purchase_orders ORDER BY po_date DESC, id DESC");
     if ($poRes) {
@@ -106,6 +115,7 @@ if ($db) {
                     e.position_title,
                     rc.code AS rc_code,
                     f.fund_code,
+                    f.fund_source,
                     po.po_number
                 FROM distribution_item_details did
                 INNER JOIN distribution_items di ON di.id = did.distribution_item_id
@@ -169,7 +179,7 @@ if ($db) {
                     'item_type' => $row['item_type'] ?? '',
                     'classification_name' => $row['classification_name'] ?? '',
                     'classification_family' => $row['classification_family'] ?? '',
-                    'fund_code' => $row['fund_code'] ?? '',
+                    'fund_number' => ledger_card_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? ''),
                     'account_code' => trim(implode(' - ', array_filter([
                         $row['account_code'] ?? '',
                         $row['account_name'] ?? '',
@@ -255,13 +265,16 @@ if ($db) {
                         c.classification_name,
                         c.classification_family,
                         ac.account_code,
-                        ac.account_name
+                        ac.account_name,
+                        f.fund_code,
+                        f.fund_source
                     FROM legacy_assets la
                     LEFT JOIN offices o ON o.id = la.office_id
                     LEFT JOIN employees e ON e.id = la.employee_id
                     LEFT JOIN responsibility_codes rc ON rc.id = la.responsibility_code_id
                     LEFT JOIN classifications c ON c.id = la.classification_id
                     LEFT JOIN account_codes ac ON ac.id = la.account_code_id
+                    LEFT JOIN funds f ON f.id = la.fund_id
                     WHERE la.is_active = 1
                       AND la.item_type IN ('equipment', 'semi_expendable')";
         $legacyTypes = '';
@@ -300,7 +313,7 @@ if ($db) {
                     'item_type' => $row['item_type'] ?? '',
                     'classification_name' => $row['classification_name'] ?? '',
                     'classification_family' => $row['classification_family'] ?? '',
-                    'fund_code' => '',
+                    'fund_number' => ledger_card_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? ''),
                     'account_code' => trim(implode(' - ', array_filter([
                         $row['account_code'] ?? '',
                         $row['account_name'] ?? '',
@@ -503,13 +516,13 @@ if ($db) {
                 <div class="text-center">
                     <div class="small fst-italic"><?php echo h($meta['appendix']); ?></div>
                     <img src="<?php echo h(LOGO_PATH); ?>" style="width:60px;height:60px;object-fit:contain;" alt="logo">
-                    <h5 class="mt-2">University of Antique</h5>
+                    <h5 class="mt-2"><?php echo h(APP_NAME); ?></h5>
                     <div><?php echo h($meta['title']); ?></div>
                 </div>
 
                 <div class="row mt-3">
                     <div class="col-6">
-                        <div><strong>Fund Cluster:</strong> <?php echo h($card['fund_code']); ?></div>
+                        <div><strong>Fund Cluster:</strong> <?php echo h($card['fund_number'] ?? ''); ?></div>
                         <div><strong><?php echo h($meta['asset_label']); ?>:</strong> <?php echo h($card['classification_name'] ?: $card['classification_family']); ?></div>
                         <div><strong><?php echo h($meta['number_label']); ?>:</strong> <?php echo h($card['property_number']); ?></div>
                         <div><strong>Description:</strong> <?php echo h($card['item_description']); ?></div>

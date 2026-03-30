@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_role('Administrator', 'Supply Officer', 'Property Officer');
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
 $db = db();
 $page_title = 'Receipt of Returned Semi-Expendable Property';
@@ -22,12 +22,17 @@ if (!$db) {
             did.property_number,
             poi.item_description,
             c.classification_name,
-            c.classification_family
+            c.classification_family,
+            f.fund_code,
+            f.fund_source
         FROM returns rt
         INNER JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
         INNER JOIN distribution_items di ON di.id = did.distribution_item_id
         INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
         INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id AND poi.item_type = 'semi_expendable'
+        INNER JOIN receivings r ON r.id = ri.receiving_id
+        INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
+        LEFT JOIN funds f ON f.id = po.fund_id
         LEFT JOIN classifications c ON c.id = poi.classification_id
         WHERE rt.status = 'posted'
         ORDER BY rt.return_date DESC, rt.id DESC
@@ -50,6 +55,8 @@ if (!$db) {
                 poi.item_description,
                 c.classification_name,
                 c.classification_family,
+                f.fund_code,
+                f.fund_source,
                 o.office_name,
                 e.first_name,
                 e.middle_name,
@@ -61,6 +68,9 @@ if (!$db) {
             INNER JOIN distributions d ON d.id = di.distribution_id
             INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
             INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id AND poi.item_type = 'semi_expendable'
+            INNER JOIN receivings r ON r.id = ri.receiving_id
+            INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
+            LEFT JOIN funds f ON f.id = po.fund_id
             LEFT JOIN classifications c ON c.id = poi.classification_id
             LEFT JOIN offices o ON o.id = d.office_id
             LEFT JOIN employees e ON e.id = d.employee_id
@@ -84,6 +94,11 @@ function rrsp_label(array $row): string
         trim((string) ($row['classification_name'] ?? '')),
     ])));
     return trim(($prefix !== '' ? $prefix . ' - ' : '') . (string) ($row['item_description'] ?? ''));
+}
+
+function rrsp_fund_number(?string $fundCode, ?string $fundSource = null): string
+{
+    return fund_number_from_source($fundCode, $fundSource);
 }
 
 function rrsp_person(array $row): string
@@ -110,6 +125,7 @@ if ($isExport && $record) {
 }
 
 if ($isPrint && $record) {
+    $reportFundCluster = rrsp_fund_number($record['fund_code'] ?? '', $record['fund_source'] ?? '');
     ?>
     <!doctype html>
     <html lang="en">
@@ -126,14 +142,12 @@ if ($isPrint && $record) {
     </head>
     <body>
     <div class="container py-3">
-        <div class="d-flex justify-content-between align-items-center mb-3 no-print">
-            <button class="btn btn-outline-secondary btn-sm" onclick="window.close()">Close</button>
-            <button class="btn btn-primary btn-sm" onclick="window.print()">Print</button>
-        </div>
+        <?php render_print_action_bar(); ?>
         <div class="text-center mb-3">
             <div class="small fst-italic">Annex A.6</div>
             <h4 class="mb-1">Receipt of Returned Semi-Expendable Property</h4>
-            <div>Entity Name: University of Antique | Date: <?php echo h(!empty($record['return_date']) ? date('M d, Y', strtotime((string) $record['return_date'])) : ''); ?></div>
+            <div>Entity Name: <?php echo h(APP_NAME); ?> | Fund Cluster: <?php echo h($reportFundCluster); ?></div>
+            <div>Date: <?php echo h(!empty($record['return_date']) ? date('M d, Y', strtotime((string) $record['return_date'])) : ''); ?></div>
             <div>RRSP No.: <?php echo h($record['system_reference'] ?? ''); ?></div>
             <div class="mt-2">This is to acknowledge receipt of the returned Semi-expendable Property</div>
         </div>

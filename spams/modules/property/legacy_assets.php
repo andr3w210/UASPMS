@@ -15,12 +15,14 @@ $accountCodes = [];
 $brands = [];
 $models = [];
 $suppliers = [];
+$funds = [];
 $form = [
     'property_number' => '',
     'item_type' => 'equipment',
     'item_description' => '',
     'classification_id' => '',
     'account_code_id' => '',
+    'fund_id' => '',
     'supplier_id' => '',
     'brand_id' => '',
     'model_id' => '',
@@ -36,11 +38,13 @@ $form = [
 ];
 
 if ($db) {
+    ensure_legacy_assets_fund_column($db);
+
     $db->query("UPDATE legacy_assets SET item_type = 'equipment' WHERE item_type IS NULL OR item_type = ''");
     $db->query("UPDATE legacy_assets SET quantity = 1 WHERE quantity IS NULL OR quantity <= 0");
     $db->query("UPDATE legacy_assets SET unit_cost = acquisition_cost WHERE unit_cost IS NULL OR unit_cost = 0");
 
-    $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
+    $res = $db->query("SELECT id, office_code, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res instanceof mysqli_result) { $offices = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, office_id, is_unit_head, position_title, first_name, middle_name, last_name, suffix_name FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
     if ($res instanceof mysqli_result) { $employees = $res->fetch_all(MYSQLI_ASSOC); }
@@ -50,6 +54,8 @@ if ($db) {
     if ($res instanceof mysqli_result) { $classifications = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC");
     if ($res instanceof mysqli_result) { $accountCodes = $res->fetch_all(MYSQLI_ASSOC); }
+    $res = $db->query("SELECT id, fund_code, fund_name, fund_source FROM funds WHERE is_active = 1 ORDER BY fund_code ASC, fund_name ASC");
+    if ($res instanceof mysqli_result) { $funds = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, supplier_name FROM suppliers WHERE is_active = 1 ORDER BY supplier_name ASC");
     if ($res instanceof mysqli_result) { $suppliers = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, brand_name FROM brands WHERE is_active = 1 ORDER BY brand_name ASC");
@@ -65,11 +71,57 @@ if ($db) {
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
         }
-        if ($form['property_number'] === '') { $errors[] = 'Property number is required.'; }
         if ($form['item_description'] === '') { $errors[] = 'Description is required.'; }
         if (!in_array($form['item_type'], ['semi_expendable', 'equipment'], true)) { $errors[] = 'Inventory type must be semi-expendable or equipment.'; }
         if ($form['quantity'] === '' || !ctype_digit($form['quantity']) || (int) $form['quantity'] <= 0) { $errors[] = 'Quantity is required.'; }
         if ($form['unit_cost'] === '' || !is_numeric($form['unit_cost'])) { $errors[] = 'Unit cost is required.'; }
+        if ($form['fund_id'] === '') { $errors[] = 'Fund is required to generate the property number.'; }
+        if ($form['account_code_id'] === '') { $errors[] = 'Account code is required to generate the property number.'; }
+
+        $fundCodeValue = '';
+        foreach ($funds as $fundRow) {
+            if ($form['fund_id'] !== '' && (int) $fundRow['id'] === (int) $form['fund_id']) {
+                $fundCodeValue = fund_number_from_source((string) ($fundRow['fund_code'] ?? ''), (string) ($fundRow['fund_source'] ?? ''));
+                if ($fundCodeValue === '') {
+                    $fundCodeValue = trim((string) ($fundRow['fund_code'] ?? ''));
+                }
+                break;
+            }
+        }
+        if ($form['fund_id'] !== '' && $fundCodeValue === '') {
+            $errors[] = 'Selected fund is invalid.';
+        }
+
+        $accountCodeValue = '';
+        foreach ($accountCodes as $accountCodeRow) {
+            if ($form['account_code_id'] !== '' && (int) $accountCodeRow['id'] === (int) $form['account_code_id']) {
+                $accountCodeValue = trim((string) ($accountCodeRow['account_code'] ?? ''));
+                break;
+            }
+        }
+        if ($form['account_code_id'] !== '' && $accountCodeValue === '') {
+            $errors[] = 'Selected account code is invalid.';
+        }
+
+        $officeCodeValue = '';
+        foreach ($offices as $officeRow) {
+            if ($form['office_id'] !== '' && (int) $officeRow['id'] === (int) $form['office_id']) {
+                $officeCodeValue = trim((string) ($officeRow['office_code'] ?? ''));
+                break;
+            }
+        }
+
+        $yearValue = date('Y');
+        if ($form['acquisition_date'] !== '') {
+            $timestamp = strtotime($form['acquisition_date']);
+            if ($timestamp !== false) {
+                $yearValue = date('Y', $timestamp);
+            }
+        }
+
+        if (!$errors) {
+            $form['property_number'] = generate_property_number($db, $yearValue, $fundCodeValue, $accountCodeValue, $officeCodeValue);
+        }
 
         if (!$errors) {
             $checkStmt = $db->prepare("SELECT id FROM legacy_assets WHERE property_number = ? LIMIT 1");
@@ -89,6 +141,7 @@ if ($db) {
             $userId = current_user_id();
             $classificationId = $form['classification_id'] !== '' ? (int) $form['classification_id'] : null;
             $accountCodeId = $form['account_code_id'] !== '' ? (int) $form['account_code_id'] : null;
+            $fundId = $form['fund_id'] !== '' ? (int) $form['fund_id'] : null;
             $supplierId = $form['supplier_id'] !== '' ? (int) $form['supplier_id'] : null;
             $brandId = $form['brand_id'] !== '' ? (int) $form['brand_id'] : null;
             $modelId = $form['model_id'] !== '' ? (int) $form['model_id'] : null;
@@ -109,18 +162,19 @@ if ($db) {
 
                 $stmt = $db->prepare("
                     INSERT INTO legacy_assets
-                        (system_reference, property_number, item_type, item_description, classification_id, account_code_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (system_reference, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 if ($stmt) {
                     $stmt->bind_param(
-                    'ssssiiiissssiddiiissi',
+                    'ssssiiiiissssiddiiissi',
                     $systemReference,
                     $form['property_number'],
                     $form['item_type'],
                     $form['item_description'],
                     $classificationId,
                     $accountCodeId,
+                    $fundId,
                     $supplierId,
                     $brandId,
                     $modelId,
@@ -154,6 +208,7 @@ if ($db) {
                         'property_number' => $form['property_number'],
                         'item_type' => $form['item_type'],
                         'item_description' => $form['item_description'],
+                        'fund_id' => $fundId,
                         'office_id' => $officeId,
                         'employee_id' => $employeeId,
                         'responsibility_code_id' => $rcId,
@@ -169,12 +224,13 @@ if ($db) {
     }
 
     $listStmt = $db->prepare("
-        SELECT la.*, c.classification_name, c.classification_family, ac.account_code, ac.account_name, o.office_name,
+        SELECT la.*, c.classification_name, c.classification_family, ac.account_code, ac.account_name, f.fund_code, f.fund_name, f.fund_source, o.office_name,
                s.supplier_name, b.brand_name, m.model_name,
                e.first_name, e.middle_name, e.last_name, e.suffix_name, rc.code AS rc_code
         FROM legacy_assets la
         LEFT JOIN classifications c ON c.id = la.classification_id
         LEFT JOIN account_codes ac ON ac.id = la.account_code_id
+        LEFT JOIN funds f ON f.id = la.fund_id
         LEFT JOIN suppliers s ON s.id = la.supplier_id
         LEFT JOIN brands b ON b.id = la.brand_id
         LEFT JOIN models m ON m.id = la.model_id
@@ -214,7 +270,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="row g-3">
                         <div class="col-md-4">
                             <label class="form-label">Property Number</label>
-                            <input type="text" class="form-control" name="property_number" value="<?php echo h($form['property_number']); ?>" required>
+                            <input type="text" class="form-control" name="property_number" value="<?php echo h($form['property_number']); ?>" readonly>
+                            <div class="form-text">Auto-generated on save from acquisition year, account code, and responsibility code.</div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Inventory Type</label>
@@ -234,6 +291,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-4">
                             <label class="form-label">Unit Cost</label>
                             <input type="number" step="0.01" class="form-control" name="unit_cost" value="<?php echo h($form['unit_cost']); ?>" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Fund</label>
+                            <select name="fund_id" class="form-select">
+                                <option value="">Select fund</option>
+                                <?php foreach ($funds as $fund): ?>
+                                    <option value="<?php echo (int) $fund['id']; ?>" <?php echo $form['fund_id'] === (string) $fund['id'] ? 'selected' : ''; ?>>
+                                        <?php echo h(($fund['fund_code'] ?? '') . ' - ' . ($fund['fund_name'] ?? '') . (($fund['fund_source'] ?? '') !== '' ? ' - ' . ($fund['fund_source'] ?? '') : '')); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Supplier</label>
@@ -358,6 +426,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <th>Property No.</th>
                                 <th>Description</th>
                                 <th>Type</th>
+                                <th>Fund</th>
                                 <th>Supplier</th>
                                 <th>Brand / Model</th>
                                 <th>Office</th>
@@ -375,6 +444,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo h($row['property_number']); ?></td>
                                     <td><?php echo h($row['item_description']); ?></td>
                                     <td><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['item_type'] ?? '')))); ?></td>
+                                    <td><?php echo h(trim(implode(' - ', array_filter([$row['fund_code'] ?? '', $row['fund_name'] ?? ''])))); ?></td>
                                     <td><?php echo h($row['supplier_name'] ?? ''); ?></td>
                                     <td><?php echo h(trim((($row['brand_name'] ?? '') ?: ($row['brand'] ?? '')) . ' ' . (($row['model_name'] ?? '') ?: ($row['model'] ?? '')))); ?></td>
                                     <td><?php echo h($row['office_name'] ?? ''); ?></td>
@@ -592,3 +662,4 @@ require_once __DIR__ . '/../../includes/topbar.php';
 })();
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

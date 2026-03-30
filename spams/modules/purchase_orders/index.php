@@ -39,7 +39,7 @@ $form = [
     'fund_id' => '',
     'supplier_address' => '',
     'mode_of_procurement_id' => '',
-    'place_of_delivery' => 'University of Antique',
+    'place_of_delivery' => APP_NAME,
     'delivery_term_days' => '',
     'expected_delivery_date' => '',
 ];
@@ -181,7 +181,7 @@ if (!$db) {
             $form['fund_id'] = old($_POST, 'fund_id');
             $form['supplier_address'] = old($_POST, 'supplier_address');
             $form['mode_of_procurement_id'] = old($_POST, 'mode_of_procurement_id');
-            $form['place_of_delivery'] = old($_POST, 'place_of_delivery', 'University of Antique');
+            $form['place_of_delivery'] = old($_POST, 'place_of_delivery', APP_NAME);
             $form['delivery_term_days'] = old($_POST, 'delivery_term_days');
             $form['expected_delivery_date'] = old($_POST, 'expected_delivery_date');
 
@@ -518,8 +518,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
         <div class="card">
             <div class="card-body p-3 p-lg-4">
                 <div class="mb-4">
-                    <form method="get" class="row g-2 g-lg-3 align-items-end workspace-filter-grid">
-                        <div class="col-12 col-md-2 col-lg-1">
+                    <form method="get" class="row g-3 align-items-end workspace-filter-panel">
+                        <div class="col-12 col-md-6 col-lg-2">
                             <label class="form-label small mb-1">Status</label>
                             <select name="status" class="form-select form-select-sm">
                                 <?php $filterStatus = $_GET['status'] ?? 'all'; ?>
@@ -531,7 +531,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </select>
                         </div>
 
-                        <div class="col-12 col-md-4 col-lg-3">
+                        <div class="col-12 col-md-6 col-lg-3">
                             <label class="form-label small mb-1">Supplier</label>
                             <select name="supplier_id" class="form-select form-select-sm">
                                 <?php $filterSupplierId = $_GET['supplier_id'] ?? ''; ?>
@@ -542,24 +542,26 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </select>
                         </div>
 
-                        <div class="col-6 col-md-2">
+                        <div class="col-12 col-sm-6 col-lg-2">
                             <label class="form-label small mb-1">Date from</label>
                             <input type="date" name="date_from" class="form-control form-control-sm" value="<?php echo h($_GET['date_from'] ?? ''); ?>">
                         </div>
 
-                        <div class="col-6 col-md-2">
+                        <div class="col-12 col-sm-6 col-lg-2">
                             <label class="form-label small mb-1">Date to</label>
                             <input type="date" name="date_to" class="form-control form-control-sm" value="<?php echo h($_GET['date_to'] ?? ''); ?>">
                         </div>
 
-                        <div class="col-12 col-md-4 col-lg-3">
+                        <div class="col-12 col-lg-3">
                             <label class="form-label small mb-1">Search</label>
                             <input type="text" name="q" class="form-control form-control-sm" placeholder="PO number or system ref" value="<?php echo h($_GET['q'] ?? ''); ?>">
                         </div>
 
-                        <div class="col-12 col-lg-auto workspace-actions">
-                            <button class="btn btn-sm btn-outline-secondary px-3">Filter</button>
-                            <a href="<?php echo base_url('modules/purchase_orders/index.php'); ?>" class="btn btn-sm btn-link">Clear</a>
+                        <div class="col-12 col-lg-auto">
+                            <div class="d-grid gap-2 d-sm-flex">
+                                <button class="btn btn-sm btn-outline-secondary px-3">Filter</button>
+                                <a href="<?php echo base_url('modules/purchase_orders/index.php'); ?>" class="btn btn-sm btn-link">Clear</a>
+                            </div>
                         </div>
                     </form>
                 </div>

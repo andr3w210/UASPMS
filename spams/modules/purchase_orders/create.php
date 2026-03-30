@@ -372,7 +372,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <form id="purchaseOrderForm" method="post">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
 
-                                        <div class="card mb-4" style="border-color: var(--bs-primary-border-subtle);">
+                                        <div class="card mb-4 workspace-form-section" style="border-color: var(--bs-primary-border-subtle);">
                                             <div class="card-body p-3">
                                                 <div class="workspace-header">
                                                     <div style="flex:1; min-width:200px;">
@@ -389,7 +389,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </div>
                                         </div>
 
-                                        <div class="row g-3 workspace-filter-grid">
+                                        <div class="row g-3 workspace-filter-panel mb-4">
                         <div class="col-md-4">
                             <label for="po_number" class="form-label">Hard Copy PO Number</label>
                             <input type="text" class="form-control" id="po_number" name="po_number" value="<?php echo h($form['po_number']); ?>" required>
@@ -464,7 +464,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-lg-4">
                             <div class="card h-100">
                                 <div class="card-body p-3 d-flex flex-column" style="gap:10px;">
-                                    <div class="workspace-actions">
+                                    <div class="workspace-actions workspace-toolbar-cluster">
                                         <div class="input-group input-group-sm" style="max-width:160px;">
                                             <input type="text" class="form-control form-control-sm" id="lineSearchInput" placeholder="Search lines...">
                                         </div>
@@ -498,7 +498,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                         <div class="col-lg-8">
                             <div class="card h-100">
-                                <div class="card-body p-3" id="poLineEditor">
+                                <div class="card-body p-3 workspace-editor-shell" id="poLineEditor">
                                     <div id="poEditorEmpty" class="text-center text-muted py-5">
                                         <div class="mb-2">No lines yet.</div>
                                         <div class="small">Use the add buttons above to create your first PO line.</div>
@@ -515,7 +515,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </div>
                                         </div>
 
-                                        <div class="alert alert-light border py-2 px-3 mb-3" id="editorWorkflowHelp" style="font-size:12px;"></div>
+                                        <div class="alert alert-light border py-2 px-3 mb-3 workspace-inline-help" id="editorWorkflowHelp" style="font-size:12px;"></div>
 
                                         <div class="mb-3" id="editorCatalogSection">
                                             <label class="form-label" style="font-size:12px;">
@@ -528,7 +528,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div id="editorCatalogHint" class="small text-muted mt-1" style="display:none;">
                                                 Catalog defaults loaded. You can still refine the PO description below if needed.
                                             </div>
-                                            <div class="mt-2 workspace-actions">
+                                            <div class="mt-2 workspace-actions workspace-toolbar-cluster">
                                                 <button type="button" class="btn btn-outline-secondary btn-sm" id="openCatalogQuickAdd" style="font-size:12px;">
                                                     Add to Catalog
                                                 </button>
@@ -559,7 +559,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div class="small text-muted mt-1" id="editorDescriptionHint">Paste the PO description exactly as written on the hard copy when needed.</div>
                                         </div>
 
-                                        <div class="row g-2 mb-2 workspace-filter-grid">
+                                        <div class="row g-2 mb-2">
                                             <div class="col-3">
                                                 <label class="form-label" style="font-size:11px;">Quantity <span class="text-danger">*</span></label>
                                                 <input type="number" class="form-control form-control-sm text-center" id="editorQty" min="0.01" step="0.01" value="1" style="font-size:13px;">
@@ -584,7 +584,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div class="progress mb-2" style="height:4px;">
                                                 <div class="progress-bar" id="editorProgress" style="width:0%; transition:width .3s;"></div>
                                             </div>
-                                            <div class="workspace-actions align-items-center">
+                                            <div class="workspace-actions workspace-toolbar-cluster align-items-center">
                                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="editorPrev">← Prev</button>
                                                 <div class="flex-fill text-center small text-muted" id="editorProgressLabel">0 / 0 completed</div>
                                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="editorNext">Next →</button>
@@ -599,12 +599,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                     <div id="poHiddenInputs"></div>
 
-                    <div style="position:sticky; bottom:0; z-index:10; background:var(--bs-body-bg); border-top:0.5px solid var(--bs-border-color); padding:10px 0; margin-top:4px;">
+                    <div class="workspace-sticky-bar" style="position:sticky; bottom:0; z-index:10;">
                         <div class="workspace-header">
                             <div class="workspace-header-copy">
                                 <span class="text-muted small" id="footerLineCount">0 line(s)</span>
                             </div>
-                            <div class="workspace-actions align-items-center">
+                            <div class="workspace-actions workspace-toolbar-cluster align-items-center">
                                 <span class="fw-semibold">Total: <span id="poGrandTotal">0.00</span></span>
                                 <button type="submit" class="btn btn-primary btn-sm">Save Purchase Order</button>
                             </div>

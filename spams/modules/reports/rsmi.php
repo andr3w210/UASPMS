@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_role('Administrator', 'Supply Officer', 'Property Officer');
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
 $db = db();
 $page_title = 'RSMI';
@@ -140,10 +140,7 @@ if ($isPrint) {
     </head>
     <body>
         <div class="container-fluid py-3">
-            <div class="d-flex justify-content-between align-items-center mb-3 no-print">
-                <button class="btn btn-outline-secondary btn-sm" onclick="window.close()">Close</button>
-                <button class="btn btn-primary btn-sm" onclick="window.print()">Print</button>
-            </div>
+            <?php render_print_action_bar(); ?>
             <div class="text-center mb-3">
                 <h4 class="mb-1">Report of Supplies and Materials Issued</h4>
                 <div class="small text-muted">

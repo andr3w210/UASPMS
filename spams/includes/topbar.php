@@ -13,7 +13,31 @@ $repeatExtensionCount = 0;
 $lowStockItemCount = 0;
 $unreadMessageCount = 0;
 if ($notificationDb) {
-    if ($userPhotoPath === '' && current_user_id()) {
+    $tableExists = static function (mysqli $connection, string $tableName): bool {
+        $escapedTable = $connection->real_escape_string($tableName);
+        $result = $connection->query("SHOW TABLES LIKE '{$escapedTable}'");
+        if ($result instanceof mysqli_result) {
+            $exists = $result->num_rows > 0;
+            $result->close();
+            return $exists;
+        }
+
+        return false;
+    };
+    $receivingDetailHasDisposedFlag = false;
+    $receivingDetailDisposedCondition = '1 = 1';
+    if ($tableExists($notificationDb, 'receiving_item_details')) {
+        $receivingDetailDisposedColumnResult = $notificationDb->query("SHOW COLUMNS FROM receiving_item_details LIKE 'is_disposed'");
+        if ($receivingDetailDisposedColumnResult instanceof mysqli_result) {
+            $receivingDetailHasDisposedFlag = $receivingDetailDisposedColumnResult->num_rows > 0;
+            $receivingDetailDisposedColumnResult->close();
+        }
+    }
+    if ($receivingDetailHasDisposedFlag) {
+        $receivingDetailDisposedCondition = 'COALESCE(rid.is_disposed, 0) = 0';
+    }
+
+    if ($userPhotoPath === '' && current_user_id() && $tableExists($notificationDb, 'users')) {
         $photoStmt = $notificationDb->prepare("SELECT profile_photo_path FROM users WHERE id = ? LIMIT 1");
         if ($photoStmt) {
             $currentTopbarPhotoUserId = (int) current_user_id();
@@ -27,122 +51,145 @@ if ($notificationDb) {
 
     if (current_user_id()) {
         $currentTopbarUserId = (int) current_user_id();
-        $unreadMessageStmt = $notificationDb->prepare("
-            SELECT COUNT(*) AS total
-            FROM user_messages
-            WHERE recipient_user_id = ?
-              AND is_read = 0
-        ");
-        if ($unreadMessageStmt) {
-            $unreadMessageStmt->bind_param('i', $currentTopbarUserId);
-            $unreadMessageStmt->execute();
-            $unreadMessageCount = (int) (($unreadMessageStmt->get_result()->fetch_assoc()['total'] ?? 0));
-            $unreadMessageStmt->close();
+        if ($tableExists($notificationDb, 'user_messages')) {
+            $unreadMessageStmt = $notificationDb->prepare("
+                SELECT COUNT(*) AS total
+                FROM user_messages
+                WHERE recipient_user_id = ?
+                  AND is_read = 0
+            ");
+            if ($unreadMessageStmt) {
+                $unreadMessageStmt->bind_param('i', $currentTopbarUserId);
+                $unreadMessageStmt->execute();
+                $unreadMessageCount = (int) (($unreadMessageStmt->get_result()->fetch_assoc()['total'] ?? 0));
+                $unreadMessageStmt->close();
+            }
         }
 
         $unreadMessageCount += message_channel_unread_count($notificationDb, 'general', $currentTopbarUserId);
     }
 
-    $pendingUnitsStmt = $notificationDb->prepare(
-        "SELECT COUNT(*) AS total
-         FROM receiving_item_details rid
-         INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id
-         INNER JOIN receivings r ON r.id = ri.receiving_id
-         INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
-         WHERE r.status != 'cancelled'
-           AND poi.item_type IN ('semi_expendable', 'equipment')
-           AND rid.is_distributed = 0
-           AND COALESCE(rid.is_disposed, 0) = 0"
-    );
-    if ($pendingUnitsStmt) {
-        $pendingUnitsStmt->execute();
-        $pendingDistributionUnits = (int) (($pendingUnitsStmt->get_result()->fetch_assoc()['total'] ?? 0));
-        $pendingUnitsStmt->close();
+    if ($tableExists($notificationDb, 'receiving_item_details')
+        && $tableExists($notificationDb, 'receiving_items')
+        && $tableExists($notificationDb, 'receivings')
+        && $tableExists($notificationDb, 'purchase_order_items')) {
+        $pendingUnitsStmt = $notificationDb->prepare(
+            "SELECT COUNT(*) AS total
+             FROM receiving_item_details rid
+             INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id
+             INNER JOIN receivings r ON r.id = ri.receiving_id
+             INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+             WHERE r.status != 'cancelled'
+               AND poi.item_type IN ('semi_expendable', 'equipment')
+               AND rid.is_distributed = 0
+               AND {$receivingDetailDisposedCondition}"
+        );
+        if ($pendingUnitsStmt) {
+            $pendingUnitsStmt->execute();
+            $pendingDistributionUnits = (int) (($pendingUnitsStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $pendingUnitsStmt->close();
+        }
     }
 
-    $pendingRecordsStmt = $notificationDb->prepare(
-        "SELECT COUNT(DISTINCT r.id) AS total
-         FROM receiving_item_details rid
-         INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id
-         INNER JOIN receivings r ON r.id = ri.receiving_id
-         INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
-         WHERE r.status != 'cancelled'
-           AND poi.item_type IN ('semi_expendable', 'equipment')
-           AND rid.is_distributed = 0
-           AND COALESCE(rid.is_disposed, 0) = 0"
-    );
-    if ($pendingRecordsStmt) {
-        $pendingRecordsStmt->execute();
-        $pendingDistributionRecords = (int) (($pendingRecordsStmt->get_result()->fetch_assoc()['total'] ?? 0));
-        $pendingRecordsStmt->close();
+    if ($tableExists($notificationDb, 'receiving_item_details')
+        && $tableExists($notificationDb, 'receiving_items')
+        && $tableExists($notificationDb, 'receivings')
+        && $tableExists($notificationDb, 'purchase_order_items')) {
+        $pendingRecordsStmt = $notificationDb->prepare(
+            "SELECT COUNT(DISTINCT r.id) AS total
+             FROM receiving_item_details rid
+             INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id
+             INNER JOIN receivings r ON r.id = ri.receiving_id
+             INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+             WHERE r.status != 'cancelled'
+               AND poi.item_type IN ('semi_expendable', 'equipment')
+               AND rid.is_distributed = 0
+               AND {$receivingDetailDisposedCondition}"
+        );
+        if ($pendingRecordsStmt) {
+            $pendingRecordsStmt->execute();
+            $pendingDistributionRecords = (int) (($pendingRecordsStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $pendingRecordsStmt->close();
+        }
     }
 
-    $pendingReceivingStmt = $notificationDb->prepare(
-        "SELECT COUNT(*) AS total
-         FROM (
-             SELECT po.id
-             FROM purchase_orders po
-             LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
-             LEFT JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
-             LEFT JOIN receivings r ON r.id = ri.receiving_id AND r.status != 'cancelled'
-             WHERE po.status != 'cancelled'
-             GROUP BY po.id
-             HAVING COALESCE(SUM(poi.quantity), 0) > COALESCE(SUM(CASE WHEN r.id IS NOT NULL THEN ri.quantity_delivered ELSE 0 END), 0)
-                 OR SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) > 0
-         ) pending_receiving_rows"
-    );
-    if ($pendingReceivingStmt) {
-        $pendingReceivingStmt->execute();
-        $pendingReceivingCount = (int) (($pendingReceivingStmt->get_result()->fetch_assoc()['total'] ?? 0));
-        $pendingReceivingStmt->close();
+    if ($tableExists($notificationDb, 'purchase_orders')
+        && $tableExists($notificationDb, 'purchase_order_items')
+        && $tableExists($notificationDb, 'receiving_items')
+        && $tableExists($notificationDb, 'receivings')) {
+        $pendingReceivingStmt = $notificationDb->prepare(
+            "SELECT COUNT(*) AS total
+             FROM (
+                 SELECT po.id
+                 FROM purchase_orders po
+                 LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
+                 LEFT JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
+                 LEFT JOIN receivings r ON r.id = ri.receiving_id AND r.status != 'cancelled'
+                 WHERE po.status != 'cancelled'
+                 GROUP BY po.id
+                 HAVING COALESCE(SUM(poi.quantity), 0) > COALESCE(SUM(CASE WHEN r.id IS NOT NULL THEN ri.quantity_delivered ELSE 0 END), 0)
+                     OR SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) > 0
+             ) pending_receiving_rows"
+        );
+        if ($pendingReceivingStmt) {
+            $pendingReceivingStmt->execute();
+            $pendingReceivingCount = (int) (($pendingReceivingStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $pendingReceivingStmt->close();
+        }
     }
 
-    $dueSoonStmt = $notificationDb->prepare(
-        "SELECT
-            SUM(CASE WHEN expected_delivery_date < CURDATE() THEN 1 ELSE 0 END) AS overdue_count,
-            SUM(CASE WHEN expected_delivery_date >= CURDATE() AND expected_delivery_date <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) THEN 1 ELSE 0 END) AS due_soon_count
-         FROM purchase_orders
-         WHERE status NOT IN ('completed', 'cancelled')
-           AND expected_delivery_date IS NOT NULL"
-    );
-    if ($dueSoonStmt) {
-        $dueSoonStmt->execute();
-        $dueSoonRow = $dueSoonStmt->get_result()->fetch_assoc();
-        $deliveryOverdueCount = (int) ($dueSoonRow['overdue_count'] ?? 0);
-        $deliveryDueSoonCount = (int) ($dueSoonRow['due_soon_count'] ?? 0);
-        $dueSoonStmt->close();
+    if ($tableExists($notificationDb, 'purchase_orders')) {
+        $dueSoonStmt = $notificationDb->prepare(
+            "SELECT
+                SUM(CASE WHEN expected_delivery_date < CURDATE() THEN 1 ELSE 0 END) AS overdue_count,
+                SUM(CASE WHEN expected_delivery_date >= CURDATE() AND expected_delivery_date <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) THEN 1 ELSE 0 END) AS due_soon_count
+             FROM purchase_orders
+             WHERE status NOT IN ('completed', 'cancelled')
+               AND expected_delivery_date IS NOT NULL"
+        );
+        if ($dueSoonStmt) {
+            $dueSoonStmt->execute();
+            $dueSoonRow = $dueSoonStmt->get_result()->fetch_assoc();
+            $deliveryOverdueCount = (int) ($dueSoonRow['overdue_count'] ?? 0);
+            $deliveryDueSoonCount = (int) ($dueSoonRow['due_soon_count'] ?? 0);
+            $dueSoonStmt->close();
+        }
     }
 
-    $repeatExtensionStmt = $notificationDb->prepare(
-        "SELECT COUNT(*) AS total
-         FROM (
-             SELECT purchase_order_id
-             FROM purchase_order_delivery_extensions
-             WHERE status = 'posted'
-             GROUP BY purchase_order_id
-             HAVING COUNT(*) >= 2
-         ) repeated_extension_rows"
-    );
-    if ($repeatExtensionStmt) {
-        $repeatExtensionStmt->execute();
-        $repeatExtensionCount = (int) (($repeatExtensionStmt->get_result()->fetch_assoc()['total'] ?? 0));
-        $repeatExtensionStmt->close();
+    if ($tableExists($notificationDb, 'purchase_order_delivery_extensions')) {
+        $repeatExtensionStmt = $notificationDb->prepare(
+            "SELECT COUNT(*) AS total
+             FROM (
+                 SELECT purchase_order_id
+                 FROM purchase_order_delivery_extensions
+                 WHERE status = 'posted'
+                 GROUP BY purchase_order_id
+                 HAVING COUNT(*) >= 2
+             ) repeated_extension_rows"
+        );
+        if ($repeatExtensionStmt) {
+            $repeatExtensionStmt->execute();
+            $repeatExtensionCount = (int) (($repeatExtensionStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $repeatExtensionStmt->close();
+        }
     }
 
-    $lowStockStmt = $notificationDb->prepare(
-        "SELECT COUNT(*) AS total
-         FROM (
-             SELECT si.stock_catalog_id
-             FROM stock_items si
-             WHERE si.item_type = 'supply'
-             GROUP BY si.stock_catalog_id
-             HAVING COALESCE(SUM(si.quantity_on_hand), 0) <= 5
-         ) low_stock_rows"
-    );
-    if ($lowStockStmt) {
-        $lowStockStmt->execute();
-        $lowStockItemCount = (int) (($lowStockStmt->get_result()->fetch_assoc()['total'] ?? 0));
-        $lowStockStmt->close();
+    if ($tableExists($notificationDb, 'stock_items')) {
+        $lowStockStmt = $notificationDb->prepare(
+            "SELECT COUNT(*) AS total
+             FROM (
+                 SELECT si.stock_catalog_id
+                 FROM stock_items si
+                 WHERE si.item_type = 'supply'
+                 GROUP BY si.stock_catalog_id
+                 HAVING COALESCE(SUM(si.quantity_on_hand), 0) <= 5
+             ) low_stock_rows"
+        );
+        if ($lowStockStmt) {
+            $lowStockStmt->execute();
+            $lowStockItemCount = (int) (($lowStockStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $lowStockStmt->close();
+        }
     }
 }
 $userPhotoUrl = upload_url($userPhotoPath);

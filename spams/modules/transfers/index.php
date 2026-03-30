@@ -538,7 +538,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <h5 class="card-title mb-0">Recent Transfers</h5>
                     <span class="badge text-bg-light"><?php echo count($transfers); ?> record(s)</span>
                 </div>
-                <div class="table-responsive">
+                <div class="table-responsive mobile-table-frame">
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>

@@ -531,7 +531,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </button>
                 </div>
 
-                <div class="table-responsive">
+                <div class="table-responsive mobile-table-frame">
                     <table class="table align-middle" id="dataTable">
                         <thead>
                             <tr>
