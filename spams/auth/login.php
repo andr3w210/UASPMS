@@ -77,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_SESSION['user_photo_path'] = $row['profile_photo_path'] ?? '';
                         // Keep both a display name and a machine-friendly role key
                         $_SESSION['user_role'] = $row['role_name'] ?: 'User';
+                        $_SESSION['last_activity_at'] = time();
 
                         $updateStmt = $db->prepare("UPDATE users SET last_login_at = NOW(), failed_login_attempts = 0, locked_until = NULL WHERE id = ?");
                         if ($updateStmt) {
@@ -198,3 +199,4 @@ require_once __DIR__ . '/../includes/header.php';
 </main>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
+

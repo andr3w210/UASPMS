@@ -38,6 +38,7 @@ $form = [
 ];
 
 $selectedReceivingId = (int) ($_GET['receiving_id'] ?? 0);
+$distributionPhotoUploads = [];
 
 function preview_distribution_doc_no($db, string $docType, string $date, string $semiType = 'high_value'): string {
     $year  = date('Y', strtotime($date) ?: time());
@@ -291,6 +292,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 'model' => $row['model'] ?? '',
                                 'serial_no' => $row['serial_no'] ?? '',
                                 'remarks' => $row['detail_remarks'] ?? '',
+                                'photo_file' => distribution_extract_uploaded_file('unit_photo', $detailId),
                             ]],
                         ];
                     }
@@ -348,6 +350,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!$errors) {
+            $savedDistributionPhotoPaths = [];
             $db->begin_transaction();
             try {
                 $systemReference = next_module_code($db, 'distributions');
@@ -423,6 +426,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (!$detailStmt->execute()) {
                             throw new RuntimeException('Unable to save distributed unit details.');
                         }
+                        $distributionDetailId = (int) $detailStmt->insert_id;
+
+                        $photoFile = is_array($detail['photo_file'] ?? null) ? $detail['photo_file'] : ['error' => UPLOAD_ERR_NO_FILE];
+                        $photoErrors = [];
+                        $photoPath = store_uploaded_image($photoFile, 'assets/' . date('Y') . '/distribution-' . $distributionId, $photoErrors);
+                        if ($photoErrors) {
+                            throw new RuntimeException(implode(' ', $photoErrors));
+                        }
+
+                        if ($photoPath !== null && $photoPath !== '') {
+                            $savedDistributionPhotoPaths[] = $photoPath;
+                            $photoCaption = 'Distribution photo - ' . $documentNo;
+                            $photoStmt = $db->prepare("INSERT INTO asset_photos (asset_source, asset_id, photo_path, caption, is_primary, uploaded_by) VALUES ('system', ?, ?, ?, 1, ?)");
+                            if (!$photoStmt) {
+                                throw new RuntimeException('Unable to prepare asset photo save.');
+                            }
+                            $photoStmt->bind_param('issi', $distributionDetailId, $photoPath, $photoCaption, $userId);
+                            if (!$photoStmt->execute()) {
+                                $photoStmt->close();
+                                throw new RuntimeException('Unable to save the asset photo.');
+                            }
+                            $photoStmt->close();
+                        }
                         // If this detail references a receiving_item_detail, mark that unit as distributed
                         if ($detailId > 0) {
                             $markDetailStmt->bind_param('i', $detailId);
@@ -476,6 +502,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirect($redirectUrl);
             } catch (Throwable $e) {
                 $db->rollback();
+                foreach ($savedDistributionPhotoPaths ?? [] as $savedPath) {
+                    delete_uploaded_file($savedPath);
+                }
                 $errors[] = 'Unable to save the distribution.';
             }
         }
@@ -656,7 +685,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </div>
 
                                         <div id="distEditorContent" style="display:none;">
-                                            <form method="post" id="distributionForm">
+                                            <form method="post" id="distributionForm" enctype="multipart/form-data">
                                                 <input type="hidden" name="document_type" value="<?= h($distributionType) ?>">
                                                 <input type="hidden" name="semi_type" value="<?= h($distributionSemiType) ?>">
                                                 <input type="hidden" name="_csrf" value="<?= h(csrf_token()) ?>">
@@ -1294,4 +1323,5 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
 

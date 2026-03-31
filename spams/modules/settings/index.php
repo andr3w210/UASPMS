@@ -76,6 +76,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <a href="<?php echo base_url('modules/settings/database_tools.php'); ?>" class="btn btn-primary w-100">Open Database Tools</a>
                             </div>
                         </div>
+
+                        <div class="col-md-4">
+                            <div class="border rounded-3 p-4 h-100">
+                                <div class="d-flex align-items-center gap-3 mb-3">
+                                    <div class="fs-3 text-primary"><i class="bi bi-wifi"></i></div>
+                                    <div>
+                                        <div class="text-uppercase small text-muted fw-semibold">System</div>
+                                        <h5 class="mb-0">System Access URL</h5>
+                                    </div>
+                                </div>
+                                <p class="text-muted small mb-4">Set the network IP or host name used in QR tags and other device-access links.</p>
+                                <a href="<?php echo base_url('modules/settings/system_access.php'); ?>" class="btn btn-primary w-100">Open System Access URL</a>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -76,6 +76,7 @@ define('DB_PASS', spams_env('DB_PASS', ''));
 
 // Misc
 define('APP_NAME', spams_env('APP_NAME', 'University of Antique'));
+define('APP_URL', rtrim((string) spams_env('APP_URL', ''), '/'));
 define('TIMEZONE', spams_env('TIMEZONE', 'Asia/Manila'));
 define('LOW_STOCK_THRESHOLD', (int) spams_env('LOW_STOCK_THRESHOLD', '5'));
 

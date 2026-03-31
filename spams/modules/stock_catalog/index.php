@@ -747,6 +747,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function filterSelectOptions(select, itemType) {
         if (!select) return;
+        var hasStrictMatch = Array.prototype.some.call(select.options, function (option) {
+            if (!option.value) {
+                return false;
+            }
+            var optionType = option.getAttribute('data-item-type') || '';
+            return optionType === '' || optionType === itemType;
+        });
+
         Array.prototype.forEach.call(select.options, function (option) {
             if (!option.value) {
                 option.hidden = false;
@@ -754,8 +762,8 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             var optionType = option.getAttribute('data-item-type') || '';
             var matches = optionType === '' || optionType === itemType;
-            option.hidden = !matches;
-            if (!matches && option.selected) {
+            option.hidden = hasStrictMatch ? !matches : false;
+            if (hasStrictMatch && !matches && option.selected) {
                 select.value = '';
             }
         });

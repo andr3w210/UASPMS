@@ -501,6 +501,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
             </div>
 
+            <div class="d-flex align-items-center gap-3 mt-3 flex-wrap">
+                <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
+                <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
+                <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
+                <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;">
+                    <option value="25">25 per page</option>
+                    <option value="50">50 per page</option>
+                    <option value="100">100 per page</option>
+                </select>
+            </div>
+
             <div class="table-responsive mobile-table-frame">
                 <table class="table align-middle" id="dataTable">
                     <thead>
@@ -564,17 +575,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <?php endif; ?>
                     </tbody>
                 </table>
-            </div>
-
-            <div class="d-flex align-items-center gap-3 mt-3 flex-wrap">
-                <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
-                <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
-                <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
-                <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;">
-                    <option value="25">25 per page</option>
-                    <option value="50">50 per page</option>
-                    <option value="100">100 per page</option>
-                </select>
             </div>
         </div>
     </div>

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 
 require_role('Administrator', 'Supply Officer');
@@ -222,7 +222,7 @@ if ($db) {
 
                         if (empty($validatedItems)) $errors[] = 'At least one PO item is required.';
 
-                        // DB INSERT — only runs if no errors
+                        // DB INSERT â€” only runs if no errors
                         if (empty($errors)) {
                             $supplierId          = (int)$form['supplier_id'];
                             $fundId              = (int)$form['fund_id'];
@@ -377,15 +377,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <div class="workspace-header">
                                                     <div style="flex:1; min-width:200px;">
                                                         <div class="fw-semibold mb-1" style="font-size:13px;">Scan Hard Copy PO</div>
-                                                        <div class="text-muted" style="font-size:12px; line-height:1.5;">Upload a clear photo or scanned PDF of your physical PO. Gemini AI will read it and fill in the form automatically. Always review before saving.</div>
+                                                        <div class="text-muted" style="font-size:12px; line-height:1.5;">Upload a clear photo of your physical PO. The system will read it and fill in the form automatically. Always review before saving.</div>
                                                     </div>
                                                     <div class="workspace-actions" style="flex-shrink:0;">
-                                                        <input type="file" id="poScanFile" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf" class="form-control form-control-sm" style="max-width:220px; font-size:12px;">
+                                                        <input type="file" id="poScanFile" accept="image/jpeg,image/png,image/gif,image/webp" class="form-control form-control-sm" style="max-width:220px; font-size:12px;">
                                                         <button type="button" id="poScanBtn" class="btn btn-outline-primary btn-sm">Read PO</button>
                                                     </div>
                                                 </div>
                                                 <div id="poScanStatus" style="display:none; margin-top:10px; font-size:12px; padding:8px 12px; border-radius:6px;"></div>
-                                                <div class="text-muted mt-2" style="font-size:11px; line-height:1.6;">Tips for best results: take photo in good lighting · keep PO flat with no folds · make sure all text is readable · avoid glare on laminated copies · PDF scans work best</div>
+                                                <div class="text-muted mt-2" style="font-size:11px; line-height:1.6;">Tips for best results: take the photo in good lighting, keep the PO flat with no folds, make sure all text is readable, and avoid glare or shadows.</div>
                                             </div>
                                         </div>
 
@@ -585,9 +585,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <div class="progress-bar" id="editorProgress" style="width:0%; transition:width .3s;"></div>
                                             </div>
                                             <div class="workspace-actions workspace-toolbar-cluster align-items-center">
-                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="editorPrev">← Prev</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="editorPrev">â† Prev</button>
                                                 <div class="flex-fill text-center small text-muted" id="editorProgressLabel">0 / 0 completed</div>
-                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="editorNext">Next →</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="editorNext">Next â†’</button>
                                                 <button type="button" class="btn btn-sm btn-outline-danger" id="editorDeleteLine">Remove</button>
                                             </div>
                                         </div>
@@ -827,6 +827,12 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         return '';
     }
+    function hasClassificationMatchForType(itemType) {
+        for (var i = 0; i < classifications.length; i++) {
+            if (classificationMatchesType(classifications[i], itemType)) return true;
+        }
+        return false;
+    }
     function uomLabelById(id) {
         for (var i = 0; i < units.length; i++) {
             if (String(units[i].id) === String(id)) return (units[i].uom_name || '') + ((units[i].abbreviation || '') ? ' (' + units[i].abbreviation + ')' : '');
@@ -982,8 +988,9 @@ document.addEventListener('DOMContentLoaded', function () {
         var sel = el.editorClassification;
         if (!sel) return;
         sel.innerHTML = '<option value="">Select item classification</option>';
+        var useFallbackList = !hasClassificationMatchForType(itemType);
         classifications.forEach(function(cl){
-            if (!classificationMatchesType(cl, itemType)) return;
+            if (!useFallbackList && !classificationMatchesType(cl, itemType)) return;
             var opt = document.createElement('option');
             opt.value = cl.id;
             opt.textContent = classificationDisplayName(cl);
@@ -1026,7 +1033,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (currentFilter === 'done' && !ln.is_complete) continue; if (currentFilter === 'empty' && ln.is_complete) continue; if (currentFilter === 'supply' && ln.item_type !== 'supply') continue; if (currentFilter === 'semi_expendable' && ln.item_type !== 'semi_expendable') continue; if (currentFilter === 'equipment' && ln.item_type !== 'equipment') continue; var searchBlob = [ln.item_description || '', ln.item_type || '', classificationNameById(ln.classification_id || ''), uomLabelById(ln.unit_of_measure_id || ''), accountCodeLabelById(ln.account_code_id || '')].join(' ').toLowerCase(); if (searchTerm && searchBlob.indexOf(searchTerm) === -1) continue;
             var dotColor = (i === activeIndex) ? '#0d6efd' : (ln.is_complete ? '#198754' : '#adb5bd');
             var badgeClass = (ln.item_type === 'equipment') ? 'text-bg-warning-subtle' : (ln.item_type === 'semi_expendable' ? 'text-bg-primary-subtle' : 'text-bg-success-subtle');
-            var shortType = typeShortLabel(ln.item_type); var desc = (ln.item_description || 'New item'); var amt = (parseFloat(ln.line_total || 0) !== 0) ? formatNumber(ln.line_total) : '—';
+            var shortType = typeShortLabel(ln.item_type); var desc = (ln.item_description || 'New item'); var amt = (parseFloat(ln.line_total || 0) !== 0) ? formatNumber(ln.line_total) : 'â€”';
             var row = document.createElement('div'); row.className = 'po-line-list-item'; row.setAttribute('data-index', i);
             row.style.cssText = 'display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:12px; border:0.5px solid transparent;';
             row.innerHTML = '<span style="width:20px; text-align:center; color:var(--bs-body-color); opacity:0.5; font-size:11px;">' + (i+1) + '</span>' +
@@ -1245,7 +1252,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            // Warn if lines have no description — but do not block
+            // Warn if lines have no description â€” but do not block
             // (PHP validation will catch missing required fields)
             var emptyLines = poLines.filter(function(ln) {
                 return !ln.item_description || ln.item_description.trim() === '';
@@ -1267,7 +1274,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            // Allow submit — PHP handles all other validation
+            // Allow submit â€” PHP handles all other validation
         });
     }
 
@@ -1589,7 +1596,7 @@ document.addEventListener('DOMContentLoaded', function () {
         supplierAddressInput.value = addr;
         supplierAddressInput.placeholder = addr
             ? ''
-            : 'No address on file — type manually';
+            : 'No address on file â€” type manually';
     }
 
     if (supplierSelect && supplierAddressInput) {
@@ -1733,7 +1740,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (scanBtn) {
             scanBtn.addEventListener('click', async function() {
                 var file = scanFile && scanFile.files && scanFile.files[0];
-                if (!file) { showScanStatus('error', 'Please select an image or PDF first.'); return; }
+                if (!file) { showScanStatus('error', 'Please select a clear PO image first.'); return; }
                 if (file.size > 5 * 1024 * 1024) { showScanStatus('error', 'File is too large. Please use an image under 5MB.'); return; }
 
                 showScanStatus('loading', 'Reading your PO... this may take a few seconds.');
@@ -1754,7 +1761,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     populateFormFromScan(result);
                     var lineCount = (result.items || []).length;
-                    showScanStatus('success', 'PO read successfully — ' + lineCount + ' line(s) found. Please review all fields and select Account Codes before saving.');
+                    showScanStatus('success', 'PO read successfully â€” ' + lineCount + ' line(s) found. Please review all fields and select Account Codes before saving.');
                 } catch (err) {
                     console.error('Scan error:', err);
                     var friendly = err.message || 'Unknown error';
@@ -1776,5 +1783,7 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
+
 
 

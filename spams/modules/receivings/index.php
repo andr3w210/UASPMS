@@ -25,7 +25,7 @@ function receiving_tracks_identity(string $type): bool
 
 function receiving_blank_detail(): array
 {
-    return ['brand_id' => '', 'model_id' => '', 'brand' => '', 'model' => '', 'serial_no' => '', 'remarks' => ''];
+    return ['brand_id' => '', 'model_id' => '', 'brand' => '', 'model' => '', 'serial_no' => '', 'remarks' => '', 'no_brand_model' => '0'];
 }
 
 function receiving_normalize_details($rows): array
@@ -47,6 +47,7 @@ function receiving_normalize_details($rows): array
             'model' => trim((string) ($row['model'] ?? '')),
             'serial_no' => trim((string) ($row['serial_no'] ?? '')),
             'remarks' => trim((string) ($row['remarks'] ?? '')),
+            'no_brand_model' => !empty($row['no_brand_model']) ? '1' : '0',
         ];
     }
 
@@ -305,8 +306,27 @@ if (!$db) {
 
             $detailRows = [];
             foreach ($details as $detail) {
+                $noBrandModel = !empty($detail['no_brand_model']);
+                if ($noBrandModel) {
+                    $detail['brand_id'] = '';
+                    $detail['model_id'] = '';
+                    $detail['brand'] = '';
+                    $detail['model'] = '';
+                }
                 $brandId = (int) ($detail['brand_id'] !== '' ? $detail['brand_id'] : 0);
                 $modelId = (int) ($detail['model_id'] !== '' ? $detail['model_id'] : 0);
+
+                if (!$noBrandModel && receiving_tracks_identity((string) $item['item_type']) && $accepted > 0) {
+                    if ($brandId <= 0) {
+                        $errors[] = 'Brand is required for line ' . $item['line_no'] . ' unless "No brand/model" is checked.';
+                        continue 2;
+                    }
+                    if ($modelId <= 0) {
+                        $errors[] = 'Model is required for line ' . $item['line_no'] . ' unless "No brand/model" is checked.';
+                        continue 2;
+                    }
+                }
+
                 if ($brandId > 0) {
                     foreach ($brands as $brandRecord) {
                         if ((int) $brandRecord['id'] === $brandId) {
@@ -328,13 +348,15 @@ if (!$db) {
                     }
                 }
 
-                if ($detail['brand_id'] !== '' || $detail['model_id'] !== '' || $detail['brand'] !== '' || $detail['model'] !== '' || $detail['serial_no'] !== '' || $detail['remarks'] !== '') {
+                if ($noBrandModel || $detail['brand_id'] !== '' || $detail['model_id'] !== '' || $detail['brand'] !== '' || $detail['model'] !== '' || $detail['serial_no'] !== '' || $detail['remarks'] !== '') {
                     $detailRows[] = $detail;
                 }
             }
             if (receiving_tracks_identity((string) $item['item_type']) && $accepted > 0 && !$detailRows) {
-                $errors[] = 'Add brand, model, or serial details for line ' . $item['line_no'] . '.';
-                continue;
+                $expectedDetailRows = max(1, (int) round($accepted));
+                for ($detailIndex = 0; $detailIndex < $expectedDetailRows; $detailIndex++) {
+                    $detailRows[] = receiving_blank_detail();
+                }
             }
 
             $lineTotal = round($accepted * (float) $item['unit_cost'], 2);
@@ -750,6 +772,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
     grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
 }
 
+.receiving-workspace > * {
+    min-width: 0;
+}
+
+.receiving-workspace > div:last-child {
+    min-width: 0;
+}
+
 .receiving-line-list {
     background: var(--bs-secondary-bg);
     border: 1px solid var(--bs-border-color);
@@ -854,6 +884,65 @@ require_once __DIR__ . '/../../includes/topbar.php';
     padding: 0.9rem;
 }
 
+.receiving-items-table {
+    min-width: 1320px;
+}
+
+.receiving-detail-panel {
+    overflow-x: auto;
+}
+
+.receiving-workspace .table-responsive.mobile-table-frame {
+    display: block;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+}
+
+.receiving-po-overview {
+    background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+    border: 1px solid rgba(95, 111, 137, 0.14);
+    border-radius: 1rem;
+    padding: 1rem;
+}
+
+.receiving-po-overview-grid {
+    display: grid;
+    gap: 0.9rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.receiving-po-overview-item {
+    background: #ffffff;
+    border: 1px solid rgba(95, 111, 137, 0.14);
+    border-radius: 0.9rem;
+    min-width: 0;
+    padding: 0.9rem 1rem;
+}
+
+.receiving-po-overview-item.is-wide {
+    grid-column: span 2;
+}
+
+.receiving-po-overview-label {
+    color: var(--bs-secondary-color);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.3rem;
+    text-transform: uppercase;
+}
+
+.receiving-po-overview-value {
+    color: var(--bs-body-color);
+    font-size: 0.98rem;
+    font-weight: 600;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
+
 .receiving-review-grid {
     display: grid;
     gap: 0.85rem;
@@ -881,9 +970,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
 @media (max-width: 991.98px) {
     .receiving-stepper,
+    .receiving-po-overview-grid,
     .receiving-review-grid,
     .receiving-workspace {
         grid-template-columns: 1fr;
+    }
+
+    .receiving-po-overview-item.is-wide {
+        grid-column: span 1;
+    }
+}
+
+@media (min-width: 992px) and (max-width: 1199.98px) {
+    .receiving-po-overview-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 </style>
@@ -1074,17 +1174,44 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <div class="receiving-step-copy">Finish the review and post the batch.</div>
                                             </button>
                                         </div>
-                                        <div class="border rounded-3 p-3 mb-4 bg-light-subtle" id="receivingPoOverview">
-                                                <div class="row g-3 workspace-summary-grid">
-                                                        <div class="col-md-3"><div class="small text-muted">PO Number</div><div class="fw-semibold"><?php echo h($selectedPurchaseOrder['po_number']); ?></div></div>
-                                                        <div class="col-md-3"><div class="small text-muted">PO Date</div><div class="fw-semibold"><?php echo h(date('M d, Y', strtotime($selectedPurchaseOrder['po_date']))); ?></div></div>
-                                                        <div class="col-md-3"><div class="small text-muted">Supplier</div><div class="fw-semibold"><?php echo h($selectedPurchaseOrder['supplier_name']); ?></div></div>
-                                                        <div class="col-md-3"><div class="small text-muted">Fund</div><div class="fw-semibold"><?php echo h($selectedPurchaseOrder['fund_code']); ?></div></div>
-                                                        <div class="col-md-6"><div class="small text-muted">Supplier Address</div><div class="fw-semibold"><?php echo h($selectedPurchaseOrder['supplier_address'] ?: ''); ?></div></div>
-                                                        <div class="col-md-3"><div class="small text-muted">Mode of Procurement</div><div class="fw-semibold"><?php echo h($selectedPurchaseOrder['mode_name'] ?: ''); ?></div></div>
-                                                        <div class="col-md-3"><div class="small text-muted">Place of Delivery</div><div class="fw-semibold"><?php echo h($selectedPurchaseOrder['place_of_delivery'] ?: ''); ?></div></div>
-                                                        <div class="col-md-3"><div class="small text-muted">Total Lines</div><div class="fw-semibold"><?php echo count($receivingItems); ?> item(s)</div></div>
-                                                        <div class="col-md-3"><div class="small text-muted">Remaining Items</div><div class="fw-semibold text-warning"><?php echo count(array_filter($receivingItems, function($i) { return (float)$i['remaining_quantity'] > 0; })); ?> item(s)</div></div>
+                                        <div class="receiving-po-overview mb-4" id="receivingPoOverview">
+                                                <div class="receiving-po-overview-grid">
+                                                        <div class="receiving-po-overview-item">
+                                                            <div class="receiving-po-overview-label">PO Number</div>
+                                                            <div class="receiving-po-overview-value"><?php echo h($selectedPurchaseOrder['po_number']); ?></div>
+                                                        </div>
+                                                        <div class="receiving-po-overview-item">
+                                                            <div class="receiving-po-overview-label">PO Date</div>
+                                                            <div class="receiving-po-overview-value"><?php echo h(date('M d, Y', strtotime($selectedPurchaseOrder['po_date']))); ?></div>
+                                                        </div>
+                                                        <div class="receiving-po-overview-item">
+                                                            <div class="receiving-po-overview-label">Supplier</div>
+                                                            <div class="receiving-po-overview-value"><?php echo h($selectedPurchaseOrder['supplier_name']); ?></div>
+                                                        </div>
+                                                        <div class="receiving-po-overview-item">
+                                                            <div class="receiving-po-overview-label">Fund</div>
+                                                            <div class="receiving-po-overview-value"><?php echo h($selectedPurchaseOrder['fund_code']); ?></div>
+                                                        </div>
+                                                        <div class="receiving-po-overview-item is-wide">
+                                                            <div class="receiving-po-overview-label">Supplier Address</div>
+                                                            <div class="receiving-po-overview-value"><?php echo h($selectedPurchaseOrder['supplier_address'] ?: ''); ?></div>
+                                                        </div>
+                                                        <div class="receiving-po-overview-item">
+                                                            <div class="receiving-po-overview-label">Mode of Procurement</div>
+                                                            <div class="receiving-po-overview-value"><?php echo h($selectedPurchaseOrder['mode_name'] ?: ''); ?></div>
+                                                        </div>
+                                                        <div class="receiving-po-overview-item">
+                                                            <div class="receiving-po-overview-label">Place of Delivery</div>
+                                                            <div class="receiving-po-overview-value"><?php echo h($selectedPurchaseOrder['place_of_delivery'] ?: ''); ?></div>
+                                                        </div>
+                                                        <div class="receiving-po-overview-item">
+                                                            <div class="receiving-po-overview-label">Total Lines</div>
+                                                            <div class="receiving-po-overview-value"><?php echo count($receivingItems); ?> item(s)</div>
+                                                        </div>
+                                                        <div class="receiving-po-overview-item">
+                                                            <div class="receiving-po-overview-label">Remaining Items</div>
+                                                            <div class="receiving-po-overview-value text-warning"><?php echo count(array_filter($receivingItems, function($i) { return (float)$i['remaining_quantity'] > 0; })); ?> item(s)</div>
+                                                        </div>
                                                 </div>
                                         </div>
 
@@ -1153,7 +1280,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
 
                         <div class="table-responsive mobile-table-frame">
-                            <table class="table table-sm align-middle" data-no-table-search>
+                            <table class="table table-sm align-middle receiving-items-table" data-no-table-search>
                                 <thead>
                                     <tr>
                                         <th style="width: 48px;">Line</th>
@@ -1235,22 +1362,28 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <?php if ($trackIdentity): ?>
                                         <tr class="collapse receiving-detail-wrapper <?php echo $itemId === (int) ($receivingItems[0]['id'] ?? 0) ? 'show' : ''; ?>" id="receiving-details-<?php echo $itemId; ?>" data-line-id="<?php echo $itemId; ?>" data-item-type="<?php echo h($item['item_type']); ?>" data-has-remaining="<?php echo (float) $item['remaining_quantity'] > 0 ? '1' : '0'; ?>">
                                                 <td colspan="12" class="bg-light-subtle">
-                                                    <div class="border rounded-3 p-3 my-2">
+                                                    <div class="border rounded-3 p-3 my-2 receiving-detail-panel">
                                                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                                                             <div>
                                                                 <div class="fw-semibold">Brand / Model / Serial Details</div>
-                                                                <div class="small text-muted">Add at least one detail row for accepted semi-expendable and equipment items.</div>
+                                                                <div class="small text-muted">Add one detail row per accepted item. Brand and model are required unless you check "No brand/model". Serial number and remarks stay optional.</div>
                                                             </div>
                                                             <div class="small text-muted detail-row-status" data-item-id="<?php echo $itemId; ?>">0 detail row(s)</div>
                                                         </div>
                                                         <div class="receiving-detail-rows" data-item-id="<?php echo $itemId; ?>">
                                                             <?php foreach ($item['detail_rows'] as $detailIndex => $detail): ?>
                                                                 <div class="row g-2 align-items-end receiving-detail-row mb-2">
-                                                                    <div class="col-md-3"><label class="form-label">Brand</label><select class="form-select receiving-brand-select" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][brand_id]" data-placeholder="Select brand"><option value="">Select brand</option><?php foreach ($brands as $brand): ?><option value="<?php echo (int) $brand['id']; ?>" <?php echo $detail['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo h($brand['brand_name']); ?></option><?php endforeach; ?></select><input type="hidden" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][brand]" value="<?php echo h($detail['brand']); ?>"></div>
-                                                                    <div class="col-md-3"><label class="form-label">Model</label><select class="form-select receiving-model-select" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][model_id]" data-placeholder="Select model"><option value="">Select model</option><?php foreach ($models as $model): ?><option value="<?php echo (int) $model['id']; ?>" data-brand-id="<?php echo (int) $model['brand_id']; ?>" <?php echo $detail['model_id'] === (string) $model['id'] ? 'selected' : ''; ?>><?php echo h($model['model_name']); ?></option><?php endforeach; ?></select><input type="hidden" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][model]" value="<?php echo h($detail['model']); ?>"></div>
-                                                                    <div class="col-md-3"><label class="form-label">Serial Number</label><input type="text" class="form-control" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][serial_no]" value="<?php echo h($detail['serial_no']); ?>"></div>
-                                                                    <div class="col-md-2"><label class="form-label">Remarks</label><input type="text" class="form-control" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][remarks]" value="<?php echo h($detail['remarks']); ?>"></div>
-                                                                    <div class="col-md-1"><button type="button" class="btn btn-outline-danger btn-sm w-100 remove-detail-row">Remove</button></div>
+                                                                    <div class="col-12 col-lg-3"><label class="form-label">Brand</label><select class="form-select receiving-brand-select" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][brand_id]" data-placeholder="Select brand" <?php echo !empty($detail['no_brand_model']) ? 'disabled' : ''; ?>><option value="">Select brand</option><?php foreach ($brands as $brand): ?><option value="<?php echo (int) $brand['id']; ?>" <?php echo $detail['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo h($brand['brand_name']); ?></option><?php endforeach; ?></select><input type="hidden" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][brand]" value="<?php echo h($detail['brand']); ?>"></div>
+                                                                    <div class="col-12 col-lg-3"><label class="form-label">Model</label><select class="form-select receiving-model-select" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][model_id]" data-placeholder="Select model" <?php echo !empty($detail['no_brand_model']) ? 'disabled' : ''; ?>><option value="">Select model</option><?php foreach ($models as $model): ?><option value="<?php echo (int) $model['id']; ?>" data-brand-id="<?php echo (int) $model['brand_id']; ?>" <?php echo $detail['model_id'] === (string) $model['id'] ? 'selected' : ''; ?>><?php echo h($model['model_name']); ?></option><?php endforeach; ?></select><input type="hidden" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][model]" value="<?php echo h($detail['model']); ?>"></div>
+                                                                    <div class="col-12 col-lg-3"><label class="form-label">Serial Number</label><input type="text" class="form-control" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][serial_no]" value="<?php echo h($detail['serial_no']); ?>"></div>
+                                                                    <div class="col-12 col-lg-2"><label class="form-label">Remarks</label><input type="text" class="form-control" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][remarks]" value="<?php echo h($detail['remarks']); ?>"></div>
+                                                                    <div class="col-12 col-lg-1">
+                                                                        <div class="form-check mb-2">
+                                                                            <input class="form-check-input receiving-no-brand-model" type="checkbox" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][no_brand_model]" value="1" <?php echo !empty($detail['no_brand_model']) ? 'checked' : ''; ?>>
+                                                                            <label class="form-check-label small">No brand/model</label>
+                                                                        </div>
+                                                                        <button type="button" class="btn btn-outline-danger btn-sm w-100 remove-detail-row">Remove</button>
+                                                                    </div>
                                                                 </div>
                                                             <?php endforeach; ?>
                                                         </div>
@@ -1401,10 +1534,30 @@ document.addEventListener('DOMContentLoaded', function () {
     function syncModelOptions(row) {
         var brandSelect = row.querySelector('.receiving-brand-select');
         var modelSelect = row.querySelector('.receiving-model-select');
+        var noBrandModelCheckbox = row.querySelector('.receiving-no-brand-model');
         var hiddenModel = row.querySelector('input[name$="[model]"]');
+        var hiddenBrand = row.querySelector('input[name$="[brand]"]');
+        var noBrandModel = !!(noBrandModelCheckbox && noBrandModelCheckbox.checked);
         var currentModelValue = modelSelect ? modelSelect.value : '';
         var selectedBrand = brandSelect ? brandSelect.value : '';
         if (!modelSelect) return;
+
+        if (noBrandModel) {
+            if (brandSelect) {
+                brandSelect.value = '';
+                brandSelect.disabled = true;
+            }
+            modelSelect.innerHTML = modelOptions('', '');
+            modelSelect.value = '';
+            modelSelect.disabled = true;
+            if (hiddenBrand) hiddenBrand.value = '';
+            if (hiddenModel) hiddenModel.value = '';
+            return;
+        }
+
+        if (brandSelect) {
+            brandSelect.disabled = false;
+        }
         var matchingModelExists = !selectedBrand || models.some(function (model) {
             return String(model.id) === String(currentModelValue) && String(model.brand_id) === String(selectedBrand);
         });
@@ -1420,11 +1573,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function rowMarkup(itemId, index) {
         return '<div class="row g-2 align-items-end receiving-detail-row mb-2">' +
-            '<div class="col-md-3"><label class="form-label">Brand</label><select class="form-select receiving-brand-select" name="items[' + itemId + '][details][' + index + '][brand_id]" data-placeholder="Select brand" data-no-select2>' + brandOptions('') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][brand]" value=""></div>' +
-            '<div class="col-md-3"><label class="form-label">Model</label><select class="form-select receiving-model-select" name="items[' + itemId + '][details][' + index + '][model_id]" data-placeholder="Select model" data-no-select2>' + modelOptions('', '') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][model]" value=""></div>' +
-            '<div class="col-md-3"><label class="form-label">Serial Number</label><input type="text" class="form-control" name="items[' + itemId + '][details][' + index + '][serial_no]"></div>' +
-            '<div class="col-md-2"><label class="form-label">Remarks</label><input type="text" class="form-control" name="items[' + itemId + '][details][' + index + '][remarks]"></div>' +
-            '<div class="col-md-1"><button type="button" class="btn btn-outline-danger btn-sm w-100 remove-detail-row">Remove</button></div>' +
+            '<div class="col-12 col-lg-3"><label class="form-label">Brand</label><select class="form-select receiving-brand-select" name="items[' + itemId + '][details][' + index + '][brand_id]" data-placeholder="Select brand" data-no-select2>' + brandOptions('') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][brand]" value=""></div>' +
+            '<div class="col-12 col-lg-3"><label class="form-label">Model</label><select class="form-select receiving-model-select" name="items[' + itemId + '][details][' + index + '][model_id]" data-placeholder="Select model" data-no-select2>' + modelOptions('', '') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][model]" value=""></div>' +
+            '<div class="col-12 col-lg-3"><label class="form-label">Serial Number</label><input type="text" class="form-control" name="items[' + itemId + '][details][' + index + '][serial_no]"></div>' +
+            '<div class="col-12 col-lg-2"><label class="form-label">Remarks</label><input type="text" class="form-control" name="items[' + itemId + '][details][' + index + '][remarks]"></div>' +
+            '<div class="col-12 col-lg-1"><div class="form-check mb-2"><input class="form-check-input receiving-no-brand-model" type="checkbox" name="items[' + itemId + '][details][' + index + '][no_brand_model]" value="1"><label class="form-check-label small">No brand/model</label></div><button type="button" class="btn btn-outline-danger btn-sm w-100 remove-detail-row">Remove</button></div>' +
         '</div>';
     }
 
@@ -1498,6 +1651,9 @@ document.addEventListener('DOMContentLoaded', function () {
             var modelText = event.target.options[event.target.selectedIndex] ? event.target.options[event.target.selectedIndex].text : '';
             var hiddenModel = row.querySelector('input[name$="[model]"]');
             if (hiddenModel) hiddenModel.value = event.target.value ? modelText : '';
+        }
+        if (event.target.classList.contains('receiving-no-brand-model')) {
+            syncModelOptions(row);
         }
         updateWorkspaceSummary();
     });

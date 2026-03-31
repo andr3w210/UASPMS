@@ -189,6 +189,15 @@ foreach ($groups as $group) {
                                            name="unit_remarks[<?php echo (int) $unit['id']; ?>]"
                                            placeholder="Unit remarks">
                                 </div>
+                                <div style="width: 240px; max-width: 100%;">
+                                    <label class="form-label small mb-1" for="unit_photo_<?php echo (int) $unit['id']; ?>">Take / Upload Photo</label>
+                                    <input type="file"
+                                           class="form-control form-control-sm"
+                                           id="unit_photo_<?php echo (int) $unit['id']; ?>"
+                                           name="unit_photo[<?php echo (int) $unit['id']; ?>]"
+                                           accept="image/*"
+                                           capture="environment">
+                                </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
@@ -215,3 +224,4 @@ echo json_encode([
         'received_date' => $rHeader['received_date'] ?? '',
     ],
 ]);
+

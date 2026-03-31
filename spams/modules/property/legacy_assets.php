@@ -247,6 +247,86 @@ if ($db) {
         $rows = $listStmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $listStmt->close();
     }
+
+    if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+        $filename = 'legacy_assets_export_' . date('Y-m-d_H-i-s') . '.csv';
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+
+        $output = fopen('php://output', 'w');
+        if ($output !== false) {
+            fputcsv($output, [
+                'Legacy ID',
+                'System Reference',
+                'Property Number',
+                'PO Number',
+                'Item Type',
+                'Description',
+                'Classification',
+                'Classification Family',
+                'Account Code',
+                'Account Name',
+                'Fund',
+                'Supplier',
+                'Brand',
+                'Model',
+                'Serial No',
+                'Acquisition Date',
+                'Quantity',
+                'Unit Cost',
+                'Acquisition Cost',
+                'Office',
+                'Employee',
+                'Responsibility Code',
+                'Condition Status',
+                'Remarks',
+                'Created At',
+            ]);
+
+            foreach ($rows as $row) {
+                $employeeName = trim(implode(' ', array_filter([
+                    trim((string) ($row['first_name'] ?? '')),
+                    trim((string) ($row['middle_name'] ?? '')),
+                    trim((string) ($row['last_name'] ?? '')),
+                    trim((string) ($row['suffix_name'] ?? '')),
+                ])));
+
+                fputcsv($output, [
+                    $row['id'] ?? '',
+                    $row['system_reference'] ?? '',
+                    $row['property_number'] ?? '',
+                    $row['po_number'] ?? '',
+                    $row['item_type'] ?? '',
+                    preg_replace('/\s+/', ' ', (string) ($row['item_description'] ?? '')),
+                    $row['classification_name'] ?? '',
+                    $row['classification_family'] ?? '',
+                    $row['account_code'] ?? '',
+                    $row['account_name'] ?? '',
+                    trim(implode(' - ', array_filter([
+                        trim((string) ($row['fund_code'] ?? '')),
+                        trim((string) ($row['fund_name'] ?? '')),
+                    ]))),
+                    $row['supplier_name'] ?? '',
+                    $row['brand'] ?? ($row['brand_name'] ?? ''),
+                    $row['model'] ?? ($row['model_name'] ?? ''),
+                    $row['serial_no'] ?? '',
+                    $row['acquisition_date'] ?? '',
+                    $row['quantity'] ?? '',
+                    $row['unit_cost'] ?? '',
+                    $row['acquisition_cost'] ?? '',
+                    $row['office_name'] ?? '',
+                    $employeeName,
+                    $row['rc_code'] ?? '',
+                    $row['condition_status'] ?? '',
+                    preg_replace('/\s+/', ' ', (string) ($row['remarks'] ?? '')),
+                    $row['created_at'] ?? '',
+                ]);
+            }
+
+            fclose($output);
+        }
+        exit;
+    }
 }
 
 require_once __DIR__ . '/../../includes/header.php';
@@ -257,8 +337,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5 class="card-title mb-0">Beginning Balance Assets</h5>
-                <div class="small text-muted">Encode existing equipment already owned by the university without recreating old PO and receiving records.</div>
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                    <div>
+                        <h5 class="card-title mb-0">Beginning Balance Assets</h5>
+                        <div class="small text-muted">Encode existing equipment already owned by the university without recreating old PO and receiving records.</div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a href="<?php echo h(base_url('modules/property/legacy_assets.php?export=csv')); ?>" class="btn btn-outline-success btn-sm">
+                            <i class="bi bi-download me-1"></i>Export CSV
+                        </a>
+                    </div>
+                </div>
             </div>
             <div class="card-body">
                 <?php if ($flash): ?>
