@@ -1,0 +1,2 @@
+﻿property_number,inventory_type,description,po_number,fund,account_code,supplier,brand,model,serial_no,acquisition_date,quantity,unit_cost,office,employee,responsibility_code,condition_status,remarks
+2024-05-01-0001,equipment,Desktop Computer,PO-2024-001,05,1-07-05-020,ACME Supplier,Dell,OptiPlex 7090,SN12345,2024-03-15,1,45000,CIT,"Farparan, Lilian J.",ODS - 010,good,Beginning balance sample

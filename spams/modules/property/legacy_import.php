@@ -1,6 +1,21 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
+
+if (isset($_GET['download_template'])) {
+    $templatePath = dirname(__DIR__, 3) . '/database/templates/legacy_assets_import_template.csv';
+    if (!is_file($templatePath)) {
+        http_response_code(404);
+        exit('Legacy import template not found.');
+    }
+
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="legacy_assets_import_template.csv"');
+    header('Content-Length: ' . (string) filesize($templatePath));
+    readfile($templatePath);
+    exit;
+}
+
 
 function li_norm(string $value): string
 {
@@ -46,7 +61,7 @@ function li_parse_csv_file(string $filePath): array
 function li_parse_xlsx_file(string $filePath): array
 {
     if (!class_exists('ZipArchive')) {
-        throw new RuntimeException('XLSX import is not available because ZipArchive is missing on this PHP setup.');
+        throw new RuntimeException('XLSX import requires the PHP zip extension (ZipArchive). Use CSV for now or enable extension=zip in php.ini, then restart Apache.');
     }
 
     $zip = new ZipArchive();
@@ -152,6 +167,7 @@ if (!$db) {
     $responsibilityCodes = ($db->query("SELECT id, office_id, code FROM responsibility_codes WHERE is_active = 1 ORDER BY code ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
 
     ensure_legacy_assets_fund_column($db);
+    ensure_legacy_assets_po_number_column($db);
 
     $maps = ['classification'=>[],'account'=>[],'fund'=>[],'supplier'=>[],'brand'=>[],'model'=>[],'office'=>[],'employee'=>[],'rc'=>[]];
     foreach ($classifications as $r) $maps['classification'][li_norm($r['classification_name'])] = $r;
@@ -179,7 +195,7 @@ if (!$db) {
             if (!$preview) {
                 $errors[] = 'No preview data to import.';
             } else {
-                $stmt = $db->prepare("INSERT INTO legacy_assets (system_reference, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt = $db->prepare("INSERT INTO legacy_assets (system_reference, po_number, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 if (!$stmt) {
                     $errors[] = 'Unable to prepare import statement.';
                 } else {
@@ -335,16 +351,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
             <div class="card-body">
                 <?php if ($flash): ?><div class="alert alert-success"><?php echo h($flash['message']); ?></div><?php endif; ?>
                 <?php if ($errors): ?><div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
+                <?php if (!class_exists('ZipArchive')): ?>
+                    <div class="alert alert-warning">XLSX import is unavailable on this PHP setup. You can still import a <strong>CSV</strong> file, or enable <code>extension=zip</code> in <code>php.ini</code> and restart Apache to restore XLSX support.</div>
+                <?php endif; ?>
                 <form method="post" enctype="multipart/form-data" class="row g-3 align-items-end">
                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                     <input type="hidden" name="action" value="preview">
                     <div class="col-md-8">
                         <label class="form-label">Legacy File</label>
                         <input type="file" name="legacy_file" class="form-control" accept=".csv,.xlsx" required>
-                        <div class="form-text">Required headers: `property_number`, `inventory_type`, `description`. Optional: `fund` or `fund_number`, `classification`, `account_code`, `supplier`, `brand`, `model`, `serial_no`, `acquisition_date`, `quantity`, `unit_cost`, `office`, `employee`, `responsibility_code`, `condition_status`, `remarks`.</div>
+                        <div class="form-text">Required headers: `property_number`, `inventory_type`, `description`. Optional: `po_number`, `fund` or `fund_number`, `classification`, `account_code`, `supplier`, `brand`, `model`, `serial_no`, `acquisition_date`, `quantity`, `unit_cost`, `office`, `employee`, `responsibility_code`, `condition_status`, `remarks`.</div>
                     </div>
-                    <div class="col-md-4 d-flex gap-2">
+                    <div class="col-md-4 d-flex gap-2 flex-wrap">
                         <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-1"></i>Preview Import</button>
+                        <a href="<?php echo base_url('modules/property/legacy_import.php?download_template=1'); ?>" class="btn btn-outline-primary"><i class="bi bi-download me-1"></i>Download Template</a>
                         <a href="<?php echo base_url('modules/property/legacy_assets.php'); ?>" class="btn btn-outline-secondary">Back</a>
                     </div>
                 </form>
@@ -371,7 +391,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo (int) $row['source_row']; ?></td>
                                     <td><?php echo h($row['property_number']); ?></td>
                                     <td><?php echo h($row['item_type']); ?></td>
-                                    <td><div class="fw-semibold"><?php echo h($row['item_description']); ?></div><small class="text-muted"><?php echo h($row['brand_name'] . ($row['model_name'] ? ' • ' . $row['model_name'] : '')); ?></small></td>
+                                    <td><div class="fw-semibold"><?php echo h($row['item_description']); ?></div><small class="text-muted"><?php echo h($row['brand_name'] . ($row['model_name'] ? ' â€¢ ' . $row['model_name'] : '')); ?></small></td>
                                     <td><?php echo h($row['resolved_fund'] ?: $row['fund']); ?></td>
                                     <td><?php echo h($row['resolved_office'] ?: $row['office']); ?></td>
                                     <td><?php echo h($row['resolved_employee'] ?: $row['employee']); ?></td>
@@ -388,3 +408,4 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <?php endif; ?>
 </section>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
