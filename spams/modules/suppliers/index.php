@@ -230,15 +230,165 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
-<section class="row g-4">
-    <div class="col-12"><div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2"><div><h5 class="card-title mb-0"><?php echo $form['id'] > 0 ? 'Edit Supplier' : 'Add New Supplier'; ?></h5><div class="text-muted small">Maintain supplier records and clean up unused entries safely.</div></div><div class="d-flex gap-2"><button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse"><i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Edit Supplier' : 'Add New'; ?></button><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/suppliers/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?></div></div><div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?>" id="formCollapse"><div class="card-body p-4"><?php if ($errors): ?><div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?><?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?><form method="post"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>"><div class="row g-3"><div class="col-md-4"><label class="form-label">Supplier Code</label><input type="text" class="form-control" name="supplier_code" value="<?php echo h($form['id'] > 0 ? $form['supplier_code'] : $generatedCode); ?>" readonly><div class="form-text">Generated automatically using `SUP-YYYY-0001` format.</div></div><div class="col-md-8"><label class="form-label">Supplier Name</label><input type="text" class="form-control" name="supplier_name" value="<?php echo h($form['supplier_name']); ?>" required></div><div class="col-md-4"><label class="form-label">Contact Person</label><input type="text" class="form-control" name="contact_person" value="<?php echo h($form['contact_person']); ?>"></div><div class="col-md-4"><label class="form-label">Contact Number</label><input type="text" class="form-control" name="contact_no" value="<?php echo h($form['contact_no']); ?>"></div><div class="col-md-4"><label class="form-label">Email</label><input type="email" class="form-control" name="email" value="<?php echo h($form['email']); ?>"></div><div class="col-md-4"><label class="form-label">TIN No.</label><input type="text" class="form-control" name="tin_no" value="<?php echo h($form['tin_no']); ?>"></div><div class="col-md-8"><label class="form-label">Address</label><textarea class="form-control" name="address" rows="3"><?php echo h($form['address']); ?></textarea></div><div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active supplier</label></div></div><div class="col-12 d-flex gap-2"><button type="submit" class="btn btn-primary"><?php echo $form['id'] > 0 ? 'Update' : 'Save'; ?></button><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/suppliers/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?></div></div></form></div></div></div></div>
-    <div class="col-12"><div class="card"><div class="card-body p-4"><div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3"><div><h5 class="card-title mb-0">Supplier List</h5><span id="recordCount" class="text-muted small">Showing <?php echo count($suppliers); ?> of <?php echo count($suppliers); ?> records</span></div><button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse"><i class="bi bi-plus-circle me-1"></i>Add New</button></div><div class="d-flex flex-wrap gap-2 align-items-center mb-3"><input type="search" id="tableSearch" class="form-control form-control-sm" placeholder="Search suppliers..." style="max-width:300px;"><select id="statusFilter" class="form-select form-select-sm" style="max-width:140px;"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div><div class="table-responsive"><table class="table align-middle" id="dataTable"><thead><tr><th data-sort="code">Code <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="supplier">Supplier <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="contact">Contact <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="tin">TIN <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="created">Created <i class="bi bi-arrow-down-up text-muted small"></i></th><th class="text-end">Actions</th></tr></thead><tbody><?php if ($suppliers): foreach ($suppliers as $supplier): ?><tr data-status="<?php echo (int) $supplier['is_active'] ? 'active' : 'inactive'; ?>"><td class="fw-semibold"><?php echo h($supplier['supplier_code']); ?></td><td><div><?php echo h($supplier['supplier_name']); ?></div><small class="text-muted"><?php echo h($supplier['address'] ?? ''); ?></small></td><td><div><?php echo h($supplier['contact_person'] ?? ''); ?></div><small class="text-muted"><?php echo h(trim(($supplier['contact_no'] ?? '') . (($supplier['contact_no'] ?? '') && ($supplier['email'] ?? '') ? ' | ' : '') . ($supplier['email'] ?? ''))); ?></small></td><td><?php echo h($supplier['tin_no'] ?? ''); ?></td><td><span class="badge <?php echo (int) $supplier['is_active'] === 1 ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo (int) $supplier['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span></td><td><div><?php echo h(date('M d, Y', strtotime($supplier['created_at']))); ?></div><small class="text-muted"><?php echo h($supplier['creator_name'] ?: 'System'); ?></small></td><td class="text-end"><div class="d-inline-flex flex-wrap justify-content-end gap-2"><a href="<?php echo base_url('modules/suppliers/index.php?edit=' . (int) $supplier['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a><?php if ((int) $supplier['is_active'] === 1): ?><form method="post" onsubmit="return confirm('Deactivate this supplier?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int) $supplier['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button></form><?php endif; ?><?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?><form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="hard_delete"><input type="hidden" name="id" value="<?php echo (int) $supplier['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button></form><?php endif; ?></div></td></tr><?php endforeach; else: ?><tr data-status="inactive"><td colspan="7" class="text-center text-muted py-4">No suppliers found yet.</td></tr><?php endif; ?></tbody></table></div><div class="d-flex align-items-center gap-3 mt-2 flex-wrap"><button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button><span id="pageInfo" class="small text-muted">Page 1 of 1</span><button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button><select id="perPageSelect" class="form-select form-select-sm" style="width:auto;"><option value="25">25 per page</option><option value="50">50 per page</option><option value="100">100 per page</option></select></div></div></div></div>
-</section>
-<script>
+<section class="master-data-page">
+    <div class="card master-data-page-card">
+        <div class="card-body p-4 p-xl-4">
+            <?php if ($errors): ?>
+                <div class="alert alert-danger mb-4"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div>
+            <?php endif; ?>
+            <?php if ($flash): ?>
+                <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?> mb-4"><?php echo h($flash['message']); ?></div>
+            <?php endif; ?>
+
+            <div class="master-data-header mb-4">
+                <div>
+                    <div class="text-uppercase small text-muted fw-semibold">Master Data</div>
+                    <h4 class="mb-1">Supplier Directory</h4>
+                    <div id="recordCount" class="text-muted small">Showing <?php echo count($suppliers); ?> of <?php echo count($suppliers); ?> records</div>
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                    <?php if ($form['id'] > 0): ?>
+                        <a href="<?php echo base_url('modules/suppliers/index.php'); ?>" class="btn btn-outline-secondary">Cancel Edit</a>
+                    <?php endif; ?>
+                    <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse" aria-expanded="<?php echo $form['id'] > 0 ? 'true' : 'false'; ?>">
+                        <i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Continue Editing' : 'Add Supplier'; ?>
+                    </button>
+                </div>
+            </div>
+
+            <div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?> mb-4" id="formCollapse">
+                <div class="master-data-editor">
+                    <div class="master-data-editor-header">
+                        <div>
+                            <h5 class="mb-1"><?php echo $form['id'] > 0 ? 'Edit Supplier' : 'New Supplier'; ?></h5>
+                            <div class="text-muted small">Keep supplier profiles complete so procurement and receiving records stay clean.</div>
+                        </div>
+                    </div>
+                    <form method="post" class="workspace-form-section mt-3">
+                        <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="save">
+                        <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
+
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label">Supplier Code</label>
+                                <input type="text" class="form-control" name="supplier_code" value="<?php echo h($form['id'] > 0 ? $form['supplier_code'] : $generatedCode); ?>" readonly>
+                            </div>
+                            <div class="col-md-9">
+                                <label class="form-label">Supplier Name</label>
+                                <input type="text" class="form-control" name="supplier_name" value="<?php echo h($form['supplier_name']); ?>" placeholder="Enter supplier or company name" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Contact Person</label>
+                                <input type="text" class="form-control" name="contact_person" value="<?php echo h($form['contact_person']); ?>" placeholder="Primary contact name">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Contact Number</label>
+                                <input type="text" class="form-control" name="contact_no" value="<?php echo h($form['contact_no']); ?>" placeholder="Phone or mobile number">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Email</label>
+                                <input type="email" class="form-control" name="email" value="<?php echo h($form['email']); ?>" placeholder="supplier@example.com">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">TIN No.</label>
+                                <input type="text" class="form-control" name="tin_no" value="<?php echo h($form['tin_no']); ?>" placeholder="Enter TIN number">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Address</label>
+                                <textarea class="form-control" name="address" rows="3" placeholder="Business address"><?php echo h($form['address']); ?></textarea>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>>
+                                    <label class="form-check-label">Active supplier</label>
+                                </div>
+                            </div>
+                            <div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2">
+                                <?php if ($form['id'] > 0): ?>
+                                    <a href="<?php echo base_url('modules/suppliers/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a>
+                                <?php endif; ?>
+                                <button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Supplier' : 'Save Supplier'; ?></button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="master-data-toolbar mb-3">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-8 col-lg-9">
+                        <label class="form-label">Search</label>
+                        <input type="search" id="tableSearch" class="form-control" placeholder="Search code, supplier name, contact person, email, or address">
+                    </div>
+                    <div class="col-md-4 col-lg-3">
+                        <label class="form-label">Status</label>
+                        <select id="statusFilter" class="form-select">
+                            <option value="">All statuses</option>
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-responsive mobile-table-frame">
+                <table class="table align-middle" id="dataTable">
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Supplier</th>
+                            <th>Contact</th>
+                            <th>TIN</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if ($suppliers): foreach ($suppliers as $supplier): ?>
+                            <tr data-status="<?php echo (int) $supplier['is_active'] ? 'active' : 'inactive'; ?>">
+                                <td class="fw-semibold"><?php echo h($supplier['supplier_code']); ?></td>
+                                <td><div class="fw-semibold"><?php echo h($supplier['supplier_name']); ?></div><small class="text-muted"><?php echo h($supplier['address'] ?? ''); ?></small></td>
+                                <td><div><?php echo h($supplier['contact_person'] ?? ''); ?></div><small class="text-muted"><?php echo h(trim(($supplier['contact_no'] ?? '') . (($supplier['contact_no'] ?? '') && ($supplier['email'] ?? '') ? ' | ' : '') . ($supplier['email'] ?? ''))); ?></small></td>
+                                <td><?php echo h($supplier['tin_no'] ?? ''); ?></td>
+                                <td><span class="badge <?php echo (int) $supplier['is_active'] === 1 ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo (int) $supplier['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span></td>
+                                <td><div><?php echo h(date('M d, Y', strtotime($supplier['created_at']))); ?></div><small class="text-muted"><?php echo h($supplier['creator_name'] ?: 'System'); ?></small></td>
+                                <td class="text-end">
+                                    <div class="d-inline-flex flex-wrap justify-content-end gap-2">
+                                        <a href="<?php echo base_url('modules/suppliers/index.php?edit=' . (int) $supplier['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a>
+                                        <?php if ((int) $supplier['is_active'] === 1): ?>
+                                            <form method="post" onsubmit="return confirm('Deactivate this supplier?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int) $supplier['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button></form>
+                                        <?php endif; ?>
+                                        <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
+                                            <form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="hard_delete"><input type="hidden" name="id" value="<?php echo (int) $supplier['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button></form>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endforeach; else: ?>
+                            <tr data-status="inactive"><td colspan="7" class="text-center text-muted py-4">No suppliers found yet.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex align-items-center gap-3 mt-3 flex-wrap">
+                <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
+                <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
+                <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
+                <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;">
+                    <option value="25">25 per page</option>
+                    <option value="50">50 per page</option>
+                    <option value="100">100 per page</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</section><script>
 document.addEventListener('DOMContentLoaded', function () {
-    initDataTable('dataTable');
+    window.initMasterDataList('dataTable');
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-
 

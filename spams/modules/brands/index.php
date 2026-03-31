@@ -334,7 +334,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
 </section>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    initDataTable('dataTable');
+    window.initMasterDataList('dataTable');
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

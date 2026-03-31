@@ -511,7 +511,145 @@ document.addEventListener('DOMContentLoaded', function () {
             resetFilters: resetFilters
         };
     }
+    function initMasterDataList(tableId, options) {
+        var settings = Object.assign({
+            searchInputId: 'tableSearch',
+            statusFilterId: 'statusFilter',
+            prevButtonId: 'prevPage',
+            nextButtonId: 'nextPage',
+            pageInfoId: 'pageInfo',
+            perPageSelectId: 'perPageSelect',
+            recordCountId: 'recordCount',
+            rowMatcher: null,
+            recordCountFormatter: null
+        }, options || {});
 
+        var table = document.getElementById(tableId);
+        var tbody = table ? table.querySelector('tbody') : null;
+        if (!table || !tbody) {
+            return null;
+        }
+
+        var rows = Array.from(tbody.querySelectorAll('tr')).filter(function (row) {
+            return row.cells.length > 1;
+        });
+        var searchInput = settings.searchInputId ? document.getElementById(settings.searchInputId) : null;
+        var statusFilter = settings.statusFilterId ? document.getElementById(settings.statusFilterId) : null;
+        var prevButton = settings.prevButtonId ? document.getElementById(settings.prevButtonId) : null;
+        var nextButton = settings.nextButtonId ? document.getElementById(settings.nextButtonId) : null;
+        var pageInfo = settings.pageInfoId ? document.getElementById(settings.pageInfoId) : null;
+        var perPageSelect = settings.perPageSelectId ? document.getElementById(settings.perPageSelectId) : null;
+        var recordCount = settings.recordCountId ? document.getElementById(settings.recordCountId) : null;
+        var currentPage = 1;
+        var perPage = parseInt(perPageSelect && perPageSelect.value, 10) || 25;
+
+        table.setAttribute('data-no-table-search', 'true');
+        table.setAttribute('data-table-search-initialized', 'true');
+        table.setAttribute('data-managed-datatable', 'true');
+
+        function getVisibleRows() {
+            var term = ((searchInput && searchInput.value) || '').toLowerCase().trim();
+            var status = ((statusFilter && statusFilter.value) || '').trim();
+
+            return rows.filter(function (row) {
+                if (typeof settings.rowMatcher === 'function') {
+                    return settings.rowMatcher(row, {
+                        term: term,
+                        status: status
+                    });
+                }
+
+                var matchesTerm = !term || row.textContent.toLowerCase().indexOf(term) !== -1;
+                var matchesStatus = !status || row.getAttribute('data-status') === status;
+                return matchesTerm && matchesStatus;
+            });
+        }
+
+        function updateRecordCount(totalVisible, totalOverall) {
+            if (!recordCount) {
+                return;
+            }
+            if (typeof settings.recordCountFormatter === 'function') {
+                recordCount.textContent = settings.recordCountFormatter(totalVisible, totalOverall);
+                return;
+            }
+            recordCount.textContent = 'Showing ' + totalVisible + ' of ' + totalOverall + ' records';
+        }
+
+        function renderRows() {
+            var visibleRows = getVisibleRows();
+            var totalVisible = visibleRows.length;
+            var totalPages = Math.max(1, Math.ceil(totalVisible / perPage));
+
+            currentPage = Math.min(currentPage, totalPages);
+
+            rows.forEach(function (row) {
+                row.style.display = 'none';
+            });
+
+            if (totalVisible > 0) {
+                var start = (currentPage - 1) * perPage;
+                var end = Math.min(start + perPage, totalVisible);
+                visibleRows.slice(start, end).forEach(function (row) {
+                    row.style.display = '';
+                });
+            }
+
+            updateRecordCount(totalVisible, rows.length);
+
+            if (pageInfo) {
+                pageInfo.textContent = 'Page ' + currentPage + ' of ' + totalPages;
+            }
+            if (prevButton) {
+                prevButton.disabled = currentPage <= 1;
+            }
+            if (nextButton) {
+                nextButton.disabled = currentPage >= totalPages;
+            }
+        }
+
+        function resetToFirstPage() {
+            currentPage = 1;
+            renderRows();
+        }
+
+        if (searchInput) {
+            searchInput.addEventListener('input', resetToFirstPage);
+        }
+        if (statusFilter) {
+            statusFilter.addEventListener('change', resetToFirstPage);
+        }
+        if (perPageSelect) {
+            perPageSelect.addEventListener('change', function () {
+                perPage = parseInt(perPageSelect.value, 10) || 25;
+                resetToFirstPage();
+            });
+        }
+        if (prevButton) {
+            prevButton.addEventListener('click', function () {
+                if (currentPage > 1) {
+                    currentPage -= 1;
+                    renderRows();
+                }
+            });
+        }
+        if (nextButton) {
+            nextButton.addEventListener('click', function () {
+                var visibleCount = getVisibleRows().length;
+                var totalPages = Math.max(1, Math.ceil(visibleCount / perPage));
+                if (currentPage < totalPages) {
+                    currentPage += 1;
+                    renderRows();
+                }
+            });
+        }
+
+        renderRows();
+
+        return {
+            refresh: renderRows
+        };
+    }
     function buildValidationMessage(field) {
         if (field.dataset.validationMessage) {
             return field.dataset.validationMessage;
@@ -670,9 +808,22 @@ document.addEventListener('DOMContentLoaded', function () {
     window.SPAMS.refreshSelect2 = refreshSelect2;
     window.SPAMS.initTableSearch = initTableSearch;
     window.SPAMS.initDataTable = initDataTable;
+    window.SPAMS.initMasterDataList = initMasterDataList;
     window.SPAMS.initFormValidation = initFormValidation;
     window.SPAMS.markFieldValidationState = markFieldValidationState;
     window.initDataTable = initDataTable;
+    window.initMasterDataList = initMasterDataList;
+
+    if (Array.isArray(window.__spamsPendingInitDataTables) && window.__spamsPendingInitDataTables.length > 0) {
+        window.__spamsPendingInitDataTables.forEach(function (args) {
+            try {
+                initDataTable.apply(window, args || []);
+            } catch (error) {
+                console.error('Queued initDataTable failed', error);
+            }
+        });
+        window.__spamsPendingInitDataTables = [];
+    }
 
     initSelect2(document);
     initTableSearch(document);
@@ -704,3 +855,6 @@ document.addEventListener('DOMContentLoaded', function () {
         subtree: true
     });
 });
+
+
+

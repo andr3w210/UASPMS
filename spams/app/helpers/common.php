@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 function h(?string $value): string
 {
@@ -436,6 +436,13 @@ function ensure_legacy_assets_fund_column(mysqli $db): void
     }
 }
 
+function ensure_legacy_assets_po_number_column(mysqli $db): void
+{
+    if (function_exists('schema_has_column') && !schema_has_column($db, 'legacy_assets', 'po_number')) {
+        $db->query("ALTER TABLE legacy_assets ADD COLUMN po_number VARCHAR(100) NULL AFTER system_reference");
+    }
+}
+
 function generate_property_number(
     $db,
     string $year,
@@ -537,4 +544,5 @@ function generate_property_number(
          . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT)
          . '-' . $officeShort;
 }
+
 
