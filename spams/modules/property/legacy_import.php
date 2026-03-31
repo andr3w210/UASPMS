@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
@@ -32,6 +32,233 @@ function li_name(array $row): string
         'last_name' => $row['last_name'] ?? '',
         'suffix_name' => $row['suffix_name'] ?? '',
     ]);
+}
+
+function li_is_unknown_value(string $value): bool
+{
+    $normalized = li_norm($value);
+    return in_array($normalized, ['unknown', 'n_a', 'na', 'none', 'not_applicable', '-'], true);
+}
+
+function li_is_nullish_value(string $value): bool
+{
+    $normalized = li_norm($value);
+    return $normalized === '' || in_array($normalized, ['null', 'nil', 'none', 'n_a', 'na', 'not_applicable', '-'], true);
+}
+
+function li_clean_optional_value(string $value): string
+{
+    return li_is_nullish_value($value) ? '' : trim($value);
+}
+
+function li_resolve_po_number(string $poNumber, string $propertyNumber): string
+{
+    $poNumber = li_clean_optional_value($poNumber);
+    if ($poNumber !== '') {
+        return $poNumber;
+    }
+    return trim($propertyNumber);
+}
+
+function li_normalize_decimal_value(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    $value = str_replace([',', ' '], '', $value);
+    return trim($value);
+}
+
+function li_classification_group_from_item_type(string $itemType): string
+{
+    return $itemType === 'semi_expendable' ? 'semi_expendable' : ($itemType === 'equipment' ? 'asset' : 'supply');
+}
+
+function li_pick_csv_value(array $src, array $col, array $names, string $default = ''): string
+{
+    foreach ($names as $name) {
+        if (isset($col[$name])) {
+            return trim((string) ($src[$col[$name]] ?? ''));
+        }
+    }
+    return $default;
+}
+
+function li_build_description(string $description, string $specifications): string
+{
+    $description = trim($description);
+    $specifications = trim($specifications);
+    if ($description === '') {
+        return $specifications;
+    }
+    if ($specifications === '') {
+        return $description;
+    }
+    return $description . ' - ' . $specifications;
+}
+
+function li_derive_acquisition_date(string $acquisitionDate, string $propertyNumber): string
+{
+    $acquisitionDate = li_clean_optional_value($acquisitionDate);
+    if ($acquisitionDate !== '') {
+        return $acquisitionDate;
+    }
+
+    if (preg_match('/^\s*(\d{4})[-.]/', $propertyNumber, $matches)) {
+        $year = (int) $matches[1];
+        if ($year >= 1900 && $year <= 2100) {
+            return sprintf('%04d-01-01', $year);
+        }
+    }
+
+    return '';
+}
+
+function li_find_or_create_classification(mysqli $db, array &$maps, string $classificationName, string $itemType, ?int $accountCodeId, int $userId): ?array
+{
+    $classificationName = li_clean_optional_value($classificationName);
+    if ($classificationName === '' || li_is_unknown_value($classificationName)) {
+        return null;
+    }
+
+    $key = li_norm($classificationName);
+    if (isset($maps['classification'][$key])) {
+        return $maps['classification'][$key];
+    }
+
+    $select = $db->prepare("SELECT id, classification_name, classification_group, account_code_id FROM classifications WHERE LOWER(TRIM(classification_name)) = LOWER(TRIM(?)) LIMIT 1");
+    if ($select) {
+        $select->bind_param('s', $classificationName);
+        $select->execute();
+        $existing = $select->get_result()->fetch_assoc() ?: null;
+        $select->close();
+        if ($existing) {
+            $maps['classification'][$key] = $existing;
+            return $existing;
+        }
+    }
+
+    $classificationCode = next_module_code($db, 'classifications');
+    $classificationGroup = li_classification_group_from_item_type($itemType);
+    $description = 'Auto-created from legacy asset import.';
+    $insert = $db->prepare("INSERT INTO classifications (classification_code, classification_name, classification_group, account_code_id, description, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, ?)");
+    if (!$insert) {
+        throw new RuntimeException('Unable to create missing classification during import.');
+    }
+    $insert->bind_param('sssisi', $classificationCode, $classificationName, $classificationGroup, $accountCodeId, $description, $userId);
+    $saved = $insert->execute();
+    $newId = (int) $insert->insert_id;
+    $insert->close();
+    if (!$saved || $newId <= 0) {
+        throw new RuntimeException('Unable to create missing classification during import.');
+    }
+
+    $created = ['id' => $newId, 'classification_name' => $classificationName, 'classification_group' => $classificationGroup, 'account_code_id' => $accountCodeId];
+    $maps['classification'][$key] = $created;
+    return $created;
+}
+
+function li_find_or_create_brand(mysqli $db, array &$maps, string $brandName, int $userId): ?array
+{
+    $brandName = li_clean_optional_value($brandName);
+    if ($brandName === '' || li_is_unknown_value($brandName)) {
+        return null;
+    }
+
+    $key = li_norm($brandName);
+    if (isset($maps['brand'][$key])) {
+        return $maps['brand'][$key];
+    }
+
+    $select = $db->prepare("SELECT id, brand_name FROM brands WHERE LOWER(TRIM(brand_name)) = LOWER(TRIM(?)) LIMIT 1");
+    if ($select) {
+        $select->bind_param('s', $brandName);
+        $select->execute();
+        $existing = $select->get_result()->fetch_assoc() ?: null;
+        $select->close();
+        if ($existing) {
+            $maps['brand'][$key] = $existing;
+            return $existing;
+        }
+    }
+
+    $brandCode = next_module_code($db, 'brands');
+    $insert = $db->prepare("INSERT INTO brands (brand_code, brand_name, is_active, created_by) VALUES (?, ?, 1, ?)");
+    if (!$insert) {
+        throw new RuntimeException('Unable to create missing brand during import.');
+    }
+    $insert->bind_param('ssi', $brandCode, $brandName, $userId);
+    $saved = $insert->execute();
+    $newId = (int) $insert->insert_id;
+    $insert->close();
+    if (!$saved || $newId <= 0) {
+        throw new RuntimeException('Unable to create missing brand during import.');
+    }
+
+    $created = ['id' => $newId, 'brand_name' => $brandName];
+    $maps['brand'][$key] = $created;
+    return $created;
+}
+
+function li_find_or_create_model(mysqli $db, array &$maps, string $modelName, ?int $brandId, int $userId): ?array
+{
+    $modelName = li_clean_optional_value($modelName);
+    if ($modelName === '' || li_is_unknown_value($modelName)) {
+        return null;
+    }
+
+    $key = li_norm($modelName);
+    $candidates = isset($maps['model'][$key]) ? (array) $maps['model'][$key] : [];
+    foreach ($candidates as $candidate) {
+        if ((int) ($candidate['brand_id'] ?? 0) === (int) ($brandId ?? 0)) {
+            return $candidate;
+        }
+    }
+
+    if ($brandId !== null) {
+        $select = $db->prepare("SELECT id, model_name, brand_id FROM models WHERE LOWER(TRIM(model_name)) = LOWER(TRIM(?)) AND brand_id = ? LIMIT 1");
+        if ($select) {
+            $select->bind_param('si', $modelName, $brandId);
+            $select->execute();
+            $existing = $select->get_result()->fetch_assoc() ?: null;
+            $select->close();
+            if ($existing) {
+                $maps['model'][$key][] = $existing;
+                return $existing;
+            }
+        }
+    } else {
+        $select = $db->prepare("SELECT id, model_name, brand_id FROM models WHERE LOWER(TRIM(model_name)) = LOWER(TRIM(?)) AND (brand_id IS NULL OR brand_id = 0) LIMIT 1");
+        if ($select) {
+            $select->bind_param('s', $modelName);
+            $select->execute();
+            $existing = $select->get_result()->fetch_assoc() ?: null;
+            $select->close();
+            if ($existing) {
+                $maps['model'][$key][] = $existing;
+                return $existing;
+            }
+        }
+    }
+
+    $modelCode = next_module_code($db, 'models');
+    $insert = $db->prepare("INSERT INTO models (brand_id, model_code, model_name, is_active, created_by) VALUES (NULLIF(?, 0), ?, ?, 1, ?)");
+    if (!$insert) {
+        throw new RuntimeException('Unable to create missing model during import.');
+    }
+    $brandIdValue = $brandId ?? 0;
+    $insert->bind_param('issi', $brandIdValue, $modelCode, $modelName, $userId);
+    $saved = $insert->execute();
+    $newId = (int) $insert->insert_id;
+    $insert->close();
+    if (!$saved || $newId <= 0) {
+        throw new RuntimeException('Unable to create missing model during import.');
+    }
+
+    $created = ['id' => $newId, 'model_name' => $modelName, 'brand_id' => $brandId];
+    $maps['model'][$key][] = $created;
+    return $created;
 }
 
 function li_col_to_index(string $letters): int
@@ -179,7 +406,7 @@ if (!$db) {
     }
     foreach ($suppliers as $r) $maps['supplier'][li_norm($r['supplier_name'])] = $r;
     foreach ($brands as $r) $maps['brand'][li_norm($r['brand_name'])] = $r;
-    foreach ($models as $r) $maps['model'][li_norm($r['model_name'])] = $r;
+    foreach ($models as $r) $maps['model'][li_norm($r['model_name'])][] = $r;
     foreach ($offices as $r) { $maps['office'][li_norm($r['office_name'])] = $r; $maps['office'][li_norm($r['office_code'])] = $r; }
     foreach ($employees as $r) $maps['employee'][li_norm(li_name($r))] = $r;
     foreach ($responsibilityCodes as $r) $maps['rc'][li_norm($r['code'])] = $r;
@@ -215,7 +442,7 @@ if (!$db) {
                         $officeId = $row['office_id'] ? (int) $row['office_id'] : null;
                         $employeeId = $row['employee_id'] ? (int) $row['employee_id'] : null;
                         $rcId = $row['responsibility_code_id'] ? (int) $row['responsibility_code_id'] : null;
-                        $stmt->bind_param('ssssiiiiissssiddiiissi', $systemReference, $row['property_number'], $row['item_type'], $row['item_description'], $classificationId, $accountCodeId, $fundId, $supplierId, $brandId, $modelId, $row['brand_name'], $row['model_name'], $row['serial_no'], $row['acquisition_date'], $qty, $unitCost, $totalCost, $officeId, $employeeId, $rcId, $row['condition_status'], $row['remarks'], $userId);
+                        $stmt->bind_param('sssssiiiiissssidddiiissi', $systemReference, $row['po_number'], $row['property_number'], $row['item_type'], $row['item_description'], $classificationId, $accountCodeId, $fundId, $supplierId, $brandId, $modelId, $row['brand_name'], $row['model_name'], $row['serial_no'], $row['acquisition_date'], $qty, $unitCost, $totalCost, $officeId, $employeeId, $rcId, $row['condition_status'], $row['remarks'], $userId);
                         $stmt->execute();
                     }
                     $stmt->close();
@@ -235,69 +462,94 @@ if (!$db) {
                     } else {
                         $header = array_map('li_norm', $rows[0]);
                         $col = array_flip($header);
-                        foreach (['property_number','inventory_type','description'] as $required) if (!isset($col[$required])) $errors[] = 'Missing required column: ' . $required;
+                        if (isset($col['propno'])) {
+                            foreach (['propno','itemdesc','invname','accountcode','unitcost'] as $required) {
+                                if (!isset($col[$required])) {
+                                    $errors[] = 'Missing required column: ' . $required;
+                                }
+                            }
+                        } else {
+                            foreach (['property_number','inventory_type','description'] as $required) if (!isset($col[$required])) $errors[] = 'Missing required column: ' . $required;
+                        }
                         if (!$errors) {
                             $parsed = [];
+                            $userId = current_user_id();
                             for ($i = 1; $i < count($rows); $i++) {
                                 $src = $rows[$i];
                                 if (!array_filter($src, fn($v) => trim((string) $v) !== '')) continue;
+                                $isSemiTemplate = isset($col['propno']);
+                                $itemDescription = $isSemiTemplate
+                                    ? li_build_description(
+                                        li_pick_csv_value($src, $col, ['itemdesc']),
+                                        li_pick_csv_value($src, $col, ['specifications'])
+                                    )
+                                    : trim((string) ($src[$col['description'] ?? null] ?? ''));
                                 $r = [
                                     'source_row' => $i + 1,
-                                    'property_number' => trim((string) ($src[$col['property_number']] ?? '')),
-                                    'item_type' => strtolower(str_replace([' ', '-'], '_', (string) ($src[$col['inventory_type']] ?? ''))),
-                                    'item_description' => trim((string) ($src[$col['description']] ?? '')),
-                                    'classification' => trim((string) ($src[$col['classification']] ?? '')),
-                                    'fund' => trim((string) ($src[$col['fund']] ?? ($src[$col['fund_number']] ?? ''))),
-                                    'account_code' => trim((string) ($src[$col['account_code']] ?? '')),
-                                    'supplier' => trim((string) ($src[$col['supplier']] ?? '')),
-                                    'brand' => trim((string) ($src[$col['brand']] ?? '')),
-                                    'model' => trim((string) ($src[$col['model']] ?? '')),
-                                    'serial_no' => trim((string) ($src[$col['serial_no']] ?? '')),
-                                    'acquisition_date' => trim((string) ($src[$col['acquisition_date']] ?? '')),
-                                    'quantity' => trim((string) ($src[$col['quantity']] ?? '1')),
-                                    'unit_cost' => trim((string) ($src[$col['unit_cost']] ?? '')),
-                                    'office' => trim((string) ($src[$col['office']] ?? '')),
-                                    'employee' => trim((string) ($src[$col['employee']] ?? '')),
-                                    'responsibility_code' => trim((string) ($src[$col['responsibility_code']] ?? '')),
-                                    'condition_status' => trim((string) ($src[$col['condition_status']] ?? 'good')),
-                                    'remarks' => trim((string) ($src[$col['remarks']] ?? '')),
+                                    'po_number' => '',
+                                    'property_number' => $isSemiTemplate ? li_pick_csv_value($src, $col, ['propno']) : trim((string) ($src[$col['property_number'] ?? null] ?? '')),
+                                    'item_type' => $isSemiTemplate ? 'semi_expendable' : strtolower(str_replace([' ', '-'], '_', (string) ($src[$col['inventory_type']] ?? ''))),
+                                    'item_description' => $itemDescription,
+                                    'classification' => $isSemiTemplate ? li_clean_optional_value(li_pick_csv_value($src, $col, ['invname'])) : li_clean_optional_value((string) ($src[$col['classification'] ?? null] ?? '')),
+                                    'fund' => $isSemiTemplate ? li_clean_optional_value(li_pick_csv_value($src, $col, ['fund'])) : li_clean_optional_value((string) ($src[$col['fund'] ?? null] ?? ($src[$col['fund_number'] ?? null] ?? ''))),
+                                    'account_code' => $isSemiTemplate ? li_clean_optional_value(li_pick_csv_value($src, $col, ['accountcode'])) : li_clean_optional_value((string) ($src[$col['account_code'] ?? null] ?? '')),
+                                    'supplier' => li_clean_optional_value((string) ($src[$col['supplier'] ?? null] ?? '')),
+                                    'brand' => $isSemiTemplate ? li_clean_optional_value(li_pick_csv_value($src, $col, ['brand'])) : li_clean_optional_value((string) ($src[$col['brand'] ?? null] ?? '')),
+                                    'model' => $isSemiTemplate ? li_clean_optional_value(li_pick_csv_value($src, $col, ['model'])) : li_clean_optional_value((string) ($src[$col['model'] ?? null] ?? '')),
+                                    'serial_no' => $isSemiTemplate ? li_clean_optional_value(li_pick_csv_value($src, $col, ['serialno'])) : li_clean_optional_value((string) ($src[$col['serial_no'] ?? null] ?? '')),
+                                    'acquisition_date' => li_derive_acquisition_date(
+                                        li_clean_optional_value((string) ($src[$col['acquisition_date'] ?? null] ?? '')),
+                                        $isSemiTemplate ? li_pick_csv_value($src, $col, ['propno']) : trim((string) ($src[$col['property_number'] ?? null] ?? ''))
+                                    ),
+                                    'quantity' => trim((string) ($src[$col['quantity'] ?? null] ?? '1')),
+                                    'unit_cost' => $isSemiTemplate ? li_normalize_decimal_value(li_pick_csv_value($src, $col, ['unitcost'])) : li_normalize_decimal_value((string) ($src[$col['unit_cost'] ?? null] ?? '')),
+                                    'office' => li_clean_optional_value((string) ($src[$col['office'] ?? null] ?? '')),
+                                    'employee' => li_clean_optional_value((string) ($src[$col['employee'] ?? null] ?? '')),
+                                    'responsibility_code' => li_clean_optional_value((string) ($src[$col['responsibility_code'] ?? null] ?? '')),
+                                    'condition_status' => li_clean_optional_value((string) ($src[$col['condition_status'] ?? null] ?? 'good')),
+                                    'remarks' => li_clean_optional_value((string) ($src[$col['remarks'] ?? null] ?? '')),
                                     'errors' => [],
                                 ];
-                                if ($r['property_number'] === '') $r['errors'][] = 'Property number is required.';
-                                if ($r['item_description'] === '') $r['errors'][] = 'Description is required.';
+                                $r['po_number'] = li_resolve_po_number((string) ($src[$col['po_number'] ?? null] ?? ''), $r['property_number']);
                                 if (!in_array($r['item_type'], ['equipment', 'semi_expendable'], true)) $r['errors'][] = 'Type must be equipment or semi_expendable.';
                                 if (!ctype_digit($r['quantity']) || (int) $r['quantity'] <= 0) $r['errors'][] = 'Quantity must be a whole number.';
                                 if ($r['unit_cost'] === '' || !is_numeric($r['unit_cost'])) $r['errors'][] = 'Unit cost is required.';
 
-                                $classification = $maps['classification'][li_norm($r['classification'])] ?? null;
                                 $account = $maps['account'][li_norm($r['account_code'])] ?? null;
+                                $classification = null;
                                 $fund = $maps['fund'][li_norm($r['fund'])] ?? null;
                                 $supplier = $maps['supplier'][li_norm($r['supplier'])] ?? null;
-                                $brand = $maps['brand'][li_norm($r['brand'])] ?? null;
-                                $model = $maps['model'][li_norm($r['model'])] ?? null;
+                                $brand = null;
+                                $model = null;
                                 $office = $maps['office'][li_norm($r['office'])] ?? null;
                                 $employee = $maps['employee'][li_norm($r['employee'])] ?? null;
                                 $rc = $maps['rc'][li_norm($r['responsibility_code'])] ?? null;
-
-                                if ($r['classification'] !== '' && !$classification) $r['errors'][] = 'Unknown classification.';
+                                if ($r['supplier'] !== '' && !$supplier) $r['errors'][] = 'Unknown supplier.';
                                 if ($r['account_code'] !== '' && !$account) $r['errors'][] = 'Unknown account code.';
                                 if ($r['fund'] !== '' && !$fund) $r['errors'][] = 'Unknown fund.';
-                                if ($r['supplier'] !== '' && !$supplier) $r['errors'][] = 'Unknown supplier.';
-                                if ($r['brand'] !== '' && !$brand) $r['errors'][] = 'Unknown brand.';
-                                if ($r['model'] !== '' && !$model) $r['errors'][] = 'Unknown model.';
-                                if ($brand && $model && (int) ($model['brand_id'] ?? 0) > 0 && (int) $model['brand_id'] !== (int) $brand['id']) $r['errors'][] = 'Model does not belong to brand.';
                                 if ($r['office'] !== '' && !$office) $r['errors'][] = 'Unknown office.';
                                 if ($r['employee'] !== '' && !$employee) $r['errors'][] = 'Unknown employee.';
                                 if ($r['responsibility_code'] !== '' && !$rc) $r['errors'][] = 'Unknown RC.';
 
+                                try {
+                                    $classification = li_find_or_create_classification($db, $maps, $r['classification'], $r['item_type'], isset($account['id']) ? (int) $account['id'] : null, $userId);
+                                    $brand = li_find_or_create_brand($db, $maps, $r['brand'], $userId);
+                                    $brandId = isset($brand['id']) ? (int) $brand['id'] : null;
+                                    $model = li_find_or_create_model($db, $maps, $r['model'], $brandId, $userId);
+                                    if ($brand && $model && (int) ($model['brand_id'] ?? 0) > 0 && (int) $model['brand_id'] !== (int) $brand['id']) {
+                                        $r['errors'][] = 'Model does not belong to brand.';
+                                    }
+                                } catch (Throwable $e) {
+                                    $r['errors'][] = $e->getMessage();
+                                }
+
                                 if (!$office && $employee && !empty($employee['office_id'])) foreach ($offices as $off) if ((int) $off['id'] === (int) $employee['office_id']) { $office = $off; break; }
                                 if ($office && !$employee) foreach ($employees as $emp) if ((int) ($emp['office_id'] ?? 0) === (int) $office['id'] && (int) ($emp['is_unit_head'] ?? 0) === 1) { $employee = $emp; break; }
-                                if ($office && !$rc) foreach ($responsibilityCodes as $rcRow) if ((int) ($rcRow['office_id'] ?? 0) === (int) $office['id']) { $rc = $rcRow; break; }
 
                                 if ($employee && $office && (int) ($employee['office_id'] ?? 0) !== (int) $office['id']) $r['errors'][] = 'Employee does not belong to office.';
                                 if ($rc && $office && (int) ($rc['office_id'] ?? 0) !== (int) $office['id']) $r['errors'][] = 'RC does not belong to office.';
 
-                                $dup = $db->prepare("SELECT id FROM legacy_assets WHERE property_number = ? LIMIT 1");
+                                $dup = $r['property_number'] !== '' ? $db->prepare("SELECT id FROM legacy_assets WHERE property_number = ? LIMIT 1") : null;
                                 if ($dup) {
                                     $dup->bind_param('s', $r['property_number']);
                                     $dup->execute();
@@ -391,7 +643,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo (int) $row['source_row']; ?></td>
                                     <td><?php echo h($row['property_number']); ?></td>
                                     <td><?php echo h($row['item_type']); ?></td>
-                                    <td><div class="fw-semibold"><?php echo h($row['item_description']); ?></div><small class="text-muted"><?php echo h($row['brand_name'] . ($row['model_name'] ? ' â€¢ ' . $row['model_name'] : '')); ?></small></td>
+                                    <td><div class="fw-semibold"><?php echo h($row['item_description']); ?></div><small class="text-muted"><?php echo h($row['brand_name'] . ($row['model_name'] ? ' | ' . $row['model_name'] : '')); ?></small></td>
                                     <td><?php echo h($row['resolved_fund'] ?: $row['fund']); ?></td>
                                     <td><?php echo h($row['resolved_office'] ?: $row['office']); ?></td>
                                     <td><?php echo h($row['resolved_employee'] ?: $row['employee']); ?></td>
@@ -408,4 +660,5 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <?php endif; ?>
 </section>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
 

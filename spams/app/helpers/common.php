@@ -13,6 +13,40 @@ function base_url(string $path = ''): string
     return $path === '' ? $base : $base . '/' . $path;
 }
 
+function app_url(string $path = ''): string
+{
+    $relative = base_url($path);
+
+    static $configuredBase = null;
+    if ($configuredBase === null) {
+        $configuredBase = APP_URL;
+
+        if (function_exists('db')) {
+            $db = db();
+            if ($db) {
+                $savedUrl = trim(get_system_setting($db, 'app_url', APP_URL));
+                if ($savedUrl !== '') {
+                    $configuredBase = $savedUrl;
+                }
+            }
+        }
+    }
+
+    if ($configuredBase !== '') {
+        return rtrim($configuredBase, '/') . $relative;
+    }
+
+    $isHttps = (
+        (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
+        || (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] === '443')
+        || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
+    );
+    $scheme = $isHttps ? 'https' : 'http';
+    $host = trim((string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost'));
+
+    return $scheme . '://' . $host . $relative;
+}
+
 function set_flash(string $type, string $message): void
 {
     $_SESSION['flash'] = [

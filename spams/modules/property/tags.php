@@ -95,7 +95,7 @@ foreach ($rows as $row) {
     $systemReference = trim((string) ($row['system_reference'] ?? ''));
     $propertyNumber = trim((string) ($row['property_number'] ?? ''));
     $lookupRef = $propertyNumber !== '' ? $propertyNumber : $systemReference;
-    $scanUrl = rtrim(base_url('modules/property/scan.php'), '/') . '?ref=' . rawurlencode($lookupRef);
+    $scanUrl = app_url('modules/property/scan.php?ref=' . rawurlencode($lookupRef));
 
     $qrBase64 = null;
     $qrUrl = 'https://quickchart.io/qr?size=180&text=' . rawurlencode($scanUrl);
@@ -280,7 +280,7 @@ function property_tag_office_short(string $officeName): string
         <button class="btn btn-sm btn-primary" onclick="window.print()">Print Labels</button>
         <a class="btn btn-sm btn-secondary" href="javascript:history.back()">Back</a>
         <span style="margin-left:12px;">Label count: <?php echo count($units); ?> label(s) - DK-11201 (29mm x 90mm)</span>
-        <div class="mt-2 small text-muted">QR uses the public asset lookup page and is sized for a 29mm x 90mm label.</div>
+        <div class="mt-2 small text-muted">Scanning this QR opens the asset page in the system. Login is still required before any asset details or inventory actions are shown.</div>
     </div>
 
     <div class="tag-list">
@@ -315,3 +315,6 @@ function property_tag_office_short(string $officeName): string
     </div>
 </body>
 </html>
+
+
+

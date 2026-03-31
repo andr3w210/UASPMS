@@ -1,3 +1,20 @@
+window.__spamsPendingInitDataTables = window.__spamsPendingInitDataTables || [];
+window.__spamsPendingMasterDataLists = window.__spamsPendingMasterDataLists || [];
+
+if (typeof window.initDataTable !== 'function') {
+    window.initDataTable = function () {
+        window.__spamsPendingInitDataTables.push(Array.prototype.slice.call(arguments));
+        return null;
+    };
+}
+
+if (typeof window.initMasterDataList !== 'function') {
+    window.initMasterDataList = function () {
+        window.__spamsPendingMasterDataLists.push(Array.prototype.slice.call(arguments));
+        return null;
+    };
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     var toggleButton = document.getElementById('sidebarToggle');
     var sidebar = document.getElementById('sidebar');
@@ -521,7 +538,9 @@ document.addEventListener('DOMContentLoaded', function () {
             perPageSelectId: 'perPageSelect',
             recordCountId: 'recordCount',
             rowMatcher: null,
-            recordCountFormatter: null
+            recordCountFormatter: null,
+            pageInfoFormatter: null,
+            emptyMessage: 'No matching records found.'
         }, options || {});
 
         var table = document.getElementById(tableId);
@@ -542,6 +561,61 @@ document.addEventListener('DOMContentLoaded', function () {
         var recordCount = settings.recordCountId ? document.getElementById(settings.recordCountId) : null;
         var currentPage = 1;
         var perPage = parseInt(perPageSelect && perPageSelect.value, 10) || 25;
+        var emptyRow = null;
+
+        [statusFilter, perPageSelect].forEach(function (select) {
+            if (!select) {
+                return;
+            }
+            select.setAttribute('data-no-select2', 'true');
+            if (window.jQuery && jQuery.fn.select2) {
+                var $select = jQuery(select);
+                if ($select.hasClass('select2-hidden-accessible')) {
+                    $select.select2('destroy');
+                    select.removeAttribute('data-select2-initialized');
+                }
+            }
+        });
+
+        (function movePaginationControlsAboveTable() {
+            var wrapper = table.closest('.table-responsive') || table.parentElement;
+            var controlContainer = null;
+            var toolbar = null;
+
+            if (pageInfo && pageInfo.parentElement) {
+                controlContainer = pageInfo.parentElement;
+            } else if (perPageSelect && perPageSelect.parentElement) {
+                controlContainer = perPageSelect.parentElement;
+            }
+
+            if (searchInput) {
+                toolbar = searchInput.closest('.master-data-toolbar, .workspace-filter-panel, .d-flex.flex-wrap.gap-2.align-items-center.mb-3');
+            }
+
+            if (!wrapper || !controlContainer || !wrapper.parentNode) {
+                return;
+            }
+
+            controlContainer.classList.add('master-data-pagination-inline');
+
+            if (toolbar && toolbar.parentNode) {
+                if (controlContainer === toolbar.nextElementSibling) {
+                    return;
+                }
+                if (toolbar.nextSibling) {
+                    toolbar.parentNode.insertBefore(controlContainer, toolbar.nextSibling);
+                } else {
+                    toolbar.parentNode.appendChild(controlContainer);
+                }
+                return;
+            }
+
+            if (controlContainer === wrapper.previousElementSibling) {
+                return;
+            }
+
+            wrapper.parentNode.insertBefore(controlContainer, wrapper);
+        })();
 
         table.setAttribute('data-no-table-search', 'true');
         table.setAttribute('data-table-search-initialized', 'true');
@@ -576,6 +650,23 @@ document.addEventListener('DOMContentLoaded', function () {
             recordCount.textContent = 'Showing ' + totalVisible + ' of ' + totalOverall + ' records';
         }
 
+        function ensureEmptyRow() {
+            if (emptyRow) {
+                return emptyRow;
+            }
+
+            emptyRow = document.createElement('tr');
+            emptyRow.className = 'master-data-empty-row';
+
+            var cell = document.createElement('td');
+            cell.colSpan = table.querySelectorAll('thead th').length || 1;
+            cell.className = 'text-center text-muted py-4';
+            cell.textContent = settings.emptyMessage;
+            emptyRow.appendChild(cell);
+
+            return emptyRow;
+        }
+
         function renderRows() {
             var visibleRows = getVisibleRows();
             var totalVisible = visibleRows.length;
@@ -588,17 +679,31 @@ document.addEventListener('DOMContentLoaded', function () {
             });
 
             if (totalVisible > 0) {
+                if (emptyRow && emptyRow.parentNode) {
+                    emptyRow.parentNode.removeChild(emptyRow);
+                }
                 var start = (currentPage - 1) * perPage;
                 var end = Math.min(start + perPage, totalVisible);
                 visibleRows.slice(start, end).forEach(function (row) {
                     row.style.display = '';
                 });
+            } else {
+                tbody.appendChild(ensureEmptyRow());
             }
 
             updateRecordCount(totalVisible, rows.length);
 
             if (pageInfo) {
-                pageInfo.textContent = 'Page ' + currentPage + ' of ' + totalPages;
+                if (typeof settings.pageInfoFormatter === 'function') {
+                    pageInfo.textContent = settings.pageInfoFormatter({
+                        currentPage: currentPage,
+                        totalPages: totalPages,
+                        totalVisible: totalVisible,
+                        totalOverall: rows.length
+                    });
+                } else {
+                    pageInfo.textContent = 'Page ' + currentPage + ' of ' + totalPages;
+                }
             }
             if (prevButton) {
                 prevButton.disabled = currentPage <= 1;
@@ -823,6 +928,17 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
         window.__spamsPendingInitDataTables = [];
+    }
+
+    if (Array.isArray(window.__spamsPendingMasterDataLists) && window.__spamsPendingMasterDataLists.length > 0) {
+        window.__spamsPendingMasterDataLists.forEach(function (args) {
+            try {
+                initMasterDataList.apply(window, args || []);
+            } catch (error) {
+                console.error('Queued initMasterDataList failed', error);
+            }
+        });
+        window.__spamsPendingMasterDataLists = [];
     }
 
     initSelect2(document);

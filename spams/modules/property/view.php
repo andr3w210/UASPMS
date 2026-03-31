@@ -165,6 +165,7 @@ if ($source === 'system') {
             la.property_number,
             la.item_type,
             la.item_description,
+            la.office_id,
             la.brand,
             la.model,
             la.serial_no,
@@ -653,6 +654,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             ?>
                             <a href="<?php echo $docUrl; ?>" class="btn btn-outline-dark btn-sm" target="_blank">Print <?php echo h(strtoupper($docType)); ?></a>
                             <a href="<?php echo base_url('modules/property/tags.php?detail_id=' . (int) $asset['id']); ?>" class="btn btn-dark btn-sm" target="_blank">Print Tag</a>
+                        <?php elseif ($source === 'legacy' && ($asset['item_type'] ?? '') === 'equipment' && !empty($asset['office_id'])): ?>
+                            <a href="<?php echo base_url('modules/distributions/par_office.php?office_id=' . (int) $asset['office_id'] . '&print=1'); ?>" class="btn btn-outline-dark btn-sm" target="_blank">Print PAR</a>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -697,7 +700,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
                 </div>
-
                 <div class="row g-4">
                     <div class="col-12">
                         <div class="card">
@@ -928,6 +930,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <?php endif; ?>
                                         </tbody>
                                     </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -1008,14 +1012,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-                    </div>
 
                     <div class="col-lg-6">
                         <div class="card h-100">
@@ -1055,3 +1051,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

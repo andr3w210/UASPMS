@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 // heartbeat log: record any incoming request before authentication
 $heartbeatLog = defined('UPLOADS_DIR') ? rtrim(UPLOADS_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'scan_proxy_debug.log' : null;
@@ -13,6 +13,13 @@ if (!$__bypass_scan_auth) {
 }
 
 header('Content-Type: application/json; charset=utf-8');
+
+if (!defined('GEMINI_API_KEY') || trim((string) GEMINI_API_KEY) === '') {
+    http_response_code(500);
+    scan_proxy_log(['stage' => 'config', 'error' => 'Missing GEMINI_API_KEY']);
+    echo json_encode(['error' => 'Gemini API key is missing. Set GEMINI_API_KEY in your environment configuration before using PO scan.']);
+    exit;
+}
 
 // simple logger helper to ensure we capture attempts for debugging
 function scan_proxy_log($data) {
@@ -180,3 +187,4 @@ if (!$extracted || !isset($extracted['items'])) {
 }
 
 echo json_encode($extracted);
+

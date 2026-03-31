@@ -830,7 +830,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                             <div>
                                 <h5 class="card-title mb-0">Scan Asset</h5>
-                                <div class="text-muted small">Scan the QR tag or paste the property number. Matching assets in this session are marked as found immediately.</div>
+                                <div class="text-muted small">Use this workspace to manage count sessions and review checklist results. Scanning a printed QR tag from your phone opens the asset page, where you can mark the item as found.</div>
                             </div>
                             <span class="badge text-bg-warning">Live Count</span>
                         </div>
@@ -858,16 +858,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </form>
                         <div class="d-flex flex-wrap gap-2 mt-3">
                             <button type="button" class="btn btn-outline-secondary" id="startCameraScan">
-                                <i class="bi bi-camera-video me-1"></i>Use Camera
+                                <i class="bi bi-camera-video me-1"></i>Start QR Scanner
                             </button>
                             <button type="button" class="btn btn-outline-secondary d-none" id="stopCameraScan">
                                 <i class="bi bi-stop-circle me-1"></i>Stop Camera
                             </button>
                             <span class="small text-muted align-self-center" id="cameraScanStatus">
-                                You can use a barcode scanner, paste the QR link, or open the camera scanner.
+                                You can paste the property number here, or scan the printed QR tag from your phone camera to open the asset page directly.
                             </span>
-                        </div>
-                        <div class="inventory-camera-panel d-none mt-3" id="cameraScanPanel">
+                        </div><div class="inventory-camera-panel d-none mt-3" id="cameraScanPanel">
                             <div class="ratio ratio-16x9 rounded overflow-hidden bg-dark">
                                 <video id="cameraScanVideo" autoplay playsinline muted></video>
                             </div>
@@ -944,6 +943,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <?php if (!empty($item['remarks'])): ?>
                                                     <div class="small text-muted mt-1"><?php echo h($item['remarks']); ?></div>
                                                 <?php endif; ?>
+                                                <?php if (!empty($item['proof_photo_path'])): ?>
+                                                    <div class="mt-2">
+                                                        <a href="<?php echo h(upload_url((string) $item['proof_photo_path'])); ?>" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">View Photo</a>
+                                                    </div>
+                                                <?php endif; ?>
                                             </td>
                                             <td>
                                                 <?php if (($selectedSession['status'] ?? '') === 'open'): ?>
@@ -1003,6 +1007,11 @@ document.addEventListener('DOMContentLoaded', function () {
     var cameraPanel = document.getElementById('cameraScanPanel');
     var cameraVideo = document.getElementById('cameraScanVideo');
     var cameraStatus = document.getElementById('cameraScanStatus');
+    var cameraDiagSummary = document.getElementById('cameraDiagSummary');
+    var cameraDiagSecure = document.getElementById('cameraDiagSecure');
+    var cameraDiagMedia = document.getElementById('cameraDiagMedia');
+    var cameraDiagPermission = document.getElementById('cameraDiagPermission');
+    var cameraDiagFallback = document.getElementById('cameraDiagFallback');
     var cameraStream = null;
     var cameraDetector = null;
     var cameraScanTimer = null;
@@ -1019,8 +1028,7 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (tone === 'warning') {
             playTone(440, 0.22);
         }
-    }
-
+    }`r`n
     function playTone(frequency, duration) {
         try {
             var audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -1079,7 +1087,7 @@ document.addEventListener('DOMContentLoaded', function () {
             stopCameraButton.classList.add('d-none');
         }
         if (resetMessage) {
-            setCameraStatus('You can use a barcode scanner, paste the QR link, or open the camera scanner.');
+            setCameraStatus('You can paste the property number here, or scan the printed QR tag from your phone camera to open the asset page directly.');
         }
     }
 
@@ -1154,7 +1162,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
-            setCameraStatus('Camera scanning is not available on this browser.', 'warning');
+            setCameraStatus('Camera scanning is not available on this browser. Check the diagnostics below for the likely cause.', 'warning');
             return;
         }
 
@@ -1202,6 +1210,8 @@ document.addEventListener('DOMContentLoaded', function () {
         scanInput.focus();
         scanInput.select();
     }
+
+    refreshCameraDiagnostics();
 
     var highlightedRow = document.querySelector('.inventory-count-highlight');
     if (highlightedRow) {
@@ -1260,3 +1270,5 @@ document.addEventListener('DOMContentLoaded', function () {
 }
 </style>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
+

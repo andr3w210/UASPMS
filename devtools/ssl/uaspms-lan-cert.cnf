@@ -1,0 +1,24 @@
+[ req ]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = req_distinguished_name
+req_extensions = req_ext
+
+[ req_distinguished_name ]
+C = PH
+ST = Antique
+L = Sibalom
+O = UASPMS
+OU = SPAMS
+CN = 172.16.1.42
+
+[ req_ext ]
+subjectAltName = @alt_names
+extendedKeyUsage = serverAuth
+keyUsage = digitalSignature, keyEncipherment
+
+[ alt_names ]
+IP.1 = 172.16.1.42
+DNS.1 = localhost
+DNS.2 = uaspms.local
