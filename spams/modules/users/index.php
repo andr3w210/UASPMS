@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_role('Administrator');
@@ -53,7 +53,7 @@ if (!$db) {
         $roles = $roleResult->fetch_all(MYSQLI_ASSOC);
     }
 
-    $employeeResult = $db->query("SELECT id, employee_no, first_name, middle_name, last_name, suffix_name, office_id, is_unit_head, position_title FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
+    $employeeResult = $db->query("SELECT id, employee_no, first_name, middle_name, last_name, suffix_name, email, office_id, is_unit_head, position_title FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
     if ($employeeResult) {
         $employees = $employeeResult->fetch_all(MYSQLI_ASSOC);
     }
@@ -79,8 +79,6 @@ if (!$db) {
             $form['is_active']=isset($_POST['is_active'])?'1':'0';
 
             if($form['username']==='') $errors[]='Username is required.';
-            if($form['email']==='') $errors[]='Email is required.';
-            if($form['full_name']==='') $errors[]='Full name is required.';
             if($form['role_id']==='') $errors[]='Role is required.';
             if($form['id']===0 && trim($form['password'])==='') $errors[]='Password is required for a new user.';
             if (trim($form['password']) !== '') {
@@ -101,7 +99,7 @@ if (!$db) {
             $roleId=(int)$form['role_id'];
 
             if($employeeId){
-                $stmt=$db->prepare("SELECT office_id FROM employees WHERE id = ? LIMIT 1");
+                $stmt=$db->prepare("SELECT office_id, email, first_name, middle_name, last_name, suffix_name FROM employees WHERE id = ? LIMIT 1");
                 if($stmt){
                     $stmt->bind_param('i',$employeeId);
                     $stmt->execute();
@@ -114,9 +112,21 @@ if (!$db) {
                         } elseif($officeId && !empty($employeeRow['office_id']) && (int)$employeeRow['office_id']!==$officeId){
                             $errors[]='Selected user office does not match the employee office.';
                         }
+
+                        $employeeFullName = trim(employee_display_name($employeeRow));
+                        $employeeEmail = trim((string) ($employeeRow['email'] ?? ''));
+
+                        if($employeeFullName !== ''){
+                            $form['full_name'] = $employeeFullName;
+                        }
+                        if($employeeEmail !== ''){
+                            $form['email'] = $employeeEmail;
+                        }
                     }
                 }
             }
+
+            if($form['full_name']==='') $errors[]='Full name is required when no linked employee name is available.';
 
             if(!$errors){
                 $isActive=(int)$form['is_active'];
@@ -308,58 +318,248 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
-<section class="row g-4"><div class="col-12"><div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2"><div><h5 class="card-title mb-0"><?php echo $form['id'] > 0 ? 'Edit User' : 'Add New User'; ?></h5><div class="text-muted small">Manage system users, role assignments, and linked employee records.</div></div><div class="d-flex gap-2"><button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse"><i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Edit User' : 'Add New'; ?></button><?php if($form['id']>0): ?><a href="<?php echo base_url('modules/users/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?></div></div><div class="collapse <?php echo $form['id']>0?'show':''; ?>" id="formCollapse"><div class="card-body p-4"><?php if($errors): ?><div class="alert alert-danger"><?php foreach($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?><?php if($flash): ?><div class="alert alert-<?php echo $flash['type']==='success'?'success':'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?><form method="post"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?php echo (int)$form['id']; ?>"><div class="row g-3"><div class="col-md-4"><label class="form-label">Username</label><input type="text" class="form-control" name="username" value="<?php echo h($form['username']); ?>" required></div><div class="col-md-4"><label class="form-label">Email</label><input type="email" class="form-control" name="email" value="<?php echo h($form['email']); ?>" required></div><div class="col-md-4"><label class="form-label">Full Name</label><input type="text" class="form-control" name="full_name" value="<?php echo h($form['full_name']); ?>" required></div><div class="col-md-4"><label class="form-label">Role</label><select class="form-select" id="role_id" name="role_id" data-placeholder="Select role" required><option value="">Select role</option><?php foreach($roles as $role): ?><option value="<?php echo (int)$role['id']; ?>" <?php echo $form['role_id']===(string)$role['id']?'selected':''; ?>><?php echo h($role['name']); ?></option><?php endforeach; ?></select></div><div class="col-md-4"><label class="form-label">Linked Employee</label><select class="form-select" id="employee_id" name="employee_id" data-placeholder="Select employee"><option value="">Select employee</option><?php foreach($employees as $employee): ?><option value="<?php echo (int)$employee['id']; ?>" data-office-id="<?php echo (int)($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int)($employee['is_unit_head'] ?? 0); ?>" <?php echo $form['employee_id']===(string)$employee['id']?'selected':''; ?>><?php echo h(employee_display_name($employee).' - '.$employee['employee_no']); ?></option><?php endforeach; ?></select></div><div class="col-md-4"><label class="form-label">Office</label><select class="form-select" id="office_id" name="office_id" data-placeholder="Select office"><option value="">Select office</option><?php foreach($offices as $office): ?><option value="<?php echo (int)$office['id']; ?>" <?php echo $form['office_id']===(string)$office['id']?'selected':''; ?>><?php echo h($office['office_name'].' ('.$office['office_code'].')'); ?></option><?php endforeach; ?></select></div><div class="col-md-6"><label class="form-label" for="password"><?php echo $form['id'] > 0 ? 'New Password' : 'Password'; ?></label><input type="password" class="form-control" id="password" name="password" minlength="8" aria-describedby="passwordHelp passwordStrength"><div id="passwordStrength" class="small mt-2 text-muted">Use at least 8 characters with letters and numbers.</div><div class="form-text" id="passwordHelp"><?php echo $form['id'] > 0 ? 'Leave blank to keep the current password.' : 'Set the initial password for the account.'; ?> Minimum: 8 characters, at least one letter, and at least one number.</div></div><div class="col-md-6 d-flex align-items-end"><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active']==='1'?'checked':''; ?>><label class="form-check-label">Active user</label></div></div><div class="col-12 d-flex gap-2"><button type="submit" class="btn btn-primary"><?php echo $form['id']>0?'Update':'Save'; ?></button><?php if($form['id']>0): ?><a href="<?php echo base_url('modules/users/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?></div></div></form></div></div></div></div><div class="col-12"><div class="card"><div class="card-body p-4"><div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3"><div><h5 class="card-title mb-0">User List</h5><span id="recordCount" class="text-muted small">Showing <?php echo count($users); ?> of <?php echo count($users); ?> records</span></div><button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse"><i class="bi bi-plus-circle me-1"></i>Add New</button></div><div class="d-flex flex-wrap gap-2 align-items-center mb-3"><input type="search" id="tableSearch" class="form-control form-control-sm" placeholder="Search users..." style="max-width:300px;"><select id="statusFilter" class="form-select form-select-sm" style="max-width:140px;"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div><div class="table-responsive"><table class="table align-middle" id="dataTable"><thead><tr><th data-sort="user">User <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="role">Role <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="employee">Employee <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="office">Office <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="created">Created <i class="bi bi-arrow-down-up text-muted small"></i></th><th class="text-end">Actions</th></tr></thead><tbody><?php if($users): foreach($users as $user): ?><tr data-status="<?php echo (int)$user['is_active']?'active':'inactive'; ?>"><td><div class="fw-semibold"><?php echo h($user['full_name']); ?></div><small class="text-muted"><?php echo h($user['username'].' - '.$user['email']); ?></small></td><td><?php echo h($user['role_name'] ?? ''); ?></td><td><?php echo h(!empty($user['employee_no']) ? employee_display_name($user) . ' - ' . $user['employee_no'] : ''); ?></td><td><?php echo h($user['office_name'] ?? ''); ?></td><td><span class="badge <?php echo (int)$user['is_active']===1?'text-bg-success':'text-bg-secondary'; ?>"><?php echo (int)$user['is_active']===1?'Active':'Inactive'; ?></span></td><td><?php echo h(date('M d, Y', strtotime($user['created_at']))); ?></td><td class="text-end"><div class="d-inline-flex flex-wrap justify-content-end gap-2"><a href="<?php echo base_url('modules/users/index.php?edit='.(int)$user['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a><?php if((int)$user['is_active']===1): ?><form method="post" onsubmit="return confirm('Deactivate this user?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int)$user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button></form><?php endif; ?><form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="hard_delete"><input type="hidden" name="id" value="<?php echo (int)$user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button></form></div></td></tr><?php endforeach; else: ?><tr data-status="inactive"><td colspan="7" class="text-center text-muted py-4">No users found yet.</td></tr><?php endif; ?></tbody></table></div><div class="d-flex align-items-center gap-3 mt-2 flex-wrap"><button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button><span id="pageInfo" class="small text-muted">Page 1 of 1</span><button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button><select id="perPageSelect" class="form-select form-select-sm" style="width:auto;"><option value="25">25 per page</option><option value="50">50 per page</option><option value="100">100 per page</option></select></div></div></div></div></section>
-<script>
+<section class="master-data-page">
+    <div class="card master-data-page-card">
+        <div class="card-body p-4 p-xl-4">
+            <?php if ($errors): ?>
+                <div class="alert alert-danger mb-4"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div>
+            <?php endif; ?>
+            <?php if ($flash): ?>
+                <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?> mb-4"><?php echo h($flash['message']); ?></div>
+            <?php endif; ?>
+
+            <div class="master-data-header mb-4">
+                <div>
+                    <div class="text-uppercase small text-muted fw-semibold">Access Control</div>
+                    <h4 class="mb-1">User Accounts</h4>
+                    <div id="recordCount" class="text-muted small">Showing <?php echo count($users); ?> of <?php echo count($users); ?> records</div>
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                    <?php if ($form['id'] > 0): ?>
+                        <a href="<?php echo base_url('modules/users/index.php'); ?>" class="btn btn-outline-secondary">Cancel Edit</a>
+                    <?php endif; ?>
+                    <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse" aria-expanded="<?php echo $form['id'] > 0 ? 'true' : 'false'; ?>">
+                        <i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Continue Editing' : 'Add User'; ?>
+                    </button>
+                </div>
+            </div>
+
+            <div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?> mb-4" id="formCollapse">
+                <div class="master-data-editor">
+                    <div class="master-data-editor-header">
+                        <div>
+                            <h5 class="mb-1"><?php echo $form['id'] > 0 ? 'Edit User' : 'New User'; ?></h5>
+                            <div class="text-muted small">Manage login credentials, role assignment, and linked employee access.</div>
+                        </div>
+                    </div>
+                    <form method="post" class="workspace-form-section mt-3">
+                        <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="save">
+                        <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
+
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Username</label>
+                                <input type="text" class="form-control" name="username" value="<?php echo h($form['username']); ?>" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Email</label>
+                                <input type="email" class="form-control" id="email" name="email" value="<?php echo h($form['email']); ?>">
+                                <div class="form-text">Auto-filled from linked employee when available.</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Full Name</label>
+                                <input type="text" class="form-control" id="full_name" name="full_name" value="<?php echo h($form['full_name']); ?>">
+                                <div class="form-text">Auto-filled from linked employee when available.</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Role</label>
+                                <select class="form-select" id="role_id" name="role_id" data-placeholder="Select role" required>
+                                    <option value="">Select role</option>
+                                    <?php foreach ($roles as $role): ?><option value="<?php echo (int) $role['id']; ?>" <?php echo $form['role_id'] === (string) $role['id'] ? 'selected' : ''; ?>><?php echo h($role['name']); ?></option><?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Office</label>
+                                <select class="form-select" id="office_id" name="office_id" data-placeholder="Select office">
+                                    <option value="">Select office</option>
+                                    <?php foreach ($offices as $office): ?><option value="<?php echo (int) $office['id']; ?>" <?php echo $form['office_id'] === (string) $office['id'] ? 'selected' : ''; ?>><?php echo h($office['office_name'] . ' (' . $office['office_code'] . ')'); ?></option><?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Linked Employee</label>
+                                <select class="form-select" id="employee_id" name="employee_id" data-placeholder="Select employee" onchange="window.syncUserOfficeFromEmployee && window.syncUserOfficeFromEmployee();">
+                                    <option value="">Select employee</option>
+                                    <?php foreach ($employees as $employee): ?><option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>" data-email="<?php echo h($employee['email'] ?? ''); ?>" data-full-name="<?php echo h(employee_display_name($employee)); ?>" <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>><?php echo h(employee_display_name($employee) . ' - ' . $employee['employee_no']); ?></option><?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="password"><?php echo $form['id'] > 0 ? 'New Password' : 'Password'; ?></label>
+                                <input type="password" class="form-control" id="password" name="password" minlength="8" aria-describedby="passwordHelp passwordStrength">
+                                <div id="passwordStrength" class="small mt-2 text-muted">Use at least 8 characters with letters and numbers.</div>
+                                <div class="form-text" id="passwordHelp"><?php echo $form['id'] > 0 ? 'Leave blank to keep the current password.' : 'Set the initial password for the account.'; ?> Minimum: 8 characters, at least one letter, and at least one number.</div>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active user</label></div>
+                            </div>
+                            <div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2">
+                                <?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/users/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?>
+                                <button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update User' : 'Save User'; ?></button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="master-data-toolbar mb-3">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-8 col-lg-9"><label class="form-label">Search</label><input type="search" id="tableSearch" class="form-control" placeholder="Search full name, username, email, role, employee, or office"></div>
+                    <div class="col-md-4 col-lg-3"><label class="form-label">Status</label><select id="statusFilter" class="form-select"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+                </div>
+            </div>
+
+            <div class="table-responsive mobile-table-frame">
+                <table class="table align-middle" id="dataTable">
+                    <thead><tr><th>User</th><th>Role</th><th>Employee</th><th>Office</th><th>Status</th><th>Created</th><th class="text-end">Actions</th></tr></thead>
+                    <tbody>
+                        <?php if ($users): foreach ($users as $user): ?>
+                            <tr data-status="<?php echo (int) $user['is_active'] ? 'active' : 'inactive'; ?>">
+                                <td><div class="fw-semibold"><?php echo h($user['full_name']); ?></div><small class="text-muted"><?php echo h($user['username'] . ' - ' . $user['email']); ?></small></td>
+                                <td><?php echo h($user['role_name'] ?? ''); ?></td>
+                                <td><?php echo h(!empty($user['employee_no']) ? employee_display_name($user) . ' - ' . $user['employee_no'] : ''); ?></td>
+                                <td><?php echo h($user['office_name'] ?? ''); ?></td>
+                                <td><span class="badge <?php echo (int) $user['is_active'] === 1 ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo (int) $user['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span></td>
+                                <td><?php echo h(date('M d, Y', strtotime($user['created_at']))); ?></td>
+                                <td class="text-end"><div class="d-inline-flex flex-wrap justify-content-end gap-2"><a href="<?php echo base_url('modules/users/index.php?edit=' . (int) $user['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a><?php if ((int) $user['is_active'] === 1): ?><form method="post" onsubmit="return confirm('Deactivate this user?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button></form><?php endif; ?><form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="hard_delete"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button></form></div></td>
+                            </tr>
+                        <?php endforeach; else: ?>
+                            <tr data-status="inactive"><td colspan="7" class="text-center text-muted py-4">No users found yet.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex align-items-center gap-3 mt-3 flex-wrap">
+                <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
+                <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
+                <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
+                <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;"><option value="25">25 per page</option><option value="50">50 per page</option><option value="100">100 per page</option></select>
+            </div>
+        </div>
+    </div>
+</section><script>
 document.addEventListener('DOMContentLoaded', function () {
+    var employeeDirectory = <?php echo json_encode(array_reduce($employees, function ($carry, $employee) { $carry[(string) $employee['id']] = ['full_name' => employee_display_name($employee), 'email' => (string) ($employee['email'] ?? ''), 'office_id' => (string) ($employee['office_id'] ?? '')]; return $carry; }, []), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+    function getSelectedEmployeeId() {
+        var employeeSelect = document.getElementById('employee_id');
+        if (!employeeSelect) return '';
+        if (window.jQuery) {
+            var jqValue = jQuery(employeeSelect).val();
+            if (Array.isArray(jqValue)) {
+                return jqValue.length ? (jqValue[0] || '') : '';
+            }
+            if (jqValue) {
+                return jqValue;
+            }
+        }
+        return employeeSelect.value || '';
+    }
+
     function refreshSharedSelect(select) {
         if (window.jQuery && jQuery.fn.select2) {
             jQuery(select).trigger('change.select2');
         }
     }
+
     function syncOfficeEmployee() {
         var employeeSelect = document.getElementById('employee_id');
         var officeSelect = document.getElementById('office_id');
         if (!employeeSelect || !officeSelect) return;
+
         var officeId = officeSelect.value;
         var preferredEmployeeId = '';
         Array.from(employeeSelect.options).forEach(function (option, index) {
-            if (index === 0) { option.hidden = false; return; }
+            if (index === 0) {
+                option.hidden = false;
+                return;
+            }
             var optionOfficeId = option.getAttribute('data-office-id') || '';
             var matches = !officeId || optionOfficeId === officeId;
             option.hidden = !matches;
-            if (matches && officeId !== '' && option.getAttribute('data-is-unit-head') === '1' && !preferredEmployeeId) preferredEmployeeId = option.value;
-            if (!matches && option.selected) employeeSelect.value = '';
+            if (matches && officeId !== '' && option.getAttribute('data-is-unit-head') === '1' && !preferredEmployeeId) {
+                preferredEmployeeId = option.value;
+            }
+            if (!matches && option.selected) {
+                employeeSelect.value = '';
+            }
         });
+
         var selectedOption = employeeSelect.selectedOptions.length ? employeeSelect.selectedOptions[0] : null;
-        if (officeId !== '' && (!employeeSelect.value || !selectedOption || selectedOption.hidden) && preferredEmployeeId !== '') employeeSelect.value = preferredEmployeeId;
+        if (officeId !== '' && (!employeeSelect.value || !selectedOption || selectedOption.hidden) && preferredEmployeeId !== '') {
+            employeeSelect.value = preferredEmployeeId;
+        }
         refreshSharedSelect(employeeSelect);
     }
+
     function syncOfficeFromEmployee() {
         var employeeSelect = document.getElementById('employee_id');
         var officeSelect = document.getElementById('office_id');
         if (!employeeSelect || !officeSelect) return;
-        var selectedOption = employeeSelect.selectedOptions.length ? employeeSelect.selectedOptions[0] : null;
-        var employeeOfficeId = selectedOption ? (selectedOption.getAttribute('data-office-id') || '') : '';
+
+        var employeeId = getSelectedEmployeeId();
+        var employeeOfficeId = employeeId && employeeDirectory[employeeId] ? (employeeDirectory[employeeId].office_id || '') : '';
         if (employeeOfficeId && officeSelect.value !== employeeOfficeId) {
             officeSelect.value = employeeOfficeId;
             refreshSharedSelect(officeSelect);
         }
+        syncEmployeeIdentity();
         syncOfficeEmployee();
     }
+
+    function syncEmployeeIdentity() {
+        var employeeSelect = document.getElementById('employee_id');
+        var emailField = document.getElementById('email');
+        var fullNameField = document.getElementById('full_name');
+        if (!employeeSelect || !emailField || !fullNameField) return;
+
+        var employeeId = getSelectedEmployeeId();
+        var employeeRecord = employeeId && employeeDirectory[employeeId] ? employeeDirectory[employeeId] : null;
+        var linked = !!employeeRecord;
+        var employeeEmail = linked ? (employeeRecord.email || '') : '';
+        var employeeFullName = linked ? (employeeRecord.full_name || '') : '';
+
+        if (linked) {
+            emailField.value = employeeEmail;
+            fullNameField.value = employeeFullName;
+            emailField.readOnly = employeeEmail !== '';
+            fullNameField.readOnly = employeeFullName !== '';
+            emailField.placeholder = employeeEmail === '' ? 'No employee email on file' : '';
+            fullNameField.placeholder = employeeFullName === '' ? 'No employee name available' : '';
+        } else {
+            emailField.readOnly = false;
+            fullNameField.readOnly = false;
+            emailField.placeholder = '';
+            fullNameField.placeholder = '';
+        }
+    }
+
     function updatePasswordStrength() {
         var passwordField = document.getElementById('password');
         var strengthNode = document.getElementById('passwordStrength');
         if (!passwordField || !strengthNode) return;
+
         var value = passwordField.value || '';
         if (value === '') {
             strengthNode.className = 'small mt-2 text-muted';
             strengthNode.textContent = 'Use at least 8 characters with letters and numbers.';
             return;
         }
+
         var hasLength = value.length >= 8;
         var hasLetter = /[A-Za-z]/.test(value);
         var hasNumber = /\d/.test(value);
         var passed = [hasLength, hasLetter, hasNumber].filter(Boolean).length;
+
         if (passed === 3) {
             strengthNode.className = 'small mt-2 text-success';
             strengthNode.textContent = 'Strong enough: meets the password rules.';
@@ -371,7 +571,11 @@ document.addEventListener('DOMContentLoaded', function () {
             strengthNode.textContent = 'Weak password: add at least 8 characters with one letter and one number.';
         }
     }
-    initDataTable('dataTable');
+
+    window.syncUserLinkedEmployee = syncEmployeeIdentity;
+    window.syncUserOfficeFromEmployee = syncOfficeFromEmployee;
+
+    window.initMasterDataList('dataTable');
     document.getElementById('office_id')?.addEventListener('change', syncOfficeEmployee);
     document.getElementById('employee_id')?.addEventListener('change', syncOfficeFromEmployee);
     document.getElementById('password')?.addEventListener('input', updatePasswordStrength);
@@ -380,5 +584,15 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
+
+
+
+
+
+
+
+
+
 
 

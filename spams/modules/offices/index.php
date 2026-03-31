@@ -270,41 +270,59 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
-<section class="row g-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <div>
-                    <h5 class="card-title mb-0"><?php echo $form['id'] > 0 ? 'Edit Office' : 'Add New Office'; ?></h5>
-                    <div class="text-muted small">Maintain office records and their assigned office heads.</div>
+<section class="master-data-page">
+    <div class="card master-data-page-card">
+        <div class="card-body p-4 p-xl-4">
+            <?php if (!empty($errors)): ?>
+                <div class="alert alert-danger mb-4">
+                    <?php foreach ($errors as $error): ?>
+                        <div><?php echo h($error); ?></div>
+                    <?php endforeach; ?>
                 </div>
-                <div class="d-flex gap-2">
+            <?php endif; ?>
+            <?php if ($flash): ?>
+                <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?> mb-4"><?php echo h($flash['message']); ?></div>
+            <?php endif; ?>
+
+            <div class="master-data-header mb-4">
+                <div>
+                    <div class="text-uppercase small text-muted fw-semibold">Master Data</div>
+                    <h4 class="mb-1">Office Directory</h4>
+                    <div id="recordCount" class="text-muted small">Showing <?php echo count($offices); ?> of <?php echo count($offices); ?> records</div>
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                    <?php if ($form['id'] > 0): ?>
+                        <a href="<?php echo base_url('modules/offices/index.php'); ?>" class="btn btn-outline-secondary">Cancel Edit</a>
+                    <?php endif; ?>
                     <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse" aria-expanded="<?php echo $form['id'] > 0 ? 'true' : 'false'; ?>">
-                        <i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Edit Office' : 'Add New'; ?>
+                        <i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Continue Editing' : 'Add Office'; ?>
                     </button>
-                    <?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/offices/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?>
                 </div>
             </div>
-            <div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?>" id="formCollapse">
-                <div class="card-body p-4">
-                    <?php if (!empty($errors)): ?><div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
-                    <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?>
 
-                    <form method="post">
+            <div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?> mb-4" id="formCollapse">
+                <div class="master-data-editor">
+                    <div class="master-data-editor-header">
+                        <div>
+                            <h5 class="mb-1"><?php echo $form['id'] > 0 ? 'Edit Office' : 'New Office'; ?></h5>
+                            <div class="text-muted small">Maintain office names, short codes, and the assigned office head.</div>
+                        </div>
+                    </div>
+                    <form method="post" class="workspace-form-section mt-3">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
                         <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
+
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label class="form-label">Office Code</label>
                                 <input type="text" class="form-control" name="office_code" value="<?php echo h($form['office_code']); ?>" placeholder="Enter office code" required>
-                                <div class="form-text">Enter the office code manually.</div>
                             </div>
                             <div class="col-md-8">
                                 <label class="form-label">Office Name</label>
-                                <input type="text" class="form-control" name="office_name" value="<?php echo h($form['office_name']); ?>" required>
+                                <input type="text" class="form-control" name="office_name" value="<?php echo h($form['office_name']); ?>" placeholder="Enter full office name" required>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-12">
                                 <label class="form-label">Office Head</label>
                                 <select class="form-select" name="office_head_employee_id" data-placeholder="Select employee">
                                     <option value="">Select employee</option>
@@ -314,112 +332,111 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <div class="form-text">Unit head is now assigned from the Employees module.</div>
                             </div>
-                            <div class="col-md-6 d-flex align-items-end">
-                                <div class="form-check form-switch mb-2">
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" name="description" rows="3" placeholder="Optional office notes or scope details"><?php echo h($form['description']); ?></textarea>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check form-switch">
                                     <input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>>
                                     <label class="form-check-label">Active office</label>
                                 </div>
                             </div>
-                            <div class="col-12">
-                                <label class="form-label">Description</label>
-                                <textarea class="form-control" name="description" rows="4"><?php echo h($form['description']); ?></textarea>
-                            </div>
-                            <div class="col-12 d-flex gap-2">
-                                <button type="submit" class="btn btn-primary"><?php echo $form['id'] > 0 ? 'Update' : 'Save'; ?></button>
-                                <?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/offices/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?>
+                            <div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2">
+                                <?php if ($form['id'] > 0): ?>
+                                    <a href="<?php echo base_url('modules/offices/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a>
+                                <?php endif; ?>
+                                <button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Office' : 'Save Office'; ?></button>
                             </div>
                         </div>
                     </form>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <div>
-                        <h5 class="card-title mb-0">Office List</h5>
-                        <span id="recordCount" class="text-muted small">Showing <?php echo count($offices); ?> of <?php echo count($offices); ?> records</span>
+            <div class="master-data-toolbar mb-3">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-8 col-lg-9">
+                        <label class="form-label">Search</label>
+                        <input type="search" id="tableSearch" class="form-control" placeholder="Search office code, office name, office head, or description">
                     </div>
-                    <button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse"><i class="bi bi-plus-circle me-1"></i>Add New</button>
+                    <div class="col-md-4 col-lg-3">
+                        <label class="form-label">Status</label>
+                        <select id="statusFilter" class="form-select">
+                            <option value="">All statuses</option>
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-                    <input type="search" id="tableSearch" class="form-control form-control-sm" placeholder="Search offices..." style="max-width:300px;">
-                    <select id="statusFilter" class="form-select form-select-sm" style="max-width:140px;">
-                        <option value="">All statuses</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                    </select>
-                </div>
-                <div class="table-responsive">
-                    <table class="table align-middle" id="dataTable">
-                        <thead>
-                            <tr>
-                                <th data-sort="code">Code <i class="bi bi-arrow-down-up text-muted small"></i></th>
-                                <th data-sort="office">Office <i class="bi bi-arrow-down-up text-muted small"></i></th>
-                                <th data-sort="head">Office Head <i class="bi bi-arrow-down-up text-muted small"></i></th>
-                                <th data-sort="unit">Unit Head <i class="bi bi-arrow-down-up text-muted small"></i></th>
-                                <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
-                                <th class="text-end">Actions</th>
+            </div>
+
+            <div class="table-responsive mobile-table-frame">
+                <table class="table align-middle" id="dataTable">
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Office</th>
+                            <th>Office Head</th>
+                            <th>Status</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if ($offices): foreach ($offices as $office): ?>
+                            <?php $displayHead = trim(employee_display_name($office)); if ($displayHead === '') { $displayHead = $unitHeads[(int) $office['id']] ?? ''; } ?>
+                            <tr data-status="<?php echo (int) $office['is_active'] ? 'active' : 'inactive'; ?>">
+                                <td class="fw-semibold"><?php echo h($office['office_code']); ?></td>
+                                <td>
+                                    <div class="fw-semibold"><?php echo h($office['office_name']); ?></div>
+                                    <small class="text-muted"><?php echo h($office['description'] ?? ''); ?></small>
+                                </td>
+                                <td><?php echo $displayHead !== '' ? h($displayHead) : '<span class="text-muted">Not assigned</span>'; ?></td>
+                                <td><span class="badge <?php echo (int) $office['is_active'] === 1 ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo (int) $office['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span></td>
+                                <td class="text-end">
+                                    <div class="d-inline-flex flex-wrap justify-content-end gap-2">
+                                        <a href="<?php echo base_url('modules/offices/index.php?edit=' . (int) $office['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a>
+                                        <?php if ((int) $office['is_active'] === 1): ?>
+                                            <form method="post" onsubmit="return confirm('Deactivate this office?');" class="d-inline">
+                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="delete">
+                                                <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button>
+                                            </form>
+                                        <?php endif; ?>
+                                        <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
+                                            <form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline">
+                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="hard_delete">
+                                                <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button>
+                                            </form>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            <?php if ($offices): foreach ($offices as $office): ?>
-                                <tr data-status="<?php echo (int) $office['is_active'] ? 'active' : 'inactive'; ?>">
-                                    <td class="fw-semibold"><?php echo h($office['office_code']); ?></td>
-                                    <td><div><?php echo h($office['office_name']); ?></div><small class="text-muted"><?php echo h($office['description'] ?? ''); ?></small></td>
-                                    <td><?php echo h(trim(employee_display_name($office))); ?></td>
-                                    <td><?php echo h($unitHeads[(int) $office['id']] ?? ''); ?></td>
-                                    <td><span class="badge <?php echo (int) $office['is_active'] === 1 ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo (int) $office['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span></td>
-                                    <td class="text-end">
-                                        <div class="d-inline-flex flex-wrap justify-content-end gap-2">
-                                            <a href="<?php echo base_url('modules/offices/index.php?edit=' . (int) $office['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a>
-                                            <?php if ((int) $office['is_active'] === 1): ?>
-                                                <form method="post" onsubmit="return confirm('Deactivate this office?');" class="d-inline">
-                                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
-                                                    <input type="hidden" name="action" value="delete">
-                                                    <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
-                                                    <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button>
-                                                </form>
-                                            <?php endif; ?>
-                                            <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
-                                                <form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline">
-                                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
-                                                    <input type="hidden" name="action" value="hard_delete">
-                                                    <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
-                                                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button>
-                                                </form>
-                                            <?php endif; ?>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; else: ?>
-                                <tr data-status="inactive"><td colspan="6" class="text-center text-muted py-4">No offices found yet.</td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="d-flex align-items-center gap-3 mt-2 flex-wrap">
-                    <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
-                    <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
-                    <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
-                    <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;">
-                        <option value="25">25 per page</option>
-                        <option value="50">50 per page</option>
-                        <option value="100">100 per page</option>
-                    </select>
-                </div>
+                        <?php endforeach; else: ?>
+                            <tr data-status="inactive"><td colspan="5" class="text-center text-muted py-4">No offices found yet.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex align-items-center gap-3 mt-3 flex-wrap">
+                <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
+                <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
+                <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
+                <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;">
+                    <option value="25">25 per page</option>
+                    <option value="50">50 per page</option>
+                    <option value="100">100 per page</option>
+                </select>
             </div>
         </div>
     </div>
-</section>
-<script>
+</section><script>
 document.addEventListener('DOMContentLoaded', function () {
-    initDataTable('dataTable');
+    window.initMasterDataList('dataTable');
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

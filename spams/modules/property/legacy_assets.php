@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 
@@ -18,6 +18,7 @@ $suppliers = [];
 $funds = [];
 $form = [
     'property_number' => '',
+    'po_number' => '',
     'item_type' => 'equipment',
     'item_description' => '',
     'classification_id' => '',
@@ -162,13 +163,14 @@ if ($db) {
 
                 $stmt = $db->prepare("
                     INSERT INTO legacy_assets
-                        (system_reference, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (system_reference, po_number, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 if ($stmt) {
                     $stmt->bind_param(
-                    'ssssiiiiissssiddiiissi',
+                    'sssssiiiiissssiddiiissi',
                     $systemReference,
+                    $form['po_number'],
                     $form['property_number'],
                     $form['item_type'],
                     $form['item_description'],
@@ -279,6 +281,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <option value="equipment" <?php echo $form['item_type'] === 'equipment' ? 'selected' : ''; ?>>Equipment</option>
                                 <option value="semi_expendable" <?php echo $form['item_type'] === 'semi_expendable' ? 'selected' : ''; ?>>Semi-Expendable</option>
                             </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">PO Number</label>
+                            <input type="text" class="form-control" name="po_number" value="<?php echo h($form['po_number']); ?>" placeholder="Enter PO number if available">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Acquisition Date</label>
@@ -424,6 +430,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <thead>
                             <tr>
                                 <th>Property No.</th>
+                                <th>PO No.</th>
                                 <th>Description</th>
                                 <th>Type</th>
                                 <th>Fund</th>
@@ -442,6 +449,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <?php if ($rows): foreach ($rows as $row): ?>
                                 <tr>
                                     <td><?php echo h($row['property_number']); ?></td>
+                                    <td><?php echo h($row['po_number'] ?? ''); ?></td>
                                     <td><?php echo h($row['item_description']); ?></td>
                                     <td><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['item_type'] ?? '')))); ?></td>
                                     <td><?php echo h(trim(implode(' - ', array_filter([$row['fund_code'] ?? '', $row['fund_name'] ?? ''])))); ?></td>
@@ -456,7 +464,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['condition_status'] ?? '')))); ?></td>
                                 </tr>
                             <?php endforeach; else: ?>
-                                <tr><td colspan="11" class="text-center text-muted py-4">No beginning balance assets recorded yet.</td></tr>
+                                <tr><td colspan="14" class="text-center text-muted py-4">No beginning balance assets recorded yet.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -662,4 +670,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
 })();
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
+
+
+
+
 
