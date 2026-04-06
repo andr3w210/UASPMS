@@ -16,6 +16,14 @@ android/key.properties
 android/keystore/*.jks
 android/keystore/*.keystore
 
+# Android Studio generated / local-only files
+android/local.properties
+android/.idea/
+android/.gradle/
+android/.tools/
+android/build/
+android/app/build/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

@@ -64,11 +64,13 @@ if (!$db) {
                     did.current_employee_id,
                     did.is_distributed,
                     did.is_disposed,
-                    poi.item_type
+                    COALESCE(poi.item_type, si.item_type) AS item_type
                 FROM distribution_item_details did
                 INNER JOIN distribution_items di ON di.id = did.distribution_item_id
-                INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
-                INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+                LEFT JOIN issuance_items ii ON ii.id = di.issuance_item_id
+                LEFT JOIN stock_items si ON si.id = ii.stock_item_id
+                LEFT JOIN receiving_items ri ON ri.id = COALESCE(di.receiving_item_id, si.receiving_item_id)
+                LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
                 WHERE did.id = ?
                 LIMIT 1
             ");
@@ -181,8 +183,8 @@ if (!$db) {
             did.brand,
             did.model,
             did.serial_no,
-            poi.item_type,
-            poi.item_description,
+            COALESCE(poi.item_type, si.item_type) AS item_type,
+            COALESCE(poi.item_description, si.item_description) AS item_description,
             c.classification_name,
             c.classification_family,
             d.document_no,
@@ -195,9 +197,11 @@ if (!$db) {
         FROM distribution_item_details did
         INNER JOIN distribution_items di ON di.id = did.distribution_item_id
         INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
-        INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
-        INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
-        LEFT JOIN classifications c ON c.id = poi.classification_id
+                LEFT JOIN issuance_items ii ON ii.id = di.issuance_item_id
+                LEFT JOIN stock_items si ON si.id = ii.stock_item_id
+                LEFT JOIN receiving_items ri ON ri.id = COALESCE(di.receiving_item_id, si.receiving_item_id)
+                LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+                LEFT JOIN classifications c ON c.id = COALESCE(poi.classification_id, si.classification_id)
         LEFT JOIN offices base_o ON base_o.id = d.office_id
         LEFT JOIN employees base_e ON base_e.id = d.employee_id
         LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
@@ -206,12 +210,12 @@ if (!$db) {
         WHERE did.is_distributed = 1
           AND (did.is_disposed IS NULL OR did.is_disposed = 0)
           AND rt.id IS NULL
-          AND poi.item_type IN ('semi_expendable', 'equipment')
+                    AND COALESCE(poi.item_type, si.item_type) IN ('semi_expendable', 'equipment')
     ";
     $types = '';
     $params = [];
     if ($typeFilter !== 'all') {
-        $availableSql .= " AND poi.item_type = ?";
+        $availableSql .= " AND COALESCE(poi.item_type, si.item_type) = ?";
         $types .= 's';
         $params[] = $typeFilter;
     }
@@ -257,8 +261,8 @@ if (!$db) {
             rt.remarks,
             did.property_number,
             did.serial_no,
-            poi.item_type,
-            poi.item_description,
+            COALESCE(poi.item_type, si.item_type) AS item_type,
+            COALESCE(poi.item_description, si.item_description) AS item_description,
             c.classification_name,
             c.classification_family,
             d.document_no,
@@ -272,9 +276,11 @@ if (!$db) {
         LEFT JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
         LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
         LEFT JOIN distributions d ON d.id = di.distribution_id
-        LEFT JOIN receiving_items ri ON ri.id = di.receiving_item_id
+        LEFT JOIN issuance_items ii ON ii.id = di.issuance_item_id
+        LEFT JOIN stock_items si ON si.id = ii.stock_item_id
+        LEFT JOIN receiving_items ri ON ri.id = COALESCE(di.receiving_item_id, si.receiving_item_id)
         LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
-        LEFT JOIN classifications c ON c.id = poi.classification_id
+        LEFT JOIN classifications c ON c.id = COALESCE(poi.classification_id, si.classification_id)
         LEFT JOIN offices o ON o.id = COALESCE(rt.office_id, did.current_office_id, d.office_id)
         LEFT JOIN employees e ON e.id = COALESCE(rt.employee_id, did.current_employee_id, d.employee_id)
         ORDER BY rt.return_date DESC, rt.id DESC

@@ -76,24 +76,18 @@ if ($accountCodeId > 0) {
     }
 }
 
-$duplicateStmt = $db->prepare("SELECT id, classification_name, classification_family, classification_group, account_code_id, useful_life_years FROM classifications WHERE classification_name = ? LIMIT 1");
+$duplicateStmt = $db->prepare("SELECT id, classification_name, classification_family, classification_group, account_code_id, useful_life_years FROM classifications WHERE classification_name = ? AND classification_group = ? LIMIT 1");
 if (!$duplicateStmt) {
     http_response_code(500);
     echo json_encode(['ok' => false, 'error' => 'Unable to validate classification duplicates.']);
     exit;
 }
-$duplicateStmt->bind_param('s', $classificationName);
+$duplicateStmt->bind_param('ss', $classificationName, $classificationGroup);
 $duplicateStmt->execute();
 $existing = $duplicateStmt->get_result()->fetch_assoc();
 $duplicateStmt->close();
 
 if ($existing) {
-    if (($existing['classification_group'] ?? '') !== $classificationGroup) {
-        http_response_code(422);
-        echo json_encode(['ok' => false, 'error' => 'A classification with that name already exists under a different group.']);
-        exit;
-    }
-
     echo json_encode([
         'ok' => true,
         'classification' => [

@@ -312,7 +312,7 @@ CREATE TABLE IF NOT EXISTS `classifications` (
   `updated_at` DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_classifications_classification_code` (`classification_code`),
-  UNIQUE KEY `uk_classifications_classification_name` (`classification_name`),
+  UNIQUE KEY `uk_classifications_group_name` (`classification_group`, `classification_name`),
   KEY `idx_classifications_account_code_id` (`account_code_id`),
   KEY `idx_classifications_created_by` (`created_by`),
   KEY `idx_classifications_updated_by` (`updated_by`),

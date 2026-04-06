@@ -511,12 +511,19 @@ function generate_property_number(
 
     // Use office code as the last property number segment.
     $officeShort = trim($officeCode);
+    if (stripos($officeShort, 'RC-') === 0) {
+        $officeShort = substr($officeShort, 3);
+    }
+    $officeShort = strtoupper((string) $officeShort);
     if ($officeShort === '') {
         $officeShort = 'GEN';
     }
 
     $prefix = $year . '-' . $fundSegment . '-' . $acctShort;
-    $seriesModuleKey = 'property_number|' . $prefix . '|' . $officeShort;
+    $seriesModuleKey = 'property_number|' . $year;
+    $legacySeriesModuleKey = 'property_number|' . $year . '|' . $officeShort;
+    $legacyPrefixSeriesModuleKey = 'property_number|' . $prefix . '|' . $officeShort;
+    $legacyRcSeriesModuleKey = 'property_number|' . $prefix . '|RC-' . $officeShort;
     $padding = 4;
     $nextSeq = 1;
 
@@ -530,26 +537,68 @@ function generate_property_number(
         if ($row) {
             $nextSeq = ((int) $row['current_value']) + 1;
         } else {
-            $likePrefix = $prefix . '-%';
-            $likeSuffix = '%-' . $officeShort;
+            $legacyCurrentValue = null;
+            $legacyStmt = $db->prepare("SELECT current_value FROM series_numbers WHERE module_key = ? LIMIT 1");
+            if ($legacyStmt) {
+                $legacyStmt->bind_param('s', $legacySeriesModuleKey);
+                $legacyStmt->execute();
+                $legacyRow = $legacyStmt->get_result()->fetch_assoc();
+                $legacyStmt->close();
+                if ($legacyRow) {
+                    $legacyCurrentValue = (int) ($legacyRow['current_value'] ?? 0);
+                }
+            }
+            $legacyPrefixStmt = $db->prepare("SELECT current_value FROM series_numbers WHERE module_key = ? LIMIT 1");
+            if ($legacyPrefixStmt) {
+                $legacyPrefixStmt->bind_param('s', $legacyPrefixSeriesModuleKey);
+                $legacyPrefixStmt->execute();
+                $legacyPrefixRow = $legacyPrefixStmt->get_result()->fetch_assoc();
+                $legacyPrefixStmt->close();
+                if ($legacyPrefixRow) {
+                    $legacyPrefixValue = (int) ($legacyPrefixRow['current_value'] ?? 0);
+                    if ($legacyCurrentValue === null || $legacyPrefixValue > $legacyCurrentValue) {
+                        $legacyCurrentValue = $legacyPrefixValue;
+                    }
+                }
+            }
+            $legacyRcStmt = $db->prepare("SELECT current_value FROM series_numbers WHERE module_key = ? LIMIT 1");
+            if ($legacyRcStmt) {
+                $legacyRcStmt->bind_param('s', $legacyRcSeriesModuleKey);
+                $legacyRcStmt->execute();
+                $legacyRcRow = $legacyRcStmt->get_result()->fetch_assoc();
+                $legacyRcStmt->close();
+                if ($legacyRcRow) {
+                    $legacyRcValue = (int) ($legacyRcRow['current_value'] ?? 0);
+                    if ($legacyCurrentValue === null || $legacyRcValue > $legacyCurrentValue) {
+                        $legacyCurrentValue = $legacyRcValue;
+                    }
+                }
+            }
+
+            $yearPrefix = (string) $year;
             $seedStmt = $db->prepare(
                 "SELECT COALESCE(MAX(
-                    CAST(SUBSTRING_INDEX(
-                        SUBSTRING_INDEX(property_number, '-', -2),
-                        '-', 1
-                    ) AS UNSIGNED)
+                    CAST(
+                        SUBSTRING_INDEX(
+                            SUBSTRING_INDEX(property_number, '-', 4),
+                            '-',
+                            -1
+                        ) AS UNSIGNED
+                    )
                  ), 0) AS current_value
                  FROM distribution_item_details
-                 WHERE property_number LIKE ?
-                   AND property_number LIKE ?"
+                                 WHERE SUBSTRING_INDEX(property_number, '-', 1) = ?"
             );
             $currentValue = 0;
             if ($seedStmt) {
-                $seedStmt->bind_param('ss', $likePrefix, $likeSuffix);
+                                $seedStmt->bind_param('s', $yearPrefix);
                 $seedStmt->execute();
                 $seedRow = $seedStmt->get_result()->fetch_assoc();
                 $currentValue = (int) ($seedRow['current_value'] ?? 0);
                 $seedStmt->close();
+            }
+            if ($legacyCurrentValue !== null && $legacyCurrentValue > $currentValue) {
+                $currentValue = $legacyCurrentValue;
             }
 
             $insertStmt = $db->prepare(
@@ -558,7 +607,8 @@ function generate_property_number(
                  ON DUPLICATE KEY UPDATE module_key = module_key"
             );
             if ($insertStmt) {
-                $insertStmt->bind_param('ssii', $seriesModuleKey, $prefix, $currentValue, $padding);
+                $seriesPrefix = $year;
+                $insertStmt->bind_param('ssii', $seriesModuleKey, $seriesPrefix, $currentValue, $padding);
                 $insertStmt->execute();
                 $insertStmt->close();
             }
