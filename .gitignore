@@ -1,0 +1,21 @@
+# Environment
+.env
+
+# Runtime uploads and artifacts
+uploads/**/*.log
+uploads/**/*.txt
+spams/uploads/**/*.log
+
+# Local debug/temp helpers
+tmp_*.php
+tmp_scan_output.html
+cookies.txt
+
+# Android signing secrets/artifacts
+android/key.properties
+android/keystore/*.jks
+android/keystore/*.keystore
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

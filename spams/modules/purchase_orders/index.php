@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 
-require_login();
+require_role('Administrator', 'Supply Officer');
 
 function po_status_badge(string $status): string {
     // Normalize missing or empty status to 'encoded'

@@ -1,1 +1,0 @@
-Test PO file for scan_proxy heartbeat
