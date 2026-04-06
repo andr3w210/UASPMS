@@ -317,11 +317,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
             <div class="master-data-toolbar mb-3">
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-8 col-lg-9">
+                    <div class="col-lg-6">
                         <label class="form-label">Search</label>
                         <input type="search" id="tableSearch" class="form-control" placeholder="Search code, supplier name, contact person, email, or address">
                     </div>
-                    <div class="col-md-4 col-lg-3">
+                    <div class="col-sm-6 col-lg-3">
                         <label class="form-label">Status</label>
                         <select id="statusFilter" class="form-select">
                             <option value="">All statuses</option>
@@ -329,10 +329,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <option value="inactive">Inactive</option>
                         </select>
                     </div>
+                    <div class="col-sm-6 col-lg-3">
+                        <label class="form-label">Rows Per Page</label>
+                        <select id="perPageSelect" class="form-select">
+                            <option value="25" selected>25 rows</option>
+                            <option value="50">50 rows</option>
+                            <option value="100">100 rows</option>
+                            <option value="250">250 rows</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
-            <div class="table-responsive mobile-table-frame">
+            <div class="master-data-table-shell">
+            <div class="table-responsive mobile-table-frame master-data-table-scroll">
                 <table class="table align-middle" id="dataTable">
                     <thead>
                         <tr>
@@ -372,22 +382,39 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </tbody>
                 </table>
             </div>
-
-            <div class="d-flex align-items-center gap-3 mt-3 flex-wrap">
-                <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
-                <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
-                <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
-                <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;">
-                    <option value="25">25 per page</option>
-                    <option value="50">50 per page</option>
-                    <option value="100">100 per page</option>
-                </select>
+            <div class="master-data-pagination">
+                <div id="recordCountMobile" class="master-data-pagination-meta">Search updates the table instantly.</div>
+                <div class="master-data-pagination-controls">
+                    <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
+                    <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
+                    <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
+                </div>
+            </div>
             </div>
         </div>
     </div>
 </section><script>
 document.addEventListener('DOMContentLoaded', function () {
-    window.initMasterDataList('dataTable');
+    var recordCountMobile = document.getElementById('recordCountMobile');
+    var options = {
+        recordCountFormatter: function (visible, total) {
+            var text = 'Showing ' + visible + ' of ' + total + ' records';
+            if (recordCountMobile) {
+                recordCountMobile.textContent = text;
+            }
+            return text;
+        },
+        pageInfoFormatter: function (state) {
+            return 'Page ' + state.currentPage + ' of ' + state.totalPages + ' (' + state.totalVisible + ' matches)';
+        },
+        emptyMessage: 'No suppliers matched your search or status filter.'
+    };
+    if (typeof window.initMasterDataList === 'function') {
+        window.initMasterDataList('dataTable', options);
+        return;
+    }
+    window.__spamsPendingMasterDataLists = window.__spamsPendingMasterDataLists || [];
+    window.__spamsPendingMasterDataLists.push(['dataTable', options]);
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

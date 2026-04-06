@@ -239,6 +239,17 @@ a {
 
 .sidebar-nav .nav-link i {
     font-size: 1.05rem;
+    display: block;
+}
+
+/* Ensure menu-toggle icons are always visible */
+.sidebar-nav .menu-toggle i {
+    display: block !important;
+}
+
+.sidebar-nav .menu-toggle i:not(.bi-chevron-down) {
+    display: block !important;
+    font-size: 1.05rem;
 }
 
 .sidebar-nav .nav-link:hover,
@@ -650,6 +661,39 @@ a {
 
 .asset-registry-cell-actions .btn {
     border-radius: 999px;
+}
+
+.asset-registry-compact-meta {
+    display: none;
+}
+
+@media (min-width: 992px) and (max-width: 1366px) {
+    .asset-registry-table-frame .asset-col-item-details,
+    .asset-registry-table-frame .asset-col-amount,
+    .asset-registry-table-frame .asset-col-date,
+    .asset-registry-table-frame .asset-col-assignment,
+    .asset-registry-table-frame .asset-col-reference {
+        display: none;
+    }
+
+    .asset-registry-table-frame .asset-col-primary {
+        min-width: 165px !important;
+        width: 165px;
+    }
+
+    .asset-registry-table-frame .asset-col-classification {
+        min-width: 420px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-actions {
+        min-width: 170px !important;
+        width: 170px;
+    }
+
+    .asset-registry-compact-meta {
+        display: block;
+        margin-top: 0.45rem;
+    }
 }
 .mobile-table-frame .badge {
     font-size: 0.72rem;
@@ -1984,12 +2028,301 @@ a {
     resize: vertical;
 }
 
+/* ICON-ONLY SIDEBAR MODE (Fresh Implementation) */
 body.toggle-sidebar .sidebar {
-    left: -300px;
+    width: 85px;
+    overflow: visible;
 }
 
 body.toggle-sidebar .main {
-    margin-left: 0;
+    margin-left: 85px;
+}
+
+body.toggle-sidebar .sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+body.toggle-sidebar .sidebar-nav .nav-heading {
+    display: none !important;
+}
+
+body.toggle-sidebar .sidebar-nav .nav-item {
+    width: 100%;
+    margin: 0.3rem 0 !important;
+}
+
+/* Hide all submenu items - show only top-level menu icons */
+body.toggle-sidebar .sidebar-nav .nav-content {
+    display: none !important;
+}
+
+body.toggle-sidebar .sidebar-nav .nav-subheading {
+    display: none !important;
+}
+
+/* Hide all text in collapsed mode */
+body.toggle-sidebar .sidebar-nav span {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* Show only first-level icons - make them VERY visible */
+body.toggle-sidebar .sidebar-nav > li > a i:not(.bi-chevron-down),
+body.toggle-sidebar .sidebar-nav .nav-link i:not(.bi-chevron-down),
+body.toggle-sidebar .sidebar-nav .menu-toggle i:not(.bi-chevron-down) {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    margin: 0 !important;
+    padding: 0.5rem 0 !important;
+    font-size: 1.6rem !important;
+    text-align: center;
+    width: 100%;
+    line-height: 1.2;
+}
+
+/* Hide chevron specifically */
+body.toggle-sidebar .sidebar-nav .bi-chevron-down {
+    display: none !important;
+}
+
+/* Center align nav items */
+body.toggle-sidebar .sidebar-nav .nav-link,
+body.toggle-sidebar .sidebar-nav .menu-toggle {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0.5rem 0.3rem !important;
+    margin: 0.2rem auto !important;
+    width: 70px;
+    gap: 0 !important;
+    background: #ffffff;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+body.toggle-sidebar .sidebar-nav .nav-link:hover,
+body.toggle-sidebar .sidebar-nav .menu-toggle:hover {
+    background: #f0f4ff;
+    color: #4154f1;
+}
+
+body.compact-monitor .header {
+    height: 68px;
+    padding: 0 1rem;
+}
+
+body.compact-monitor .sidebar {
+    top: 68px;
+    width: 252px;
+}
+
+body.compact-monitor .main {
+    margin-left: 252px;
+    margin-top: 68px;
+    padding: 1.1rem;
+}
+
+body.compact-monitor.toggle-sidebar .sidebar {
+    width: 75px;
+}
+
+body.compact-monitor.toggle-sidebar .main {
+    margin-left: 75px;
+}
+
+/* Hide submenus and text in compact collapsed mode */
+body.compact-monitor.toggle-sidebar .sidebar-nav span {
+    display: none !important;
+}
+
+body.compact-monitor.toggle-sidebar .sidebar-nav .nav-content {
+    display: none !important;
+}
+
+/* Show icons only in compact collapsed mode */
+body.compact-monitor.toggle-sidebar .sidebar-nav .nav-link i:not(.bi-chevron-down),
+body.compact-monitor.toggle-sidebar .sidebar-nav .menu-toggle i:not(.bi-chevron-down) {
+    display: block !important;
+    font-size: 1.4rem;
+}
+
+body.compact-monitor.toggle-sidebar .sidebar-nav .bi-chevron-down {
+    display: none !important;
+}
+
+body.compact-monitor.toggle-sidebar .sidebar-nav .nav-link,
+body.compact-monitor.toggle-sidebar .sidebar-nav .menu-toggle {
+    justify-content: center;
+    padding: 0.7rem 0.3rem;
+    margin: 0.2rem auto;
+    width: 65px;
+    flex-direction: column;
+    gap: 0;
+}
+
+body.compact-monitor .sidebar-nav .nav-link {
+    font-size: 0.9rem;
+    margin: 0.22rem 0.75rem;
+    padding: 0.72rem 0.82rem;
+}
+
+body.compact-monitor .sidebar-nav .nav-sub-link {
+    font-size: 0.88rem;
+    margin: 0.16rem 0.75rem 0.16rem 1.35rem;
+    padding: 0.64rem 0.76rem;
+}
+
+body.compact-monitor .topbar-user-btn .text-end {
+    max-width: 180px;
+    overflow: hidden;
+}
+
+body.compact-monitor .page-title,
+body.compact-monitor .pagetitle h1 {
+    font-size: 1.42rem;
+}
+
+body.compact-monitor .workspace-hero,
+body.compact-monitor .workspace-filter-panel,
+body.compact-monitor .workspace-form-section,
+body.compact-monitor .workspace-editor-shell,
+body.compact-monitor .report-section,
+body.compact-monitor .card {
+    border-radius: 14px;
+}
+
+body.compact-monitor .workspace-hero-stat {
+    min-width: 126px;
+    padding: 0.72rem 0.8rem;
+}
+
+body.compact-monitor .workspace-summary-value,
+body.compact-monitor .report-summary-value {
+    font-size: 1.25rem;
+}
+
+body.compact-monitor .mobile-table-frame .table thead th {
+    font-size: 0.72rem;
+    padding: 0.68rem 0.68rem;
+}
+
+body.compact-monitor .mobile-table-frame .table tbody td {
+    font-size: 0.88rem;
+    padding: 0.72rem 0.68rem;
+}
+
+body.compact-monitor .table-responsive > .table,
+body.compact-monitor .table-responsive > table {
+    min-width: 640px;
+}
+
+body.compact-monitor .workspace-actions .btn {
+    white-space: nowrap;
+}
+
+body.compact-monitor .modal-dialog {
+    max-width: min(760px, calc(100vw - 1.25rem));
+}
+
+body.compact-monitor .workspace-header,
+body.compact-monitor .workspace-actions,
+body.compact-monitor .workspace-filter-title-row,
+body.compact-monitor .report-toolbar,
+body.compact-monitor .report-toolbar-actions,
+body.compact-monitor .table-search-toolbar {
+    gap: 0.55rem;
+}
+
+body.compact-monitor .workspace-filter-panel,
+body.compact-monitor .workspace-form-section,
+body.compact-monitor .workspace-editor-shell,
+body.compact-monitor .report-section,
+body.compact-monitor .card-body {
+    padding: 0.8rem;
+}
+
+body.compact-monitor .card-header {
+    padding: 0.8rem;
+}
+
+body.compact-monitor .workspace-filter-grid {
+    gap: 0.55rem;
+    grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+}
+
+body.compact-monitor .workspace-filter-grid .workspace-filter-wide {
+    grid-column: auto;
+}
+
+body.compact-monitor .workspace-toolbar-cluster,
+body.compact-monitor .workspace-actions,
+body.compact-monitor .report-toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+body.compact-monitor .workspace-toolbar-cluster > .btn,
+body.compact-monitor .workspace-toolbar-cluster > .input-group,
+body.compact-monitor .workspace-actions > .btn,
+body.compact-monitor .workspace-actions > .input-group,
+body.compact-monitor .report-toolbar-actions > .btn,
+body.compact-monitor .report-toolbar-actions > .input-group {
+    flex: 1 1 170px;
+    min-width: 0;
+}
+
+body.compact-monitor .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3,
+body.compact-monitor .card-body > .d-flex.justify-content-between.align-items-center.flex-wrap.gap-2.mb-3,
+body.compact-monitor .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap,
+body.compact-monitor .card-header.d-flex.justify-content-between.align-items-center.flex-wrap.gap-2 {
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+}
+
+body.compact-monitor .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > .form-control,
+body.compact-monitor .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > .form-select,
+body.compact-monitor .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > .input-group,
+body.compact-monitor .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap > .form-control,
+body.compact-monitor .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap > .form-select,
+body.compact-monitor .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap > .input-group {
+    flex: 1 1 170px;
+    max-width: none !important;
+    min-width: 0;
+}
+
+body.compact-monitor .input-group[style*="max-width"] {
+    max-width: none !important;
+    width: 100% !important;
+}
+
+body.compact-monitor .form-control[style*="max-width"],
+body.compact-monitor .form-select[style*="max-width"] {
+    max-width: none !important;
+    width: 100% !important;
+}
+
+body.compact-monitor .table-responsive {
+    margin: 0;
+}
+
+body.compact-monitor .table-responsive > .table,
+body.compact-monitor .table-responsive > table {
+    min-width: 600px;
+}
+
+body.compact-monitor .asset-registry-cell-actions .d-flex,
+body.compact-monitor td .d-flex.flex-wrap.gap-2 {
+    gap: 0.35rem !important;
+}
+
+body.compact-monitor .asset-registry-cell-actions .btn,
+body.compact-monitor td .btn.btn-sm {
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
 }
 
 @media (max-width: 991.98px) {
@@ -3197,5 +3530,189 @@ body.module-master-data section.row.g-4:not(.master-data-workspace) > [class*="c
 body.module-master-data section.row.g-4:not(.master-data-workspace) > [class*="col-"]:last-child .card-body > .d-flex.justify-content-between.align-items-center.flex-wrap.gap-2.mb-3,
 body.module-master-data .master-data-workspace .master-data-list-card .d-flex.justify-content-between.align-items-start.flex-wrap.gap-3.mb-4 {
     margin-bottom: 1rem !important;
+}
+
+/* Global mobile hardening for dense module screens */
+@media (max-width: 767.98px) {
+    .main {
+        padding-bottom: 6.25rem;
+    }
+
+    .workspace-actions,
+    .workspace-toolbar-cluster,
+    .report-toolbar-actions,
+    .table-search-toolbar,
+    .table-pagination-controls,
+    .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3,
+    .card-body > .d-flex.justify-content-between.align-items-center.flex-wrap.gap-2.mb-3,
+    .card-header.d-flex.justify-content-between.align-items-center.flex-wrap.gap-2,
+    .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap,
+    .card-body > .d-flex.align-items-center.gap-3.mt-3.flex-wrap {
+        align-items: stretch !important;
+        flex-direction: column;
+        gap: 0.5rem !important;
+    }
+
+    .workspace-actions > .btn,
+    .workspace-actions > .input-group,
+    .workspace-toolbar-cluster > .btn,
+    .workspace-toolbar-cluster > .input-group,
+    .report-toolbar-actions > .btn,
+    .report-toolbar-actions > .input-group,
+    .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > .btn,
+    .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > .form-control,
+    .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > .form-select,
+    .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 > .input-group,
+    .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap > .btn,
+    .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap > .form-control,
+    .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap > .form-select,
+    .card-body > .d-flex.align-items-center.gap-3.mt-2.flex-wrap > .input-group,
+    .card-body > .d-flex.align-items-center.gap-3.mt-3.flex-wrap > .btn,
+    .card-body > .d-flex.align-items-center.gap-3.mt-3.flex-wrap > .form-control,
+    .card-body > .d-flex.align-items-center.gap-3.mt-3.flex-wrap > .form-select,
+    .card-body > .d-flex.align-items-center.gap-3.mt-3.flex-wrap > .input-group {
+        max-width: none !important;
+        min-width: 0;
+        width: 100% !important;
+    }
+
+    .table-responsive {
+        margin: 0;
+        padding-bottom: 0.2rem;
+    }
+
+    .table-responsive > .table,
+    .table-responsive > table {
+        min-width: 560px;
+    }
+
+    .mobile-table-frame .table thead th {
+        font-size: 0.7rem;
+        padding: 0.62rem 0.62rem;
+    }
+
+    .mobile-table-frame .table tbody td {
+        font-size: 0.86rem;
+        padding: 0.68rem 0.62rem;
+    }
+
+    #poLineListScroll {
+        max-height: 250px !important;
+    }
+
+    #poLineEditor .row.g-2 > [class*="col-"] {
+        width: 100%;
+    }
+
+    #poLineEditor .btn,
+    #poLineEditor .form-control,
+    #poLineEditor .form-select {
+        min-height: 2.35rem;
+    }
+
+    .asset-registry-cell-actions .d-flex {
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+    }
+
+    .asset-registry-cell-actions .btn,
+    .asset-registry-cell-actions .dropdown {
+        width: 100%;
+    }
+
+    .header .dropdown-menu[style*="min-width: 320px"] {
+        min-width: min(320px, calc(100vw - 1rem)) !important;
+        width: min(320px, calc(100vw - 1rem));
+    }
+
+    .modal-dialog {
+        margin: 0.5rem;
+        max-width: calc(100vw - 1rem);
+    }
+
+    .modal-body {
+        max-height: calc(100dvh - 150px);
+        overflow-y: auto;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .main {
+        padding-bottom: 6.6rem;
+    }
+
+    .table-responsive > .table,
+    .table-responsive > table {
+        min-width: 520px;
+    }
+
+    .asset-registry-cell-primary,
+    .asset-registry-cell-actions {
+        white-space: normal;
+    }
+
+    .header .dropdown-menu[style*="min-width: 320px"] {
+        min-width: calc(100vw - 0.8rem) !important;
+        width: calc(100vw - 0.8rem);
+    }
+}
+
+@media (max-width: 767.98px) {
+    .table-responsive:not(.mobile-table-frame) {
+        border: 1px solid rgba(95, 111, 137, 0.12);
+        border-radius: 14px;
+        background: #fff;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .table-responsive:not(.mobile-table-frame) .table {
+        margin-bottom: 0;
+    }
+
+    .table-responsive:not(.mobile-table-frame) .table thead th {
+        background: #f8faff;
+        border-bottom: 1px solid rgba(95, 111, 137, 0.16);
+        color: #5f6f89;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 0.66rem 0.66rem;
+        text-transform: uppercase;
+    }
+
+    .table-responsive:not(.mobile-table-frame) .table tbody td {
+        border-color: rgba(95, 111, 137, 0.1);
+        font-size: 0.86rem;
+        padding: 0.7rem 0.66rem;
+    }
+
+    .table-responsive table th[style*="min-width"],
+    .table-responsive table td[style*="min-width"] {
+        min-width: 0 !important;
+    }
+
+    .table-responsive table th[style*="width"],
+    .table-responsive table td[style*="width"] {
+        width: auto !important;
+    }
+
+    .table-responsive table .progress[style*="height"] {
+        min-height: 0.35rem;
+    }
+
+    .form-control[style*="max-width"],
+    .form-select[style*="max-width"],
+    input.form-control[style*="max-width"],
+    select.form-select[style*="max-width"] {
+        max-width: none !important;
+        width: 100% !important;
+    }
+
+    [id$="ListScroll"] {
+        max-height: 240px !important;
+    }
 }
 
