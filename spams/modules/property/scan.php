@@ -141,6 +141,31 @@ function find_active_inventory_match(mysqli $db, string $propertyNumber, int $of
     return $matches;
 }
 
+function load_primary_asset_photo(mysqli $db, string $assetSource, int $assetId): ?array
+{
+    if (!in_array($assetSource, ['system', 'legacy'], true) || $assetId <= 0) {
+        return null;
+    }
+
+    $stmt = $db->prepare(
+        "SELECT photo_path, caption
+         FROM asset_photos
+         WHERE asset_source = ? AND asset_id = ?
+         ORDER BY is_primary DESC, created_at DESC, id DESC
+         LIMIT 1"
+    );
+    if (!$stmt) {
+        return null;
+    }
+
+    $stmt->bind_param('si', $assetSource, $assetId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: null;
+    $stmt->close();
+
+    return $row;
+}
+
 if ($db) {
     $row = load_property_lookup_row($db, $ref);
 
@@ -330,6 +355,20 @@ $descriptionDisplay = trim((string) ($row['item_description'] ?? '')) !== '' ? (
 $brandModel = trim(implode(' / ', array_filter([trim((string) ($row['brand'] ?? '')), trim((string) ($row['model'] ?? ''))])));
 $inventoryUrl = $inventoryMatch ? base_url('modules/property/inventory_counts.php?session_id=' . (int) $inventoryMatch['session_id'] . '&highlight_item_id=' . (int) $inventoryMatch['id']) : '';
 $proofPhotoUrl = $inventoryMatch ? upload_url((string) ($inventoryMatch['proof_photo_path'] ?? '')) : '';
+$assetPhotoPath = '';
+$assetPhotoCaption = '';
+if ($db) {
+    $assetSource = (string) ($row['source_type'] ?? 'system');
+    $assetId = $assetSource === 'legacy'
+        ? (int) ($row['legacy_asset_id'] ?? 0)
+        : (int) ($row['distribution_item_detail_id'] ?? 0);
+    $assetPhoto = load_primary_asset_photo($db, $assetSource, $assetId);
+    if ($assetPhoto) {
+        $assetPhotoPath = (string) ($assetPhoto['photo_path'] ?? '');
+        $assetPhotoCaption = trim((string) ($assetPhoto['caption'] ?? ''));
+    }
+}
+$assetPhotoUrl = upload_url($assetPhotoPath);
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -389,6 +428,22 @@ $proofPhotoUrl = $inventoryMatch ? upload_url((string) ($inventoryMatch['proof_p
                         </div>
                     </div>
                 </div>
+
+                <?php if ($assetPhotoUrl !== ''): ?>
+                    <div class="row g-3 mb-4">
+                        <div class="col-12">
+                            <div class="value-block">
+                                <div class="kv mb-2">Asset Photo</div>
+                                <a href="<?php echo h($assetPhotoUrl); ?>" target="_blank" rel="noopener">
+                                    <img src="<?php echo h($assetPhotoUrl); ?>" alt="Asset photo" class="proof-photo">
+                                </a>
+                                <?php if ($assetPhotoCaption !== ''): ?>
+                                    <div class="small text-muted mt-2"><?php echo h($assetPhotoCaption); ?></div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
 
                 <div class="row g-3">
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Brand / Model</div><div><?php echo h($brandModel !== '' ? $brandModel : 'Not recorded'); ?></div></div></div>

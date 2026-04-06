@@ -63,6 +63,51 @@ function preview_distribution_doc_no($db, string $docType, string $date, string 
     return $prefix . '-' . $year . '-' . $month . '-' . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT);
 }
 
+function distribution_extract_uploaded_file(string $fieldName, int $itemId): array
+{
+    $empty = [
+        'name' => '',
+        'type' => '',
+        'tmp_name' => '',
+        'error' => UPLOAD_ERR_NO_FILE,
+        'size' => 0,
+    ];
+
+    $field = $_FILES[$fieldName] ?? null;
+    if (!is_array($field)) {
+        return $empty;
+    }
+
+    $name = $field['name'] ?? null;
+    $type = $field['type'] ?? null;
+    $tmpName = $field['tmp_name'] ?? null;
+    $error = $field['error'] ?? null;
+    $size = $field['size'] ?? null;
+
+    // Support both scalar uploads and indexed uploads keyed by unit detail id.
+    if (is_array($name)) {
+        if (!array_key_exists($itemId, $name)) {
+            return $empty;
+        }
+
+        return [
+            'name' => (string) ($name[$itemId] ?? ''),
+            'type' => (string) (is_array($type) ? ($type[$itemId] ?? '') : ''),
+            'tmp_name' => (string) (is_array($tmpName) ? ($tmpName[$itemId] ?? '') : ''),
+            'error' => (int) (is_array($error) ? ($error[$itemId] ?? UPLOAD_ERR_NO_FILE) : UPLOAD_ERR_NO_FILE),
+            'size' => (int) (is_array($size) ? ($size[$itemId] ?? 0) : 0),
+        ];
+    }
+
+    return [
+        'name' => (string) $name,
+        'type' => (string) ($type ?? ''),
+        'tmp_name' => (string) ($tmpName ?? ''),
+        'error' => (int) ($error ?? UPLOAD_ERR_NO_FILE),
+        'size' => (int) ($size ?? 0),
+    ];
+}
+
 if ($db) {
     $threshold    = get_active_threshold($db);
     $equipmentMin = (float)$threshold['equipment_min'];
@@ -390,7 +435,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
                      INNER JOIN receivings r ON r.id = ri.receiving_id
                      INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
-                     INNER JOIN funds f ON f.id = po.fund_id
+                     LEFT JOIN funds f ON f.id = po.fund_id
                      LEFT JOIN account_codes ac ON ac.id = poi.account_code_id
                      LEFT JOIN offices o ON o.id = ?
                      WHERE ri.id = ?

@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
+import android.view.Menu
+import android.view.MenuItem
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -57,7 +59,12 @@ class MainActivity : AppCompatActivity() {
         configureWebView()
 
         if (savedInstanceState == null) {
-            webView.loadUrl(BuildConfig.BASE_URL)
+            val scanUrl = intent.getStringExtra("SCAN_URL")
+            if (scanUrl != null) {
+                webView.loadUrl(scanUrl)
+            } else {
+                webView.loadUrl(BuildConfig.BASE_URL)
+            }
         }
     }
 
@@ -150,5 +157,20 @@ class MainActivity : AppCompatActivity() {
     override fun onRestoreInstanceState(savedInstanceState: Bundle) {
         super.onRestoreInstanceState(savedInstanceState)
         webView.restoreState(savedInstanceState)
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        menuInflater.inflate(R.menu.main_menu, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.menu_scan_qr -> {
+                startActivity(Intent(this, QRScannerActivity::class.java))
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
     }
 }
