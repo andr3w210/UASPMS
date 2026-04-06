@@ -31,6 +31,7 @@ $form = [
     'place_of_delivery' => 'University of Antique',
     'delivery_term_days' => '',
     'expected_delivery_date' => '',
+    'is_partial_entry' => 0,
 ];
 $itemRows = $defaultRows;
 
@@ -102,6 +103,7 @@ if ($db) {
             $form['place_of_delivery'] = old($_POST, 'place_of_delivery', 'University of Antique');
             $form['delivery_term_days'] = old($_POST, 'delivery_term_days');
             $form['expected_delivery_date'] = old($_POST, 'expected_delivery_date');
+            $form['is_partial_entry'] = !empty($_POST['is_partial_entry']) ? 1 : 0;
 
             $postedRows = $_POST['items'] ?? [];
             if ($postedRows && is_array($postedRows)) {
@@ -234,14 +236,15 @@ if ($db) {
                             $userId              = current_user_id();
                             $systemReference     = next_module_code($db, 'purchase_orders');
                             $status              = 'encoded';
+                            $isPartialEntry      = (int) !empty($_POST['is_partial_entry']);
 
                             $db->begin_transaction();
                             try {
-                                $headerStmt = $db->prepare("\n        INSERT INTO purchase_orders\n          (system_reference, po_number, po_date, supplier_id, fund_id,\n           supplier_address, mode_of_procurement_id, place_of_delivery,\n           delivery_term_days, expected_delivery_date, status,\n           purpose, remarks, total_amount, created_by)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)\n      ");
+                                $headerStmt = $db->prepare("\n        INSERT INTO purchase_orders\n          (system_reference, po_number, po_date, supplier_id, fund_id,\n           supplier_address, mode_of_procurement_id, place_of_delivery,\n           delivery_term_days, expected_delivery_date, status, is_partial_entry,\n           purpose, remarks, total_amount, created_by)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)\n      ");
                                 if (!$headerStmt) throw new RuntimeException('Prepare failed: header');
 
                                 $headerStmt->bind_param(
-                                    'sssiisissssdi',
+                                    'sssiisissssidii',
                                     $systemReference,
                                     $form['po_number'],
                                     $form['po_date'],
@@ -253,6 +256,7 @@ if ($db) {
                                     $deliveryTermDays,
                                     $expectedDelivery,
                                     $status,
+                                    $isPartialEntry,
                                     $totalAmount,
                                     $userId
                                 );
@@ -542,6 +546,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <label class="form-label" style="font-size:11px;">Account Code <span class="text-danger">*</span></label>
                                             <select class="form-select form-select-sm" id="editorAccountCode" name="_editor_account_code" style="font-size:13px;"></select>
                                             <input type="text" class="form-control form-control-sm bg-light" id="editorAccountCodeText" style="font-size:13px; display:none;" readonly>
+                                            <div class="mt-1" id="editorAccountCodeAddBtn">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="openAccountCodeQuickAdd" style="font-size:11px;">Add Account Code</button>
+                                            </div>
                                         </div>
 
                                         <div class="mb-3">
@@ -568,6 +575,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <label class="form-label" style="font-size:11px;">Unit</label>
                                                 <select class="form-select form-select-sm" id="editorUom" style="font-size:13px;"></select>
                                                 <input type="text" class="form-control form-control-sm bg-light" id="editorUomText" style="font-size:13px; display:none;" readonly>
+                                                <div class="mt-1" id="editorUomAddBtn">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="openUomQuickAdd" style="font-size:11px;">Add Unit</button>
+                                                </div>
                                             </div>
                                             <div class="col-4">
                                                 <label class="form-label" style="font-size:11px;">Unit Cost</label>
@@ -606,6 +616,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                             <div class="workspace-actions workspace-toolbar-cluster align-items-center">
                                 <span class="fw-semibold">Total: <span id="poGrandTotal">0.00</span></span>
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="checkbox" id="is_partial_entry" name="is_partial_entry" value="1" <?php echo !empty($form['is_partial_entry']) ? 'checked' : ''; ?>>
+                                    <label class="form-check-label small" for="is_partial_entry">Partial Entry <span class="text-muted">(more items to add later)</span></label>
+                                </div>
                                 <button type="submit" class="btn btn-primary btn-sm">Save Purchase Order</button>
                             </div>
                         </div>
@@ -646,6 +660,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-md-6">
                         <label for="quickAddAccountCode" class="form-label">Account Code <span class="text-danger">*</span></label>
                         <select class="form-select" id="quickAddAccountCode"></select>
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="openAccountCodeQuickAddFromCatalog">Add Account Code</button>
+                        </div>
                     </div>
                     <div class="col-md-6">
                         <label for="quickAddClassification" class="form-label">Classification</label>
@@ -657,12 +674,76 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-md-6">
                         <label for="quickAddUom" class="form-label">Unit of Measure</label>
                         <select class="form-select" id="quickAddUom"></select>
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="openUomQuickAddFromCatalog">Add Unit</button>
+                        </div>
                     </div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="saveCatalogQuickAdd">Save to Catalog</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="accountCodeQuickAddModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Account Code</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger py-2 px-3" id="accountCodeQuickAddError" style="display:none; font-size:13px;"></div>
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label for="quickAccountCodeItemType" class="form-label">Item Type</label>
+                        <input type="text" class="form-control" id="quickAccountCodeItemType" readonly>
+                        <input type="hidden" id="quickAccountCodeGroup">
+                    </div>
+                    <div class="col-md-5">
+                        <label for="quickAccountCode" class="form-label">Account Code <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="quickAccountCode" placeholder="e.g. 10602010-00">
+                    </div>
+                    <div class="col-md-7">
+                        <label for="quickAccountName" class="form-label">Account Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="quickAccountName" placeholder="e.g. Office Supplies">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveAccountCodeQuickAdd">Save Account Code</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="uomQuickAddModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Unit of Measure</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger py-2 px-3" id="uomQuickAddError" style="display:none; font-size:13px;"></div>
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label for="quickUomName" class="form-label">Unit Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="quickUomName" placeholder="e.g. Piece">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="quickUomAbbreviation" class="form-label">Abbreviation <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="quickUomAbbreviation" placeholder="e.g. pc">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveUomQuickAdd">Save Unit</button>
             </div>
         </div>
     </div>
@@ -785,10 +866,30 @@ document.addEventListener('DOMContentLoaded', function () {
         quickAddAccountCode: document.getElementById('quickAddAccountCode'),
         quickAddClassification: document.getElementById('quickAddClassification'),
         quickAddUom: document.getElementById('quickAddUom'),
-        saveCatalogQuickAdd: document.getElementById('saveCatalogQuickAdd')
+        saveCatalogQuickAdd: document.getElementById('saveCatalogQuickAdd'),
+        openAccountCodeQuickAdd: document.getElementById('openAccountCodeQuickAdd'),
+        openAccountCodeQuickAddFromCatalog: document.getElementById('openAccountCodeQuickAddFromCatalog'),
+        openUomQuickAdd: document.getElementById('openUomQuickAdd'),
+        openUomQuickAddFromCatalog: document.getElementById('openUomQuickAddFromCatalog'),
+        accountCodeQuickAddModal: document.getElementById('accountCodeQuickAddModal'),
+        accountCodeQuickAddError: document.getElementById('accountCodeQuickAddError'),
+        quickAccountCodeItemType: document.getElementById('quickAccountCodeItemType'),
+        quickAccountCodeGroup: document.getElementById('quickAccountCodeGroup'),
+        quickAccountCode: document.getElementById('quickAccountCode'),
+        quickAccountName: document.getElementById('quickAccountName'),
+        saveAccountCodeQuickAdd: document.getElementById('saveAccountCodeQuickAdd'),
+        uomQuickAddModal: document.getElementById('uomQuickAddModal'),
+        uomQuickAddError: document.getElementById('uomQuickAddError'),
+        quickUomName: document.getElementById('quickUomName'),
+        quickUomAbbreviation: document.getElementById('quickUomAbbreviation'),
+        saveUomQuickAdd: document.getElementById('saveUomQuickAdd'),
+        editorAccountCodeAddBtn: document.getElementById('editorAccountCodeAddBtn'),
+        editorUomAddBtn: document.getElementById('editorUomAddBtn')
     };
     var quickAddModal = (window.bootstrap && el.catalogQuickAddModal) ? new bootstrap.Modal(el.catalogQuickAddModal) : null;
     var classificationQuickAddModal = (window.bootstrap && el.classificationQuickAddModal) ? new bootstrap.Modal(el.classificationQuickAddModal) : null;
+    var accountCodeQuickAddModal = (window.bootstrap && el.accountCodeQuickAddModal) ? new bootstrap.Modal(el.accountCodeQuickAddModal) : null;
+    var uomQuickAddModal = (window.bootstrap && el.uomQuickAddModal) ? new bootstrap.Modal(el.uomQuickAddModal) : null;
 
     function lineIsComplete(line) {
         if (!line) return false;
@@ -901,6 +1002,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (el.openClassificationQuickAdd) {
             el.openClassificationQuickAdd.style.display = usesCatalog ? 'none' : '';
         }
+        if (el.openAccountCodeQuickAdd) { el.openAccountCodeQuickAdd.style.display = usesCatalog ? 'none' : ''; }
+        if (el.editorAccountCodeAddBtn) { el.editorAccountCodeAddBtn.style.display = usesCatalog ? 'none' : ''; }
+        if (el.openUomQuickAdd) { el.openUomQuickAdd.style.display = usesCatalog ? 'none' : ''; }
+        if (el.editorUomAddBtn) { el.editorUomAddBtn.style.display = usesCatalog ? 'none' : ''; }
         if (el.editorCatalogHint) {
             el.editorCatalogHint.style.display = usesCatalog && line.stock_catalog_id ? '' : 'none';
         }
@@ -1401,6 +1506,26 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function upsertAccountCode(ac) {
+        if (!ac || !ac.id) return;
+        var idx = -1;
+        for (var i = 0; i < accountCodes.length; i++) {
+            if (String(accountCodes[i].id) === String(ac.id)) { idx = i; break; }
+        }
+        if (idx >= 0) { accountCodes[idx] = Object.assign({}, accountCodes[idx], ac); } else { accountCodes.push(ac); }
+        accountCodes.sort(function(a, b) { return (a.account_code || '').localeCompare(b.account_code || ''); });
+    }
+
+    function upsertUom(u) {
+        if (!u || !u.id) return;
+        var idx = -1;
+        for (var i = 0; i < units.length; i++) {
+            if (String(units[i].id) === String(u.id)) { idx = i; break; }
+        }
+        if (idx >= 0) { units[idx] = Object.assign({}, units[idx], u); } else { units.push(u); }
+        units.sort(function(a, b) { return (a.uom_name || '').localeCompare(b.uom_name || ''); });
+    }
+
     function seedClassificationQuickAdd() {
         var line = (activeIndex >= 0 && activeIndex < poLines.length) ? poLines[activeIndex] : null;
         var itemType = line ? (line.item_type || 'supply') : 'supply';
@@ -1506,6 +1631,107 @@ document.addEventListener('DOMContentLoaded', function () {
                 showClassificationQuickAddError(err.message || 'Unable to save classification.');
             } finally {
                 el.saveClassificationQuickAdd.disabled = false;
+            }
+        });
+    }
+
+    if (el.openAccountCodeQuickAdd) {
+        el.openAccountCodeQuickAdd.addEventListener('click', function() { seedAccountCodeQuickAdd(false); if (accountCodeQuickAddModal) accountCodeQuickAddModal.show(); });
+    }
+    if (el.openAccountCodeQuickAddFromCatalog) {
+        el.openAccountCodeQuickAddFromCatalog.addEventListener('click', function() { seedAccountCodeQuickAdd(true); if (accountCodeQuickAddModal) accountCodeQuickAddModal.show(); });
+    }
+    if (el.openUomQuickAdd) {
+        el.openUomQuickAdd.addEventListener('click', function() { seedUomQuickAdd(); if (uomQuickAddModal) uomQuickAddModal.show(); });
+    }
+    if (el.openUomQuickAddFromCatalog) {
+        el.openUomQuickAddFromCatalog.addEventListener('click', function() { seedUomQuickAdd(); if (uomQuickAddModal) uomQuickAddModal.show(); });
+    }
+
+    function showAccountCodeQuickAddError(message) {
+        if (!el.accountCodeQuickAddError) return;
+        el.accountCodeQuickAddError.textContent = message || '';
+        el.accountCodeQuickAddError.style.display = message ? '' : 'none';
+    }
+    function showUomQuickAddError(message) {
+        if (!el.uomQuickAddError) return;
+        el.uomQuickAddError.textContent = message || '';
+        el.uomQuickAddError.style.display = message ? '' : 'none';
+    }
+    function seedAccountCodeQuickAdd(fromCatalog) {
+        var line = (activeIndex >= 0 && activeIndex < poLines.length) ? poLines[activeIndex] : null;
+        var itemType = fromCatalog ? (el.quickAddItemType ? el.quickAddItemType.value : 'supply') : (line ? (line.item_type || 'supply') : 'supply');
+        var accountGroup = itemType === 'equipment' ? 'asset' : itemType;
+        if (el.quickAccountCodeItemType) { el.quickAccountCodeItemType.value = typeLabel(itemType); }
+        if (el.quickAccountCodeGroup) { el.quickAccountCodeGroup.value = accountGroup; }
+        if (el.quickAccountCode) el.quickAccountCode.value = '';
+        if (el.quickAccountName) el.quickAccountName.value = '';
+        showAccountCodeQuickAddError('');
+    }
+    function seedUomQuickAdd() {
+        if (el.quickUomName) el.quickUomName.value = '';
+        if (el.quickUomAbbreviation) el.quickUomAbbreviation.value = '';
+        showUomQuickAddError('');
+    }
+
+    if (el.saveAccountCodeQuickAdd) {
+        el.saveAccountCodeQuickAdd.addEventListener('click', async function() {
+            var payload = new FormData();
+            payload.append('_csrf', <?php echo json_encode(csrf_token(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>);
+            payload.append('action', 'add_account_code');
+            payload.append('account_code', el.quickAccountCode ? el.quickAccountCode.value.trim() : '');
+            payload.append('account_name', el.quickAccountName ? el.quickAccountName.value.trim() : '');
+            payload.append('account_group', el.quickAccountCodeGroup ? el.quickAccountCodeGroup.value : 'supply');
+            showAccountCodeQuickAddError('');
+            el.saveAccountCodeQuickAdd.disabled = true;
+            try {
+                var response = await fetch('<?php echo base_url('modules/purchase_orders/po_masterdata_quickadd.php'); ?>', { method: 'POST', body: payload });
+                var result = await response.json();
+                if (!response.ok || !result.ok) throw new Error(result.error || 'Unable to save account code.');
+                upsertAccountCode(result.account_code);
+                if (activeIndex >= 0 && activeIndex < poLines.length) {
+                    poLines[activeIndex].account_code_id = String(result.account_code.id);
+                    rebuildAccountCodeSelect(poLines[activeIndex].item_type, result.account_code.id);
+                    if (window.jQuery && jQuery.fn.select2) { window.jQuery(el.editorAccountCode).val(String(result.account_code.id)).trigger('change'); }
+                    else if (el.editorAccountCode) { el.editorAccountCode.value = String(result.account_code.id); }
+                }
+                if (el.quickAddItemType) { rebuildQuickAddAccountCodes(el.quickAddItemType.value || 'supply', result.account_code.id); }
+                if (el.quickClassificationType) { rebuildClassificationQuickAddAccountCodes(el.quickClassificationType.getAttribute('data-item-type') || 'supply', ''); }
+                if (accountCodeQuickAddModal) accountCodeQuickAddModal.hide();
+            } catch (err) {
+                showAccountCodeQuickAddError(err.message || 'Unable to save account code.');
+            } finally {
+                el.saveAccountCodeQuickAdd.disabled = false;
+            }
+        });
+    }
+
+    if (el.saveUomQuickAdd) {
+        el.saveUomQuickAdd.addEventListener('click', async function() {
+            var payload = new FormData();
+            payload.append('_csrf', <?php echo json_encode(csrf_token(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>);
+            payload.append('action', 'add_uom');
+            payload.append('uom_name', el.quickUomName ? el.quickUomName.value.trim() : '');
+            payload.append('abbreviation', el.quickUomAbbreviation ? el.quickUomAbbreviation.value.trim() : '');
+            showUomQuickAddError('');
+            el.saveUomQuickAdd.disabled = true;
+            try {
+                var response = await fetch('<?php echo base_url('modules/purchase_orders/po_masterdata_quickadd.php'); ?>', { method: 'POST', body: payload });
+                var result = await response.json();
+                if (!response.ok || !result.ok) throw new Error(result.error || 'Unable to save unit.');
+                upsertUom(result.uom);
+                if (activeIndex >= 0 && activeIndex < poLines.length) {
+                    poLines[activeIndex].unit_of_measure_id = String(result.uom.id);
+                    rebuildUomSelect(result.uom.id);
+                    if (window.jQuery && jQuery.fn.select2) { window.jQuery(el.editorUom).val(String(result.uom.id)).trigger('change'); }
+                    else if (el.editorUom) { el.editorUom.value = String(result.uom.id); }
+                }
+                rebuildQuickAddUom(result.uom.id);
+                if (uomQuickAddModal) uomQuickAddModal.hide();
+            } catch (err) {
+                showUomQuickAddError(err.message || 'Unable to save unit.');
+            } finally {
+                el.saveUomQuickAdd.disabled = false;
             }
         });
     }
