@@ -200,91 +200,38 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
-<section class="row g-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <div>
-                    <h5 class="card-title mb-0"><?php echo $form['id'] > 0 ? 'Edit Model' : 'Add New Model'; ?></h5>
-                    <div class="text-muted small">Manage model records and assign them to active brands.</div>
-                </div>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse" aria-expanded="<?php echo $form['id'] > 0 ? 'true' : 'false'; ?>" aria-controls="formCollapse">
-                        <i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Edit Model' : 'Add New'; ?>
-                    </button>
-                    <?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/models/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?>
-                </div>
-            </div>
-            <div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?>" id="formCollapse">
-                <div class="card-body p-4">
-                    <?php if ($errors): ?><div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
-                    <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?>
-
-                    <form method="post">
-                        <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
-                        <input type="hidden" name="action" value="save">
-                        <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Brand</label>
-                                <select class="form-select" name="brand_id" required data-placeholder="Select brand">
-                                    <option value="">Select brand</option>
-                                    <?php foreach ($brands as $brand): ?>
-                                        <option value="<?php echo (int) $brand['id']; ?>" <?php echo $form['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo h($brand['brand_name']); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Model Code</label>
-                                <input type="text" class="form-control" name="model_code" value="<?php echo h($form['id'] > 0 ? $form['model_code'] : $generatedCode); ?>" readonly>
-                                <div class="form-text">Generated automatically using `MDL-YYYY-0001` format.</div>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Model Name</label>
-                                <input type="text" class="form-control" name="model_name" value="<?php echo h($form['model_name']); ?>" maxlength="150" required>
-                            </div>
-                            <div class="col-md-6 d-flex align-items-end">
-                                <div class="form-check form-switch mb-2">
-                                    <input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>>
-                                    <label class="form-check-label">Active model</label>
-                                </div>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Description</label>
-                                <textarea class="form-control" name="description" rows="3"><?php echo h($form['description']); ?></textarea>
-                            </div>
-                            <div class="col-12 d-flex gap-2">
-                                <button type="submit" class="btn btn-primary"><?php echo $form['id'] > 0 ? 'Update' : 'Save'; ?></button>
-                                <?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/models/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?>
-                            </div>
+<section class="master-data-page"><div class="card master-data-page-card"><div class="card-body p-4 p-xl-4">
+<?php if ($errors): ?><div class="alert alert-danger mb-4"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
+<?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?> mb-4"><?php echo h($flash['message']); ?></div><?php endif; ?>
+<div class="master-data-header mb-4"><div><div class="text-uppercase small text-muted fw-semibold">Master Data</div><h4 class="mb-1">Models</h4><div id="recordCount" class="text-muted small">Showing <?php echo count($models); ?> of <?php echo count($models); ?> records</div></div><div class="d-flex gap-2 flex-wrap"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/models/index.php'); ?>" class="btn btn-outline-secondary">Cancel Edit</a><?php endif; ?><button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse" aria-expanded="<?php echo $form['id'] > 0 ? 'true' : 'false'; ?>"><i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Continue Editing' : 'Add Model'; ?></button></div></div>
+<div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?> mb-4" id="formCollapse"><div class="master-data-editor"><div class="master-data-editor-header"><div><h5 class="mb-1"><?php echo $form['id'] > 0 ? 'Edit Model' : 'New Model'; ?></h5><div class="text-muted small">Manage model records and assign them to active brands.</div></div></div><form method="post" class="workspace-form-section mt-3"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>"><div class="row g-3"><div class="col-md-6"><label class="form-label">Brand</label><select class="form-select" name="brand_id" required data-placeholder="Select brand"><option value="">Select brand</option><?php foreach ($brands as $brand): ?><option value="<?php echo (int) $brand['id']; ?>" <?php echo $form['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo h($brand['brand_name']); ?></option><?php endforeach; ?></select></div><div class="col-md-6"><label class="form-label">Model Code</label><input type="text" class="form-control" name="model_code" value="<?php echo h($form['id'] > 0 ? $form['model_code'] : $generatedCode); ?>" readonly><div class="form-text">Generated automatically using `MDL-YYYY-0001` format.</div></div><div class="col-md-6"><label class="form-label">Model Name</label><input type="text" class="form-control" name="model_name" value="<?php echo h($form['model_name']); ?>" maxlength="150" required></div><div class="col-md-6 d-flex align-items-end"><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active model</label></div></div><div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3"><?php echo h($form['description']); ?></textarea></div><div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/models/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Model' : 'Save Model'; ?></button></div></div></form></div></div>
+                <div class="master-data-toolbar mb-3">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-lg-6">
+                            <label class="form-label">Search</label>
+                            <input type="search" id="tableSearch" class="form-control" placeholder="Search models...">
                         </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <div>
-                        <h5 class="card-title mb-0">Model List</h5>
-                        <span id="recordCount" class="text-muted small">Showing <?php echo count($models); ?> of <?php echo count($models); ?> records</span>
+                        <div class="col-sm-6 col-lg-3">
+                            <label class="form-label">Status</label>
+                            <select id="statusFilter" class="form-select">
+                                <option value="">All statuses</option>
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </div>
+                        <div class="col-sm-6 col-lg-3">
+                            <label class="form-label">Rows Per Page</label>
+                            <select id="perPageSelect" class="form-select">
+                                <option value="25" selected>25 rows</option>
+                                <option value="50">50 rows</option>
+                                <option value="100">100 rows</option>
+                                <option value="250">250 rows</option>
+                            </select>
+                        </div>
                     </div>
-                    <button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse">
-                        <i class="bi bi-plus-circle me-1"></i>Add New
-                    </button>
                 </div>
-                <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-                    <input type="search" id="tableSearch" class="form-control form-control-sm" placeholder="Search models..." style="max-width:300px;">
-                    <select id="statusFilter" class="form-select form-select-sm" style="max-width:140px;">
-                        <option value="">All statuses</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                    </select>
-                </div>
-                <div class="table-responsive">
+                <div class="master-data-table-shell">
+                <div class="table-responsive mobile-table-frame master-data-table-scroll">
                     <table class="table align-middle" id="dataTable">
                         <thead>
                             <tr>
@@ -330,23 +277,40 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </tbody>
                     </table>
                 </div>
-                <div class="d-flex align-items-center gap-3 mt-2 flex-wrap">
-                    <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
-                    <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
-                    <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
-                    <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;">
-                        <option value="25">25 per page</option>
-                        <option value="50">50 per page</option>
-                        <option value="100">100 per page</option>
-                    </select>
                 </div>
-            </div>
-        </div>
-    </div>
+                <div class="master-data-pagination">
+                    <div id="recordCountMobile" class="master-data-pagination-meta">Search updates the table instantly.</div>
+                    <div class="master-data-pagination-controls">
+                        <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
+                        <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
+                        <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
+                    </div>
+                </div>
+</div>
+</div></div>
 </section>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    window.initMasterDataList('dataTable');
+    var recordCountMobile = document.getElementById('recordCountMobile');
+    var options = {
+        recordCountFormatter: function (visible, total) {
+            var text = 'Showing ' + visible + ' of ' + total + ' records';
+            if (recordCountMobile) {
+                recordCountMobile.textContent = text;
+            }
+            return text;
+        },
+        pageInfoFormatter: function (state) {
+            return 'Page ' + state.currentPage + ' of ' + state.totalPages + ' (' + state.totalVisible + ' matches)';
+        },
+        emptyMessage: 'No models matched your search or status filter.'
+    };
+    if (typeof window.initMasterDataList === 'function') {
+        window.initMasterDataList('dataTable', options);
+        return;
+    }
+    window.__spamsPendingMasterDataLists = window.__spamsPendingMasterDataLists || [];
+    window.__spamsPendingMasterDataLists.push(['dataTable', options]);
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

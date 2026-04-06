@@ -53,11 +53,13 @@ if ($db) {
                 did.brand,
                 did.model,
                 did.serial_no,
+            ri.unit_cost AS amount,
                 COALESCE(curr_o.office_name, o.office_name) AS office_name,
                 COALESCE(curr_e.first_name, e.first_name) AS first_name,
                 COALESCE(curr_e.middle_name, e.middle_name) AS middle_name,
                 COALESCE(curr_e.last_name, e.last_name) AS last_name,
                 COALESCE(curr_e.suffix_name, e.suffix_name) AS suffix_name,
+            r.received_date AS date_acquired,
                 d.distribution_date AS record_date,
                 d.document_no AS document_no,
                 d.document_type,
@@ -67,6 +69,7 @@ if ($db) {
             INNER JOIN distribution_items di ON di.id = did.distribution_item_id
             INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
             INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
+            INNER JOIN receivings r ON r.id = ri.receiving_id
             INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
             LEFT JOIN classifications c ON c.id = poi.classification_id
             LEFT JOIN offices o ON o.id = d.office_id
@@ -145,11 +148,13 @@ if ($db) {
                 la.brand,
                 la.model,
                 la.serial_no,
+            la.acquisition_cost AS amount,
                 o.office_name,
                 e.first_name,
                 e.middle_name,
                 e.last_name,
                 e.suffix_name,
+            la.acquisition_date AS date_acquired,
                 la.acquisition_date AS record_date,
                 'Beginning Balance' AS document_no,
                 'legacy' AS document_type,
@@ -295,6 +300,8 @@ if ($db) {
                     'Brand',
                     'Model',
                     'Serial No',
+                    'Amount',
+                    'Date Acquired',
                     'Office',
                     'Accountable Person',
                     'Reference',
@@ -312,6 +319,8 @@ if ($db) {
                         $row['brand'] ?? '',
                         $row['model'] ?? '',
                         $row['serial_no'] ?? '',
+                        number_format((float) ($row['amount'] ?? 0), 2, '.', ''),
+                        $row['date_acquired'] ?? '',
                         $row['office_name'] ?? '',
                         employee_display_name_from_row($row),
                         $row['document_no'] ?? '',
@@ -533,12 +542,14 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>
-                                <th style="min-width: 180px;">Asset</th>
-                                <th style="min-width: 300px;">Classification / Description</th>
-                                <th style="min-width: 180px;">Item Details</th>
-                                <th style="min-width: 220px;">Assignment</th>
-                                <th style="min-width: 200px;">Reference / Source</th>
-                                <th style="min-width: 180px;">Actions</th>
+                                <th class="asset-col-primary" style="min-width: 180px;">Asset</th>
+                                <th class="asset-col-classification" style="min-width: 300px;">Classification / Description</th>
+                                <th class="asset-col-item-details" style="min-width: 180px;">Item Details</th>
+                                <th class="asset-col-amount" style="min-width: 180px;">Amount</th>
+                                <th class="asset-col-date" style="min-width: 160px;">Date Acquired</th>
+                                <th class="asset-col-assignment" style="min-width: 220px;">Assignment</th>
+                                <th class="asset-col-reference" style="min-width: 200px;">Reference / Source</th>
+                                <th class="asset-col-actions" style="min-width: 180px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -564,10 +575,12 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                                     $distributionId = (int) ($row['distribution_id'] ?? 0);
                                     $assetKey = (string) ($row['asset_key'] ?? '');
                                     $propertyNo = (string) ($row['property_no'] ?? '');
+                                    $amountValue = (float) ($row['amount'] ?? 0);
+                                    $dateAcquiredLabel = !empty($row['date_acquired']) ? date('M d, Y', strtotime((string) $row['date_acquired'])) : '-';
                                     $recordDateLabel = !empty($row['record_date']) ? date('M d, Y', strtotime((string) $row['record_date'])) : '';
                                     ?>
                                     <tr class="asset-registry-row">
-                                        <td class="asset-registry-cell-primary">
+                                        <td class="asset-registry-cell-primary asset-col-primary">
                                             <div class="asset-registry-primary"><?php echo h($row['property_no'] ?? ''); ?></div>
                                             <?php if (($row['item_type'] ?? '') === 'semi_expendable'): ?>
                                                 <span class="badge text-bg-info">Semi-Expendable</span>
@@ -575,19 +588,31 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                                                 <span class="badge text-bg-primary">Equipment</span>
                                             <?php endif; ?>
                                         </td>
-                                        <td>
+                                        <td class="asset-col-classification">
                                             <div class="asset-registry-classification"><?php echo h($classificationLabel !== '' ? $classificationLabel : 'Unclassified'); ?></div>
                                             <div class="text-muted small asset-registry-description" title="<?php echo h($descriptionFull); ?>"><?php echo h($descriptionShort); ?></div>
+                                            <div class="asset-registry-compact-meta">
+                                                <div class="small text-muted">Item: <?php echo h($brandModel !== '' ? $brandModel : 'No brand / model'); ?> | SN: <?php echo h($row['serial_no'] !== '' ? $row['serial_no'] : '-'); ?></div>
+                                                <div class="small text-muted">Amount: <?php echo h(number_format($amountValue, 2)); ?> | Acquired: <?php echo h($dateAcquiredLabel); ?></div>
+                                                <div class="small text-muted">Assigned: <?php echo h($row['office_name'] ?? '-'); ?><?php echo $accountable !== '' ? ' / ' . h($accountable) : ''; ?></div>
+                                                <div class="small text-muted">Ref: <?php echo h($row['document_no'] ?? ''); ?> | <?php echo h($recordDateLabel); ?> | <?php echo h($sourceLabel); ?></div>
+                                            </div>
                                         </td>
-                                        <td>
+                                        <td class="asset-col-item-details">
                                             <div class="asset-registry-detail-line"><?php echo h($brandModel !== '' ? $brandModel : 'No brand / model'); ?></div>
                                             <div class="text-muted small">Serial No.: <?php echo h($row['serial_no'] !== '' ? $row['serial_no'] : '-'); ?></div>
                                         </td>
-                                        <td>
+                                        <td class="asset-col-amount">
+                                            <div class="asset-registry-detail-line text-end"><?php echo h(number_format($amountValue, 2)); ?></div>
+                                        </td>
+                                        <td class="asset-col-date">
+                                            <div class="asset-registry-detail-line"><?php echo h($dateAcquiredLabel); ?></div>
+                                        </td>
+                                        <td class="asset-col-assignment">
                                             <div class="asset-registry-detail-line"><?php echo h($row['office_name'] ?? '-'); ?></div>
                                             <div class="text-muted small"><?php echo h($accountable !== '' ? $accountable : 'No accountable employee'); ?></div>
                                         </td>
-                                        <td>
+                                        <td class="asset-col-reference">
                                             <div class="asset-registry-detail-line"><?php echo h($row['document_no'] ?? ''); ?></div>
                                             <div class="text-muted small"><?php echo h($recordDateLabel); ?></div>
                                             <?php if (($row['source_type'] ?? '') === 'legacy'): ?>
@@ -596,7 +621,7 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                                                 <div class="mt-1"><span class="badge text-bg-success"><?php echo h($sourceLabel); ?></span></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td class="asset-registry-cell-actions">
+                                        <td class="asset-registry-cell-actions asset-col-actions">
                                             <div class="d-flex gap-2 flex-wrap">
                                                 <a href="<?php echo base_url('modules/property/view.php?source=' . urlencode((string) ($row['source_type'] ?? 'system')) . '&id=' . $detailId); ?>" class="btn btn-sm btn-primary">Open Record</a>
                                                 <div class="dropdown">
@@ -630,7 +655,7 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                                 <?php endforeach; ?>
                             <?php else: ?>
                                 <tr>
-                                    <td colspan="6" class="text-center text-muted py-4">No asset records found.</td>
+                                    <td colspan="8" class="text-center text-muted py-4">No asset records found.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>

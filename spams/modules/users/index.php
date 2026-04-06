@@ -413,12 +413,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
             <div class="master-data-toolbar mb-3">
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-8 col-lg-9"><label class="form-label">Search</label><input type="search" id="tableSearch" class="form-control" placeholder="Search full name, username, email, role, employee, or office"></div>
-                    <div class="col-md-4 col-lg-3"><label class="form-label">Status</label><select id="statusFilter" class="form-select"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+                    <div class="col-lg-6"><label class="form-label">Search</label><input type="search" id="tableSearch" class="form-control" placeholder="Search full name, username, email, role, employee, or office"></div>
+                    <div class="col-sm-6 col-lg-3"><label class="form-label">Status</label><select id="statusFilter" class="form-select"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+                    <div class="col-sm-6 col-lg-3"><label class="form-label">Rows Per Page</label><select id="perPageSelect" class="form-select"><option value="25" selected>25 rows</option><option value="50">50 rows</option><option value="100">100 rows</option><option value="250">250 rows</option></select></div>
                 </div>
             </div>
 
-            <div class="table-responsive mobile-table-frame">
+            <div class="master-data-table-shell">
+            <div class="table-responsive mobile-table-frame master-data-table-scroll">
                 <table class="table align-middle" id="dataTable">
                     <thead><tr><th>User</th><th>Role</th><th>Employee</th><th>Office</th><th>Status</th><th>Created</th><th class="text-end">Actions</th></tr></thead>
                     <tbody>
@@ -438,12 +440,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </tbody>
                 </table>
             </div>
-
-            <div class="d-flex align-items-center gap-3 mt-3 flex-wrap">
-                <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
-                <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
-                <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
-                <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;"><option value="25">25 per page</option><option value="50">50 per page</option><option value="100">100 per page</option></select>
+            <div class="master-data-pagination">
+                <div id="recordCountMobile" class="master-data-pagination-meta">Search updates the table instantly.</div>
+                <div class="master-data-pagination-controls">
+                    <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
+                    <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
+                    <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
+                </div>
+            </div>
             </div>
         </div>
     </div>
@@ -572,10 +576,30 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    var recordCountMobile = document.getElementById('recordCountMobile');
+    var masterDataOptions = {
+        recordCountFormatter: function (visible, total) {
+            var text = 'Showing ' + visible + ' of ' + total + ' records';
+            if (recordCountMobile) {
+                recordCountMobile.textContent = text;
+            }
+            return text;
+        },
+        pageInfoFormatter: function (state) {
+            return 'Page ' + state.currentPage + ' of ' + state.totalPages + ' (' + state.totalVisible + ' matches)';
+        },
+        emptyMessage: 'No users matched your search or status filter.'
+    };
+
     window.syncUserLinkedEmployee = syncEmployeeIdentity;
     window.syncUserOfficeFromEmployee = syncOfficeFromEmployee;
 
-    window.initMasterDataList('dataTable');
+    if (typeof window.initMasterDataList === 'function') {
+        window.initMasterDataList('dataTable', masterDataOptions);
+    } else {
+        window.__spamsPendingMasterDataLists = window.__spamsPendingMasterDataLists || [];
+        window.__spamsPendingMasterDataLists.push(['dataTable', masterDataOptions]);
+    }
     document.getElementById('office_id')?.addEventListener('change', syncOfficeEmployee);
     document.getElementById('employee_id')?.addEventListener('change', syncOfficeFromEmployee);
     document.getElementById('password')?.addEventListener('input', updatePasswordStrength);
