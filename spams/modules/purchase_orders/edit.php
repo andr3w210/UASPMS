@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 
 require_role('Administrator', 'Supply Officer');
@@ -104,7 +104,7 @@ if (!$db) {
     $headerStmt = $db->prepare("
         SELECT id, system_reference, po_number, po_date, supplier_id, fund_id,
                supplier_address, mode_of_procurement_id, place_of_delivery,
-               delivery_term_days, expected_delivery_date, status
+               delivery_term_days, expected_delivery_date, status, is_partial_entry
         FROM purchase_orders
         WHERE id = ?
         LIMIT 1
@@ -135,6 +135,7 @@ if (!$db) {
             'delivery_term_days' => $existingPo['delivery_term_days'] !== null ? (string) $existingPo['delivery_term_days'] : '',
             'expected_delivery_date' => (string) ($existingPo['expected_delivery_date'] ?? ''),
             'status' => (string) ($existingPo['status'] ?? 'encoded'),
+            'is_partial_entry' => (int) ($existingPo['is_partial_entry'] ?? 0),
         ];
 
         $itemSql = "
@@ -163,6 +164,7 @@ if (!$db) {
                         'quantity' => (string) ($row['quantity'] ?? '1'),
                         'unit_of_measure_id' => (string) ($row['unit_of_measure_id'] ?? ''),
                         'unit_cost' => (string) ($row['unit_cost'] ?? '0.00'),
+                        'is_existing' => true,
                     ];
                 }
             }
@@ -170,7 +172,7 @@ if (!$db) {
         }
 
         if (!$itemRows) {
-            $itemRows[] = ['item_type' => 'supply', 'semi_expendable_type' => '', 'stock_catalog_id' => '', 'account_code_id' => '', 'classification_id' => '', 'item_description' => '', 'quantity' => '1', 'unit_of_measure_id' => '', 'unit_cost' => '0.00'];
+            $itemRows[] = ['item_type' => 'supply', 'semi_expendable_type' => '', 'stock_catalog_id' => '', 'account_code_id' => '', 'classification_id' => '', 'item_description' => '', 'quantity' => '1', 'unit_of_measure_id' => '', 'unit_cost' => '0.00', 'is_existing' => false];
         }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && (($_POST['action'] ?? '') === 'update')) {
@@ -187,6 +189,8 @@ if (!$db) {
             $form['place_of_delivery'] = old($_POST, 'place_of_delivery', 'University of Antique');
             $form['delivery_term_days'] = old($_POST, 'delivery_term_days');
             $form['expected_delivery_date'] = old($_POST, 'expected_delivery_date');
+            $form['is_partial_entry'] = !empty($_POST['is_partial_entry']) ? 1 : 0;
+            $existingIsPartial = !empty($existingPo['is_partial_entry']);
 
             $postedRows = $_POST['items'] ?? [];
             if ($postedRows && is_array($postedRows)) {
@@ -229,6 +233,10 @@ if (!$db) {
             $lineNo = 0;
 
             foreach (($postedRows ?: []) as $row) {
+                // Skip items already in DB — partial mode preserves them as-is
+                if ($existingIsPartial && !empty($row['is_existing'])) {
+                    continue;
+                }
                 $description = trim((string) ($row['item_description'] ?? ''));
                 $itemType = trim((string) ($row['item_type'] ?? 'supply'));
                 $stockCatalogId = trim((string) ($row['stock_catalog_id'] ?? ''));
@@ -296,7 +304,7 @@ if (!$db) {
                 ];
             }
 
-            if (!$validatedItems) {
+            if (!$validatedItems && !$existingIsPartial) {
                 $errors[] = 'At least one PO line is required.';
             }
 
@@ -308,6 +316,7 @@ if (!$db) {
                         SET po_number = ?, po_date = ?, supplier_id = ?, fund_id = ?,
                             supplier_address = ?, mode_of_procurement_id = ?, place_of_delivery = ?,
                             delivery_term_days = ?, expected_delivery_date = ?, total_amount = ?,
+                            is_partial_entry = ?,
                             updated_by = ?, updated_at = NOW()
                         WHERE id = ?
                     ");
@@ -321,9 +330,24 @@ if (!$db) {
                     $deliveryTermDays = $form['delivery_term_days'] !== '' ? (int) $form['delivery_term_days'] : null;
                     $expectedDelivery = $form['expected_delivery_date'] !== '' ? $form['expected_delivery_date'] : null;
                     $userId = current_user_id();
+                    $isPartialEntry = $form['is_partial_entry'];
+
+                    // For partial POs, add existing items' total to new items total
+                    if ($existingIsPartial) {
+                        $existingTotalStmt = $db->prepare('SELECT COALESCE(SUM(line_total), 0) FROM purchase_order_items WHERE purchase_order_id = ?');
+                        if ($existingTotalStmt) {
+                            $existingTotalStmt->bind_param('i', $id);
+                            $existingTotalStmt->execute();
+                            $existingTotalResult = $existingTotalStmt->get_result();
+                            if ($existingTotalResult) {
+                                $totalAmount += (float) ($existingTotalResult->fetch_row()[0] ?? 0);
+                            }
+                            $existingTotalStmt->close();
+                        }
+                    }
 
                     $updateStmt->bind_param(
-                        'ssiississdii',
+                        'ssiississdiii',
                         $form['po_number'],
                         $form['po_date'],
                         $supplierId,
@@ -334,17 +358,36 @@ if (!$db) {
                         $deliveryTermDays,
                         $expectedDelivery,
                         $totalAmount,
+                        $isPartialEntry,
                         $userId,
                         $id
                     );
                     $updateStmt->execute();
                     $updateStmt->close();
 
-                    $deleteStmt = $db->prepare("DELETE FROM purchase_order_items WHERE purchase_order_id = ?");
-                    if ($deleteStmt) {
-                        $deleteStmt->bind_param('i', $id);
-                        $deleteStmt->execute();
-                        $deleteStmt->close();
+                    if (!$existingIsPartial) {
+                        $deleteStmt = $db->prepare('DELETE FROM purchase_order_items WHERE purchase_order_id = ?');
+                        if ($deleteStmt) {
+                            $deleteStmt->bind_param('i', $id);
+                            $deleteStmt->execute();
+                            $deleteStmt->close();
+                        }
+                    }
+
+                    if ($validatedItems) {
+                    // Determine line_no offset for partial POs
+                    $lineNoOffset = 0;
+                    if ($existingIsPartial) {
+                        $maxLineStmt = $db->prepare('SELECT COALESCE(MAX(line_no), 0) FROM purchase_order_items WHERE purchase_order_id = ?');
+                        if ($maxLineStmt) {
+                            $maxLineStmt->bind_param('i', $id);
+                            $maxLineStmt->execute();
+                            $maxLineResult = $maxLineStmt->get_result();
+                            if ($maxLineResult) {
+                                $lineNoOffset = (int) $maxLineResult->fetch_row()[0];
+                            }
+                            $maxLineStmt->close();
+                        }
                     }
 
                     if ($poItemSupportsSemiType) {
@@ -369,7 +412,7 @@ if (!$db) {
                     }
 
                     foreach ($validatedItems as $index => $item) {
-                        $ln = $index + 1;
+                        $ln = $lineNoOffset + $index + 1;
                         if ($poItemSupportsSemiType) {
                             $itemStmt->bind_param(
                                 'iiissiisdidd',
@@ -405,6 +448,7 @@ if (!$db) {
                         $itemStmt->execute();
                     }
                     $itemStmt->close();
+                    } // end if ($validatedItems)
 
                     $db->commit();
                     set_flash('success', 'Purchase order updated successfully.');
@@ -588,6 +632,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <label class="form-label" style="font-size:11px;">Account Code <span class="text-danger">*</span></label>
                                             <select class="form-select form-select-sm" id="editorAccountCode" name="_editor_account_code" style="font-size:13px;"></select>
                                             <input type="text" class="form-control form-control-sm bg-light" id="editorAccountCodeText" style="font-size:13px; display:none;" readonly>
+                                            <div class="mt-1" id="editorAccountCodeAddBtn">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="openAccountCodeQuickAdd" style="font-size:11px;">Add Account Code</button>
+                                            </div>
                                         </div>
 
                                         <div class="mb-3">
@@ -614,6 +661,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <label class="form-label" style="font-size:11px;">Unit</label>
                                                 <select class="form-select form-select-sm" id="editorUom" style="font-size:13px;"></select>
                                                 <input type="text" class="form-control form-control-sm bg-light" id="editorUomText" style="font-size:13px; display:none;" readonly>
+                                                <div class="mt-1" id="editorUomAddBtn">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="openUomQuickAdd" style="font-size:11px;">Add Unit</button>
+                                                </div>
                                             </div>
                                             <div class="col-4">
                                                 <label class="form-label" style="font-size:11px;">Unit Cost</label>
@@ -646,10 +696,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div id="poHiddenInputs"></div>
 
                     <div style="position:sticky; bottom:0; z-index:10; background:var(--bs-body-bg); border-top:0.5px solid var(--bs-border-color); padding:10px 0; margin-top:4px;">
-                        <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                             <span class="text-muted small" id="footerLineCount">0 line(s)</span>
-                            <div>
-                                <a href="<?php echo base_url('modules/purchase_orders/index.php'); ?>" class="btn btn-outline-secondary btn-sm">Cancel</a>
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="checkbox" id="is_partial_entry" name="is_partial_entry" value="1" <?php echo !empty($form['is_partial_entry']) ? 'checked' : ''; ?>>
+                                    <label class="form-check-label small" for="is_partial_entry">Partial Entry <span class="text-muted">(more items to add later)</span></label>
+                                </div>
                                 <button type="submit" class="btn btn-primary btn-sm">Update Purchase Order</button>
                             </div>
                         </div>
@@ -660,6 +713,67 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     </div>
 </section>
+
+<div class="modal fade" id="accountCodeQuickAddModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Account Code</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger py-2 px-3" id="accountCodeQuickAddError" style="display:none; font-size:13px;"></div>
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label for="quickAccountCodeItemType" class="form-label">Item Type</label>
+                        <input type="text" class="form-control" id="quickAccountCodeItemType" readonly>
+                        <input type="hidden" id="quickAccountCodeGroup">
+                    </div>
+                    <div class="col-md-5">
+                        <label for="quickAccountCode" class="form-label">Account Code <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="quickAccountCode" placeholder="e.g. 10602010-00">
+                    </div>
+                    <div class="col-md-7">
+                        <label for="quickAccountName" class="form-label">Account Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="quickAccountName" placeholder="e.g. Office Supplies">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveAccountCodeQuickAdd">Save Account Code</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="uomQuickAddModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Unit of Measure</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger py-2 px-3" id="uomQuickAddError" style="display:none; font-size:13px;"></div>
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label for="quickUomName" class="form-label">Unit Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="quickUomName" placeholder="e.g. Piece">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="quickUomAbbreviation" class="form-label">Abbreviation <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="quickUomAbbreviation" placeholder="e.g. pc">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveUomQuickAdd">Save Unit</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="modal fade" id="classificationQuickAddModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-scrollable">
@@ -715,6 +829,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var semiHvMin = <?php echo json_encode((float) (($activeThreshold['semi_hv_min'] ?? 5000.01))); ?>;
 
     var poLinesFromPhp = <?php echo json_encode(array_values($itemRows), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?> || [];
+    var isPartialMode = <?php echo !empty($existingPo['is_partial_entry']) ? 'true' : 'false'; ?>;
     <?php
     // If the PO was loaded and $form populated server-side, update the page title
     if (!empty($form['system_reference'])) {
@@ -771,9 +886,27 @@ document.addEventListener('DOMContentLoaded', function () {
         quickClassificationAccountCode: document.getElementById('quickClassificationAccountCode'),
         quickClassificationUsefulLife: document.getElementById('quickClassificationUsefulLife'),
         quickClassificationDescription: document.getElementById('quickClassificationDescription'),
-        saveClassificationQuickAdd: document.getElementById('saveClassificationQuickAdd')
+        saveClassificationQuickAdd: document.getElementById('saveClassificationQuickAdd'),
+        openAccountCodeQuickAdd: document.getElementById('openAccountCodeQuickAdd'),
+        accountCodeQuickAddModal: document.getElementById('accountCodeQuickAddModal'),
+        accountCodeQuickAddError: document.getElementById('accountCodeQuickAddError'),
+        quickAccountCodeItemType: document.getElementById('quickAccountCodeItemType'),
+        quickAccountCodeGroup: document.getElementById('quickAccountCodeGroup'),
+        quickAccountCode: document.getElementById('quickAccountCode'),
+        quickAccountName: document.getElementById('quickAccountName'),
+        saveAccountCodeQuickAdd: document.getElementById('saveAccountCodeQuickAdd'),
+        openUomQuickAdd: document.getElementById('openUomQuickAdd'),
+        uomQuickAddModal: document.getElementById('uomQuickAddModal'),
+        uomQuickAddError: document.getElementById('uomQuickAddError'),
+        quickUomName: document.getElementById('quickUomName'),
+        quickUomAbbreviation: document.getElementById('quickUomAbbreviation'),
+        saveUomQuickAdd: document.getElementById('saveUomQuickAdd'),
+        editorAccountCodeAddBtn: document.getElementById('editorAccountCodeAddBtn'),
+        editorUomAddBtn: document.getElementById('editorUomAddBtn')
     };
     var classificationQuickAddModal = (window.bootstrap && el.classificationQuickAddModal) ? new bootstrap.Modal(el.classificationQuickAddModal) : null;
+    var accountCodeQuickAddModal = (window.bootstrap && el.accountCodeQuickAddModal) ? new bootstrap.Modal(el.accountCodeQuickAddModal) : null;
+    var uomQuickAddModal = (window.bootstrap && el.uomQuickAddModal) ? new bootstrap.Modal(el.uomQuickAddModal) : null;
 
     function lineIsComplete(line) {
         if (!line) return false;
@@ -875,6 +1008,10 @@ document.addEventListener('DOMContentLoaded', function () {
             el.editorUomText.style.display = usesCatalog ? '' : 'none';
             el.editorUomText.value = usesCatalog ? uomLabelById(line.unit_of_measure_id || '') : '';
         }
+        if (el.openAccountCodeQuickAdd) { el.openAccountCodeQuickAdd.style.display = usesCatalog ? 'none' : ''; }
+        if (el.editorAccountCodeAddBtn) { el.editorAccountCodeAddBtn.style.display = usesCatalog ? 'none' : ''; }
+        if (el.openUomQuickAdd) { el.openUomQuickAdd.style.display = usesCatalog ? 'none' : ''; }
+        if (el.editorUomAddBtn) { el.editorUomAddBtn.style.display = usesCatalog ? 'none' : ''; }
     }
 
     function populateCatalogSelect(selectedId) {
@@ -914,22 +1051,26 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function upsertClassification(classification) { if (!classification || !classification.id) return; var idx = -1; for (var i = 0; i < classifications.length; i++) { if (String(classifications[i].id) === String(classification.id)) { idx = i; break; } } if (idx >= 0) { classifications[idx] = Object.assign({}, classifications[idx], classification); } else { classifications.push(classification); } classifications.sort(function(a, b) { return classificationDisplayName(a).localeCompare(classificationDisplayName(b)); }); }
 
+    function upsertAccountCode(ac) { if (!ac || !ac.id) return; var idx = -1; for (var i = 0; i < accountCodes.length; i++) { if (String(accountCodes[i].id) === String(ac.id)) { idx = i; break; } } if (idx >= 0) { accountCodes[idx] = Object.assign({}, accountCodes[idx], ac); } else { accountCodes.push(ac); } accountCodes.sort(function(a, b) { return (a.account_code || '').localeCompare(b.account_code || ''); }); }
+
+    function upsertUom(u) { if (!u || !u.id) return; var idx = -1; for (var i = 0; i < units.length; i++) { if (String(units[i].id) === String(u.id)) { idx = i; break; } } if (idx >= 0) { units[idx] = Object.assign({}, units[idx], u); } else { units.push(u); } units.sort(function(a, b) { return (a.uom_name || '').localeCompare(b.uom_name || ''); }); }
+
     function seedClassificationQuickAdd() { var line = (activeIndex >= 0 && activeIndex < poLines.length) ? poLines[activeIndex] : null; var itemType = line ? (line.item_type || 'supply') : 'supply'; if (el.quickClassificationType) { el.quickClassificationType.value = typeLabel(itemType); el.quickClassificationType.setAttribute('data-item-type', itemType); } if (el.quickClassificationName) el.quickClassificationName.value = ''; if (el.quickClassificationFamily) el.quickClassificationFamily.value = itemType === 'supply' ? 'Office Supplies' : ''; if (el.quickClassificationDescription) el.quickClassificationDescription.value = ''; if (el.quickClassificationUsefulLife) el.quickClassificationUsefulLife.value = itemType === 'supply' ? '' : '3'; rebuildClassificationQuickAddAccountCodes(itemType, line ? line.account_code_id : ''); showClassificationQuickAddError(''); }
     function escapeHtml(s) { return String(s || '').replace(/[&<>\"]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c];}); }
 
-    function renderLineList() { var container = el.lineListScroll; if (!container) return; container.innerHTML = ''; var done = 0; var total = poLines.length; var sum = 0; for (var i = 0; i < poLines.length; i++) { var ln = poLines[i]; syncLineMode(ln); ln.semi_expendable_type = lineNeedsSemiType(ln) ? getSemiType(ln.unit_cost || 0) : ''; ln.is_complete = lineIsComplete(ln); if (ln.is_complete) done++; sum += parseFloat(ln.line_total || 0); if (currentFilter === 'done' && !ln.is_complete) continue; if (currentFilter === 'empty' && ln.is_complete) continue; if (currentFilter === 'supply' && ln.item_type !== 'supply') continue; if (currentFilter === 'semi_expendable' && ln.item_type !== 'semi_expendable') continue; if (currentFilter === 'equipment' && ln.item_type !== 'equipment') continue; var searchBlob = [ln.item_description || '', ln.item_type || '', classificationNameById(ln.classification_id || ''), uomLabelById(ln.unit_of_measure_id || ''), accountCodeLabelById(ln.account_code_id || '')].join(' ').toLowerCase(); if (searchTerm && searchBlob.indexOf(searchTerm) === -1) continue; var dotColor = (i === activeIndex) ? '#0d6efd' : (ln.is_complete ? '#198754' : '#adb5bd'); var badgeClass = (ln.item_type === 'equipment') ? 'text-bg-warning-subtle' : (ln.item_type === 'semi_expendable' ? 'text-bg-primary-subtle' : 'text-bg-success-subtle'); var shortType = typeShortLabel(ln.item_type); var desc = (ln.item_description || 'New item'); var amt = (parseFloat(ln.line_total || 0) !== 0) ? formatNumber(ln.line_total) : '�'; var row = document.createElement('div'); row.className = 'po-line-list-item'; row.setAttribute('data-index', i); row.style.cssText = 'display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:12px; border:0.5px solid transparent;'; row.innerHTML = '<span style="width:20px; text-align:center; color:var(--bs-body-color); opacity:0.5; font-size:11px;">' + (i+1) + '</span>' + '<span class="po-line-status-dot" style="width:8px; height:8px; border-radius:50%; flex-shrink:0; background:' + dotColor + ';"></span>' + '<span class="badge ' + badgeClass + '" style="font-size:9px; padding:1px 5px; flex-shrink:0;">' + shortType + '</span>' + '<span style="flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; margin-left:6px; color:var(--bs-body-color);">' + escapeHtml(desc) + '</span>' + '<span style="font-size:11px; color:var(--bs-body-color); opacity:0.65; flex-shrink:0; margin-left:8px;">' + amt + '</span>'; (function(index){ row.addEventListener('click', function(){ loadLineEditor(index); }); })(i); if (i === activeIndex) { row.style.background = 'var(--bs-primary-bg-subtle)'; row.style.borderColor = 'var(--bs-primary-border-subtle)'; } container.appendChild(row); } el.lineCompletedCount && (el.lineCompletedCount.textContent = done + ' / ' + total); el.lineTotalSoFar && (el.lineTotalSoFar.textContent = formatNumber(sum)); el.footerLineCount && (el.footerLineCount.textContent = total + ' line(s)'); el.poGrandTotal && (el.poGrandTotal.textContent = formatNumber(sum)); }
+    function renderLineList() { var container = el.lineListScroll; if (!container) return; container.innerHTML = ''; var done = 0; var total = poLines.length; var sum = 0; for (var i = 0; i < poLines.length; i++) { var ln = poLines[i]; syncLineMode(ln); ln.semi_expendable_type = lineNeedsSemiType(ln) ? getSemiType(ln.unit_cost || 0) : ''; ln.is_complete = lineIsComplete(ln); if (ln.is_complete) done++; sum += parseFloat(ln.line_total || 0); if (currentFilter === 'done' && !ln.is_complete) continue; if (currentFilter === 'empty' && ln.is_complete) continue; if (currentFilter === 'supply' && ln.item_type !== 'supply') continue; if (currentFilter === 'semi_expendable' && ln.item_type !== 'semi_expendable') continue; if (currentFilter === 'equipment' && ln.item_type !== 'equipment') continue; var searchBlob = [ln.item_description || '', ln.item_type || '', classificationNameById(ln.classification_id || ''), uomLabelById(ln.unit_of_measure_id || ''), accountCodeLabelById(ln.account_code_id || '')].join(' ').toLowerCase(); if (searchTerm && searchBlob.indexOf(searchTerm) === -1) continue; var dotColor = (i === activeIndex) ? '#0d6efd' : (ln.is_complete ? '#198754' : '#adb5bd'); var badgeClass = (ln.item_type === 'equipment') ? 'text-bg-warning-subtle' : (ln.item_type === 'semi_expendable' ? 'text-bg-primary-subtle' : 'text-bg-success-subtle'); var shortType = typeShortLabel(ln.item_type); var desc = (ln.item_description || 'New item'); var amt = (parseFloat(ln.line_total || 0) !== 0) ? formatNumber(ln.line_total) : '�'; var row = document.createElement('div'); row.className = 'po-line-list-item'; row.setAttribute('data-index', i); row.style.cssText = 'display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:12px; border:0.5px solid transparent;'; row.innerHTML = '<span style="width:20px; text-align:center; color:var(--bs-body-color); opacity:0.5; font-size:11px;">' + (i+1) + '</span>' + (isPartialMode && ln.is_existing ? '<span title="Existing \u2013 locked" style="font-size:10px; opacity:0.5; flex-shrink:0;">&#128274;</span>' : '') + '<span class="po-line-status-dot" style="width:8px; height:8px; border-radius:50%; flex-shrink:0; background:' + dotColor + ';"></span>' + '<span class="badge ' + badgeClass + '" style="font-size:9px; padding:1px 5px; flex-shrink:0;">' + shortType + '</span>' + '<span style="flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; margin-left:6px; color:var(--bs-body-color);">' + escapeHtml(desc) + '</span>' + '<span style="font-size:11px; color:var(--bs-body-color); opacity:0.65; flex-shrink:0; margin-left:8px;">' + amt + '</span>'; (function(index){ row.addEventListener('click', function(){ loadLineEditor(index); }); })(i); if (i === activeIndex) { row.style.background = 'var(--bs-primary-bg-subtle)'; row.style.borderColor = 'var(--bs-primary-border-subtle)'; } container.appendChild(row); } el.lineCompletedCount && (el.lineCompletedCount.textContent = done + ' / ' + total); el.lineTotalSoFar && (el.lineTotalSoFar.textContent = formatNumber(sum)); el.footerLineCount && (el.footerLineCount.textContent = total + ' line(s)'); el.poGrandTotal && (el.poGrandTotal.textContent = formatNumber(sum)); }
 
-    function loadLineEditor(index) { if (poLines.length === 0) { el.editorEmpty.style.display = ''; el.editorContent.style.display = 'none'; activeIndex = -1; renderLineList(); return; } activeIndex = index; var line = poLines[index]; syncLineMode(line); el.editorEmpty.style.display = 'none'; el.editorContent.style.display = ''; el.editorLineLabel.textContent = 'Line ' + (index + 1); el.editorTypeBadge.className = 'badge ' + typeBadgeClass(line.item_type); el.editorTypeBadge.textContent = typeLabel(line.item_type); updateSemiTypeBadge(line); el.editorLineCounter.textContent = (index + 1) + ' of ' + poLines.length; populateCatalogSelect(line.stock_catalog_id || ''); updateEditorMode(line); rebuildAccountCodeSelect(line.item_type, line.account_code_id); rebuildClassificationSelect(line.item_type, line.classification_id); rebuildUomSelect(line.unit_of_measure_id); updateEditorMode(line); if (lineUsesCatalog(line) && !line.item_description && line.stock_catalog_id) { for (var ciIdx = 0; ciIdx < catalogItems.length; ciIdx++) { if (String(catalogItems[ciIdx].id) === String(line.stock_catalog_id)) { line.item_description = catalogItems[ciIdx].item_description || catalogItems[ciIdx].item_name || ''; break; } } } el.editorDescription.value = line.item_description || ''; el.editorQty.value = line.quantity || '1'; el.editorUnitCost.value = line.unit_cost || '0.00'; el.editorAmount.textContent = formatNumber(line.line_total || 0); el.editorPrev.disabled = (index === 0); el.editorNext.disabled = (index === poLines.length - 1); var done = poLines.filter(lineIsComplete).length; var pct = poLines.length ? Math.round((done / poLines.length) * 100) : 0; el.editorProgress.style.width = pct + '%'; el.editorProgressLabel.textContent = done + ' / ' + poLines.length + ' completed'; renderLineList(); if (window.SPAMS && typeof window.SPAMS.initSelect2 === 'function') window.SPAMS.initSelect2(document.getElementById('poLineEditor')); }
+    function loadLineEditor(index) { if (poLines.length === 0) { el.editorEmpty.style.display = ''; el.editorContent.style.display = 'none'; activeIndex = -1; renderLineList(); return; } activeIndex = index; var line = poLines[index]; syncLineMode(line); el.editorEmpty.style.display = 'none'; el.editorContent.style.display = ''; el.editorLineLabel.textContent = 'Line ' + (index + 1); el.editorTypeBadge.className = 'badge ' + typeBadgeClass(line.item_type); el.editorTypeBadge.textContent = typeLabel(line.item_type); updateSemiTypeBadge(line); el.editorLineCounter.textContent = (index + 1) + ' of ' + poLines.length; populateCatalogSelect(line.stock_catalog_id || ''); updateEditorMode(line); rebuildAccountCodeSelect(line.item_type, line.account_code_id); rebuildClassificationSelect(line.item_type, line.classification_id); rebuildUomSelect(line.unit_of_measure_id); updateEditorMode(line); if (lineUsesCatalog(line) && !line.item_description && line.stock_catalog_id) { for (var ciIdx = 0; ciIdx < catalogItems.length; ciIdx++) { if (String(catalogItems[ciIdx].id) === String(line.stock_catalog_id)) { line.item_description = catalogItems[ciIdx].item_description || catalogItems[ciIdx].item_name || ''; break; } } } el.editorDescription.value = line.item_description || ''; el.editorQty.value = line.quantity || '1'; el.editorUnitCost.value = line.unit_cost || '0.00'; el.editorAmount.textContent = formatNumber(line.line_total || 0); var isExistingLine = isPartialMode && !!line.is_existing; ['editorDescription','editorQty','editorUnitCost'].forEach(function(id){ var n = document.getElementById(id); if (n) { n.disabled = isExistingLine; n.readOnly = false; } }); if (el.editorCatalogSearch) el.editorCatalogSearch.disabled = isExistingLine; if (el.editorAccountCode) el.editorAccountCode.disabled = isExistingLine; if (el.editorClassification) el.editorClassification.disabled = isExistingLine; if (el.editorUom) el.editorUom.disabled = isExistingLine; if (el.editorDeleteLine) el.editorDeleteLine.style.display = isExistingLine ? 'none' : ''; if (isExistingLine && el.editorWorkflowHelp) { el.editorWorkflowHelp.className = 'alert alert-secondary border py-2 px-3 mb-3'; el.editorWorkflowHelp.textContent = 'Existing item \u2014 read only. Items already in the PO cannot be modified.'; } el.editorPrev.disabled = (index === 0); el.editorNext.disabled = (index === poLines.length - 1); var done = poLines.filter(lineIsComplete).length; var pct = poLines.length ? Math.round((done / poLines.length) * 100) : 0; el.editorProgress.style.width = pct + '%'; el.editorProgressLabel.textContent = done + ' / ' + poLines.length + ' completed'; renderLineList(); if (window.SPAMS && typeof window.SPAMS.initSelect2 === 'function') window.SPAMS.initSelect2(document.getElementById('poLineEditor')); }
 
-    function saveCurrentLine() { if (activeIndex < 0 || activeIndex >= poLines.length) return; var ln = poLines[activeIndex]; ln.stock_catalog_id = lineUsesCatalog(ln) && el.editorCatalogSearch ? (el.editorCatalogSearch.value || '') : ''; ln.account_code_id = el.editorAccountCode.value || ''; var currentClassOpt = el.editorClassification ? el.editorClassification.options[el.editorClassification.selectedIndex] : null; var currentClassType = currentClassOpt ? currentClassOpt.getAttribute('data-item-type') : ''; if (currentClassType && currentClassType !== ln.item_type) { el.editorClassification.value = ''; } ln.classification_id = el.editorClassification ? (el.editorClassification.value || '') : ''; if (lineUsesCatalog(ln)) { var supplyCatalog = null; for (var catIdx = 0; catIdx < catalogItems.length; catIdx++) { if (String(catalogItems[catIdx].id) === String(ln.stock_catalog_id)) { supplyCatalog = catalogItems[catIdx]; break; } } ln.item_description = supplyCatalog ? ((supplyCatalog.item_description || supplyCatalog.item_name || '').trim()) : ''; ln.account_code_id = supplyCatalog ? String(supplyCatalog.account_code_id || '') : ''; ln.classification_id = supplyCatalog ? String(supplyCatalog.classification_id || '') : ''; ln.unit_of_measure_id = supplyCatalog ? String(supplyCatalog.unit_of_measure_id || '') : ''; if (el.editorDescription) { el.editorDescription.value = ln.item_description; } if (el.editorAccountCodeText) el.editorAccountCodeText.value = accountCodeLabelById(ln.account_code_id || ''); if (el.editorClassificationText) el.editorClassificationText.value = classificationNameById(ln.classification_id || ''); if (el.editorUomText) el.editorUomText.value = uomLabelById(ln.unit_of_measure_id || ''); } else { ln.item_description = (el.editorDescription.value || '').trim(); ln.unit_of_measure_id = el.editorUom.value || ''; } ln.quantity = el.editorQty.value || '0'; ln.unit_cost = el.editorUnitCost.value || '0'; ln.semi_expendable_type = lineNeedsSemiType(ln) ? getSemiType(ln.unit_cost) : ''; syncLineMode(ln); ln.line_total = Math.round((parseFloat(ln.quantity || 0) * parseFloat(ln.unit_cost || 0)) * 100) / 100; ln.is_complete = lineIsComplete(ln); el.editorAmount.textContent = formatNumber(ln.line_total || 0); updateSemiTypeBadge(ln); renderLineList(); updateGrandTotal(); }
+    function saveCurrentLine() { if (activeIndex < 0 || activeIndex >= poLines.length) return; var ln = poLines[activeIndex]; if (isPartialMode && ln.is_existing) return; ln.stock_catalog_id = lineUsesCatalog(ln) && el.editorCatalogSearch ? (el.editorCatalogSearch.value || '') : ''; ln.account_code_id = el.editorAccountCode.value || ''; var currentClassOpt = el.editorClassification ? el.editorClassification.options[el.editorClassification.selectedIndex] : null; var currentClassType = currentClassOpt ? currentClassOpt.getAttribute('data-item-type') : ''; if (currentClassType && currentClassType !== ln.item_type) { el.editorClassification.value = ''; } ln.classification_id = el.editorClassification ? (el.editorClassification.value || '') : ''; if (lineUsesCatalog(ln)) { var supplyCatalog = null; for (var catIdx = 0; catIdx < catalogItems.length; catIdx++) { if (String(catalogItems[catIdx].id) === String(ln.stock_catalog_id)) { supplyCatalog = catalogItems[catIdx]; break; } } ln.item_description = supplyCatalog ? ((supplyCatalog.item_description || supplyCatalog.item_name || '').trim()) : ''; ln.account_code_id = supplyCatalog ? String(supplyCatalog.account_code_id || '') : ''; ln.classification_id = supplyCatalog ? String(supplyCatalog.classification_id || '') : ''; ln.unit_of_measure_id = supplyCatalog ? String(supplyCatalog.unit_of_measure_id || '') : ''; if (el.editorDescription) { el.editorDescription.value = ln.item_description; } if (el.editorAccountCodeText) el.editorAccountCodeText.value = accountCodeLabelById(ln.account_code_id || ''); if (el.editorClassificationText) el.editorClassificationText.value = classificationNameById(ln.classification_id || ''); if (el.editorUomText) el.editorUomText.value = uomLabelById(ln.unit_of_measure_id || ''); } else { ln.item_description = (el.editorDescription.value || '').trim(); ln.unit_of_measure_id = el.editorUom.value || ''; } ln.quantity = el.editorQty.value || '0'; ln.unit_cost = el.editorUnitCost.value || '0'; ln.semi_expendable_type = lineNeedsSemiType(ln) ? getSemiType(ln.unit_cost) : ''; syncLineMode(ln); ln.line_total = Math.round((parseFloat(ln.quantity || 0) * parseFloat(ln.unit_cost || 0)) * 100) / 100; ln.is_complete = lineIsComplete(ln); el.editorAmount.textContent = formatNumber(ln.line_total || 0); updateSemiTypeBadge(ln); renderLineList(); updateGrandTotal(); }
 
     function updateEditorAmount() { var q = parseFloat(el.editorQty.value || 0) || 0; var c = parseFloat(el.editorUnitCost.value || 0) || 0; el.editorAmount.textContent = formatNumber(Math.round(q * c * 100) / 100); }
 
-    function deleteLine(idx) { if (poLines.length <= 1) { alert('At least one line is required.'); return; } poLines.splice(idx,1); poLines.forEach(function(l,i){ l.index = i; }); var nextIndex = Math.min(idx, poLines.length-1); renderLineList(); loadLineEditor(nextIndex); }
+    function deleteLine(idx) { if (isPartialMode && poLines[idx] && poLines[idx].is_existing) { alert('Existing items cannot be removed. Only new items added in this session can be deleted.'); return; } if (poLines.length <= 1) { alert('At least one line is required.'); return; } poLines.splice(idx,1); poLines.forEach(function(l,i){ l.index = i; }); var nextIndex = Math.min(idx, poLines.length-1); renderLineList(); loadLineEditor(nextIndex); }
 
-    function buildHiddenInputs() { var container = el.poHiddenInputs; if (!container) return; container.innerHTML = ''; poLines.forEach(function(ln,i){ var fields = { item_type: ln.item_type, semi_expendable_type: ln.semi_expendable_type, stock_catalog_id: ln.stock_catalog_id, account_code_id: ln.account_code_id, classification_id: ln.classification_id, item_description: ln.item_description, quantity: ln.quantity, unit_of_measure_id: ln.unit_of_measure_id, unit_cost: ln.unit_cost }; Object.keys(fields).forEach(function(k){ var inp = document.createElement('input'); inp.type='hidden'; inp.name='items['+i+']['+k+']'; inp.value = fields[k] || ''; container.appendChild(inp); }); }); }
+    function buildHiddenInputs() { var container = el.poHiddenInputs; if (!container) return; container.innerHTML = ''; poLines.forEach(function(ln,i){ var fields = { item_type: ln.item_type, semi_expendable_type: ln.semi_expendable_type, stock_catalog_id: ln.stock_catalog_id, account_code_id: ln.account_code_id, classification_id: ln.classification_id, item_description: ln.item_description, quantity: ln.quantity, unit_of_measure_id: ln.unit_of_measure_id, unit_cost: ln.unit_cost, is_existing: ln.is_existing ? '1' : '0' }; Object.keys(fields).forEach(function(k){ var inp = document.createElement('input'); inp.type='hidden'; inp.name='items['+i+']['+k+']'; inp.value = fields[k] || ''; container.appendChild(inp); }); }); }
 
-    function addLine(itemType) { var validTypes = ['supply', 'semi_expendable', 'equipment']; if (validTypes.indexOf(itemType) === -1) itemType = 'supply'; poLines.push({ index: poLines.length, item_type: itemType, semi_expendable_type: itemType === 'semi_expendable' ? 'low_value' : '', stock_catalog_id: '', account_code_id: '', classification_id: '', item_description: '', quantity: '1', unit_of_measure_id: '', unit_cost: '0.00', line_total: 0, is_complete: false }); renderLineList(); loadLineEditor(poLines.length - 1); }
+    function addLine(itemType) { var validTypes = ['supply', 'semi_expendable', 'equipment']; if (validTypes.indexOf(itemType) === -1) itemType = 'supply'; poLines.push({ index: poLines.length, item_type: itemType, semi_expendable_type: itemType === 'semi_expendable' ? 'low_value' : '', stock_catalog_id: '', account_code_id: '', classification_id: '', item_description: '', quantity: '1', unit_of_measure_id: '', unit_cost: '0.00', line_total: 0, is_complete: false, is_existing: false }); renderLineList(); loadLineEditor(poLines.length - 1); }
 
     function updateGrandTotal() { var total = poLines.reduce(function(acc,ln){ return acc + (parseFloat(ln.line_total||0)); },0); el.poGrandTotal && (el.poGrandTotal.textContent = formatNumber(total)); el.lineTotalSoFar && (el.lineTotalSoFar.textContent = formatNumber(total)); }
 
@@ -1021,8 +1162,77 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
+
+    function showAccountCodeQuickAddError(message) { if (!el.accountCodeQuickAddError) return; el.accountCodeQuickAddError.textContent = message || ''; el.accountCodeQuickAddError.style.display = message ? '' : 'none'; }
+    function showUomQuickAddError(message) { if (!el.uomQuickAddError) return; el.uomQuickAddError.textContent = message || ''; el.uomQuickAddError.style.display = message ? '' : 'none'; }
+    function seedAccountCodeQuickAdd() { var line = (activeIndex >= 0 && activeIndex < poLines.length) ? poLines[activeIndex] : null; var itemType = line ? (line.item_type || 'supply') : 'supply'; var accountGroup = itemType === 'equipment' ? 'asset' : itemType; if (el.quickAccountCodeItemType) { el.quickAccountCodeItemType.value = typeLabel(itemType); } if (el.quickAccountCodeGroup) { el.quickAccountCodeGroup.value = accountGroup; } if (el.quickAccountCode) el.quickAccountCode.value = ''; if (el.quickAccountName) el.quickAccountName.value = ''; showAccountCodeQuickAddError(''); }
+    function seedUomQuickAdd() { if (el.quickUomName) el.quickUomName.value = ''; if (el.quickUomAbbreviation) el.quickUomAbbreviation.value = ''; showUomQuickAddError(''); }
+
+    if (el.openAccountCodeQuickAdd) { el.openAccountCodeQuickAdd.addEventListener('click', function() { seedAccountCodeQuickAdd(); if (accountCodeQuickAddModal) accountCodeQuickAddModal.show(); }); }
+    if (el.openUomQuickAdd) { el.openUomQuickAdd.addEventListener('click', function() { seedUomQuickAdd(); if (uomQuickAddModal) uomQuickAddModal.show(); }); }
+
+    if (el.saveAccountCodeQuickAdd) {
+        el.saveAccountCodeQuickAdd.addEventListener('click', async function() {
+            var payload = new FormData();
+            payload.append('_csrf', <?php echo json_encode(csrf_token(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>);
+            payload.append('action', 'add_account_code');
+            payload.append('account_code', el.quickAccountCode ? el.quickAccountCode.value.trim() : '');
+            payload.append('account_name', el.quickAccountName ? el.quickAccountName.value.trim() : '');
+            payload.append('account_group', el.quickAccountCodeGroup ? el.quickAccountCodeGroup.value : 'supply');
+            showAccountCodeQuickAddError('');
+            el.saveAccountCodeQuickAdd.disabled = true;
+            try {
+                var response = await fetch('<?php echo base_url('modules/purchase_orders/po_masterdata_quickadd.php'); ?>', { method: 'POST', body: payload });
+                var result = await response.json();
+                if (!response.ok || !result.ok) throw new Error(result.error || 'Unable to save account code.');
+                upsertAccountCode(result.account_code);
+                if (activeIndex >= 0 && activeIndex < poLines.length) {
+                    poLines[activeIndex].account_code_id = String(result.account_code.id);
+                    rebuildAccountCodeSelect(poLines[activeIndex].item_type, result.account_code.id);
+                    if (window.jQuery && jQuery.fn.select2) { window.jQuery(el.editorAccountCode).val(String(result.account_code.id)).trigger('change'); }
+                    else if (el.editorAccountCode) { el.editorAccountCode.value = String(result.account_code.id); }
+                }
+                if (el.quickClassificationType) { rebuildClassificationQuickAddAccountCodes(el.quickClassificationType.getAttribute('data-item-type') || 'supply', ''); }
+                if (accountCodeQuickAddModal) accountCodeQuickAddModal.hide();
+            } catch (err) {
+                showAccountCodeQuickAddError(err.message || 'Unable to save account code.');
+            } finally {
+                el.saveAccountCodeQuickAdd.disabled = false;
+            }
+        });
+    }
+
+    if (el.saveUomQuickAdd) {
+        el.saveUomQuickAdd.addEventListener('click', async function() {
+            var payload = new FormData();
+            payload.append('_csrf', <?php echo json_encode(csrf_token(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>);
+            payload.append('action', 'add_uom');
+            payload.append('uom_name', el.quickUomName ? el.quickUomName.value.trim() : '');
+            payload.append('abbreviation', el.quickUomAbbreviation ? el.quickUomAbbreviation.value.trim() : '');
+            showUomQuickAddError('');
+            el.saveUomQuickAdd.disabled = true;
+            try {
+                var response = await fetch('<?php echo base_url('modules/purchase_orders/po_masterdata_quickadd.php'); ?>', { method: 'POST', body: payload });
+                var result = await response.json();
+                if (!response.ok || !result.ok) throw new Error(result.error || 'Unable to save unit.');
+                upsertUom(result.uom);
+                if (activeIndex >= 0 && activeIndex < poLines.length) {
+                    poLines[activeIndex].unit_of_measure_id = String(result.uom.id);
+                    rebuildUomSelect(result.uom.id);
+                    if (window.jQuery && jQuery.fn.select2) { window.jQuery(el.editorUom).val(String(result.uom.id)).trigger('change'); }
+                    else if (el.editorUom) { el.editorUom.value = String(result.uom.id); }
+                }
+                if (uomQuickAddModal) uomQuickAddModal.hide();
+            } catch (err) {
+                showUomQuickAddError(err.message || 'Unable to save unit.');
+            } finally {
+                el.saveUomQuickAdd.disabled = false;
+            }
+        });
+    }
+
     var form = document.getElementById('purchaseOrderForm');
-    if (form) { form.addEventListener('submit', function(e) { saveCurrentLine(); buildHiddenInputs(); if (poLines.length === 0) { e.preventDefault(); alert('Please add at least one PO line before saving.'); return; } var emptyLines = poLines.filter(function(ln) { return !ln.item_description || ln.item_description.trim() === ''; }); if (emptyLines.length > 0) { e.preventDefault(); alert('Line ' + (emptyLines[0].index + 1) + ' has no description. Please fill in all lines before saving.'); loadLineEditor(emptyLines[0].index); return; } var missingCatalogLine = poLines.find(function(ln) { return lineUsesCatalog(ln) && (!ln.stock_catalog_id || String(ln.stock_catalog_id).trim() === ''); }); if (missingCatalogLine) { e.preventDefault(); alert('Supply line ' + (missingCatalogLine.index + 1) + ' must be selected from the stock catalog before saving.'); loadLineEditor(missingCatalogLine.index); return; } }); }
+    if (form) { form.addEventListener('submit', function(e) { saveCurrentLine(); buildHiddenInputs(); if (poLines.length === 0) { e.preventDefault(); alert('Please add at least one PO line before saving.'); return; } var emptyLines = poLines.filter(function(ln) { return !ln.is_existing && (!ln.item_description || ln.item_description.trim() === ''); }); if (emptyLines.length > 0) { e.preventDefault(); alert('Line ' + (emptyLines[0].index + 1) + ' has no description. Please fill in all lines before saving.'); loadLineEditor(emptyLines[0].index); return; } var missingCatalogLine = poLines.find(function(ln) { return !ln.is_existing && lineUsesCatalog(ln) && (!ln.stock_catalog_id || String(ln.stock_catalog_id).trim() === ''); }); if (missingCatalogLine) { e.preventDefault(); alert('Supply line ' + (missingCatalogLine.index + 1) + ' must be selected from the stock catalog before saving.'); loadLineEditor(missingCatalogLine.index); return; } }); }
     if (typeof poLinesFromPhp !== 'undefined' && poLinesFromPhp.length > 0) { poLines = poLinesFromPhp.slice(); renderLineList(); loadLineEditor(0); } else if (poLines.length === 0) { addLine('supply'); }
 
     if (window.SPAMS && window.SPAMS.initSelect2) { window.SPAMS.initSelect2(document.getElementById('poLineEditor')); }

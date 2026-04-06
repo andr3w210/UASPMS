@@ -22,7 +22,7 @@ if ($purchaseOrderId <= 0) {
 
 $stmt = $db->prepare("
     SELECT po.id, po.system_reference, po.po_number, po.po_date, po.supplier_address, po.place_of_delivery,
-           po.delivery_term_days, po.expected_delivery_date, po.total_amount, po.status, po.created_at,
+           po.delivery_term_days, po.expected_delivery_date, po.total_amount, po.status, po.is_partial_entry, po.created_at,
            s.supplier_name, s.tin_no, f.fund_name, f.fund_code, f.fund_source, mop.mode_name AS mode_of_procurement_name
     FROM purchase_orders po
     INNER JOIN suppliers s ON s.id = po.supplier_id
@@ -263,9 +263,15 @@ if ($fundClusterLabel === '') {
             <div>
                 <div class="fw-semibold">Purchase Order Preview</div>
                 <small class="text-muted"><?php echo h($purchaseOrder['po_number']); ?> | <?php echo h($purchaseOrder['system_reference']); ?></small>
+                <?php if (!empty($purchaseOrder['is_partial_entry'])): ?>
+                    <span class="badge text-bg-info ms-1">Partial Entry</span>
+                <?php endif; ?>
             </div>
             <div class="d-flex gap-2 flex-wrap justify-content-end">
                 <a href="<?php echo base_url('modules/purchase_orders/index.php'); ?>" class="btn btn-outline-secondary">Back</a>
+                <?php if (!empty($purchaseOrder['is_partial_entry']) && ($purchaseOrder['status'] ?? '') !== 'cancelled'): ?>
+                    <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $purchaseOrder['id']); ?>" class="btn btn-outline-secondary">Edit / Add Items</a>
+                <?php endif; ?>
                 <a href="<?php echo base_url('modules/messages/index.php?related_table=purchase_orders&related_id=' . (int) $purchaseOrder['id']); ?>" class="btn btn-outline-info">
                     Discussion
                 </a>

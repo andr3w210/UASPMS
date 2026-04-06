@@ -168,7 +168,7 @@ if ($db) {
                 ");
                 if ($stmt) {
                     $stmt->bind_param(
-                    'sssssiiiiissssiddiiissi',
+                    'sssssiiiiiissssiddiiissi',
                     $systemReference,
                     $form['po_number'],
                     $form['property_number'],
@@ -413,7 +413,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Item Classification</label>
-                            <select name="classification_id" class="form-select">
+                            <div class="input-group">
+                            <select name="classification_id" class="form-select" id="classification_id">
                                 <option value="">Select classification</option>
                                 <?php foreach ($classifications as $classification): ?>
                                     <option value="<?php echo (int) $classification['id']; ?>" <?php echo $form['classification_id'] === (string) $classification['id'] ? 'selected' : ''; ?>>
@@ -421,10 +422,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            <button type="button" class="btn btn-outline-secondary" title="Add new classification" data-qa-modal="qaClassificationModal">+</button>
+                            </div>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Account Code</label>
-                            <select name="account_code_id" class="form-select">
+                            <div class="input-group">
+                            <select name="account_code_id" class="form-select" id="account_code_id">
                                 <option value="">Select account code</option>
                                 <?php foreach ($accountCodes as $accountCode): ?>
                                     <option value="<?php echo (int) $accountCode['id']; ?>" <?php echo $form['account_code_id'] === (string) $accountCode['id'] ? 'selected' : ''; ?>>
@@ -432,24 +436,32 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            <button type="button" class="btn btn-outline-secondary" title="Add new account code" data-qa-modal="qaAccountCodeModal">+</button>
+                            </div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Brand</label>
-                            <select name="brand_id" class="form-select" data-no-select2 data-placeholder="Select brand">
+                            <div class="input-group">
+                            <select name="brand_id" class="form-select" id="brand_id" data-no-select2 data-placeholder="Select brand">
                                 <option value="">Select brand</option>
                                 <?php foreach ($brands as $brand): ?>
                                     <option value="<?php echo (int) $brand['id']; ?>" <?php echo $form['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo h($brand['brand_name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
+                            <button type="button" class="btn btn-outline-secondary" title="Add new brand" data-qa-modal="qaBrandModal">+</button>
+                            </div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Model</label>
-                            <select name="model_id" class="form-select" data-no-select2 data-placeholder="Select model">
+                            <div class="input-group">
+                            <select name="model_id" class="form-select" id="model_id" data-no-select2 data-placeholder="Select model">
                                 <option value="">Select model</option>
                                 <?php foreach ($models as $model): ?>
                                     <option value="<?php echo (int) $model['id']; ?>" <?php echo $form['model_id'] === (string) $model['id'] ? 'selected' : ''; ?> data-brand-id="<?php echo (int) ($model['brand_id'] ?? 0); ?>"><?php echo h($model['model_name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
+                            <button type="button" class="btn btn-outline-secondary" title="Add new model" data-qa-modal="qaModelModal">+</button>
+                            </div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Serial No.</label>
@@ -457,16 +469,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Office</label>
-                            <select name="office_id" class="form-select" data-placeholder="Select office">
+                            <div class="input-group">
+                            <select name="office_id" class="form-select" id="office_id" data-placeholder="Select office">
                                 <option value="">Select office</option>
                                 <?php foreach ($offices as $office): ?>
                                     <option value="<?php echo (int) $office['id']; ?>" <?php echo $form['office_id'] === (string) $office['id'] ? 'selected' : ''; ?>><?php echo h($office['office_name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
+                            <button type="button" class="btn btn-outline-secondary" title="Add new office" data-qa-modal="qaOfficeModal">+</button>
+                            </div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Accountable Employee</label>
-                            <select name="employee_id" class="form-select" data-placeholder="Select employee">
+                            <div class="input-group">
+                            <select name="employee_id" class="form-select" id="employee_id" data-placeholder="Select employee">
                                 <option value="">Select employee</option>
                                 <?php foreach ($employees as $employee): ?>
                                     <option value="<?php echo (int) $employee['id']; ?>" <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?> data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>">
@@ -474,6 +490,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            <button type="button" class="btn btn-outline-secondary" title="Add new employee" data-qa-modal="qaEmployeeModal">+</button>
+                            </div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Responsibility Code</label>
@@ -758,6 +776,409 @@ require_once __DIR__ . '/../../includes/topbar.php';
     }
 })();
 </script>
+
+<!-- Quick-Add Modals -->
+
+<!-- Classification Modal -->
+<div class="modal fade" id="qaClassificationModal" tabindex="-1" aria-labelledby="qaClassificationModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="qaClassificationModalLabel">Add Classification</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="qaClassificationError" class="alert alert-danger d-none"></div>
+        <div class="mb-3">
+          <label class="form-label">Classification Family <small class="text-muted">(optional)</small></label>
+          <input type="text" class="form-control" id="qa_classification_family" placeholder="e.g. Furniture and Fixtures">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Classification Name <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="qa_classification_name" placeholder="e.g. Office Chair">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="qaClassificationSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Account Code Modal -->
+<div class="modal fade" id="qaAccountCodeModal" tabindex="-1" aria-labelledby="qaAccountCodeModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="qaAccountCodeModalLabel">Add Account Code</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="qaAccountCodeError" class="alert alert-danger d-none"></div>
+        <div class="mb-3">
+          <label class="form-label">Account Code <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="qa_account_code" placeholder="e.g. 10605010-00">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Account Name <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="qa_account_name" placeholder="e.g. Office Equipment">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="qaAccountCodeSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Brand Modal -->
+<div class="modal fade" id="qaBrandModal" tabindex="-1" aria-labelledby="qaBrandModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="qaBrandModalLabel">Add Brand</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="qaBrandError" class="alert alert-danger d-none"></div>
+        <div class="mb-3">
+          <label class="form-label">Brand Name <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="qa_brand_name" placeholder="e.g. Samsung">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="qaBrandSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Model Modal -->
+<div class="modal fade" id="qaModelModal" tabindex="-1" aria-labelledby="qaModelModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="qaModelModalLabel">Add Model</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="qaModelError" class="alert alert-danger d-none"></div>
+        <div class="mb-3">
+          <p class="mb-1 text-muted small">Brand: <strong id="qaModelBrandLabel">—</strong></p>
+          <input type="hidden" id="qa_model_brand_id">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Model Name <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="qa_model_name" placeholder="e.g. Galaxy S24">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="qaModelSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Office Modal -->
+<div class="modal fade" id="qaOfficeModal" tabindex="-1" aria-labelledby="qaOfficeModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="qaOfficeModalLabel">Add Office</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="qaOfficeError" class="alert alert-danger d-none"></div>
+        <div class="mb-3">
+          <label class="form-label">Office Code <span class="text-danger">*</span></label>
+          <input type="text" class="form-control text-uppercase" id="qa_office_code" placeholder="e.g. HRMO">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Office Name <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="qa_office_name" placeholder="e.g. Human Resource Management Office">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="qaOfficeSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Employee Modal -->
+<div class="modal fade" id="qaEmployeeModal" tabindex="-1" aria-labelledby="qaEmployeeModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="qaEmployeeModalLabel">Add Employee</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="qaEmployeeError" class="alert alert-danger d-none"></div>
+        <div class="row g-2 mb-3">
+          <div class="col-5">
+            <label class="form-label">First Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="qa_emp_first_name">
+          </div>
+          <div class="col-3">
+            <label class="form-label">Middle Name</label>
+            <input type="text" class="form-control" id="qa_emp_middle_name">
+          </div>
+          <div class="col-4">
+            <label class="form-label">Last Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="qa_emp_last_name">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Position Title <small class="text-muted">(optional)</small></label>
+          <input type="text" class="form-control" id="qa_emp_position_title">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Office <small class="text-muted">(optional)</small></label>
+          <select class="form-select" id="qa_emp_office_id">
+            <option value="">— Select Office —</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="qaEmployeeSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    var qaEndpoint = <?php echo json_encode(base_url('modules/property/legacy_assets_quickadd.php')); ?>;
+
+    /* Open modals via data-qa-modal attribute */
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-qa-modal]');
+        if (!btn) return;
+        e.preventDefault();
+        var modalId = btn.getAttribute('data-qa-modal');
+        var modalEl = document.getElementById(modalId);
+        if (!modalEl) return;
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    });
+
+    function getCsrf() {
+        var el = document.querySelector('input[name="_csrf"]');
+        return el ? el.value : '';
+    }
+
+    function showError(elId, msg) {
+        var el = document.getElementById(elId);
+        if (!el) return;
+        el.textContent = msg;
+        el.classList.remove('d-none');
+    }
+
+    function clearError(elId) {
+        var el = document.getElementById(elId);
+        if (!el) return;
+        el.textContent = '';
+        el.classList.add('d-none');
+    }
+
+    function appendOption(selectId, id, label, extraData) {
+        var sel = document.getElementById(selectId);
+        if (!sel) return;
+        var opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = label;
+        if (extraData) {
+            Object.keys(extraData).forEach(function (k) {
+                opt.setAttribute('data-' + k.replace(/_/g, '-'), extraData[k]);
+            });
+        }
+        sel.appendChild(opt);
+        sel.value = id;
+    }
+
+    function postQA(payload, onSuccess, onError) {
+        payload['_csrf'] = getCsrf();
+        fetch(qaEndpoint, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: new URLSearchParams(payload).toString()
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.success) {
+                onSuccess(data);
+            } else {
+                onError(data.error || 'An error occurred.');
+            }
+        })
+        .catch(function () { onError('Network error. Please try again.'); });
+    }
+
+    /* ── Classification ── */
+    document.getElementById('qaClassificationModal').addEventListener('show.bs.modal', function () {
+        clearError('qaClassificationError');
+        document.getElementById('qa_classification_family').value = '';
+        document.getElementById('qa_classification_name').value = '';
+    });
+    document.getElementById('qaClassificationSaveBtn').addEventListener('click', function () {
+        clearError('qaClassificationError');
+        var name = document.getElementById('qa_classification_name').value.trim();
+        if (!name) { showError('qaClassificationError', 'Classification Name is required.'); return; }
+        var payload = { action: 'add_classification', classification_name: name,
+                        classification_family: document.getElementById('qa_classification_family').value.trim() };
+        postQA(payload, function (data) {
+            appendOption('classification_id', data.id, data.label);
+            bootstrap.Modal.getInstance(document.getElementById('qaClassificationModal')).hide();
+        }, function (err) { showError('qaClassificationError', err); });
+    });
+
+    /* ── Account Code ── */
+    document.getElementById('qaAccountCodeModal').addEventListener('show.bs.modal', function () {
+        clearError('qaAccountCodeError');
+        document.getElementById('qa_account_code').value = '';
+        document.getElementById('qa_account_name').value = '';
+    });
+    document.getElementById('qaAccountCodeSaveBtn').addEventListener('click', function () {
+        clearError('qaAccountCodeError');
+        var code = document.getElementById('qa_account_code').value.trim();
+        var name = document.getElementById('qa_account_name').value.trim();
+        if (!code) { showError('qaAccountCodeError', 'Account Code is required.'); return; }
+        if (!name) { showError('qaAccountCodeError', 'Account Name is required.'); return; }
+        postQA({ action: 'add_account_code', account_code: code, account_name: name }, function (data) {
+            appendOption('account_code_id', data.id, data.label);
+            bootstrap.Modal.getInstance(document.getElementById('qaAccountCodeModal')).hide();
+        }, function (err) { showError('qaAccountCodeError', err); });
+    });
+
+    /* ── Brand ── */
+    document.getElementById('qaBrandModal').addEventListener('show.bs.modal', function () {
+        clearError('qaBrandError');
+        document.getElementById('qa_brand_name').value = '';
+    });
+    document.getElementById('qaBrandSaveBtn').addEventListener('click', function () {
+        clearError('qaBrandError');
+        var name = document.getElementById('qa_brand_name').value.trim();
+        if (!name) { showError('qaBrandError', 'Brand Name is required.'); return; }
+        postQA({ action: 'add_brand', brand_name: name }, function (data) {
+            appendOption('brand_id', data.id, data.label);
+            /* Also add to model select's brand filter data */
+            var modelSel = document.getElementById('model_id');
+            if (modelSel) {
+                var opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = '— Select Model —';
+                opt.setAttribute('data-brand-id', '');
+            }
+            bootstrap.Modal.getInstance(document.getElementById('qaBrandModal')).hide();
+        }, function (err) { showError('qaBrandError', err); });
+    });
+
+    /* ── Model ── */
+    document.getElementById('qaModelModal').addEventListener('show.bs.modal', function () {
+        clearError('qaModelError');
+        document.getElementById('qa_model_name').value = '';
+        var brandSel = document.getElementById('brand_id');
+        var brandId = brandSel ? brandSel.value : '';
+        var brandLabel = brandSel && brandSel.selectedIndex >= 0 ? brandSel.options[brandSel.selectedIndex].text : '—';
+        document.getElementById('qa_model_brand_id').value = brandId;
+        document.getElementById('qaModelBrandLabel').textContent = brandId ? brandLabel : '— (no brand selected)';
+    });
+    document.getElementById('qaModelSaveBtn').addEventListener('click', function () {
+        clearError('qaModelError');
+        var name = document.getElementById('qa_model_name').value.trim();
+        var brandId = document.getElementById('qa_model_brand_id').value;
+        if (!name) { showError('qaModelError', 'Model Name is required.'); return; }
+        if (!brandId) { showError('qaModelError', 'Please select a Brand first, then open this dialog.'); return; }
+        postQA({ action: 'add_model', model_name: name, brand_id: brandId }, function (data) {
+            appendOption('model_id', data.id, data.label, { 'brand-id': data.brand_id });
+            bootstrap.Modal.getInstance(document.getElementById('qaModelModal')).hide();
+        }, function (err) { showError('qaModelError', err); });
+    });
+
+    /* ── Office ── */
+    document.getElementById('qaOfficeModal').addEventListener('show.bs.modal', function () {
+        clearError('qaOfficeError');
+        document.getElementById('qa_office_code').value = '';
+        document.getElementById('qa_office_name').value = '';
+    });
+    document.getElementById('qaOfficeSaveBtn').addEventListener('click', function () {
+        clearError('qaOfficeError');
+        var code = document.getElementById('qa_office_code').value.trim().toUpperCase();
+        var name = document.getElementById('qa_office_name').value.trim();
+        if (!code) { showError('qaOfficeError', 'Office Code is required.'); return; }
+        if (!name) { showError('qaOfficeError', 'Office Name is required.'); return; }
+        postQA({ action: 'add_office', office_code: code, office_name: name }, function (data) {
+            appendOption('office_id', data.id, data.label);
+            /* Also add to employee modal's office dropdown */
+            var empOfficeSel = document.getElementById('qa_emp_office_id');
+            if (empOfficeSel) {
+                var opt = document.createElement('option');
+                opt.value = data.id;
+                opt.textContent = data.label;
+                empOfficeSel.appendChild(opt);
+            }
+            bootstrap.Modal.getInstance(document.getElementById('qaOfficeModal')).hide();
+        }, function (err) { showError('qaOfficeError', err); });
+    });
+
+    /* ── Employee ── */
+    document.getElementById('qaEmployeeModal').addEventListener('show.bs.modal', function () {
+        clearError('qaEmployeeError');
+        document.getElementById('qa_emp_first_name').value = '';
+        document.getElementById('qa_emp_middle_name').value = '';
+        document.getElementById('qa_emp_last_name').value = '';
+        document.getElementById('qa_emp_position_title').value = '';
+        /* Populate office dropdown from main office_id select */
+        var empOfficeSel = document.getElementById('qa_emp_office_id');
+        var mainOfficeSel = document.getElementById('office_id');
+        empOfficeSel.innerHTML = '<option value="">— Select Office —</option>';
+        if (mainOfficeSel) {
+            Array.from(mainOfficeSel.options).forEach(function (opt) {
+                if (!opt.value) return;
+                var o = document.createElement('option');
+                o.value = opt.value;
+                o.textContent = opt.textContent;
+                empOfficeSel.appendChild(o);
+            });
+            /* Mirror current selection */
+            empOfficeSel.value = mainOfficeSel.value || '';
+        }
+    });
+    document.getElementById('qaEmployeeSaveBtn').addEventListener('click', function () {
+        clearError('qaEmployeeError');
+        var first = document.getElementById('qa_emp_first_name').value.trim();
+        var last  = document.getElementById('qa_emp_last_name').value.trim();
+        if (!first) { showError('qaEmployeeError', 'First Name is required.'); return; }
+        if (!last)  { showError('qaEmployeeError', 'Last Name is required.'); return; }
+        var payload = {
+            action: 'add_employee',
+            first_name: first,
+            middle_name: document.getElementById('qa_emp_middle_name').value.trim(),
+            last_name: last,
+            position_title: document.getElementById('qa_emp_position_title').value.trim(),
+            office_id: document.getElementById('qa_emp_office_id').value
+        };
+        postQA(payload, function (data) {
+            appendOption('employee_id', data.id, data.label, { 'office-id': data.office_id });
+            /* Update employee filter state */
+            if (typeof setupOfficeEmployeeFilter === 'function') {
+                setupOfficeEmployeeFilter();
+            }
+            bootstrap.Modal.getInstance(document.getElementById('qaEmployeeModal')).hide();
+        }, function (err) { showError('qaEmployeeError', err); });
+    });
+
+})();
+</script>
+
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
 
 
