@@ -1,0 +1,7 @@
+# Copy this file to android/key.properties and fill with your own values.
+# Do not commit android/key.properties.
+
+storeFile=keystore/uaspms-release.jks
+storePassword=CHANGE_ME
+keyAlias=uaspms
+keyPassword=CHANGE_ME
