@@ -4,10 +4,12 @@ require_login();
 
 $db = db();
 $officeId = (int) ($_GET['office_id'] ?? 0);
+$legacyAssetId = (int) ($_GET['legacy_asset_id'] ?? 0);
 $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $offices = [];
 $header = null;
 $rows = [];
+$validationError = '';
 
 if ($db) {
     $officeRes = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
@@ -15,7 +17,56 @@ if ($db) {
         $offices = $officeRes->fetch_all(MYSQLI_ASSOC);
     }
 
-    if ($officeId > 0) {
+    if ($legacyAssetId > 0 && $officeId <= 0) {
+        $legacyOfficeStmt = $db->prepare("SELECT office_id FROM legacy_assets WHERE id = ? LIMIT 1");
+        if ($legacyOfficeStmt) {
+            $legacyOfficeStmt->bind_param('i', $legacyAssetId);
+            $legacyOfficeStmt->execute();
+            $legacyOffice = $legacyOfficeStmt->get_result()->fetch_assoc();
+            $legacyOfficeStmt->close();
+            $officeId = (int) ($legacyOffice['office_id'] ?? 0);
+        }
+    }
+
+    if ($legacyAssetId > 0) {
+        $legacyValidationStmt = $db->prepare(
+            "SELECT property_number, item_description, office_id, employee_id, item_type
+             FROM legacy_assets
+             WHERE id = ?
+             LIMIT 1"
+        );
+        if ($legacyValidationStmt) {
+            $legacyValidationStmt->bind_param('i', $legacyAssetId);
+            $legacyValidationStmt->execute();
+            $legacyRow = $legacyValidationStmt->get_result()->fetch_assoc() ?: null;
+            $legacyValidationStmt->close();
+
+            if (!$legacyRow) {
+                $validationError = 'Legacy asset record not found for printing.';
+            } else {
+                $missing = [];
+                if (trim((string) ($legacyRow['property_number'] ?? '')) === '') {
+                    $missing[] = 'Property Number';
+                }
+                if (trim((string) ($legacyRow['item_description'] ?? '')) === '') {
+                    $missing[] = 'Description';
+                }
+                if ((int) ($legacyRow['office_id'] ?? 0) <= 0) {
+                    $missing[] = 'Office Assignment';
+                }
+                if ((int) ($legacyRow['employee_id'] ?? 0) <= 0) {
+                    $missing[] = 'Accountable Employee';
+                }
+                if ($missing) {
+                    $validationError = 'Printing is blocked. Complete this legacy asset first: ' . implode(', ', $missing) . '.';
+                } elseif (($legacyRow['item_type'] ?? '') !== 'equipment') {
+                    $validationError = 'PAR printing is allowed for legacy equipment assets only.';
+                }
+            }
+        }
+    }
+
+    if (($officeId > 0 || $legacyAssetId > 0) && $validationError === '') {
         $headStmt = $db->prepare(
             "SELECT o.id, o.office_name, o.office_code, rc.code AS rc_code,
                     e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title
@@ -25,14 +76,42 @@ if ($db) {
              WHERE o.id = ?
              LIMIT 1"
         );
-        if ($headStmt) {
+        if ($headStmt && $officeId > 0) {
             $headStmt->bind_param('i', $officeId);
             $headStmt->execute();
             $header = $headStmt->get_result()->fetch_assoc() ?: null;
             $headStmt->close();
         }
 
-        $systemStmt = $db->prepare(
+        if (!$header && $legacyAssetId > 0) {
+            $fallbackStmt = $db->prepare(
+                "SELECT o.id, COALESCE(o.office_name, 'Unassigned Office') AS office_name, o.office_code
+                 FROM legacy_assets la
+                 LEFT JOIN offices o ON o.id = la.office_id
+                 WHERE la.id = ?
+                 LIMIT 1"
+            );
+            if ($fallbackStmt) {
+                $fallbackStmt->bind_param('i', $legacyAssetId);
+                $fallbackStmt->execute();
+                $fallback = $fallbackStmt->get_result()->fetch_assoc() ?: [];
+                $fallbackStmt->close();
+                $header = [
+                    'id' => (int) ($fallback['id'] ?? 0),
+                    'office_name' => (string) ($fallback['office_name'] ?? 'Unassigned Office'),
+                    'office_code' => (string) ($fallback['office_code'] ?? ''),
+                    'rc_code' => '',
+                    'first_name' => '',
+                    'middle_name' => '',
+                    'last_name' => '',
+                    'suffix_name' => '',
+                    'position_title' => '',
+                ];
+            }
+        }
+
+        if ($legacyAssetId <= 0) {
+            $systemStmt = $db->prepare(
             "SELECT
                 'system' AS source_type,
                 did.property_number,
@@ -57,18 +136,48 @@ if ($db) {
                AND did.is_distributed = 1
                AND (did.is_disposed IS NULL OR did.is_disposed = 0)
              ORDER BY did.property_number ASC, did.id ASC"
-        );
-        if ($systemStmt) {
-            $systemStmt->bind_param('i', $officeId);
-            $systemStmt->execute();
-            $res = $systemStmt->get_result();
-            while ($res && ($row = $res->fetch_assoc())) {
-                $rows[] = $row;
+            );
+            if ($systemStmt) {
+                $systemStmt->bind_param('i', $officeId);
+                $systemStmt->execute();
+                $res = $systemStmt->get_result();
+                while ($res && ($row = $res->fetch_assoc())) {
+                    $rows[] = $row;
+                }
+                $systemStmt->close();
             }
-            $systemStmt->close();
         }
 
-        $legacyStmt = $db->prepare(
+        if ($legacyAssetId > 0) {
+            $legacyStmt = $db->prepare(
+                "SELECT
+                    'legacy' AS source_type,
+                    la.property_number,
+                    la.item_description,
+                    c.classification_name,
+                    c.classification_family,
+                    '' AS abbreviation,
+                    la.unit_cost,
+                    la.acquisition_date AS date_acquired,
+                    la.brand,
+                    la.model,
+                    la.serial_no
+                 FROM legacy_assets la
+                 LEFT JOIN classifications c ON c.id = la.classification_id
+                 WHERE la.id = ?
+                 LIMIT 1"
+            );
+            if ($legacyStmt) {
+                $legacyStmt->bind_param('i', $legacyAssetId);
+                $legacyStmt->execute();
+                $res = $legacyStmt->get_result();
+                while ($res && ($row = $res->fetch_assoc())) {
+                    $rows[] = $row;
+                }
+                $legacyStmt->close();
+            }
+        } else {
+            $legacyStmt = $db->prepare(
             "SELECT
                 'legacy' AS source_type,
                 la.property_number,
@@ -87,15 +196,16 @@ if ($db) {
                AND la.item_type = 'equipment'
                AND la.office_id = ?
              ORDER BY la.property_number ASC, la.id ASC"
-        );
-        if ($legacyStmt) {
-            $legacyStmt->bind_param('i', $officeId);
-            $legacyStmt->execute();
-            $res = $legacyStmt->get_result();
-            while ($res && ($row = $res->fetch_assoc())) {
-                $rows[] = $row;
+            );
+            if ($legacyStmt) {
+                $legacyStmt->bind_param('i', $officeId);
+                $legacyStmt->execute();
+                $res = $legacyStmt->get_result();
+                while ($res && ($row = $res->fetch_assoc())) {
+                    $rows[] = $row;
+                }
+                $legacyStmt->close();
             }
-            $legacyStmt->close();
         }
     }
 }
@@ -126,12 +236,18 @@ $unitHeadName = $header ? employee_display_name($header) : '';
             </div>
             <div class="d-flex gap-2">
                 <a href="<?php echo base_url('modules/distributions/index.php?document_type=par'); ?>" class="btn btn-outline-secondary">Back to Distribution</a>
-                <?php if ($officeId > 0 && $rows): ?>
-                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
+                <?php if (($officeId > 0 || $legacyAssetId > 0) && $rows): ?>
+                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : '') . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
                 <?php endif; ?>
             </div>
         </div>
+        <?php if ($validationError !== ''): ?>
+            <div class="alert alert-warning"><?php echo h($validationError); ?></div>
+        <?php endif; ?>
         <form method="get" class="row g-3 align-items-end">
+            <?php if ($legacyAssetId > 0): ?>
+                <input type="hidden" name="legacy_asset_id" value="<?php echo (int) $legacyAssetId; ?>">
+            <?php endif; ?>
             <div class="col-md-8">
                 <label class="form-label">Office</label>
                 <select name="office_id" class="form-select" required>
@@ -150,7 +266,7 @@ $unitHeadName = $header ? employee_display_name($header) : '';
         </form>
     </div>
 
-    <?php if ($officeId > 0 && $header): ?>
+    <?php if (($officeId > 0 || $legacyAssetId > 0) && $header): ?>
         <div class="d-flex justify-content-between align-items-start mt-3 mb-2">
             <div class="appendix">Appendix 71</div>
         </div>
@@ -231,7 +347,7 @@ $unitHeadName = $header ? employee_display_name($header) : '';
                 <div>Date:</div>
             </div>
         </div>
-    <?php elseif ($officeId > 0): ?>
+    <?php elseif ($officeId > 0 || $legacyAssetId > 0): ?>
         <div class="alert alert-info">No PAR items found for the selected office.</div>
     <?php endif; ?>
 </div>

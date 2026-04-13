@@ -86,6 +86,14 @@ $sections = [
                 'tags' => ['Equipment', 'Physical Count'],
             ],
             [
+                'appendix' => 'Appendix 73 Workflow',
+                'title' => 'RPCPPE Batches',
+                'description' => 'Prepare yearly draft batches, carry forward prior included assets, then finalize a historical RPCPPE submission list.',
+                'path' => 'modules/reports/rpcppe_batches.php',
+                'icon' => 'bi bi-calendar-check',
+                'tags' => ['Equipment', 'Yearly', 'Workflow'],
+            ],
+            [
                 'appendix' => 'Appendix 74',
                 'title' => 'IIRUP',
                 'description' => 'Inventory and Inspection Report of Unserviceable Property drawn from posted disposal transactions.',

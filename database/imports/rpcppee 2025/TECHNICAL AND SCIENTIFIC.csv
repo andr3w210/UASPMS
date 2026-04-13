@@ -1,0 +1,483 @@
+A,B,C,D,E,F,G,H,I,J,K,L,M,N
+Laboratory table,"with Chairs 80""x36""x36""",2016-01-05.140-018-1,unit,100000,1,1,,,nsb building 2- Salvilla,1/1/2016,01,,
+Laboratory table,"with Chairs 80""x36""x36""",2016-01-05.140-018-2,unit,100000,1,1,,,nsb building 2- Salvilla,42370,01,,
+Laboratory table,"with Chairs 80""x36""x36""",2016-01-05.140-018-3,unit,100000,1,1,,,nsb building 2- Salvilla,42370,01,,
+Laboratory table,"with Chairs 80""x36""x36""",2016-01-05.140-018-4,unit,100000,1,1,,,nsb building 2- Salvilla,42370,01,,
+Demonstration Table,"with sink , Dimension 49"" L x 24"" W x 36"" H",2016-01-05.140-017-1,unit,70000,1,1,,,nsb building 2- Salvilla,42370,01,,
+Demonstration Table,"with sink , Dimension 49"" L x 24"" W x 36"" H",2016-01-05.140-017-2,unit,70000,1,1,,,nsb building 2- Salvilla,42370,01,,
+Bench Milling Machine,"Model: KX1S-SEIG, CNC with Transparent shield, SN: 10169",2018-01-05.140-001,unit,770991,1,1,,,CEA 04-Vegafria,43389,01,,
+Hydraulic Bench,FM 100F,2018-01-05.140-002,unit,205000,1,1,,,CEA 04-Vegafria,43389,01,,
+Flow Over Weirs,FM 02,2018-01-05.140-003,unit,150000,1,1,,,CEA 04-Vegafria,43389,01,,
+Orifice and Jet Flow,FM17,2018-01-05.140-004,unit,240000,1,1,,,CEA 04-Vegafria,43389,01,,
+Metacentric Height Apparatus,FM08A,2018-01-05.140-005,unit,105000,1,1,,,CEA 04-Vegafria,43389,01,,
+Bernaulli's Theorem Apparatus,FM03,2018-01-05.140-006,unit,280000,1,1,,,CEA 04-Vegafria,43389,01,,
+Flow meter Demo Apparatus,FM18,2018-01-05.140-007,unit,310000,1,1,,,CEA 04-Vegafria,43389,01,,
+Pipe Friction Apparatus,FM23,2018-01-05.140-008,unit,217000,1,1,,,CEA 04-Vegafria,43389,01,,
+Orifice Discharge Apparatus,FM04,2018-01-05.140-009,unit,212000,1,1,,,CEA 04-Vegafria,43389,01,,
+Fully Automatic Kjeldal Digestion Unit,Kjeldal Analyzer( Hano Instruments) Model: K9860; SN: K625300164,2020-01-05.140-017,unit,586000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Soxhlet Fat Extraction,(FAT ANALYZER) SOX406; Model: K9860; SN: SX425300170,2020-01-05.140-018,unit,248000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Water Activity Meter,Biobase; Model: BWA-6; SN: HK00021013,2020-01-05.140-019,unit,250000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Digital Viscometer,Model: DV-1+PRO NO SN:,2020-01-05.140-020,unit,240000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Fiber Analyzer,Brand: Hanon SN: F225280069,2020-01-05.140-021,unit,508000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Hand Wheel Vertical Autoclave,Biobase Model: BKQ-B100II; SN: BKQB1001121025005,2020-01-03.050-022,unit,185000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Muffle Furnance,Digital Model: DMF-03 SN: S21P112-01,2020-01-05.030-023,unit,135000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Colorimeter,"PCE-CSM 1, Brand: PCE SN: 11159278",2020-05-05-0140-024,unit,94000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Automatic Potentiometric Titrator,"Brand: Biobase, Model: BK-PT860, SN: T8625280097",2020-05-05-0140-025,unit,235000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+pH/ORP Meter with Cal Check,Brand: HANNA Model: HI5221-02 SN: 11005240177,2020-05-05-0140-026,unit,75200,1,1,,,Recets-Delgado/Gadot,6/8/2020,01,,
+"Microscope with camera, 22"" LED Monitor, Keyboard and wireless optical Mouse",Brand: Opto Edu; Model: A12.6603-T SN: 2100071,2020-05-05-0140-028,unit,63995,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Moisture Analyzer,Brand: Shimadzu; Model: MOC-120H SN: D207304176,2020-05-05-0140-029,unit,170000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Fumehood,Brand Biobasse; Model: FH1000 SN: SN: FH10C2010002,2020-05-05-0140-030,unit,225000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Incubator,Brand: Biobase MODEL: 8JPX-H2300ii; SN: 2102700 SN: 2102699,2020-05-05-0140-031,unit,148000,2,2,,,Recets-Delgado/Gadot,43990,01,,
+Laminar Flow Hood,Vertical; Brand: Humanlab; Model: DWB-22 SN: PL029451 (S21P112-02),2020-05-05-0140-037,unit,275000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Water Bath,Inner Tank; Brand: Humanlab; Model: DWB-22 SN: C21P112-03,2020-05-05-0140-038,unit,57000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Analytical Balance,Brand: Shimadzu; Model: ATX224 SN: D326000332,2020-05-05-0140-039-1,unit,75000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Analytical Balance,Brand: Shimadzu; Model: ATX224 SN: D326000319,2020-05-05-0140-039-2,unit,75000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Table Top High Speed Centrifuge,Mini Centrifuge; Brand: Humanlab; Model Smart-13 SN: S21P112-04,2020-05-05-0140-040,unit,135000,1,1,,,Recets-Delgado/Gadot,43990,01,,
+Procurement of Maritime Virtual and Augmented Reality Laboratory,"1. AR VR Web Platform
+2. VR ApplicationB49:BB49:B116
+3. VR Ready Desktop (6 units)
+-Intel Core I7 10400 or up
+-GTX1660 or up
+-VR Ready Motherboard
+-8GB RAM
+-256gb NVME M.2
+-650watss full Modular
+4. Accessories and Other
+-6 units 55"" Smart TV; Skyworth; SW-22SA NF;
+SN:2420434P00961
+SN:2420434P01552
+SN:2410772P00551
+SN:2420434P01501
+SN:2410772P01260
+SN:2420434P00576
+-VR Headset (6 units) Oculus Quest 2
+SN: 1WMVR4B2L62112
+SN: 1WMVR4B6652215
+SN: 1WMVR4B32B2174
+SN: 1WMVR4BA3B2206
+SN: 1WMVR4D1CJ2216
+SN: 1WMVR4B1462175
+AR Tablets (40 units) XIAOMI MI Pad 5
+SN: 35875/Q3S900770
+SN: 35875/Q3QK00755
+SN: 35875/Q3QK00738
+SN: 35875/Q3QK00774
+SN: 35874/Q3RT01239
+SN: 35875/Q3QK00757
+SN: 35875/Q3S900710
+SN: 35875/Q3S900681
+SN: 35875/Q3S900717
+SN: 35875/Q3S900720
+SN: 35874/Q3RT01170
+SN: 35875/Q3S900714
+SN: 35874/Q3RT01162
+SN: 35874/Q3RT01214
+SN: 35874/Q3RT01162
+SN: 35874/Q3RT01214
+SN: 35875/QRS900252
+SN: 35875/Q3S900448
+SN: 35875/Q3S900708
+SN: 35875/Q3QK00584
+SN: 35875/Q3RT01227
+SN: 35875/Q3QK00684
+SN: 35874/Q3RT01223
+SN: 35874/Q3RT01242
+SN: 35875/Q3QK00781
+SN: 35875/Q3QK00719
+SN: 35875/Q3S900834
+SN: 35875/Q3S900259
+SN: 35874/Q3RT01183
+SN: 35874/Q3RT01199
+SN: 35875/Q3QK00762
+SN: 35874/Q3RT01217
+SN: 35874/Q3RT01240
+SN: 35875/Q3QK00758
+SN: 35875/Q3S900719
+SN: 35875/Q3QK00779
+SN: 35874/Q3RT01198
+SN: 35875/Q3S900736
+SN: 35875/Q3S900882
+SN: 35875/Q3S900715
+SN: 35875/Q3S900798
+SN: 35875Q3S900246
+-AR Maritime Application
+-Air Conditioner (wall mounted Midea)
+SN: 54122000E8B45210170094",2024-01-05.140-07-026-B-01,lot,4900000,1,1,,,CMS- Garfin,45488,01,,
+Microwave Plasma,"AGILENT (4210 MP-AES) SN: MY24259001; Microwave Plasma - Atomic Emission Spectrometer with complete accessories; AGILENT (MOLAVE)
+-Sample Gas Introduction
+-Plasma Generator
+-Optical System
+-Detector
+Accessories Includes:
+* 1pc. 5-Channel Pump Upgrade; SN: MY2421MQE1
+*1pc. Multimode Sample Introduction System; SN: SH5127350
+*1pc. Optics Purge Kit; SN: MY2412MR12
+*1pc. MP Expert Pro Pack; SN: USH4895767
+*1pc. Nitrogen Generator; SN: CN23510008
+*3 units of Easy Fit Torc for MP-AES 4210; SN: AU24173112, AU24173118, AU24153028
+*2 units of pump Tubing, PVC, White/white tabs
+*2 units of pump tubing, PVC, blue/blue tabs
+*1 pack of pump tubes, PVC, black/black, 12/pack
+*1 pack of pump tubes, PVC, black/white 12/pack
+*1 pc. replacement on board Argon Bottle
+*1 pc. Inlet filter kit -4107 N2 Generator
+*1 pc. Wavelength Calibration Solution( 5ppm, 100mL)
+*1 set of Computer/Printer/MS Office
+-Desktop Computer; Acer;VX2710G; Intel Core i5-13400; 8gb DDR4 RAM; 512gb SSD + 1 TB M.2 PCIe SSD; 21.5"" Monitor; SN: DTVY3SP04F409003399600; Monitor SN: MMTX5SP003424030B02X00
+-Printer; Epson; L5290; SN:X8H5211012
+*1 unit of Air Compressor, Refrigerated Dryer, and Filter; HITACHI
+*1 unit Exhaust System/Ductwork
+*1 unit UPS 10KVA with built-in AVR; PowerCom UPS 10KVA; SN: CTB1010-240326003
+*1 bottle Wavelength Calibration solution",2024-01-05.140-07-007-01,lot,4422998,1,1,,,IRDL-J. Gadot,45540,01,,
+Fumehood,SCITEK (FMH-1800DP) SN: FMH1800DP24102033HBKY1,2024-01-05.140-07-006-B-1,lot,328000,1,1,,,CATL- Gadot,45624,01,,
+Complete Accessories for Brookfield Texture Analyzer CTX,"Brookfield: 1 set-Brookfield Cat. No. TA-TPB three-point bend assembly
+1 set-Brookfield Cat. No. TA-NFT noodle test fixture
+1 set-Brookfield Cat. No. TA-SF Spreadability (5 cones)",2024-01-05.140-07-006-D,lot,395463,1,1,,,IRDL-J. Gadot,10/21/2024,01,,
+Viscotester,w/ stand Japan (RION) VT-04E,,unit,215000,1,1,,,Apote,37386,05,,
+Venturimeter,w/ complete accessories,2002-164-05.140-004,unit,220000,2,2,,,Supply SR,37386,05,,
+Demonstration Table,"0.65ml.., 1.80ml, .90ml. w/ complete accessories molded resin lap acid resistant w/ 1 gasul tank",2002-164-05.140-006 (1),unit,120000,1,1,,,1- Sci. Lab/Estores,37484,05,,
+Demonstration Table,"0.65ml.., 1.80ml, .90ml. w/ complete accessories molded resin lap acid resistant w/ 1 gasul tank-",2002-164-05.140-006 (2),unit,120000,1,1,,,Biolab-V. Cuaderes,37484,05,,
+Chemistry Table,"Rectangular Shape; Dim, 1.00 MW x 3.00 ML x 0.90 MH; 8 seaters (mars)",,unit,380000,2,2,,,R. Mena,37720,05,,
+Human Torso Chart w/ stand,,,unit,60000,1,1,,,Biolab-V. Cuaderes,37763,05,,
+Course-Electrical Engineering 1,DC Technology,,piec e,687100,1,1,,,CEA/Dr. Vegafria,37918,05,,
+Course-Electrical Engineering 2,AC Technology,,piec e,,1,1,,,CEA/Dr. Vegafria,37918,05,,
+Unitr@in - 1,Interface Virtual Instrument (Basic VI),03-10-214-016-B,piec e,,13,13,,,CEA/Dr. Vegafria,37918,05,,
+Unitr@in - 1,Experimenter,03-10-214-017-11-3-B,piec e,,1,1,,,CEA/Dr. Vegafria,37918,05,,
+Unitr@in - 1,Set of Shunts,,piec e,,1,1,,,CEA/Dr. Vegafria,37918,05,,
+Unitr@in - 1,Extended Power Supply,03-10-214-018-B,piec e,,1,1,,,CEA/Dr. Vegafria,37918,05,,
+Connection Cable,2mm (22pcs) for Unitr@in-1,,piec e,,1,1,,,CEA/Dr. Vegafria,37918,05,,
+Connection Plugs,2mm/5mm,,piec e,,10,10,,,CEA/Dr. Vegafria,37918,05,,
+TINA PRO Software,,,,,1,1,,,CEA/Dr. Vegafria,37918,05,,
+Unitr@in - 1,Digital Multimeter,,unit,,1,1,,,CEA/Dr. Vegafria,37918,05,,
+Storage Case,for one system,,unit,,1,1,,,CEA/Dr. Vegafria,37918,05,,
+Platform Balance,Ohaus; US,,unit,299750,5,5,,,Sci.Lab/Estores,38243,05,,
+Course Electronics 1,Semi-Conductor Component,,piece,115265,1,1,,,CEA/Dr. Vegafria,38303,05,,
+Course Electronics 3,Transistor and Amplifier Technology,,piece,140545,1,1,,,CEA/Dr. Vegafria,38303,05,,
+Course Electronics 4,Field Effects Transistor,,piece,78625,1,1,,,CEA/Dr. Vegafria,38303,05,,
+Course Electronics 6,Power Semi-Conductor,,piece,55960,1,1,,,CEA/Dr. Vegafria,38303,05,,
+Communication Tech 8,AM/FM Modulatiaon/Demodulation,,piece,136960,1,1,,,CEA/Dr. Vegafria,38303,05,,
+Course Electronics 2,Transistor Multivibrator,,piece,84000,1,1,,,CEA/Dr. Vegafria,38303,05,,
+Course Electronics 8,Switched Mode Power,,piece,76160,1,1,,,CEA/Dr. Vegafria,38303,05,,
+Communication Tech 5,Pulse Modulation Methods PCM/PAM,,piece,287040,1,1,,,CEA/Dr. Vegafria,38303,05,,
+Double Beam Balance,Ohaus,2005-164-05.140-008,unit,179850,3,3,,,Sci. Lab/Estores,38541,05,,
+Conventional Polygraph,"Lafeyette; actusry reconditioned & calibrated; 220v; 60Hz; 5 colored inking pens; 10"" chart paper; operating manual; in aluminum casing w/ examination table Model: 761-96GA*C S/N: 353483 (Ambassador)",2006-164-05.140-011,unit,390000,1,1,,,CRIME LAB-Espartero,38923,05,,
+Pro Photo Camera Set,"w/ lenses, zoom, macro lens, wide angle lens/telephone lens, tri-pod & carrying case #2676822 (Nikon)",2006-164-05.140-012,unit,68000,1,1,,,CRIME LAB-Espartero,38924,05,,
+Questioned Document Analysis,Cat # MQDA500 (SIRCHIE),2007-164-05.140-013,unit,135000,1,1,,,CRIME LAB-Espartero,39204,05,,
+Forensic Comparison Microscope,"complete w/ 21"" colored TV Monitor S/N: 1016096; Model: BZ212N50 (Sony), CCD Camera, Photo Camera, 220V for bullet Model: KOM-505; SN: 26891",2007-164-05.140-014,unit,499000,1,1,,,CRIME LAB-Espartero,39204,05,,
+Crime Scene Sketch Kit Prof,,2008-164-05.140-018,set,62000,1,1,,,CRIME LAB-Espartero,39652,05,,
+Introduction to Forensic Toxicology,,2008-164-05.140-019,set,85000,1,1,,,CRIME LAB-Espartero,39652,05,,
+Master Firearms Detector Kit,Cat. # MFD 200 (SIRCHIE),2008-164-05.140-023,set,55000,1,1,,,CRIME LAB-Espartero,39682,05,,
+Narcotics and Drug Indentification Kit,,2008-164-05.140-024,set,85000,1,1,,,CRIME LAB-Espartero,39682,05,,
+Master Evidence Collection Kit,,2008-164-05.140-025,set,60000,1,1,,,CRIME LAB-Espartero,39682,05,,
+Theodolite,Digital DT-5; SN: 04598,2008-164-05.140-029,unit,159000,1,1,,,CEA-Engr.C. Vegafria,39521,05,,
+Analytical Balance,TB11-300; 300g cap x 0.005g sensitivity; digital (Nutex),,unit,75200,1,1,,,Sci. Lab/Estores,40122,05,,
+APPLICATION BOARD FOR POSITION CONTROL,DELORENZO DL 3155M33C,,set,61620.5,1,1,,,CEA/Engr.Vegafria,42024,05,,
+APPLICATION BOARD FOR SPEED SYSTEM,DELORENZO DL 3155M33A,,set,89567.35,1,1,,,CEA/Engr.Vegafria,42024,05,,
+APPLICATION BOARD FOR TEMPERATURE CONTROL,DELORENZO DL3155M33B,,set,75593.92,1,1,,,CEA/Engr.Vegafria,42024,05,,
+"REGULATION AND CONTROL BOARD WITH UNLIMITED INSTALLATION cai SOFTWARE, WITH ATLEAST 7 FAULT INSERTION MICRO SWITCHES OF COMPUTER INSERTION, WITH POWER SUPPLY AND BASE FRAME",DELORENZO DL 3155M33,,set,209601.33,1,1,,,M.A.Lazo,42024,05,,
+"PUMP, FLUX METER, LINEAR MOTOR OPERATED VALVE, SOLENOID VALVES, MANUALLY OPERATED",DELORENZO DL 2314,,set,1543719.54,1,1,,,M.A.Lazo,42024,05,,
+PROCESS CONTROL SIMULATION SOFTWARE CONTROLLER,DELORENZO DL2314SIM,,set,56122.76,1,1,,,M.A.Lazo,42024,05,,
+MICROPROCESSOR-BASED PROCESS CONTROLLER,DELORENZO DL2314C,,set,508999.08,1,1,,,M.A.Lazo,42024,05,,
+Full Mission Deck Simulator,"Class ""A"" bridge with 1 console for
+ECDIS and RADAR Simulation with maps
+Class ""B"" working station
+includes 7 units 65"" 4K Smart TV;Devant
+65UHV300A091800107
+65UHV300A091800122
+65UHV300A091800002
+65UHV300A091800142
+65UHV300A091800034
+65UHV300A091800083
+7 units AOC led monitor
+SN: GRLJAHA006682
+SN: GRLJAHA006629
+SN: GRLJAHA006642
+SN: GRLJAHA005933
+SN: GRLJAHA006649
+SN: GRLJAHA005940
+SN: GRLJAHA005942
+1 unit LG Led TV; SN: 807NTTQ86785
+3 units Ibook with no SN
+18 units 55"" UHD 4K Flat Smart TV	
+SN: 55UHV400A071800584
+55UHV400A071801141
+55UHV400A071801185
+55UHV400A071801026
+55UHV400A071801079
+55UHV400A071800950
+55UHV400A071800891
+55UHV400A071801035
+55UHV400A071800525
+55UHV400A071801028
+55UHV400A071800564
+55UHV400A071800854
+55UHV400A071801048
+55UHV400A071800820
+55UHV400A071801024
+55UHV400A071801075
+55UHV400A071801078
+55UHV400A071800968
+PC-Bases engine Simulator includes software
+such as:Turbo Diesel software
+Virtual Engine Room Software
+CBT Marine Training software
+medium speed engine room simulator software
+steam engine room simulator software
+Marine Diesel Engine; Marine Steam Turbine
+Marine Gas turbine; Marine steam boilers
+with 12 sets of Desktop Computer
+Intel Core i7; 2.7 Ghz; 8 GB Ram DDR4 1TB HDD; 24"" LED Monitor; Keyboard;Mouse, 11 pcs 1200VA UPS; 1 pc Network switch Hub 16 ports; 10 pcs head sets; with 2 units CISS Printer Epson L3110; Swivel Chair (Black leather ; metal and wood frame); 5 laboratory tables; Blue and 1 Instructor station (blue)
+monitor SN: 1M2471WH83801086   (8)
+monitor SN: 1M2471WH83800790   (6)
+monitor SN: 1M2471WH84100147   (10)
+monitor SN: 1M2471WH83801089   (9)
+monitor SN: 1M2471WH84160162   (7)
+monitor SN: 1M2471WH8H100136   (5)
+monitor SN: 1M2471WH84100001   (2)
+monitor SN: 1M2471WH83801325   (1)
+monitor SN: 1M2471WH83801696   (4)
+monitor SN: 1M2471WH83800826   (3)
+monitor SN: ZZQ5H4TH900715D (SERVER)
+monitor SN: ZZQ5H4TH900712Y  (SPARE)
+Mouse, 11 pcs -1200VA UPS (Intex); with black Leather
+with 2 units CISS Printer Epson L3110",2018-05-05-140-024,set,20396000,1,1,,,CMS-Samillano,43462,05,,
+Transmitter,Electric 0-2MPa to 0-20MPa (Set),2019-05-05-140-011,unit,66214,1,1,,,CMS-Samillano,43780,05,,
+Planimeter,KOIZUMI KP90N; Planix 7 digital; SN: H17764,2020-05-05-140-007,unit,72000,1,1,,,CEA-C. Vegafria,43983,05,,
+Motor Control Module,"Main Frame w/ built-in Main Breaker, Main Switch & Connection Panel (1); Royal Cord w/Industrial Socket, Male & Female on both ends (1); Connection Nodes Panel (3); Three Pole Fuse (220V) Panel (1); MCB Control VoltagePanel (2); Overload Relay Panel (2); Magnetic Contractor Panel (4); Auxillary Relay (110V) Panel (2); Auxillary Relay (220V); Panel (2); Control Transformer (220V : 110V) Panel (1);Start-Stop Button Panel (1); Forward-ReverseButton Panel (1); Limit Switch Panel (1); Timer  (24V-240V); Panel (1); Timer (220V) Panel (1); Pilot Light (220V) panel (1); Pilot Light (110V) Panel (1); Proximity Switch (220V) Panel (1); Load 3phase leads out Panle (1); Load 6 phase leads out Panel (1); connecting wires Red Banana & Jack & Black Banana Jack (1); Motor Control Module Manual (2) w/ free induction motor",2020-05-05-0140-016,lot,578800,1,1,,,CMS-Samillano,43910,05,,
+Reynolds Apparatus,"SCITECH, FM 06",2021-05-05-140-045,unit,173442,1,1,,,CEA-C. Vegafria,44439,05,,
+POLYGRAPH SYSTEM WITH LAPTOP COMPUTER LAFAYETTE INSTRUMENTS,"LX6 Features Superior Fischer Connectors MODEL: LX6 SN: SN:220429FN ; Laptop SN: Model: N2004, NXA2ASP008142202C3400",2022-05-05.140-065,set,725000,1,1,,,CCJE-Cordero,44588,05,,
+T-Shirt Printer,"EPSON, DTF Printer, size 660* 400* 300mm",2022-05-05.140-066,unit,70000,1,1,,,COT-Farparan,44706,05,,
+Sewing Machine,"Button Hole Industrial Type, single needle (JUKI)",2022-05-05.140-067-001,unit,81000,1,1,,,COT-Farparan,44827,05,,
+Sewing Machine,"Button Hole Industrial Type, single needle (JUKI)",2022-05-05.140-067-002,unit,81000,1,1,,,COT-Farparan,44827,05,,
+Tool Set,"TOLSEN, 179 pcs/set in 7 roller drawer cabinet",2022-05-05.990-001,set,65000,1,1,,,COT-Gregorio,44720,05,,
+High End Computer,"Ryzen 5, AMD Ryzen 5 3660, RTX 3060, 16GB DDR4, 1TB SSD with LG LED Monitor 32""",2023-05-05.140-003,unit,61000,1,1,,,COT-Farparan,44927,05,,
+Printer,"Zoomjet, for sticker and tarpaulin; Surecolor, 10 feet media length",2023-05-05.140-009,unit,491840,1,1,,,COT-Farparan,44927,05,,
+Motor Control Trainer,for Direct Online Connection Model: TB-220413-V-001,2023-05-05.140-016,set,149573,1,1,,,CMS-Samillano,45011,05,,
+Motor Control Trainer,for Forward Reverse Connection Model: TB-220413-V-002,2023-05-05.140-017,set,151539,1,1,,,CMS-Samillano,45011,05,,
+Motor Control Trainer,for WYE / DELTA Connection Model: TB-220413-V-003,2023-05-05.140-018,set,138997,1,1,,,CMS-Samillano,45011,05,,
+Operational Synchronizing Equipment,"of Main Switchboard with 3 Units Generator, Model: TB-220413-V-004",2023-05-05.140-019,set,2451383,1,1,,,CMS-Samillano,45011,05,,
+Pneumatic Transmitter,can transmit 3 to 15 psi signal,2023-05-05.140-020,unit,58240,1,1,,,CMS-Samillano,45011,05,,
+Reciprocating Air-Driven Pump,"0-3 bars, 5-50 liters per minute",2023-05-05.140-021,unit,150000,1,1,,,CMS-Samillano,45011,05,,
+Shell and Tube Cooler,length 150-350 mm,2023-05-05.140-022,unit,208000,1,1,,,CMS-Samillano,45011,05,,
+"Motor Control, Mechatronics and PLC Trainer","(1 unit) Logo PLC (8 digital input & 4 digital output), (1 unit) Logo Expansion module (4 digital input & 4 digital output), (1 unit) PLC license, (2 units) 24 volts power supply (3A), (3 units) double acting cylinders, (3 units) 5/2 way solenoid valve with base manifold, (1 unit) ½ HP Air Compressor, (2 units) Timer relay (24V), (5 units) 4 pins relay (24V), (2 units) NC Push Buttons (5 units) NO Push Buttons (25 units) Terminal blocks (2 units) 2P Circuit Breaker (6A) (2 units) 2P Circuit Breaker (10A) (1 unit) 3P Circuit Breaker (10A) (1 unit) 3kW Phase inverter (1 unit) 1hp VFD (2 units) Fuse with holder (4 units) Pilot lamps (2 red, 2 green, 2 yellow, 2 white) (6 units) Red Switch 6 units) Limit Switch (2 sets) Steel Frame and Support (1 unit) 1 plc cable (3 units) Magnetic Contactor (220V) (3 units) 14 pins relay (220V) (2 units) Thermal overload relay (1 unit) 1hp 3-phase motor (1 unit) Router (2 units) Tool Box with basic tools",2023-05-05.140-023,set,359350,1,1,,,COT-Farparan,45037,05,,
+RFID Encoder and Scanner Kit,"Tag encoder with its attached barcode scanner can be used w/o any computer connection to encode RFID Tags in industry standards formats; simple plug and play; Windows and Mac compatible; Encodes single HF ISO15693 tags in seconods using input from the serial attached barcode scanner, Emcodes RFID TAgs in ISO28560 Parts 2 format, and recommended defaults; EAS security standard in the default mode for tagging; AFI security standards is also available through system set-up commands",2023-05-05.140-024,set,748000,1,1,,,LS-Serrato,45046,05,,
+RFID INVENTORY SCANNER,"Must have a unique blade design and connects via bluetooth to the RFID Reader for easy file uploads into follet Destiny Library Manager software; Slide between books for best read capacbility; Single push button operation signal reads RFID tags within 18"" of either side of blade antenna; RFID General Specification: *All RFID equipment should be type-accepted by National telecommunications Commision. *Must integrate with the existing library software which is follet - destiny Library Manager (DLM) without using third-party software and will not violate its licensing agreement. *Vendor must have served and installed the same RFID Library Security System to at least 20 libraries including 10 government institutions. *Training for the designated library staff without additional charge. *Technical support is free of charge within the warranty period of one (1) year",2023-05-05.140-025,set,375000,1,1,,,LS-Serrato,45046,05,,
+Diesel Engine,"4-cylinder engine, Inline type injection pump with transmission and starter",2023-05-05.140-010,unit,74000,1,1,,,COT-Farparan/ Auto-Gregorio,45061,05,,
+Gasoline Engine,4 Cylinder Gasoline Engine; CDI Ignition System with transmission and starter,2023-05-05.140-011,unit,74000,1,1,,,COT-Farparan/ Auto-Gregorio,45061,05,,
+Electric Welding Machine,"Input Supply QIM-400 (380-440V, 3Ph, 50/60 Hz) 20-400 A' 65-75V DC, 17KVA; ASTROWELD 350",2023-05-05.140-012,unit,74000,1,1,,,COT-Farparan/ Auto-Gregorio,45061,05,,
+Electric Pipe Threader Machine,"with Cutter, 1/2'' - 4''; MEIHO",2023-05-05.140-013,unit,74000,1,1,,,COT-Farparan,45061,05,,
+Analog Speech Laboratory,"with multimedia : ACER X1123HP (SN: MRJSA11007308008C68400 ), 1 Laptop: HP intel Core i5 SN: 5CD24830RF",2023-05-05.140-015,set,673000,1,1,,,CAS-Salvilla,45097,05,,
+Theodolite,"Double Laser Electronic Theodolite, 2 seconds high precision with tripod stand; DE2A-L SN: 7717922",2023-05-05.140-06-065-A-002(01),set,81000,1,1,,,CEA-C. Vegafria,45099,05,,
+Theodolite,"Double Laser Electronic Theodolite, 2 seconds high precision with tripod stand; DE2A-L SN: 7717817",2023-05-05.140-06-065-A-002(02),set,81000,1,1,,,CEA-C. Vegafria,45099,05,,
+Total Station,Prismless Total Station with tripod stand; TOPCON; Model: OTS-102N; SN: 2Q6007,2023-05-05.140-06-065-A-003,set,239000,1,1,,,CEA-C. Vegafria,45099,05,,
+V. Dragon Con E5001 Control,"Includes : Mini console (1) Steering Wheel Control 1(1), Telegraph for two engines (1), Touch Screen Panel (2), with V. Dragon software and installation.",2024-05-05.140-03-032-1,set,498000,1,1,,,CMS/Garfin,3/26/2024,05,,
+Signalling Lamp,24v; Power of Illuminant: 60W; Tungsten; Halogen Lamp; Intensity 60000; ALDIS Model: CXD8 SN: 18-SQ1799333-PDA,2024-05-05.140-01-002-73,set,58400,1,1,,,CMS/Garfin,44931,05,,
+Recovery Machine,refrigerant recovery unit with oil separator VALUE Model: VRR24L-R32 SN: 04BA0340 SN: 04BA0341,2024-05-05.140-05.070-01,unit,85000,1,1,,,COT- Farparan,45426,05,,
+Recovery Machine,refrigerant recovery unit with oil separator VALUE Model: VRR24L-R32 SN: 04BA0341,2024-05-05.140-05.070-02,unit,85000,1,1,,,COT- Farparan,45426,05,,
+Steno Writer (Stenography),"Pacific Office Solutions Model: Luminex CSE SN: LS05229; Display screen: Active matrix color TFT-LCD; Screen Size: at least 7 inches; Resolution: 800x480; Tilt Range: 180 degrees; Font size: 1 to 5; Memory: At least 12,000 strokes; Accessories: tripod; micro USB Cable; Charger; Cleaning Kit; Laptop: Acer Model: Aspire A315-59-599C SN: NXK60SP00933714F023400",2024-05-05.140-03-034-A-1,set,345800,1,1,,,CBA- Bolivar,45364,05,,
+Gas Oven,"3 decks (6 pans; 60x40, watts: 300 voltage: 220v; Heat Load: 54mJ/h; Rated Gas Pressure: 2800-3000 Pa",2024-05-05.140-08-121-44,unit,163000,1,1,,,CIT- Farparan,45537,05,,
+Mechatronics Trainer,"1 unit- Siemens Logo PLC (CPU) 8DI/4DO; SIEMENS
+1 unit- Siemens Logo expansion module; SIEMENS
+1 unit- 2.5A, 24Vdc power supply
+1 unit- 10AT, 2P, Circuit Breaker; CHINT
+1 unit- 1At, 1P, Circuit Breaker; CHINT
+2 units- double acting cylinder; SMC
+1 unit- single acting cylinder; SMC
+3 units- 5/2 way double coil directional valve; SMC
+1 unit- base manifold
+4 units- 14 pins 24Vdc; CHINT
+1 unit- timer, 24Vdc; CHINT
+1 unit- electronic counter; CHINT
+4 units- monetary push buttons
+1 unit- selector switch
+3 units- pilot lamps, 24Vdc
+1 unit- buzzer, 24Vdc
+6 units- reed switch; SMC
+6 units- limit switch; OMRON
+1 unit PLC Cable
+1 set- tool box with basic tools
+50 pcs- din rail mount terminal blocks
+1 assy- stell frame
+1 unit- air filter unit
+1 roll- #18 TF wire; ORION
+
+",2024-05-05.140-10-178-01-1,set,237600,1,1,,,CIT- A.Francisco,45616,05,,
+Mechatronics Trainer,"1 unit- Siemens Logo PLC (CPU) 8DI/4DO; SIEMENS
+1 unit- Siemens Logo expansion module; SIEMENS
+1 unit- 2.5A, 24Vdc power supply
+1 unit- 10AT, 2P, Circuit Breaker; CHINT
+1 unit- 1At, 1P, Circuit Breaker; CHINT
+2 units- double acting cylinder; SMC
+1 unit- single acting cylinder; SMC
+3 units- 5/2 way double coil directional valve; SMC
+1 unit- base manifold
+4 units- 14 pins 24Vdc; CHINT
+1 unit- timer, 24Vdc; CHINT
+1 unit- electronic counter; CHINT
+4 units- monetary push buttons
+1 unit- selector switch
+3 units- pilot lamps, 24Vdc
+1 unit- buzzer, 24Vdc
+6 units- reed switch; SMC
+6 units- limit switch; OMRON
+1 unit PLC Cable
+1 set- tool box with basic tools
+50 pcs- din rail mount terminal blocks
+1 assy- stell frame
+1 unit- air filter unit
+1 roll- #18 TF wire; ORION
+",2024-05-05.140-10-178-01-2,set,237600,1,1,,,CIT- A.Francisco,45616,05,,
+Asphalt Penetrometer,"Zhejiang Instrument Co. - STLZ-2; SN: 2410140; Double Display Asphalt Penetration Apparatus. Penetration needle 2.5g, hardened steel, with shaft suitable for the plunger; Plunger: 97.5g; Specimen container: 559dia) x 35mm penetration measuring resolution; 0.01mm Maximum penetration depth: 40mm
+",2024-05-05.140-10-165-1,unit,215000,1,1,,,CEA-Vegafria,45637,05,,
+Digital Marshall Stability Tester,Zhejiang Instrument Co. - STM-8; SN: 2412143; 1-Automatic Marshall Stability Tester (no serial #),2024-05-05.140-10-165-2,unit,670000,1,1,,,CEA-Vegafria,45637,05,,
+Transmission Line Simulator,with Power Factor Load Bank & PC; Brand: TecQuipment; Model: PSL30,2021-07-05.140-011,lot,20250000,1,1,,,CEA-Vegafria,06/21/2021,07,,
+Over Current and Earth Fault Relay,Brand: TecQuipment; Model: PSA10,2021-07-05.140-012,lot,1250000,1,1,,,CEA-Vegafria,06/21/2021,07,,
+Electro-Mechanical Training Set,"5/2-way single solenoid valve
+5/2-way double solenoid valve
+",2021-07-05.140-013,lot,350000,1,1,,,CEA-Vegafria,44475,07,,
+"Commercial Kitchen with Vent Hood, Range and Washing Sink","1. Air Ducting for Stainless Steel Kitchen Hood-1850mmL x 1000mmW x 600mmH
+",2022-07-05.140-017-1,set,369634,1,1,,,CBAHot and Cold-Juson,44603,07,,
+"Commercial Kitchen with Vent Hood, Range and Washing Sink","2. Low Pressure Burner Stove with Convection Oven-1200mmL x 750mmW x 900mmH
+",2022-07-05.140-017-2,set,369634,1,1,,,CBAHot and Cold-Juson,44603,07,,
+"Commercial Kitchen with Vent Hood, Range and",3. Stainless Steel Dishwashing Table-1500mmL x 600mmW x 1000mmH,2022-07-05.140-017-3,set,369634,1,1,,,CBAHot and Cold-Juson,44603,07,,
+"Portable Instructional Demo Table with Overhead Mirror, Burner, Sink and Drawers","Demo Table-72""W x 36""D x 86""H 1 burner with gas tank",2022-07-05.140-018-1,set,94595,1,1,,,CBAHot and Cold-Juson,44603,07,,
+"Portable Instructional Demo Table with Overhead Mirror, Burner, Sink and Drawers","Demo Table-72""W x 36""D x 86""H 1 burner with gas tank",2022-07-05.140-018-2,set,94595,1,1,,,CBAHot and Cold-Juson,44603,07,,
+"Portable Instructional Demo Table with Overhead Mirror, Burner, Sink and Drawers","Demo Table-72""W x 36""D x 86""H 1 burner with gas tank",2022-07-05.140-018-3,set,94595,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Shelving Rack,"Stainless Steel 4 layers -8ft L x 6ft H x 20"" W",2022-07-05.140-020-1,unit,65472,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Shelving Rack,"Stainless Steel 4 layers -8ft L x 6ft H x 20"" W",2022-07-05.140-020-2,unit,65472,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Shelving Rack,"Stainless Steel 4 layers -8ft L x 6ft H x 20"" W",2022-07-05.140-020-3,unit,65472,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Shelving Rack,"Stainless Steel 4 layers -8ft L x 6ft H x 20"" W",2022-07-05.140-020-4,unit,65472,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Shelving Rack,"Stainless Steel 4 layers -8ft L x 6ft H x 20"" W",2022-07-05.140-020-5,unit,65472,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Shelving Rack,"Stainless Steel 4 layers -8ft L x 6ft H x 20"" W",2022-07-05.140-020-6,unit,65472,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Shelving Rack,"Stainless Steel 4 layers -8ft L x 6ft H x 20"" W",2022-07-05.140-020-7,unit,65472,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Shelving Rack,"Stainless Steel 4 layers -8ft L x 6ft H x 20"" W",2022-07-05.140-020-8,unit,65472,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Shelving Rack,"Stainless Steel 4 layers -8ft L x 6ft H x 20"" W",2022-07-05.140-020-9,unit,65472,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Shelving Rack,"Stainless Steel 4 layers -8ft L x 6ft H x 20"" W",2022-07-05.140-020-10,unit,65472,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Gas Tank and Pipe Installation services,5 pcs per set 50 kg per set,0222-07-05.140-020-1,set,750000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Gas Tank and Pipe Installation services,5 pcs per set 50 kg per set,0222-07-05.140-020-2,set,750000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Commercial Rice Steamer,"12 trays- 66.25"" H x 65.5cm L x 51.5cm W, SN: 323393",2022-07-05.140-023-1,unit,85000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Commercial Rice Steamer,"13 trays- 66.25"" H x 65.5cm L x 51.5cm W, SN: 323394",2022-07-05.140-023-2,unit,85000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Dough Mixer,"Heavy Duty Electric Spiral, SN: 323387",2022-07-05.140-024-1,unit,57070,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Dough Mixer,"Heavy Duty Electric Spiral, SN: 323388",2022-07-05.140-024-2,unit,57070,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Bread Proofer,"2 doors, 32 trays, SN: 003",2022-07-05.140-026-1,unit,87500,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Bread Proofer,"2 doors, 32 trays, SN: 004",2022-07-05.140-026-2,unit,87500,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Refrigerator,Commercial Reach In; Glass Door display; 2 door,2022-07-05.140-027-1,unit,82400,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Refrigerator,Commercial Reach In; Glass Door display; 2 door,2022-07-05.140-027-2,unit,82400,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Deck Oven,"Model: HGB-90Q, Commercial; 3 layer-Dimensions 1170mm x 890mm x 1705mm",2022-07-05.140-028,unit,174720,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Freezer,"Brand Ruey Shing, Model: A/S 1588-9269, Commercial Reach In; Glass door display,2 door, SN: 0304938CBBCBH010001",2022-07-05.140-030-1,unit,130000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Freezer,"Brand: Ruey Shing, Model: A/S 1588-9269, Commercial Reach In; Glass door display,2 door, SN: 0304938CBBCBH010002",2022-07-05.140-030-2,unit,130000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Espresso Machine,"70L, Rotary Pump-Brand: Magister, SN: 32968",2022-07-05.140-031-1,unit,273000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Espresso Machine,"70L, Rotary Pump-Brand: Magister, SN: 32969",2022-07-05.140-031-2,unit,273000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Bain Marie,Commercial Stainless Steel with cabinet and stand with lock- 2155mmW x 710mmL x 905mmH,2022-07-05.140-033-1,unit,93549,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Bain Marie,Commercial Stainless Steel with cabinet and stand with lock- 2155mmW x 710mmL x 905mmH,2022-07-05.140-033-2,unit,93549,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Ice Cream Maker Machine,"Model: MK-25CTA, 715mm x 560mm x 780m, SN: MY2021M11D10Q018",2022-07-05.140-034-1,unit,94640,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Ice Cream Maker Machine,"Model: MK-25CTA, 715mm x 560mm x 780m, SN: MY2021M11D10Q019",2022-07-05.140-034-1,unit,94640,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Gas Range,"with Double Oven-6 burners, Dimensions 40.5"" H x 75cm L x 120cm W",2022-07-05.140-035-1,unit,130000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Gas Range,"with Double Oven-6 burners, Dimensions 40.5"" H x 75cm L x 120cm W",2022-07-05.140-035-2,unit,130000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Gas Range,"with Double Oven-6 burners, Dimensions 40.5"" H x 75cm L x 120cm W",2022-07-05.140-035-3,unit,130000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Gas Range,"with Double Oven-6 burners, Dimensions 40.5"" H x 75cm L x 120cm W",2022-07-05.140-035-4,unit,130000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Refrigerator,"Food Display, Brand: Ruey Shing, Model: RS-S1003, SN: 63211110031456",2022-07-05.140-036-1,unit,82400,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Refrigerator,"Food Display, Brand: Ruey Shing, Model: RS-S1003, SN: 63211110031409",2022-07-05.140-036-2,unit,82400,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Storage Cabinet Utensils,4 layers- Dimensions- 71 inches H x 6 feet W x 46.5cm L,2022-07-05.140-037-1,unit,72832,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Storage Cabinet Utensils,4 layers- Dimensions- 71 inches H x 6 feet W x 46.5cm L,2022-07-05.140-037-2,unit,72832,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Storage Cabinet Utensils,4 layers- Dimensions- 71 inches H x 6 feet W x 46.5cm L,2022-07-05.140-037-3,unit,72832,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Storage Cabinet Utensils,4 layers- Dimensions- 71 inches H x 6 feet W x 46.5cm L,2022-07-05.140-037-4,unit,72832,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Storage Cabinet Utensils,4 layers- Dimensions- 71 inches H x 6 feet W x 46.5cm L,2022-07-05.140-037-5,unit,72832,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Smoker BBQ Grill,Heavy Duty Duo with chimneys Dimension- 51inches H x 188.5 cm W x 57cm L,2022-07-05.140-038-1,unit,73000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Smoker BBQ Grill,Heavy Duty Duo with chimneys Dimension- 51inches H x 188.5 cm W x 57cm L,2022-07-05.140-038-2,unit,73000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Solid Top Griller,"Heavy Duty Gas, Dimensions-105cm H x 55cm W x 75cm L",2022-07-05.140-039-1,unit,75000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Solid Top Griller,"Heavy Duty Gas, Dimensions-105cm H x 55cm W x 75cm L",2022-07-05.140-039-2,unit,75000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Double Deep Fat Fryer,Heavy Duty Dimensions 15 x 15 stand alone,2022-07-05.140-040,unit,75000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Kitchen Sprinkler System,"Brand: Lehavot, Model: WCK-16Manually Operated, (fire suppression)",2022-07-05.140-042-1,set,868520,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Kitchen Sprinkler System,"Brand: Lehavot, Model: WCK-16Manually Operated, (fire suppression)",2022-07-05.140-042-2,set,868520,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Manual Sealing Vacuum Packaging Machine,"Brand: Binzap, Model DZ500, SN: 323384",2022-07-05.140-043,unit,71500,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Dish Washing Machine,"Brand: Dolphin, Model: DW-1200, 12 place settings, SN: 323391",2022-07-05.140-044,unit,135000,1,1,,,CBAHot and Cold-Juson,44603,07,,
+Materials Testing & Properties Equipment,"with Laptops, Item Parts
+1. BENCH TOP TENSILE TESTING MACHINE
+2. BRINELLE HARDNESS TEST SET
+3. Control Box
+4. Digital Strain Display
+5. LAPTOPS, HP Pavillion; Model: 14-dy1027tu SN: 8CG2043WK4, SN: 8CG151BB4Y, SN: 8CG151BB57, SN: 8CG151BB5B
+6. ROTATING FATIQUE MACHINE
+7. STRAIN GAUGE TRAINER
+8. THIN CYLINDER with Data Aquisition
+9. TORSION TESTING MACHINE (30NM)
+10. Tortion Meter
+11. UNIVERSAL TESTING MACHINE
+12. vdas",2022-07-05.140-010,lot,20300000,1,1,,,CEA-Vegafria,44755,07,,
+Thermal Power Plant Engine Trainer,"Brand TecQuipmentTD1050, SN: TQ347406-001",2022-07-05.140-011,set,10490000,1,1,,,CEA-Vegafria,44755,07,,
+Power Systems Laboratory Equipment,"three single-phase transformers; One three-phase transformer; Resistive, inductive and capacitive loads; Fixed ratio delta star transformer; Overcurrent protection relay; with Transformer Trainer (TECQUIPMENT Model: PSL20 SN: TQ375452-001) Modular Power System Hub (TECQUIPMENT Model: PSLHB SN: TQ379549-001)",2023-07-05.140-07-003,set,24980000,1,1,,,CEA-Vegafria,45119,07,,
+Water Purification System with UV System; MRC,"Output (25C): 15L/H, Flowrate: Up to 2 L/min (with pressure tank), Pure Water Outlet: Type 2; reverse osmosis and deionized water; Particle <1/ml",2024-01-05.140-07-006-A,unit,391075,1,1,,,IRDL-J. Gadot,,01,,
+Tilting Flume,Locally Fabricated; Channel: 75mm x 400mm; Bed length: 2500mm; Tilting adjustment: 1; Side walls: acrylic clear glass (9mm); Bed Channel: Stainless; Pump: 1; Head Tank: Stainless; End Tank: stainless; Steel Base stand with caster wheel; Accessories: 1 stainless steel hook and point gauge; 3 standard weirs,2025-05-05.140-009-012,unit,530000,1,1,,,CEA-Vegafria,2/18/2025,05,,
+Fumehood,"Dim. At least 1000mmL x 880mmW x 2400mmH; standard air bypass with 100mm wide full double wall assembly, counterbalance, safety sash glass, and built-in motor blower; SN: FH1000-NSBCL3",2025-05-05.140-001-113,unit,391347,1,1,,,LMU- Alabado,2/24/2025,05,,
+Preparation Table with Plain Bottom Shelf,"Dimension: 2286mmW, 1067mmD, 813mmHt; 18 ga. 1.21mm thick T-304 Stainless Steel top plate, standard 90° bend nosing 50mm thick; 20 ga.0.9mm thick T-304 Stainless steel rectangular horizontal stiffener; 1.2mm thick x 11/2"" T-202 Stainless steel square tubular leg support on square type adjustable bullet feet.",2025-05-05.140-002-009-01,unit,157700,1,1,,,CIT-Francisco,2/24/2025,05,,
+Preparation Table with Plain Bottom Shelf,"Dimension: 2286mmW, 1067mmD, 813mmHt; 18 ga. 1.21mm thick T-304 Stainless Steel top plate, standard 90° bend nosing 50mm thick; 20 ga.0.9mm thick T-304 Stainless steel rectangular horizontal stiffener; 1.2mm thick x 11/2"" T-202 Stainless steel square tubular leg support on square type adjustable bullet feet.",2025-05-05.140-002-009-02,unit,157700,1,1,,,CIT-Francisco,2/24/2025,05,,
+Preparation Table with Plain Bottom Shelf,"Dimension: 2286mmW, 1067mmD, 813mmHt; 18 ga. 1.21mm thick T-304 Stainless Steel top plate, standard 90° bend nosing 50mm thick; 20 ga.0.9mm thick T-304 Stainless steel rectangular horizontal stiffener; 1.2mm thick x 11/2"" T-202 Stainless steel square tubular leg support on square type adjustable bullet feet.",2025-05-05.140-002-009-03,unit,157700,1,1,,,CIT-Francisco,2/24/2025,05,,
+Preparation Table with Plain Bottom Shelf,"Dimension: 2286mmW, 1067mmD, 813mmHt; 18 ga. 1.21mm thick T-304 Stainless Steel top plate, standard 90° bend nosing 50mm thick; 20 ga.0.9mm thick T-304 Stainless steel rectangular horizontal stiffener; 1.2mm thick x 11/2"" T-202 Stainless steel square tubular leg support on square type adjustable bullet feet.",2025-05-05.140-002-009-04,unit,157700,1,1,,,CIT-Francisco,2/24/2025,05,,
+Preparation Table with Plain Bottom Shelf,"Dimension: 2286mmW, 1067mmD, 813mmHt; 18 ga. 1.21mm thick T-304 Stainless Steel top plate, standard 90° bend nosing 50mm thick; 20 ga.0.9mm thick T-304 Stainless steel rectangular horizontal stiffener; 1.2mm thick x 11/2"" T-202 Stainless steel square tubular leg support on square type adjustable bullet feet.",2025-05-05.140-002-009-05,unit,157700,1,1,,,CIT-Francisco,2/24/2025,05,,
+Preparation Table with Plain Bottom Shelf,"Dimension: 2286mmW, 1067mmD, 813mmHt; 18 ga. 1.21mm thick T-304 Stainless Steel top plate, standard 90° bend nosing 50mm thick; 20 ga.0.9mm thick T-304 Stainless steel rectangular horizontal stiffener; 1.2mm thick x 11/2"" T-202 Stainless steel square tubular leg support on square type adjustable bullet feet.",2025-05-05.140-002-009-06,unit,157700,1,1,,,CIT-Francisco,2/24/2025,05,,
+Preparation Table with Plain Bottom Shelf,"Dimension: 2286mmW, 1067mmD, 813mmHt; 18 ga. 1.21mm thick T-304 Stainless Steel top plate, standard 90° bend nosing 50mm thick; 20 ga.0.9mm thick T-304 Stainless steel rectangular horizontal stiffener; 1.2mm thick x 11/2"" T-202 Stainless steel square tubular leg support on square type adjustable bullet feet.",2025-05-05.140-002-009-07,unit,157700,1,1,,,CIT-Francisco,2/24/2025,05,,
+Preparation Table with Plain Bottom Shelf,"Dimension: 2286mmW, 1067mmD, 813mmHt; 18 ga. 1.21mm thick T-304 Stainless Steel top plate, standard 90° bend nosing 50mm thick; 20 ga.0.9mm thick T-304 Stainless steel rectangular horizontal stiffener; 1.2mm thick x 11/2"" T-202 Stainless steel square tubular leg support on square type adjustable bullet feet.",2025-05-05.140-002-009-08,unit,157700,1,1,,,CIT-Francisco,2/24/2025,05,,
+Canopy Hood,"Dimension: 1850mmw, 1000mmD, 510mmHt; 20 ga 1.0mm thick T-202 Stainless Steel frontal hood panel; drain gutter, side panel, hood upper panel, interior filter divider and prefabricated electrical junction box; 18 ga 1.2mm thick 304 Stainless Steel prefabricated oil cup; inclusions: 2 sets of Vapor proof lamp with fixtures, glass and CFL light bulb, 1 pc On-Off Control Switch, 3 pcs Stainless Steel type Filter, 500mmlx500mmWx42mm thick; Model: PS-315A and other electrical connections",2025-05-05.140-003-009-01,unit,124550,1,1,,,CIT-Francisco,2/24/2025,05,,
+Canopy Hood,"Dimension: 1850mmw, 1000mmD, 510mmHt; 20 ga 1.0mm thick T-202 Stainless Steel frontal hood panel; drain gutter, side panel, hood upper panel, interior filter divider and prefabricated electrical junction box; 18 ga 1.2mm thick 304 Stainless Steel prefabricated oil cup; inclusions: 2 sets of Vapor proof lamp with fixtures, glass and CFL light bulb, 1 pc On-Off Control Switch, 3 pcs Stainless Steel type Filter, 500mmlx500mmWx42mm thick; Model: PS-315A and other electrical connections",2025-05-05.140-003-009-02,unit,124550,1,1,,,CIT-Francisco,2/24/2025,05,,
+Chest Freezer,"Manual Defrost 3 in 1; function: Chilling, Freezing, Fast freezing; solid top with sliding glass aluminum tube; 6 LED's; color white; Condura - CCF310RI SN: 200082824100015361",2025-05-05.140-004-009-01,unit,115685,1,1,,,CIT-Francisco,2/24/2025,05,,
+Chest Freezer,"Manual Defrost 3 in 1; function: Chilling, Freezing, Fast freezing; solid top with sliding glass aluminum tube; 6 LED's; color white; Condura - CCF310RI SN: 200083124100019515",2025-05-05.140-004-009-02,unit,115685,1,1,,,CIT-Francisco,2/24/2025,05,,
+Freezer,Height (cm): 178; Width: 91.2; Length (cm): 71.6; Gross Weight (kg): 108; Net Weight (kg): 101; Inverter technology: yes: Capacity: 24.7 cu.ft; Wattage: 160 Samsung side by side space; Color-Matte Silver; Samsung - RS62R5031M9 SN: 0ATZ4NAXA00026,2025-05-05.140-005-009-01,unit,229985,1,1,,,CIT-Francisco,2/24/2025,05,,
+Freezer,Height (cm): 178; Width: 91.2; Length (cm): 71.6; Gross Weight (kg): 108; Net Weight (kg): 101; Inverter technology: yes: Capacity: 24.7 cu.ft; Wattage: 160 Samsung side by side space; Color-Matte Silver; Samsung - RS62R5031M9 SN: 0ATZ4NAXA00271,2025-05-05.140-005-009-02,unit,229985,1,1,,,CIT-Francisco,2/24/2025,05,,
+Pitot Tubes,"head diameter of about 2.5mm, transparent pipe approx. 32mm, internal diameter and 430mm length with hose connection & water manometer approx. 500mm length in anodized aluminum structure & panel of painted steel; EDIBON - FME32; SN: FME320063",2025-05-05.140-006-012,set,254000,1,1,,,CEA-Vegafria,45841,05,,
+U-Shape Manometer,"designed for wall assembly, anodized aluminum frame & panels made of painted steel, main metallic elements made of stainless-steel length of approx. 1000mm with upper and lower collector and drain valve with manuals on required services; assembly and installation, starting up, safety, maintenance & practices manuals. EDIBON - HMM-U1000 SN: HMMU10000008",2025-05-05.140-007-012,set,349400,1,1,,,CEA-Vegafria,45841,05,,
+Ice Stores in Refrigeration Training Equipment Compressor,refrigeration capacity: approximately 1.7 kW at -15/32 °C. Maximum Head: 4m Ice Store Capacity: 150L; Glycol-water tank capacity: 28L SN: GT2024121201GTRTMD001,2025-05-05.140-008-009,unit,667800,1,1,,,CIT-Francisco,3/20/2025,05,,
+Digital Rotary Viscometer,"LCD Display: Display in spindle. Speed, temperature, mPas and % torque. Clear & accurate reading with at least 4 rotors & 4 speed. Equipped with RS232 to USB cable to connect to a computer for data output. Bonvoisin - NDJ-5S SN: X241551",2025-05-05.140-006-012,unit,178878.5,1,1,,,CEA-Vegafria,45772,05,,
+Flash Point and Fire Point Apparatus,"EIE (INDIA) with Digital temperature indicator along with combined wick system arrangement, dimension; 16x9x7 inches, weight 6 kg  SN: 2411393",2025-05-05.140-10-163-2,unit,87886,1,1,,,CEA-Vegafria,4/25/2025,05,,
+V. Dragon Con E5001,"control console includes: mini console (1), steering wheel (1), telegraph for two engines (1), touch screen panel (2), with V. Dragon software system,",2025-05-05.140-008-068,set,559600,1,1,,,CMS/Garfin,07/29/2025,05,,
+V. Dragon Con E5001,"control console includes: mini console (1), steering wheel (1), telegraph for two engines (1), touch screen panel (2), with V. Dragon software system,",2025-05-05.140-009-068,set,559600,1,1,,,CMS/Garfin,07/29/2025,05,,
+V. Dragon Con E5001,"control console includes: mini console (1), steering wheel (1), telegraph for two engines (1), touch screen panel (2), with V. Dragon software system,",2025-05-05.140-010-068,set,559600,1,1,,,CMS/Garfin,07/29/2025,05,,
+V. Dragon Con E5001,"control console includes: mini console (1), steering wheel (1), telegraph for two engines (1), touch screen panel (2), with V. Dragon software system,",2025-05-05.140-011-068,set,559600,1,1,,,CMS/Garfin,07/29/2025,05,,
+V. Dragon Con E5001,"control console includes: mini console (1), steering wheel (1), telegraph for two engines (1), touch screen panel (2), with V. Dragon software system,",2025-05-05.140-012-068,set,559600,1,1,,,CMS/Garfin,07/29/2025,05,,
+Handwheel Autoclave,Capacity: 100L; LED Display; Chamber Material: SUS304; External Size (WxDxH): Manufactorer's Standard 550x640x1270; BIOBASE - BKQ-B100II SN: BKQB100II24105028,"	2025-01-05.140-001-113",unit,265050,1,1,,,LMU- Alabado,45721,01,,
+Laminar Flowhood,"External Size (WxDxH)(mm): 1050x805x1950; Internal Size (WxDxH)(mm): 950x490x574; Control System: microprocessor controller with LCD display, graphical and digital display of the operating status of each function. Materials: Main Body: Electro-galvanized steel with antimicrobial Power Coating. Work Zone: Stainless Steel, grade 304; Infitek - LCB-H3F SN: IFTSH241030001","	2025-01-05.140-002-113",unit,139221,1,1,,,LMU- Alabado,45721,01,,
+Microcentrifuge,"Table top with max capacity: 5mlx10. Max Speed: 16000r/min. Time Setting: 1min-99min. External size (WxDxH) (mm): 310x230x240. Self-locking device, over-speed safety device, and automatic alarm device. Power Supply: 220V, 60Hz ; Infitek - CFG-16B SN: IFTXY241030001",2025-01-05.140-003-113,unit,78957,1,1,,,LMU- Alabado,45721,01,,
+Chemistry Table,"with end sink and stools (14 seaters) with gas outlet Dim. 4800mm L X 1200mm W x 850mm H; Dim. 4800mm L x 1200mm W x 850mm H,",2025-05-05.140-001-004,set,498000,1,1,,,CAS-Paller,45674,05,,
+Top Loading Balance,"with complete accessories including 1 set of standard test weights. Capacity:8200g; with calibration set for Analytical Balances, Class E2- 6pcs, 1x100mg, 1x10g, 2x20g, 1x50g, 1x100g. Includes: protective case, tweezers, dust brush and cleaning cloth, 1 pack of weight boat, white, 20ml, 45x45mm, square, 500/pk, 1 pack of weigh boat, white, 250ml, 140 x 140mm, square, 500/pk; Shimadzu - UP8201X (ASIA) SN: D401410196",2025-01-05.140-001-231,lot,171000,1,1,,,CATL- Gadot,45791,01,,
+Electronic Microscope,"Inclusions: 1 Microscope Camera: Ultra HD 4K HDMI/USB Inoe Model: HX4K-16A SN: C 202502; 1 Desktop Computer: 12th Gen Intel Core i5, 8GB RAM, 512GB M.2 NVMe SSD, PCX system unit case, monitor 22"" AOPEN with 650VA UPS (secure)
+Inoe-BE410NT SN: G2025010032",2025-01-05.140-004-113,lot,175500,1,1,,,LMU.- R. Alabado,45791,01,,
+Texture Analyzer,"with Accessories, Probe Kit, CTX Interchangeable Load Cell and Desktop PC (Lenovo) Intel Core i5 SN: PC2EA6WL; Lenovo Thinkvision SN: 1S62AEKAR2WWVNA5ZFCK, Power Supply Santak AVR, Santak UPS",2023-07-05.140-003,set,1395000,1,1,,,IRDL-J. Gadot,44967,07,,
+DIGESTOR WITH ACCESSORIES,"with accessories (HANON-SH220F Digestor)SN: SH327270748, Scrubber (HANON S402) SIN: S0227240132, UPS, and Dust Cover; Kebos UPS SN: 83622209100516",2023-07-05.140-002,set,495000,1,1,,,IRDL-J. Gadot,45028,07,,
+UV.Vis SPECTROPHOTOMETER,"AGILENT- Model: CARY 60) SN: MY22419237 w/ desktop, (Acer Veriton X4680G)
+SIN: DTVVTSP0092160152E3000, colored
+Printer (Canon Pixma) SN: KNUJ13014. AVR
+(HOSSONI) SN: Q0301431, UPS
+(SOCOMEC) SN: 2121400141",2023-07-05.140-001,lot,917000,1,1,,,,44980,07,,
+Benchtop Incubator,Constant temperature heating. chamber volume: 88L. Certification/Compliance: CE Marked. Controller System: Microprocessor control with vacuum fluorescent display. Chamber Material: Corrosion-resistant stainless-steel chamber (SUS 304). Dimensions: (WxHxD) in inches Chamber- 19.69x14.33x19.60 inches/500x364x500mm. Exterior- 24x30x23± 2inches. Accessories includes No. of shelves: at least 4 perforated stainless-steel shelves; BIOBASE - BJPX-H88BK(D),2025-01-05.140-003-231,unit,120000,1,1,,,CATL- Gadot,45757,01,,
+6-Placer Hotplate with Magnetic Stirrer,Work plate dimension: ?134mm; Work plate material: Aluminum with ceramic coating; Motor type: Brushless DC motor; Dimension (WxDxH): at least 564x523x127mm; BIOBASE - MS-H280-S6 SN: JH241AA0000076,2025-01-05.140-002-231,unit,124164.48,1,1,,,CATL- Gadot,45757,01,,
+Autoclave,"Hand Wheel Vertical Type; BIOBASE - BKQ-B100I SN: 	BKQ-B100I22125011",2023-05-05.140-015,unit,324000,1,1,,,IRDL-Gadot,44654,07,,
+Colony Counter,"Bioevopeak - Model: CC-J3A SN: BEPKJ230228001; LED display; magnification: 3 times; max count: 9,999; 220V; 50Hz",2023-07-05.140-005,unit,69995,1,1,,,IRDL-Gadot,44989,07,,
+Drying Oven,Bioevopeak - Model: DOF-H250-B SN: BEPLY230228001; Capacity: 252L; Temperature range: 10-300C; Shelves: 3/10; 220V; 50/60Hz,2023-07-05.140-006,unit,154500,1,1,,,IRDL-Gadot,44989,07,,
+Fumehood,"Biobase, Model: FH100, SN: FH10EEII230200007A",2023-07-05.140-014-001,unit,254603,1,1,,,IRDL-Gadot,44989,07,,
+Fumehood,"Biobase, Model: FH100, SN: FH10EII230200011A",2023-07-05.140-014-002,unit,254603,1,1,,,IRDL-Gadot,44989,07,,
+Stomacher,"with accessories & blender bags, Optimal Blending volume: 400ml, Power: 220V, all stainless steel with AVR
+1 security drip tray, 1 power cable, 1box of blender bags with full page filter (500pcs/box), 1 bag opener, 1 bag rack (can hold 10 bags) Interscience",2025-01-05.140-005-231,unit,327500,1,1,,,CATL- Gadot,45811,01,,
+Industrial Motor Control with PLC Trainer,"1 unit siemens logo PLC, 1 unit expansion module, 1 unit 2.5A, power supply, 1 unit 10A, 3P, MCB, 1 unit 2A, 2P, MCB, 4 units pilot lamp, 4 units push button, 3 units magnetic contractor, 3 units overload relay, 1 unit selector switch, 1 unit emergency stop, 1 unit router, 1 unit 1 hp induction motor",2025-01-05.140-004-009,assy,82500,1,1,,,CIT-Francisco,12/26/2025,05,,
+Variable Frequency Drive Trainer,"1 unit VFD (1 HP, 220V), 1 unit 2.5A, power supply, 1 unit 10A, 3P, MCB, 1 unit 2A, 2P, MCB, 2 units pilot lamp, 3 units push button, 2 units selector switch",2025-01-05.140-005-009,assy,67000,1,1,,,CIT-Francisco,12/26/2025,05,,
+Dessicator Cabinet,"Ideal for dry storage of moisture-sensitive materials; can be used in refrigerator or at room temperature; color is bronze for light-sensitive materials; fully removable, tray-like shelves have perforated bottoms and slide in/out on pre-set rails; number of shelves: 3; internal volume 0.82 cu ft.; material: acrylic",2025-01-05.990-001-231,unit,115400,1,1,,,IRDL-Gadot,45841,01,,
+Laboratory Furnace Exhaust Hood,"fabricated, suitable for a Human Lab Digital Muffle Furnace, Industrial type and ducted with electronic and speed control, finish type: stainless steel; Model: DMF-03",2025-01-05.140-002-231,unit,77500,1,1,,,IRDL-Gadot,45841,01,,
+Multiparameter pH Meter,"pH Range: -2.00 to 16.00pH, 1000mV
+pH Calibration: up to 5 points
+pH Temperature Compensation: ATC -5.0 to 100 0c; 23.0 to 212.0F
+with additional probes:
+Electrical Conductivity
+Total Dissolved Solids
+Salinity
+Dissolved Oxygen
+Additional Specifications
+Connectivity: 1 micro-USB port for charging and PC connectivity, 1 USB port storage
+pH kit includes:
+Glass body, refillable pH 4 buffer solutions, at least 2 sachets of pH 4 buffer solutions, at least 2 sachets of pH 7 buffer solutions, at least 2 sachets of pH 10 buffer solutions, electrode cleaning solutions, USB cable, benchtop docking station with electrode holder, all mount cradle, 5 VDC power adapter, instruction manual and quality certificate
+HI163100 SN: 116066; Hanna Model:  HI11310 SN: CC9181AE",2024-01-05.140-043-231,unit,170500,1,1,,,IRDL-Gadot,45841,01,,
+"	Analytical Balance","Compatible with Velp Scientifica Oxitest, 
+Capacity at least 220g, 
+Readability 0.1mg, Linearity 0.2mg, 
+With RS232 connector
+With Calibration Set :w/ Class M2 Test Weights: 10mg, 100mg. 1g, 10g. 100g includes protective case, tweezer, dust brush and cleaning cloth.
+1 pack of weight boat, white, 20ml, 45x45mm, square, 500=/pk
+1pack of weight boat, white, 250ml, 140x140mm, square 500/pk; Shimadzu - ATX224R SN: D326008231",2024-01-05.140-001-145,unit,146600,1,1,,,IRDL-Gadot,45841,01,,

@@ -384,147 +384,224 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
 $rangeStart = $total > 0 ? (($page - 1) * $perPage) + 1 : 0;
 $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
+$activeFilterCount = 0;
+foreach ([$officeId, $search, $itemType, $sourceFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $filterValue) {
+    if ((string) $filterValue !== '') {
+        $activeFilterCount++;
+    }
+}
+$hasAdvancedFiltersActive = $officeId > 0
+    || $itemType !== ''
+    || $sourceFilter !== ''
+    || $brandModelFilter !== ''
+    || $serialFilter !== ''
+    || $dateFrom !== ''
+    || $dateTo !== '';
+$advancedFilterCount = 0;
+foreach ([$officeId, $itemType, $sourceFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $advancedValue) {
+    if ((string) $advancedValue !== '') {
+        $advancedFilterCount++;
+    }
+}
+
+$selectedOfficeName = '';
+if ($officeId > 0) {
+    foreach ($offices as $office) {
+        if ((int) ($office['id'] ?? 0) === $officeId) {
+            $selectedOfficeName = trim((string) ($office['office_name'] ?? ''));
+            break;
+        }
+    }
+}
+
+$activeFilters = [];
+if ($search !== '') {
+    $activeFilters[] = [
+        'label' => 'Search: ' . $search,
+        'url' => build_registry_url(['q' => '', 'page' => 1]),
+    ];
+}
+if ($selectedOfficeName !== '') {
+    $activeFilters[] = [
+        'label' => 'Office: ' . $selectedOfficeName,
+        'url' => build_registry_url(['office_id' => '', 'page' => 1]),
+    ];
+}
+if ($itemType !== '') {
+    $activeFilters[] = [
+        'label' => 'Type: ' . ($itemType === 'semi_expendable' ? 'Semi-Expendable' : 'Equipment'),
+        'url' => build_registry_url(['item_type' => '', 'page' => 1]),
+    ];
+}
+if ($sourceFilter !== '') {
+    $activeFilters[] = [
+        'label' => 'Source: ' . ($sourceFilter === 'legacy' ? 'Beginning Balance' : 'System Transactions'),
+        'url' => build_registry_url(['source' => '', 'page' => 1]),
+    ];
+}
+if ($brandModelFilter !== '') {
+    $activeFilters[] = [
+        'label' => 'Brand/Model: ' . $brandModelFilter,
+        'url' => build_registry_url(['brand_model' => '', 'page' => 1]),
+    ];
+}
+if ($serialFilter !== '') {
+    $activeFilters[] = [
+        'label' => 'Serial: ' . $serialFilter,
+        'url' => build_registry_url(['serial_no' => '', 'page' => 1]),
+    ];
+}
+if ($dateFrom !== '' || $dateTo !== '') {
+    $dateLabel = 'Date';
+    if ($dateFrom !== '' && $dateTo !== '') {
+        $dateLabel .= ': ' . $dateFrom . ' to ' . $dateTo;
+    } elseif ($dateFrom !== '') {
+        $dateLabel .= ': from ' . $dateFrom;
+    } else {
+        $dateLabel .= ': up to ' . $dateTo;
+    }
+    $activeFilters[] = [
+        'label' => $dateLabel,
+        'url' => build_registry_url(['date_from' => '', 'date_to' => '', 'page' => 1]),
+    ];
+}
 ?>
 <section class="page-section">
     <div class="row g-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body p-4">
-                <div class="workspace-hero workspace-hero-registry mb-4">
-                    <div class="workspace-hero-main">
-                        <span class="workspace-eyebrow">Registry Workspace</span>
-                        <h5 class="card-title mb-1">Asset Registry</h5>
-                        <div class="workspace-header-copy">Track active equipment and semi-expendable assets across system transactions and beginning balance records from one search surface.</div>
-                    </div>
-                    <div class="workspace-hero-side">
-                        <div class="workspace-hero-stat">
-                            <span class="workspace-hero-stat-label">Visible Rows</span>
-                            <strong><?php echo number_format((int) count($rows)); ?></strong>
-                        </div>
-                        <div class="workspace-hero-stat">
-                            <span class="workspace-hero-stat-label">Matched Assets</span>
-                            <strong><?php echo number_format((int) $total); ?></strong>
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+                        <div>
+                            <div class="text-uppercase small text-muted fw-semibold">Registry Workspace</div>
+                            <h4 class="mb-1">Asset Registry</h4>
+                            <div class="text-muted">List and search all active equipment and semi-expendable assets from system and beginning balance records.</div>
                         </div>
                         <a href="<?php echo h(build_registry_url(['export' => 'csv', 'page' => 1])); ?>" class="btn btn-outline-success">
-                            <i class="bi bi-download me-1"></i>Export Assets
+                            <i class="bi bi-download me-1"></i>Export CSV
                         </a>
                     </div>
-                </div>
 
-                <div class="workspace-header mb-3">
-                    <div>
-                        <div class="small text-muted workspace-header-copy">Use quick search for property no., classification, office, accountable person, brand, model, or serial number.</div>
+                    <div class="row g-3 mb-4">
+                        <div class="col-sm-6 col-xl-3">
+                            <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                                <div class="small text-muted">Total Active Assets</div>
+                                <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['total']); ?></div>
+                            </div>
+                        </div>
+                        <div class="col-sm-6 col-xl-3">
+                            <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                                <div class="small text-muted">Equipment</div>
+                                <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['equipment']); ?></div>
+                            </div>
+                        </div>
+                        <div class="col-sm-6 col-xl-3">
+                            <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                                <div class="small text-muted">Semi-Expendable</div>
+                                <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['semi_expendable']); ?></div>
+                            </div>
+                        </div>
+                        <div class="col-sm-6 col-xl-3">
+                            <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                                <div class="small text-muted">Beginning Balance</div>
+                                <div class="fs-4 fw-semibold"><?php echo number_format((int) $summary['legacy']); ?></div>
+                            </div>
+                        </div>
                     </div>
-                    <span class="text-muted small workspace-header-meta">
-                        <?php if ($total > 0): ?>
-                            Showing <?php echo number_format($rangeStart); ?>-<?php echo number_format($rangeEnd); ?> of <?php echo number_format($total); ?> record(s)
-                        <?php else: ?>
-                            0 record(s)
-                        <?php endif; ?>
-                    </span>
-                </div>
 
-                <div class="workspace-summary-grid mb-4">
-                    <div>
-                        <div class="workspace-summary-card h-100">
-                            <div class="workspace-summary-label">Total Active Assets</div>
-                            <div class="workspace-summary-value"><?php echo number_format((int) $summary['total']); ?></div>
+                    <form method="get" id="registryFiltersForm" class="asset-registry-filters border rounded-3 p-3 mb-3 bg-body-tertiary">
+                        <input type="hidden" name="page" value="1" id="registryPageReset">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-lg-7">
+                                <label class="form-label">Quick Search</label>
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                    <input type="search" name="q" id="registryQuickSearch" class="form-control" value="<?php echo h($search); ?>" placeholder="Property no., description, classification, office, accountable, brand, model, serial">
+                                </div>
+                            </div>
+                            <div class="col-sm-6 col-lg-2">
+                                <label class="form-label">Rows</label>
+                                <select name="per_page" class="form-select" data-autosubmit="true">
+                                    <?php foreach ($allowedPerPage as $perPageOption): ?>
+                                        <option value="<?php echo $perPageOption; ?>" <?php echo $perPage === $perPageOption ? 'selected' : ''; ?>>
+                                            <?php echo $perPageOption; ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-sm-6 col-lg-3 d-grid gap-2 d-sm-flex justify-content-sm-end">
+                                <button class="btn btn-primary" type="submit">Search</button>
+                                <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#registryAdvancedFilters" aria-expanded="<?php echo $hasAdvancedFiltersActive ? 'true' : 'false'; ?>">
+                                    Advanced<?php echo $advancedFilterCount > 0 ? ' (' . number_format($advancedFilterCount) . ')' : ''; ?>
+                                </button>
+                                <a href="<?php echo h(build_registry_url(['office_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="btn btn-outline-danger">Clear</a>
+                            </div>
                         </div>
-                    </div>
-                    <div>
-                        <div class="workspace-summary-card h-100">
-                            <div class="workspace-summary-label">Equipment</div>
-                            <div class="workspace-summary-value"><?php echo number_format((int) $summary['equipment']); ?></div>
+                        <div class="small text-muted mt-2">Quick Search auto-runs while typing. Use Advanced for office, type, source, brand/model, serial, and date filters.</div>
+                        <div id="registryAdvancedFilters" class="collapse <?php echo $hasAdvancedFiltersActive ? 'show' : ''; ?> mt-3">
+                            <div class="row g-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">Office</label>
+                                    <select name="office_id" class="form-select" data-autosubmit="true">
+                                        <option value="">All Offices</option>
+                                        <?php foreach ($offices as $office): ?>
+                                            <option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>>
+                                                <?php echo h($office['office_name']); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Item Type</label>
+                                    <select name="item_type" class="form-select" data-autosubmit="true">
+                                        <option value="">All Types</option>
+                                        <option value="equipment" <?php echo $itemType === 'equipment' ? 'selected' : ''; ?>>Equipment</option>
+                                        <option value="semi_expendable" <?php echo $itemType === 'semi_expendable' ? 'selected' : ''; ?>>Semi-Expendable</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Source</label>
+                                    <select name="source" class="form-select" data-autosubmit="true">
+                                        <option value="">All Sources</option>
+                                        <option value="system" <?php echo $sourceFilter === 'system' ? 'selected' : ''; ?>>System Transactions</option>
+                                        <option value="legacy" <?php echo $sourceFilter === 'legacy' ? 'selected' : ''; ?>>Beginning Balance</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Serial No.</label>
+                                    <input type="text" name="serial_no" class="form-control" value="<?php echo h($serialFilter); ?>" placeholder="Search serial">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Brand / Model</label>
+                                    <input type="text" name="brand_model" class="form-control" value="<?php echo h($brandModelFilter); ?>" placeholder="Search brand or model">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">From</label>
+                                    <input type="date" name="date_from" class="form-control" value="<?php echo h($dateFrom); ?>" data-autosubmit="true">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">To</label>
+                                    <input type="date" name="date_to" class="form-control" value="<?php echo h($dateTo); ?>" data-autosubmit="true">
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    <div>
-                        <div class="workspace-summary-card h-100">
-                            <div class="workspace-summary-label">Semi-Expendable</div>
-                            <div class="workspace-summary-value"><?php echo number_format((int) $summary['semi_expendable']); ?></div>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="workspace-summary-card h-100">
-                            <div class="workspace-summary-label">Beginning Balance</div>
-                            <div class="workspace-summary-value"><?php echo number_format((int) $summary['legacy']); ?></div>
-                        </div>
-                    </div>
-                </div>
+                    </form>
 
-                <form method="get" class="workspace-filter-panel workspace-filter-panel-strong mb-3">
-                    <div class="workspace-filter-title-row">
-                        <div>
-                            <div class="workspace-filter-title">Find Assets Faster</div>
-                            <div class="workspace-filter-copy">Start with quick search, then narrow by office, type, source, or date when needed.</div>
+                    <?php if (!empty($activeFilters)): ?>
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 asset-registry-active-filters">
+                            <div class="d-flex flex-wrap gap-2">
+                                <?php foreach ($activeFilters as $filter): ?>
+                                    <a href="<?php echo h($filter['url']); ?>" class="asset-filter-chip text-decoration-none" title="Remove filter">
+                                        <span><?php echo h($filter['label']); ?></span>
+                                        <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+                            <a href="<?php echo h(build_registry_url(['office_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="small text-decoration-none">Clear all filters</a>
                         </div>
-                        <div class="workspace-actions">
-                            <button class="btn btn-sm btn-primary" type="submit">Apply Filters</button>
-                            <a href="<?php echo h(build_registry_url(['office_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="btn btn-sm btn-outline-secondary">Reset</a>
-                        </div>
-                    </div>
-                    <div class="workspace-filter-grid">
-                    <div class="workspace-filter-wide">
-                        <label class="form-label mb-0">Quick Search</label>
-                        <input type="search" name="q" class="form-control" value="<?php echo h($search); ?>" placeholder="Property no., description, classification, office, accountable, brand, model, or serial no.">
-                    </div>
-                    <div>
-                        <label class="form-label mb-0">Office</label>
-                        <select name="office_id" class="form-select form-select-sm">
-                            <option value="">All Offices</option>
-                            <?php foreach ($offices as $office): ?>
-                                <option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>>
-                                    <?php echo h($office['office_name']); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="form-label mb-0">Item Type</label>
-                        <select name="item_type" class="form-select form-select-sm">
-                            <option value="">All Types</option>
-                            <option value="equipment" <?php echo $itemType === 'equipment' ? 'selected' : ''; ?>>Equipment</option>
-                            <option value="semi_expendable" <?php echo $itemType === 'semi_expendable' ? 'selected' : ''; ?>>Semi-Expendable</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="form-label mb-0">Source</label>
-                        <select name="source" class="form-select form-select-sm">
-                            <option value="">All Sources</option>
-                            <option value="system" <?php echo $sourceFilter === 'system' ? 'selected' : ''; ?>>System Transactions</option>
-                            <option value="legacy" <?php echo $sourceFilter === 'legacy' ? 'selected' : ''; ?>>Beginning Balance</option>
-                        </select>
-                    </div>
-                    <div class="workspace-filter-wide">
-                        <label class="form-label mb-0">Brand / Model</label>
-                        <input type="text" name="brand_model" class="form-control form-control-sm" value="<?php echo h($brandModelFilter); ?>" placeholder="Search brand or model">
-                    </div>
-                    <div>
-                        <label class="form-label mb-0">Serial No.</label>
-                        <input type="text" name="serial_no" class="form-control form-control-sm" value="<?php echo h($serialFilter); ?>" placeholder="Search serial">
-                    </div>
-                    <div>
-                        <label class="form-label mb-0">From</label>
-                        <input type="date" name="date_from" class="form-control form-control-sm" value="<?php echo h($dateFrom); ?>">
-                    </div>
-                    <div>
-                        <label class="form-label mb-0">To</label>
-                        <input type="date" name="date_to" class="form-control form-control-sm" value="<?php echo h($dateTo); ?>">
-                    </div>
-                    <div>
-                        <label class="form-label mb-0">Rows</label>
-                        <select name="per_page" class="form-select form-select-sm">
-                            <?php foreach ($allowedPerPage as $perPageOption): ?>
-                                <option value="<?php echo $perPageOption; ?>" <?php echo $perPage === $perPageOption ? 'selected' : ''; ?>>
-                                    <?php echo $perPageOption; ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    </div>
-                </form>
+                    <?php endif; ?>
 
-                <div class="workspace-filter-panel workspace-results-bar mb-3">
-                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                         <div class="small text-muted">
                             <?php if ($total > 0): ?>
                                 Showing <?php echo number_format($rangeStart); ?>-<?php echo number_format($rangeEnd); ?> of <?php echo number_format($total); ?> matching assets
@@ -532,24 +609,20 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                                 No assets matched the current filters
                             <?php endif; ?>
                         </div>
-                        <div class="small text-muted">
-                            Review details, then open the asset record or continue to lifecycle actions
-                        </div>
+                        <div class="small text-muted"><?php echo $activeFilterCount > 0 ? number_format($activeFilterCount) . ' active filter(s)' : 'No active filters'; ?></div>
                     </div>
-                </div>
 
-                <div class="table-responsive mobile-table-frame asset-registry-table-frame workspace-filter-panel">
-                    <table class="table table-sm align-middle">
+                <div class="table-responsive mobile-table-frame asset-registry-table-frame workspace-filter-panel" id="assetRegistryTableFrame">
+                    <table class="table table-sm align-middle" id="assetRegistryTable" data-no-table-search>
                         <thead>
                             <tr>
                                 <th class="asset-col-primary" style="min-width: 180px;">Asset</th>
-                                <th class="asset-col-classification" style="min-width: 300px;">Classification / Description</th>
+                                <th class="asset-col-classification" style="min-width: 300px;">Asset Details</th>
                                 <th class="asset-col-item-details" style="min-width: 180px;">Item Details</th>
                                 <th class="asset-col-amount" style="min-width: 180px;">Amount</th>
                                 <th class="asset-col-date" style="min-width: 160px;">Date Acquired</th>
                                 <th class="asset-col-assignment" style="min-width: 220px;">Assignment</th>
                                 <th class="asset-col-reference" style="min-width: 200px;">Reference / Source</th>
-                                <th class="asset-col-actions" style="min-width: 180px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -570,11 +643,7 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                                     }
                                     $accountable = employee_display_name_from_row($row);
                                     $sourceLabel = registry_source_label((string) ($row['source_type'] ?? 'system'));
-                                    $isLegacy = ($row['source_type'] ?? '') === 'legacy';
                                     $detailId = (int) ($row['detail_id'] ?? 0);
-                                    $distributionId = (int) ($row['distribution_id'] ?? 0);
-                                    $assetKey = (string) ($row['asset_key'] ?? '');
-                                    $propertyNo = (string) ($row['property_no'] ?? '');
                                     $amountValue = (float) ($row['amount'] ?? 0);
                                     $dateAcquiredLabel = !empty($row['date_acquired']) ? date('M d, Y', strtotime((string) $row['date_acquired'])) : '-';
                                     $recordDateLabel = !empty($row['record_date']) ? date('M d, Y', strtotime((string) $row['record_date'])) : '';
@@ -591,6 +660,10 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                                         <td class="asset-col-classification">
                                             <div class="asset-registry-classification"><?php echo h($classificationLabel !== '' ? $classificationLabel : 'Unclassified'); ?></div>
                                             <div class="text-muted small asset-registry-description" title="<?php echo h($descriptionFull); ?>"><?php echo h($descriptionShort); ?></div>
+                                            <div class="mt-2 d-flex flex-wrap gap-2 asset-registry-inline-actions">
+                                                <a href="<?php echo base_url('modules/property/view.php?source=' . urlencode((string) ($row['source_type'] ?? 'system')) . '&id=' . $detailId); ?>" class="btn btn-sm btn-outline-primary asset-registry-inline-open">Open Asset Details</a>
+                                            </div>
+                                            <div class="small text-muted mt-1">All actions are available in Asset Details.</div>
                                             <div class="asset-registry-compact-meta">
                                                 <div class="small text-muted">Item: <?php echo h($brandModel !== '' ? $brandModel : 'No brand / model'); ?> | SN: <?php echo h($row['serial_no'] !== '' ? $row['serial_no'] : '-'); ?></div>
                                                 <div class="small text-muted">Amount: <?php echo h(number_format($amountValue, 2)); ?> | Acquired: <?php echo h($dateAcquiredLabel); ?></div>
@@ -621,41 +694,11 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                                                 <div class="mt-1"><span class="badge text-bg-success"><?php echo h($sourceLabel); ?></span></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td class="asset-registry-cell-actions asset-col-actions">
-                                            <div class="d-flex gap-2 flex-wrap">
-                                                <a href="<?php echo base_url('modules/property/view.php?source=' . urlencode((string) ($row['source_type'] ?? 'system')) . '&id=' . $detailId); ?>" class="btn btn-sm btn-primary">Open Record</a>
-                                                <div class="dropdown">
-                                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                                        More
-                                                    </button>
-                                                    <ul class="dropdown-menu dropdown-menu-end">
-                                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/transfers/index.php?asset_key=' . urlencode($assetKey)); ?>">Transfer</a></li>
-                                                        <?php if (!$isLegacy): ?>
-                                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/returns/index.php?detail_id=' . $detailId); ?>">Return</a></li>
-                                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/disposals/index.php?detail_id=' . $detailId); ?>">Dispose</a></li>
-                                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/maintenance/index.php?detail_id=' . $detailId); ?>">Maintenance</a></li>
-                                                            <li><hr class="dropdown-divider"></li>
-                                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/property/tags.php?detail_id=' . $detailId); ?>" target="_blank">Print QR</a></li>
-                                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/property/scan.php?ref=' . urlencode($propertyNo)); ?>" target="_blank">Lookup</a></li>
-                                                            <?php if ($distributionId > 0): ?>
-                                                                <?php if (($row['item_type'] ?? '') === 'semi_expendable'): ?>
-                                                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/ics.php?id=' . $distributionId); ?>" target="_blank">Print ICS</a></li>
-                                                                <?php else: ?>
-                                                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/par.php?id=' . $distributionId); ?>" target="_blank">Print PAR</a></li>
-                                                                <?php endif; ?>
-                                                            <?php endif; ?>
-                                                        <?php else: ?>
-                                                            <li><span class="dropdown-item-text text-muted small">Legacy asset actions continue from the detail page.</span></li>
-                                                        <?php endif; ?>
-                                                    </ul>
-                                                </div>
-                                            </div>
-                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php else: ?>
                                 <tr>
-                                    <td colspan="8" class="text-center text-muted py-4">No asset records found.</td>
+                                    <td colspan="7" class="text-center text-muted py-4">No asset records found.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>
@@ -692,9 +735,55 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                 <?php endif; ?>
             </div>
         </div>
-    </div>
+        </div>
     </div>
 </section>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('registryFiltersForm');
+    if (form) {
+        var pageField = document.getElementById('registryPageReset');
+        var quickSearch = document.getElementById('registryQuickSearch');
+        var debounceTimer = null;
+
+        var submitWithPageReset = function () {
+            if (pageField) {
+                pageField.value = '1';
+            }
+            form.submit();
+        };
+
+        if (quickSearch) {
+            quickSearch.addEventListener('input', function () {
+                if (debounceTimer) {
+                    window.clearTimeout(debounceTimer);
+                }
+                debounceTimer = window.setTimeout(submitWithPageReset, 400);
+            });
+        }
+
+        var autoSubmitFields = form.querySelectorAll('[data-autosubmit="true"]');
+        autoSubmitFields.forEach(function (field) {
+            field.addEventListener('change', submitWithPageReset);
+        });
+    }
+
+    var tableFrame = document.getElementById('assetRegistryTableFrame');
+    if (tableFrame) {
+        var syncRegistryOverflowState = function () {
+            var hasOverflow = tableFrame.scrollWidth > tableFrame.clientWidth + 8;
+            var isAtEnd = !hasOverflow || tableFrame.scrollLeft + tableFrame.clientWidth >= tableFrame.scrollWidth - 8;
+            tableFrame.classList.toggle('is-overflowing', hasOverflow);
+            tableFrame.classList.toggle('is-scrolled-end', isAtEnd);
+        };
+
+        syncRegistryOverflowState();
+        tableFrame.addEventListener('scroll', syncRegistryOverflowState, { passive: true });
+        window.addEventListener('resize', syncRegistryOverflowState);
+    }
+});
+</script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
 

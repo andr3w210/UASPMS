@@ -190,5 +190,8 @@ SOURCE 039_classification_family.sql;
 SOURCE 040_stock_catalog_stock_no_from_classification_family.sql;
 SOURCE 042_fix_property_number_format.sql;
 SOURCE 043_fix_property_number_fund_segment_and_series.sql;
+SOURCE 067_rpcppe_batches.sql;
+SOURCE 068_rpcppe_batch_items_acquisition_date.sql;
+SOURCE 069_rpcppe_batch_items_quantities.sql;
 
 SET FOREIGN_KEY_CHECKS = 1;

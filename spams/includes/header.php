@@ -15,6 +15,7 @@ $masterDataNeedles = [
     '/unit_of_measures/',
     '/brands/',
     '/models/',
+    '/departments/',
     '/maintenance/',
 ];
 $isMasterDataPage = false;
