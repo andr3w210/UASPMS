@@ -17,6 +17,7 @@ $fundNumber = trim((string) ($_GET['fund_number'] ?? ''));
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 $selectedBatch = null;
+$selectedAccountCodeValue = '';
 
 if (!in_array($fundNumber, ['', '01', '05', '06', '07'], true)) {
     $fundNumber = '';
@@ -39,6 +40,14 @@ function rpcppe_label(array $row): string
         trim((string) ($row['brand'] ?? '')),
         trim((string) ($row['model'] ?? '')),
         trim((string) ($row['serial_no'] ?? '')),
+    ])));
+}
+
+function rpcppe_office_employee(array $row): string
+{
+    return trim(implode(' / ', array_filter([
+        trim((string) ($row['office_name'] ?? '')),
+        trim((string) (($row['employee_name'] ?? '') !== '' ? (string) $row['employee_name'] : person_full_name($row))),
     ])));
 }
 
@@ -98,6 +107,11 @@ if (!$db) {
         KEY idx_rpcppe_batch_items_batch_include (batch_id, is_included, is_disposed)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+    // Backward-compatible columns for older rpcppe_batch_items schemas.
+    $db->query("ALTER TABLE rpcppe_batch_items ADD COLUMN IF NOT EXISTS acquisition_date DATE NULL AFTER unit_cost");
+    $db->query("ALTER TABLE rpcppe_batch_items ADD COLUMN IF NOT EXISTS qty_property_card INT(10) UNSIGNED NOT NULL DEFAULT 1 AFTER acquisition_date");
+    $db->query("ALTER TABLE rpcppe_batch_items ADD COLUMN IF NOT EXISTS qty_physical_count INT(10) UNSIGNED NOT NULL DEFAULT 1 AFTER qty_property_card");
+
     $officeResult = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeResult) {
         $offices = $officeResult->fetch_all(MYSQLI_ASSOC);
@@ -106,6 +120,15 @@ if (!$db) {
     $accountCodeResult = $db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC, account_name ASC");
     if ($accountCodeResult) {
         $accountCodes = $accountCodeResult->fetch_all(MYSQLI_ASSOC);
+    }
+
+    if ($accountCodeId > 0) {
+        foreach ($accountCodes as $accountCodeRow) {
+            if ((int) ($accountCodeRow['id'] ?? 0) === $accountCodeId) {
+                $selectedAccountCodeValue = trim((string) ($accountCodeRow['account_code'] ?? ''));
+                break;
+            }
+        }
     }
 
     $batchResult = $db->query("SELECT id, batch_year, batch_name, as_of_date, status FROM rpcppe_batches WHERE status = 'finalized' ORDER BY batch_year DESC, id DESC");
@@ -167,16 +190,25 @@ if (!$db) {
             $batchParams[] = $officeId;
         }
         if ($accountCodeId > 0) {
-            $batchSql .= " AND i.account_code_id = ?";
-            $batchTypes .= 'i';
-            $batchParams[] = $accountCodeId;
+            if ($selectedAccountCodeValue !== '') {
+                $batchSql .= " AND (i.account_code_id = ? OR i.account_code = ?)";
+                $batchTypes .= 'is';
+                $batchParams[] = $accountCodeId;
+                $batchParams[] = $selectedAccountCodeValue;
+            } else {
+                $batchSql .= " AND i.account_code_id = ?";
+                $batchTypes .= 'i';
+                $batchParams[] = $accountCodeId;
+            }
         }
         if ($fundNumber !== '') {
-            $batchSql .= " AND (i.fund_code LIKE ? OR i.fund_source LIKE ? OR i.fund_number LIKE ?)";
-            $batchTypes .= 'sss';
-            $batchParams[] = '%' . $fundNumber . '%';
-            $batchParams[] = '%' . $fundNumber . '%';
-            $batchParams[] = '%' . $fundNumber . '%';
+            $batchSql .= " AND (
+                LPAD(NULLIF(TRIM(i.fund_source), ''), 2, '0') = ?
+                OR LPAD(NULLIF(TRIM(i.fund_number), ''), 2, '0') = ?
+            )";
+            $batchTypes .= 'ss';
+            $batchParams[] = $fundNumber;
+            $batchParams[] = $fundNumber;
         }
 
         $batchSql .= " ORDER BY i.account_code ASC, i.classification_name ASC, i.item_description ASC, i.property_number ASC";
@@ -256,10 +288,13 @@ if (!$db) {
             $params[] = $accountCodeId;
         }
         if ($fundNumber !== '') {
-            $systemSql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
+            $systemSql .= " AND (
+                LPAD(NULLIF(TRIM(f.fund_source), ''), 2, '0') = ?
+                OR LPAD(NULLIF(TRIM(f.fund_code), ''), 2, '0') = ?
+            )";
             $types .= 'ss';
-            $params[] = '%' . $fundNumber . '%';
-            $params[] = '%' . $fundNumber . '%';
+            $params[] = $fundNumber;
+            $params[] = $fundNumber;
         }
 
         $systemSql .= " ORDER BY ac.account_code ASC, c.classification_name ASC, poi.item_description ASC, did.property_number ASC";
@@ -324,10 +359,13 @@ if (!$db) {
             $legacyParams[] = $accountCodeId;
         }
         if ($fundNumber !== '') {
-            $legacySql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
+            $legacySql .= " AND (
+                LPAD(NULLIF(TRIM(f.fund_source), ''), 2, '0') = ?
+                OR LPAD(NULLIF(TRIM(f.fund_code), ''), 2, '0') = ?
+            )";
             $legacyTypes .= 'ss';
-            $legacyParams[] = '%' . $fundNumber . '%';
-            $legacyParams[] = '%' . $fundNumber . '%';
+            $legacyParams[] = $fundNumber;
+            $legacyParams[] = $fundNumber;
         }
 
         $legacySql .= " ORDER BY ac.account_code ASC, c.classification_name ASC, la.item_description ASC, la.property_number ASC";
@@ -396,7 +434,7 @@ if ($isExport) {
             (string) max(1, (int) ($row['qty_physical_count'] ?? 1)),
             '0',
             '0.00',
-            ($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : '',
+            rpcppe_office_employee($row),
         ];
     }
 
@@ -521,7 +559,7 @@ if ($isPrint) {
                             <td class="qty"><?php echo h((string) max(1, (int) ($row['qty_physical_count'] ?? 1))); ?></td>
                             <td class="qty">0</td>
                             <td class="money">0.00</td>
-                            <td><?php echo h(($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : ''); ?></td>
+                            <td><?php echo h(rpcppe_office_employee($row)); ?></td>
                         </tr>
                     <?php endforeach; ?>
                 <?php else: ?>

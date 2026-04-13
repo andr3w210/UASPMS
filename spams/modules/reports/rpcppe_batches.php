@@ -654,20 +654,55 @@ function rpcppe_sheet_account_name(string $sheetName): string
     return $map[$key] ?? trim($sheetName);
 }
 
+function rpcppe_extract_account_code_token(string $value): string
+{
+    if (preg_match('/(\d+(?:[\.\-]\d+){2,})/', $value, $matches)) {
+        return trim((string) $matches[1]);
+    }
+
+    return '';
+}
+
+function rpcppe_normalize_account_code_token(string $value): string
+{
+    return preg_replace('/[^0-9]/', '', $value) ?? '';
+}
+
+function rpcppe_strip_leading_account_code_label(string $value): string
+{
+    return trim((string) (preg_replace('/^\s*\d+(?:[\.\-]\d+){2,}\s*[-:\/|]*\s*/', '', $value) ?? $value));
+}
+
 function rpcppe_excel_serial_to_date($value): string
 {
     $value = trim((string) $value);
     if ($value === '') {
         return '';
     }
-    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
-        return $value;
+
+    if (preg_match('/^(\d{4})\-(\d{1,2})\-(\d{1,2})$/', $value, $matches)) {
+        $year = (int) $matches[1];
+        $month = (int) $matches[2];
+        $day = (int) $matches[3];
+        if ($year >= 1900 && $year <= 2100 && checkdate($month, $day, $year)) {
+            return sprintf('%04d-%02d-%02d', $year, $month, $day);
+        }
     }
+
+    $normalized = str_replace('.', '-', $value);
+    $formats = ['m/d/Y', 'd/m/Y', 'm-d-Y', 'd-m-Y', 'm/d/y', 'd/m/y', 'm-d-y', 'd-m-y'];
+    foreach ($formats as $format) {
+        $date = DateTimeImmutable::createFromFormat($format, $normalized);
+        if ($date instanceof DateTimeImmutable) {
+            return $date->format('Y-m-d');
+        }
+    }
+
     if (!is_numeric($value)) {
         return '';
     }
 
-    $serial = (int) round((float) $value);
+    $serial = (int) floor((float) $value);
     if ($serial <= 0) {
         return '';
     }
@@ -684,6 +719,133 @@ function rpcppe_quantity_from_excel_row(array $row): int
     }
     $card = (int) round((float) ($row['qty_property_card'] ?? 0));
     return $card > 0 ? $card : 1;
+}
+
+function rpcppe_extract_asset_metadata_from_description(string $description): array
+{
+    $description = trim((string) preg_replace('/\s+/', ' ', $description));
+    if ($description === '') {
+        return ['brand' => '', 'model' => '', 'serial_no' => ''];
+    }
+
+    $clean = static function (string $value): string {
+        $value = trim((string) preg_replace('/\s+/', ' ', $value));
+        return trim($value, " \t\n\r\0\x0B;,:-.");
+    };
+
+    $brand = '';
+    $model = '';
+    $serialNo = '';
+    $stopWords = ['with', 'without', 'set', 'unit', 'split', 'floor', 'mounted', 'outdoor', 'indoor'];
+    $looksLikeBrand = static function (string $value) use ($stopWords): bool {
+        $value = trim($value);
+        if ($value === '' || strlen($value) > 30) {
+            return false;
+        }
+
+        if (preg_match('/\d{3,}/', $value)) {
+            return false;
+        }
+
+        if (stripos($value, 'model') !== false || stripos($value, 'serial') !== false || stripos($value, 'sn') !== false) {
+            return false;
+        }
+
+        $words = preg_split('/\s+/', strtolower($value)) ?: [];
+        if ($words !== [] && count(array_diff($words, $stopWords)) === 0) {
+            return false;
+        }
+
+        return !in_array(strtolower($value), $stopWords, true);
+    };
+    $cleanSerial = static function (string $value) use ($clean): string {
+        $value = $clean($value);
+        $value = ltrim($value, ',');
+        $value = trim((string) preg_replace('/\s*Indoor\s*:.*/i', '', $value));
+        return $clean($value);
+    };
+
+    if (preg_match('/\bbrand\b\s*[:#-]?\s*([^;\n]+)/i', $description, $matches)) {
+        $brand = $clean((string) ($matches[1] ?? ''));
+        $brand = $clean((string) (preg_replace('/\bmodel\b.*$/i', '', $brand) ?? $brand));
+        if (!$looksLikeBrand($brand)) {
+            $brand = '';
+        }
+    }
+
+    if (preg_match('/\bmodel\b\s*[:#-]?\s*(.+?)(?=(?:\s*[,;]|\b(?:s\s*\/?\s*n|serial(?:\s*no)?)\b|$))/i', $description, $matches)) {
+        $model = $clean((string) ($matches[1] ?? ''));
+    }
+
+    if ($brand === '' && preg_match('/-\s*([A-Za-z][A-Za-z0-9\-]{1,24})\s+model\b/i', $description, $matches)) {
+        $candidateBrand = $clean((string) ($matches[1] ?? ''));
+        if ($looksLikeBrand($candidateBrand)) {
+            $brand = $candidateBrand;
+        }
+    }
+
+    if (preg_match('/[,;]\s*([A-Za-z][A-Za-z0-9&\-]{1,24})\s*[-:]\s*([A-Za-z0-9\-\/]{2,30})/i', $description, $matches)) {
+        $candidateBrand = $clean((string) ($matches[1] ?? ''));
+        $candidateModel = $clean((string) ($matches[2] ?? ''));
+        if ($brand === '' && $looksLikeBrand($candidateBrand)) {
+            $brand = $candidateBrand;
+        }
+        if ($model === '' && $candidateModel !== '') {
+            $model = $candidateModel;
+        }
+    }
+
+    if ($brand === '' && preg_match('/^([A-Za-z][A-Za-z0-9&\-]{1,24}).*?;\s*model\b/i', $description, $matches)) {
+        $candidateBrand = $clean((string) ($matches[1] ?? ''));
+        if ($looksLikeBrand($candidateBrand)) {
+            $brand = $candidateBrand;
+        }
+    }
+
+    if ($brand === '' && preg_match('/;\s*([A-Za-z][A-Za-z0-9&\-\'\s]{1,40})\s*(?:,\s*)?(?:SN|S\/?N|Serial)\b/i', $description, $matches)) {
+        $candidateBrand = $clean((string) ($matches[1] ?? ''));
+        if ($looksLikeBrand($candidateBrand)) {
+            $brand = $candidateBrand;
+        }
+    }
+
+    if ($brand === '' && preg_match('/^([A-Za-z][A-Za-z0-9&\-]{1,24})\s*[;,]/', $description, $matches)) {
+        $candidateBrand = $clean((string) ($matches[1] ?? ''));
+        if ($looksLikeBrand($candidateBrand)) {
+            $brand = $candidateBrand;
+        }
+    }
+
+    if (preg_match('/\b(?:s\s*\/?\s*n|serial(?:\s*no)?)\b\.?\s*[:#-]?\s*([^;,\n]+)/i', $description, $matches)) {
+        $serialNo = $cleanSerial((string) ($matches[1] ?? ''));
+    }
+
+    if ($model === '' && preg_match('/\b([A-Za-z]{1,8}[A-Za-z0-9\-\/]{1,30})\s*(?:SN|S\/?N|Serial)\b/i', $description, $matches)) {
+        $candidateModel = $clean((string) ($matches[1] ?? ''));
+        if (strlen($candidateModel) <= 30 && !in_array(strtolower($candidateModel), $stopWords, true)) {
+            $model = $candidateModel;
+        }
+    }
+
+    if (preg_match('/\b(mounted|outdoor|indoor|split|inverter|refresh)\b/i', $model)) {
+        $model = '';
+    }
+
+    if (strlen($brand) > 200) {
+        $brand = substr($brand, 0, 200);
+    }
+    if (strlen($model) > 200) {
+        $model = substr($model, 0, 200);
+    }
+    if (strlen($serialNo) > 200) {
+        $serialNo = substr($serialNo, 0, 200);
+    }
+
+    return [
+        'brand' => $brand,
+        'model' => $model,
+        'serial_no' => $serialNo,
+    ];
 }
 
 function rpcppe_parse_remark_assignment(string $remarks): array
@@ -710,7 +872,24 @@ function rpcppe_parse_remark_assignment(string $remarks): array
 
 function rpcppe_find_account_code_by_sheet(mysqli $db, string $sheetName): ?array
 {
-    $targetName = rpcppe_sheet_account_name($sheetName);
+    $sheetName = trim($sheetName);
+
+    $codeToken = rpcppe_extract_account_code_token($sheetName);
+    $normalizedCodeToken = rpcppe_normalize_account_code_token($codeToken);
+    if ($normalizedCodeToken !== '') {
+        $stmt = $db->prepare("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 AND REPLACE(REPLACE(REPLACE(account_code, '.', ''), '-', ''), ' ', '') = ? LIMIT 1");
+        if ($stmt) {
+            $stmt->bind_param('s', $normalizedCodeToken);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc() ?: null;
+            $stmt->close();
+            if ($row) {
+                return $row;
+            }
+        }
+    }
+
+    $targetName = rpcppe_sheet_account_name(rpcppe_strip_leading_account_code_label($sheetName));
     $stmt = $db->prepare("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 AND LOWER(TRIM(account_name)) = LOWER(TRIM(?)) LIMIT 1");
     if (!$stmt) {
         return null;
@@ -1089,6 +1268,9 @@ function rpcppe_extract_visible_rows_from_xlsx(string $filePath): array
                     $stats['rows_with_property_number']++;
                 }
 
+                $descriptionForMetadata = $description !== '' ? $description : $article;
+                $metadata = rpcppe_extract_asset_metadata_from_description($descriptionForMetadata);
+
                 $parsedRows[] = [
                     'sheet_name' => $sheetName,
                     'account_name' => rpcppe_sheet_account_name($sheetName),
@@ -1104,6 +1286,9 @@ function rpcppe_extract_visible_rows_from_xlsx(string $filePath): array
                     'fund_number' => trim((string) ($cells['L'] ?? '')),
                     'accounting_value' => trim((string) ($cells['M'] ?? '')),
                     'status' => trim((string) ($cells['N'] ?? '')),
+                    'brand' => (string) ($metadata['brand'] ?? ''),
+                    'model' => (string) ($metadata['model'] ?? ''),
+                    'serial_no' => (string) ($metadata['serial_no'] ?? ''),
                 ];
             }
         }
@@ -1274,9 +1459,10 @@ function rpcppe_create_legacy_asset_from_excel_row(mysqli $db, array $excelRow, 
     $supplierId = 0;
     $brandId = 0;
     $modelId = 0;
-    $brandName = '';
-    $modelName = '';
-    $serialNo = '';
+    $metadata = rpcppe_extract_asset_metadata_from_description($itemDescription);
+    $brandName = trim((string) ($excelRow['brand'] ?? ($metadata['brand'] ?? '')));
+    $modelName = trim((string) ($excelRow['model'] ?? ($metadata['model'] ?? '')));
+    $serialNo = trim((string) ($excelRow['serial_no'] ?? ($metadata['serial_no'] ?? '')));
     $quantity = rpcppe_quantity_from_excel_row($excelRow);
     $unitCost = (float) ($excelRow['unit_value'] ?? 0);
     $acquisitionCost = round($quantity * $unitCost, 2);
@@ -1312,9 +1498,9 @@ function rpcppe_create_legacy_asset_from_excel_row(mysqli $db, array $excelRow, 
         'acquisition_date' => $acquisitionDate,
         'qty_property_card' => $quantity,
         'qty_physical_count' => $quantity,
-        'brand' => '',
-        'model' => '',
-        'serial_no' => '',
+        'brand' => $brandName,
+        'model' => $modelName,
+        'serial_no' => $serialNo,
         'office_id' => $officeId > 0 ? $officeId : null,
         'office_name' => (string) ($office['office_name'] ?? ''),
         'employee_id' => $employeeId > 0 ? $employeeId : null,
@@ -1339,11 +1525,19 @@ function rpcppe_update_legacy_asset_from_excel_row(mysqli $db, int $legacyAssetI
     $officeId = isset($office['id']) ? (int) $office['id'] : 0;
     $employeeId = isset($employee['id']) ? (int) $employee['id'] : 0;
     $remarks = trim((string) ($excelRow['remarks'] ?? ''));
+    $itemDescription = trim((string) ($excelRow['description'] ?? ''));
+    $metadata = rpcppe_extract_asset_metadata_from_description($itemDescription);
+    $brand = trim((string) ($excelRow['brand'] ?? ($metadata['brand'] ?? '')));
+    $model = trim((string) ($excelRow['model'] ?? ($metadata['model'] ?? '')));
+    $serialNo = trim((string) ($excelRow['serial_no'] ?? ($metadata['serial_no'] ?? '')));
 
     $stmt = $db->prepare("UPDATE legacy_assets
         SET acquisition_date = CASE WHEN ? <> '' THEN ? ELSE acquisition_date END,
             office_id = CASE WHEN ? > 0 THEN ? ELSE office_id END,
             employee_id = CASE WHEN ? > 0 THEN ? ELSE employee_id END,
+            brand = CASE WHEN ? <> '' THEN ? ELSE brand END,
+            model = CASE WHEN ? <> '' THEN ? ELSE model END,
+            serial_no = CASE WHEN ? <> '' THEN ? ELSE serial_no END,
             remarks = CASE WHEN ? <> '' THEN ? ELSE remarks END
         WHERE id = ?");
     if (!$stmt) {
@@ -1351,13 +1545,19 @@ function rpcppe_update_legacy_asset_from_excel_row(mysqli $db, int $legacyAssetI
     }
 
     $stmt->bind_param(
-        'ssiisssi',
+        'ssiiiisssssssi',
         $acquisitionDate,
         $acquisitionDate,
         $officeId,
         $officeId,
         $employeeId,
         $employeeId,
+        $brand,
+        $brand,
+        $model,
+        $model,
+        $serialNo,
+        $serialNo,
         $remarks,
         $remarks,
         $legacyAssetId
@@ -1426,6 +1626,21 @@ function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $
     $fundCode = trim((string) ($row['fund_code'] ?? ''));
     $fundSource = trim((string) ($row['fund_source'] ?? ''));
     $fundNumber = trim((string) ($row['fund_number'] ?? ''));
+    $brand = trim((string) ($row['brand'] ?? ($excelRow['brand'] ?? '')));
+    $model = trim((string) ($row['model'] ?? ($excelRow['model'] ?? '')));
+    $serialNo = trim((string) ($row['serial_no'] ?? ($excelRow['serial_no'] ?? '')));
+    if ($brand === '' || $model === '' || $serialNo === '') {
+        $metadata = rpcppe_extract_asset_metadata_from_description((string) ($excelRow['description'] ?? ''));
+        if ($brand === '') {
+            $brand = (string) ($metadata['brand'] ?? '');
+        }
+        if ($model === '') {
+            $model = (string) ($metadata['model'] ?? '');
+        }
+        if ($serialNo === '') {
+            $serialNo = (string) ($metadata['serial_no'] ?? '');
+        }
+    }
 
     $acquisitionDateSnapshot = trim((string) ($excelRow['acquisition_date'] ?? ''));
     $qtyPropertyCard = max(1, (int) ($excelRow['qty_property_card'] ?? 1));
@@ -1486,6 +1701,17 @@ function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $
     );
     $stmt->execute();
     $stmt->close();
+
+    $metaStmt = $db->prepare("UPDATE rpcppe_batch_items
+        SET brand = CASE WHEN ? <> '' THEN ? ELSE brand END,
+            model = CASE WHEN ? <> '' THEN ? ELSE model END,
+            serial_no = CASE WHEN ? <> '' THEN ? ELSE serial_no END
+        WHERE id = ?");
+    if ($metaStmt) {
+        $metaStmt->bind_param('ssssssi', $brand, $brand, $model, $model, $serialNo, $serialNo, $batchItemId);
+        $metaStmt->execute();
+        $metaStmt->close();
+    }
 }
 
 if (!$db) {
@@ -1575,6 +1801,58 @@ if (!$db) {
                 } catch (Throwable $e) {
                     $db->rollback();
                     $errors[] = 'Unable to auto-create next-year batch.';
+                }
+            }
+        }
+
+        if (empty($errors) && $action === 'delete_batch') {
+            $deleteBatchId = (int) ($_POST['batch_id'] ?? 0);
+            if ($deleteBatchId <= 0) {
+                $errors[] = 'Invalid batch.';
+            } else {
+                $batchStmt = $db->prepare("SELECT id, status, batch_name FROM rpcppe_batches WHERE id = ? LIMIT 1");
+                $batchRow = null;
+                if ($batchStmt) {
+                    $batchStmt->bind_param('i', $deleteBatchId);
+                    $batchStmt->execute();
+                    $batchRow = $batchStmt->get_result()->fetch_assoc();
+                    $batchStmt->close();
+                }
+
+                if (!$batchRow) {
+                    $errors[] = 'Batch not found.';
+                } elseif (($batchRow['status'] ?? '') !== 'draft') {
+                    $errors[] = 'Only draft batches can be deleted.';
+                } else {
+                    $db->begin_transaction();
+                    try {
+                        $deleteItemsStmt = $db->prepare("DELETE FROM rpcppe_batch_items WHERE batch_id = ?");
+                        if ($deleteItemsStmt) {
+                            $deleteItemsStmt->bind_param('i', $deleteBatchId);
+                            $deleteItemsStmt->execute();
+                            $deleteItemsStmt->close();
+                        }
+
+                        $deleteBatchStmt = $db->prepare("DELETE FROM rpcppe_batches WHERE id = ? AND status = 'draft' LIMIT 1");
+                        if (!$deleteBatchStmt) {
+                            throw new RuntimeException('Unable to delete batch.');
+                        }
+                        $deleteBatchStmt->bind_param('i', $deleteBatchId);
+                        $deleteBatchStmt->execute();
+                        $affected = $deleteBatchStmt->affected_rows;
+                        $deleteBatchStmt->close();
+
+                        if ($affected <= 0) {
+                            throw new RuntimeException('Unable to delete batch.');
+                        }
+
+                        $db->commit();
+                        set_flash('success', 'Draft batch deleted successfully.');
+                        redirect('modules/reports/rpcppe_batches.php');
+                    } catch (Throwable $e) {
+                        $db->rollback();
+                        $errors[] = 'Unable to delete draft batch.';
+                    }
                 }
             }
         }
@@ -2137,6 +2415,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <button type="submit" class="btn btn-outline-info btn-sm">Carry Forward</button>
                                         </form>
                                         <form method="post" class="d-inline ms-auto">
+                                            <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                            <input type="hidden" name="action" value="delete_batch">
+                                            <input type="hidden" name="batch_id" value="<?php echo (int) $selectedBatchId; ?>">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this draft batch and all its items? This cannot be undone.');">Delete Draft Batch</button>
+                                        </form>
+                                        <form method="post" class="d-inline">
                                             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                             <input type="hidden" name="action" value="finalize_batch">
                                             <input type="hidden" name="batch_id" value="<?php echo (int) $selectedBatchId; ?>">
