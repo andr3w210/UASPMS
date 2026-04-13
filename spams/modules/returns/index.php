@@ -22,8 +22,12 @@ $rows = [];
 $typeFilter = trim((string) ($_GET['item_type'] ?? 'all'));
 $search = trim((string) ($_GET['q'] ?? ''));
 $preselectedDetailId = (int) ($_GET['detail_id'] ?? 0);
+$preselectedLegacyAssetId = (int) ($_GET['legacy_asset_id'] ?? 0);
+$preselectedSourceType = trim((string) ($_GET['source'] ?? ''));
 $form = [
+    'source_type' => 'system',
     'distribution_item_detail_id' => '',
+    'legacy_asset_id' => '',
     'return_date' => date('Y-m-d'),
     'reason' => '',
     'remarks' => '',
@@ -36,19 +40,38 @@ if (!in_array($typeFilter, ['all', 'semi_expendable', 'equipment'], true)) {
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    if (!schema_has_column($db, 'returns', 'source_type')) {
+        $db->query("ALTER TABLE returns ADD COLUMN source_type ENUM('system','legacy') NOT NULL DEFAULT 'system' AFTER system_reference");
+    }
+    if (!schema_has_column($db, 'returns', 'legacy_asset_id')) {
+        $db->query("ALTER TABLE returns ADD COLUMN legacy_asset_id BIGINT UNSIGNED NULL AFTER distribution_item_detail_id");
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $form['source_type'] = trim((string) ($_POST['source_type'] ?? 'system'));
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
         }
 
         $form['distribution_item_detail_id'] = trim((string) ($_POST['distribution_item_detail_id'] ?? ''));
+        $form['legacy_asset_id'] = trim((string) ($_POST['legacy_asset_id'] ?? ''));
         $form['return_date'] = trim((string) ($_POST['return_date'] ?? date('Y-m-d')));
         $form['reason'] = trim((string) ($_POST['reason'] ?? ''));
         $form['remarks'] = trim((string) ($_POST['remarks'] ?? ''));
 
-        $detailId = (int) ($form['distribution_item_detail_id'] !== '' ? $form['distribution_item_detail_id'] : 0);
+        if (!in_array($form['source_type'], ['system', 'legacy'], true)) {
+            $form['source_type'] = 'system';
+        }
 
-        if ($detailId <= 0) {
+        $sourceType = $form['source_type'];
+        $detailId = (int) ($form['distribution_item_detail_id'] !== '' ? $form['distribution_item_detail_id'] : 0);
+        $legacyAssetId = (int) ($form['legacy_asset_id'] !== '' ? $form['legacy_asset_id'] : 0);
+
+        if ($sourceType === 'legacy') {
+            if ($legacyAssetId <= 0) {
+                $errors[] = 'Select a legacy asset to return.';
+            }
+        } elseif ($detailId <= 0) {
             $errors[] = 'Select an accountable asset to return.';
         }
         if ($form['return_date'] === '') {
@@ -57,45 +80,75 @@ if (!$db) {
 
         $asset = null;
         if (!$errors) {
-            $assetStmt = $db->prepare("
-                SELECT
-                    did.id,
-                    did.current_office_id,
-                    did.current_employee_id,
-                    did.is_distributed,
-                    did.is_disposed,
-                    COALESCE(poi.item_type, si.item_type) AS item_type
-                FROM distribution_item_details did
-                INNER JOIN distribution_items di ON di.id = did.distribution_item_id
-                LEFT JOIN issuance_items ii ON ii.id = di.issuance_item_id
-                LEFT JOIN stock_items si ON si.id = ii.stock_item_id
-                LEFT JOIN receiving_items ri ON ri.id = COALESCE(di.receiving_item_id, si.receiving_item_id)
-                LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
-                WHERE did.id = ?
-                LIMIT 1
-            ");
-            if ($assetStmt) {
-                $assetStmt->bind_param('i', $detailId);
-                $assetStmt->execute();
-                $asset = $assetStmt->get_result()->fetch_assoc() ?: null;
-                $assetStmt->close();
-            }
+            if ($sourceType === 'legacy') {
+                $assetStmt = $db->prepare("
+                    SELECT id, office_id AS current_office_id, employee_id AS current_employee_id, item_type
+                    FROM legacy_assets
+                    WHERE id = ? AND is_active = 1
+                    LIMIT 1
+                ");
+                if ($assetStmt) {
+                    $assetStmt->bind_param('i', $legacyAssetId);
+                    $assetStmt->execute();
+                    $asset = $assetStmt->get_result()->fetch_assoc() ?: null;
+                    $assetStmt->close();
+                }
 
-            if (!$asset) {
-                $errors[] = 'The selected asset could not be found.';
-            } elseif ((int) ($asset['is_disposed'] ?? 0) === 1) {
-                $errors[] = 'Disposed assets can no longer be returned.';
-            } elseif ((int) ($asset['is_distributed'] ?? 0) !== 1) {
-                $errors[] = 'The selected asset is no longer marked as distributed.';
+                if (!$asset) {
+                    $errors[] = 'The selected legacy asset could not be found.';
+                } else {
+                    $dupStmt = $db->prepare("SELECT id FROM returns WHERE source_type = 'legacy' AND legacy_asset_id = ? AND status = 'posted' LIMIT 1");
+                    if ($dupStmt) {
+                        $dupStmt->bind_param('i', $legacyAssetId);
+                        $dupStmt->execute();
+                        $existing = $dupStmt->get_result()->fetch_assoc();
+                        $dupStmt->close();
+                        if ($existing) {
+                            $errors[] = 'A posted return already exists for the selected legacy asset.';
+                        }
+                    }
+                }
             } else {
-                $dupStmt = $db->prepare("SELECT id FROM returns WHERE distribution_item_detail_id = ? AND status = 'posted' LIMIT 1");
-                if ($dupStmt) {
-                    $dupStmt->bind_param('i', $detailId);
-                    $dupStmt->execute();
-                    $existing = $dupStmt->get_result()->fetch_assoc();
-                    $dupStmt->close();
-                    if ($existing) {
-                        $errors[] = 'A posted return already exists for the selected asset.';
+                $assetStmt = $db->prepare("
+                    SELECT
+                        did.id,
+                        did.current_office_id,
+                        did.current_employee_id,
+                        did.is_distributed,
+                        did.is_disposed,
+                        COALESCE(poi.item_type, si.item_type) AS item_type
+                    FROM distribution_item_details did
+                    INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+                    LEFT JOIN issuance_items ii ON ii.id = di.issuance_item_id
+                    LEFT JOIN stock_items si ON si.id = ii.stock_item_id
+                    LEFT JOIN receiving_items ri ON ri.id = COALESCE(di.receiving_item_id, si.receiving_item_id)
+                    LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+                    WHERE did.id = ?
+                    LIMIT 1
+                ");
+                if ($assetStmt) {
+                    $assetStmt->bind_param('i', $detailId);
+                    $assetStmt->execute();
+                    $asset = $assetStmt->get_result()->fetch_assoc() ?: null;
+                    $assetStmt->close();
+                }
+
+                if (!$asset) {
+                    $errors[] = 'The selected asset could not be found.';
+                } elseif ((int) ($asset['is_disposed'] ?? 0) === 1) {
+                    $errors[] = 'Disposed assets can no longer be returned.';
+                } elseif ((int) ($asset['is_distributed'] ?? 0) !== 1) {
+                    $errors[] = 'The selected asset is no longer marked as distributed.';
+                } else {
+                    $dupStmt = $db->prepare("SELECT id FROM returns WHERE source_type = 'system' AND distribution_item_detail_id = ? AND status = 'posted' LIMIT 1");
+                    if ($dupStmt) {
+                        $dupStmt->bind_param('i', $detailId);
+                        $dupStmt->execute();
+                        $existing = $dupStmt->get_result()->fetch_assoc();
+                        $dupStmt->close();
+                        if ($existing) {
+                            $errors[] = 'A posted return already exists for the selected asset.';
+                        }
                     }
                 }
             }
@@ -108,44 +161,62 @@ if (!$db) {
                 $userId = current_user_id();
                 $officeId = (int) ($asset['current_office_id'] ?? 0);
                 $employeeId = (int) ($asset['current_employee_id'] ?? 0);
+                $detailIdToSave = $sourceType === 'system' ? $detailId : null;
+                $legacyIdToSave = $sourceType === 'legacy' ? $legacyAssetId : null;
 
                 $ins = $db->prepare("
                     INSERT INTO returns (
                         system_reference,
+                        source_type,
                         return_date,
                         distribution_item_detail_id,
+                        legacy_asset_id,
                         office_id,
                         employee_id,
                         reason,
                         remarks,
                         status,
                         created_by
-                    ) VALUES (?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), ?, ?, 'posted', ?)
+                    ) VALUES (?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), ?, ?, 'posted', ?)
                 ");
 
                 if (!$ins) {
                     throw new RuntimeException('Unable to prepare the return insert statement.');
                 }
 
-                $ins->bind_param('ssiiissi', $systemRef, $form['return_date'], $detailId, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
+                $ins->bind_param('sssiiiissi', $systemRef, $sourceType, $form['return_date'], $detailIdToSave, $legacyIdToSave, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
                 $ins->execute();
                 $ins->close();
 
-                $upd = $db->prepare("
-                    UPDATE distribution_item_details
-                    SET
-                        is_distributed = 0,
-                        current_office_id = NULL,
-                        current_employee_id = NULL,
-                        current_responsibility_code_id = NULL
-                    WHERE id = ?
-                ");
-                if (!$upd) {
-                    throw new RuntimeException('Unable to update the asset accountability state.');
+                if ($sourceType === 'legacy') {
+                    $upd = $db->prepare("
+                        UPDATE legacy_assets
+                        SET office_id = NULL, employee_id = NULL, responsibility_code_id = NULL
+                        WHERE id = ?
+                    ");
+                    if (!$upd) {
+                        throw new RuntimeException('Unable to update legacy asset accountability state.');
+                    }
+                    $upd->bind_param('i', $legacyAssetId);
+                    $upd->execute();
+                    $upd->close();
+                } else {
+                    $upd = $db->prepare("
+                        UPDATE distribution_item_details
+                        SET
+                            is_distributed = 0,
+                            current_office_id = NULL,
+                            current_employee_id = NULL,
+                            current_responsibility_code_id = NULL
+                        WHERE id = ?
+                    ");
+                    if (!$upd) {
+                        throw new RuntimeException('Unable to update the asset accountability state.');
+                    }
+                    $upd->bind_param('i', $detailId);
+                    $upd->execute();
+                    $upd->close();
                 }
-                $upd->bind_param('i', $detailId);
-                $upd->execute();
-                $upd->close();
 
                 $returnId = (int) $db->insert_id;
                 write_audit_log($db, [
@@ -157,8 +228,10 @@ if (!$db) {
                     'action_name' => 'post_return',
                     'new_values' => [
                         'system_reference' => $systemRef,
+                        'source_type' => $sourceType,
                         'return_date' => $form['return_date'],
-                        'distribution_item_detail_id' => $detailId,
+                        'distribution_item_detail_id' => $detailIdToSave,
+                        'legacy_asset_id' => $legacyIdToSave,
                         'office_id' => $officeId,
                         'employee_id' => $employeeId,
                         'reason' => $form['reason'],
@@ -246,8 +319,23 @@ if (!$db) {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $preselectedDetailId > 0) {
         foreach ($available as $assetRow) {
             if ((int) ($assetRow['id'] ?? 0) === $preselectedDetailId) {
+                $form['source_type'] = 'system';
                 $form['distribution_item_detail_id'] = (string) $preselectedDetailId;
                 break;
+            }
+        }
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $preselectedLegacyAssetId > 0 && $preselectedSourceType === 'legacy') {
+        $legacyAssetStmt = $db->prepare("SELECT id FROM legacy_assets WHERE id = ? AND is_active = 1 LIMIT 1");
+        if ($legacyAssetStmt) {
+            $legacyAssetStmt->bind_param('i', $preselectedLegacyAssetId);
+            $legacyAssetStmt->execute();
+            $legacyAsset = $legacyAssetStmt->get_result()->fetch_assoc();
+            $legacyAssetStmt->close();
+            if ($legacyAsset) {
+                $form['source_type'] = 'legacy';
+                $form['legacy_asset_id'] = (string) $preselectedLegacyAssetId;
             }
         }
     }
@@ -256,17 +344,18 @@ if (!$db) {
         SELECT
             rt.id,
             rt.system_reference,
+            rt.source_type,
             rt.return_date,
             rt.reason,
             rt.remarks,
-            did.property_number,
-            did.serial_no,
-            COALESCE(poi.item_type, si.item_type) AS item_type,
-            COALESCE(poi.item_description, si.item_description) AS item_description,
-            c.classification_name,
-            c.classification_family,
-            d.document_no,
-            d.document_type,
+            COALESCE(did.property_number, la.property_number) AS property_number,
+            COALESCE(did.serial_no, la.serial_no) AS serial_no,
+            COALESCE(poi.item_type, si.item_type, la.item_type) AS item_type,
+            COALESCE(poi.item_description, si.item_description, la.item_description) AS item_description,
+            COALESCE(c.classification_name, lc.classification_name) AS classification_name,
+            COALESCE(c.classification_family, lc.classification_family) AS classification_family,
+            COALESCE(d.document_no, 'Beginning Balance') AS document_no,
+            COALESCE(d.document_type, 'legacy') AS document_type,
             o.office_name,
             e.first_name,
             e.middle_name,
@@ -274,6 +363,7 @@ if (!$db) {
             e.suffix_name
         FROM returns rt
         LEFT JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
+        LEFT JOIN legacy_assets la ON la.id = rt.legacy_asset_id
         LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
         LEFT JOIN distributions d ON d.id = di.distribution_id
         LEFT JOIN issuance_items ii ON ii.id = di.issuance_item_id
@@ -281,6 +371,7 @@ if (!$db) {
         LEFT JOIN receiving_items ri ON ri.id = COALESCE(di.receiving_item_id, si.receiving_item_id)
         LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
         LEFT JOIN classifications c ON c.id = COALESCE(poi.classification_id, si.classification_id)
+        LEFT JOIN classifications lc ON lc.id = la.classification_id
         LEFT JOIN offices o ON o.id = COALESCE(rt.office_id, did.current_office_id, d.office_id)
         LEFT JOIN employees e ON e.id = COALESCE(rt.employee_id, did.current_employee_id, d.employee_id)
         ORDER BY rt.return_date DESC, rt.id DESC
@@ -375,24 +466,30 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <h6 class="report-filter-title">Record Return</h6>
                         <form method="post" class="row g-3 align-items-end">
                             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                            <input type="hidden" name="source_type" value="<?php echo h($form['source_type']); ?>">
                             <div class="col-md-6">
                                 <label class="form-label">Accountable Asset</label>
-                                <select name="distribution_item_detail_id" class="form-select" required>
-                                    <option value="">Select distributed asset</option>
-                                    <?php foreach ($available as $asset): ?>
-                                        <option value="<?php echo (int) $asset['id']; ?>" <?php echo $form['distribution_item_detail_id'] === (string) $asset['id'] ? 'selected' : ''; ?>>
-                                            <?php
-                                            echo h(trim(implode(' | ', array_filter([
-                                                strtoupper((string) ($asset['item_type'] ?? '')),
-                                                $asset['property_number'] ?? '',
-                                                $asset['serial_no'] ?? '',
-                                                return_asset_label($asset),
-                                                $asset['office_name'] ?? '',
-                                            ]))));
-                                            ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
+                                <?php if ($form['source_type'] === 'legacy' && $form['legacy_asset_id'] !== ''): ?>
+                                    <input type="hidden" name="legacy_asset_id" value="<?php echo h($form['legacy_asset_id']); ?>">
+                                    <input type="text" class="form-control" value="Legacy asset #<?php echo h($form['legacy_asset_id']); ?> (from Asset Details)" readonly>
+                                <?php else: ?>
+                                    <select name="distribution_item_detail_id" class="form-select" required>
+                                        <option value="">Select distributed asset</option>
+                                        <?php foreach ($available as $asset): ?>
+                                            <option value="<?php echo (int) $asset['id']; ?>" <?php echo $form['distribution_item_detail_id'] === (string) $asset['id'] ? 'selected' : ''; ?>>
+                                                <?php
+                                                echo h(trim(implode(' | ', array_filter([
+                                                    strtoupper((string) ($asset['item_type'] ?? '')),
+                                                    $asset['property_number'] ?? '',
+                                                    $asset['serial_no'] ?? '',
+                                                    return_asset_label($asset),
+                                                    $asset['office_name'] ?? '',
+                                                ]))));
+                                                ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                <?php endif; ?>
                             </div>
                             <div class="col-md-2">
                                 <label class="form-label">Return Date</label>
@@ -431,7 +528,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td class="fw-semibold"><?php echo h($row['system_reference']); ?></td>
                                             <td><?php echo h(!empty($row['return_date']) ? date('M d, Y', strtotime((string) $row['return_date'])) : ''); ?></td>
                                             <td>
-                                                <div class="fw-semibold"><?php echo h($row['property_number'] ?? ''); ?></div>
+                                                <div class="fw-semibold d-flex align-items-center gap-2 flex-wrap">
+                                                    <span><?php echo h($row['property_number'] ?? ''); ?></span>
+                                                    <?php if (($row['source_type'] ?? 'system') === 'legacy'): ?>
+                                                        <span class="badge text-bg-secondary">Legacy</span>
+                                                    <?php else: ?>
+                                                        <span class="badge text-bg-success">System</span>
+                                                    <?php endif; ?>
+                                                </div>
                                                 <div><?php echo h(return_asset_label($row)); ?></div>
                                                 <?php if (!empty($row['serial_no'])): ?><div class="small text-muted"><?php echo h($row['serial_no']); ?></div><?php endif; ?>
                                             </td>

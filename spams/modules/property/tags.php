@@ -7,10 +7,11 @@ require_login();
 $db = db();
 $detailId = (int) ($_GET['detail_id'] ?? 0);
 $distributionId = (int) ($_GET['distribution_id'] ?? 0);
+$legacyAssetId = (int) ($_GET['legacy_asset_id'] ?? 0);
 
-if ($detailId <= 0 && $distributionId <= 0) {
+if ($detailId <= 0 && $distributionId <= 0 && $legacyAssetId <= 0) {
     http_response_code(404);
-    echo 'Distribution ID or detail ID is required.';
+    echo 'Distribution ID, detail ID, or legacy asset ID is required.';
     exit;
 }
 
@@ -37,8 +38,39 @@ foreach ($possible as $path) {
 }
 
 if ($db) {
-    $sql =
-        "SELECT
+    if ($legacyAssetId > 0) {
+        $stmt = $db->prepare("SELECT
+            la.id AS did_id,
+            la.property_number,
+            la.brand,
+            la.model,
+            la.serial_no,
+            la.system_reference,
+            'legacy' AS document_type,
+            'Beginning Balance' AS document_no,
+            la.acquisition_date AS distribution_date,
+            la.acquisition_date AS date_acquired,
+            la.item_description,
+            o.office_name,
+            TRIM(CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, ''))) AS employee_name
+        FROM legacy_assets la
+        LEFT JOIN offices o ON o.id = la.office_id
+        LEFT JOIN employees e ON e.id = la.employee_id
+        WHERE la.id = ?
+          AND la.is_active = 1
+        LIMIT 1");
+        if ($stmt) {
+            $stmt->bind_param('i', $legacyAssetId);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($row = $res->fetch_assoc()) {
+                $rows[] = $row;
+            }
+            $stmt->close();
+        }
+    } else {
+        $sql =
+            "SELECT
             did.id AS did_id,
             did.property_number,
             did.brand,
@@ -65,27 +97,28 @@ if ($db) {
          LEFT JOIN offices curr_o ON curr_o.id = did.current_office_id
          LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id";
 
-    if ($detailId > 0) {
-        $stmt = $db->prepare($sql . " WHERE did.id = ?");
-        if ($stmt) {
-            $stmt->bind_param('i', $detailId);
-            $stmt->execute();
-            $res = $stmt->get_result();
-            while ($row = $res->fetch_assoc()) {
-                $rows[] = $row;
+        if ($detailId > 0) {
+            $stmt = $db->prepare($sql . " WHERE did.id = ?");
+            if ($stmt) {
+                $stmt->bind_param('i', $detailId);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                while ($row = $res->fetch_assoc()) {
+                    $rows[] = $row;
+                }
+                $stmt->close();
             }
-            $stmt->close();
-        }
-    } elseif ($distributionId > 0) {
-        $stmt = $db->prepare($sql . " WHERE d.id = ?");
-        if ($stmt) {
-            $stmt->bind_param('i', $distributionId);
-            $stmt->execute();
-            $res = $stmt->get_result();
-            while ($row = $res->fetch_assoc()) {
-                $rows[] = $row;
+        } elseif ($distributionId > 0) {
+            $stmt = $db->prepare($sql . " WHERE d.id = ?");
+            if ($stmt) {
+                $stmt->bind_param('i', $distributionId);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                while ($row = $res->fetch_assoc()) {
+                    $rows[] = $row;
+                }
+                $stmt->close();
             }
-            $stmt->close();
         }
     }
 }
@@ -100,9 +133,10 @@ foreach ($rows as $row) {
     $qrBase64 = null;
     $qrUrl = 'https://quickchart.io/qr?size=180&text=' . rawurlencode($scanUrl);
 
-    if ($havePhpQr && class_exists('QRcode')) {
+    if ($havePhpQr && class_exists('QRcode') && is_callable(['QRcode', 'png'])) {
+        $qrLevel = defined('QR_ECLEVEL_M') ? constant('QR_ECLEVEL_M') : 'M';
         ob_start();
-        QRcode::png($scanUrl, null, QR_ECLEVEL_M, 6, 2);
+        call_user_func(['QRcode', 'png'], $scanUrl, null, $qrLevel, 6, 2);
         $qrRaw = ob_get_clean();
         if ($qrRaw !== false && $qrRaw !== '') {
             $qrBase64 = base64_encode($qrRaw);

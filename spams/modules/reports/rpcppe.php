@@ -8,12 +8,15 @@ $errors = [];
 $rows = [];
 $offices = [];
 $accountCodes = [];
+$batches = [];
 $officeId = (int) ($_GET['office_id'] ?? 0);
 $accountCodeId = (int) ($_GET['account_code_id'] ?? 0);
+$batchId = (int) ($_GET['batch_id'] ?? 0);
 $asOf = trim((string) ($_GET['as_of'] ?? date('Y-m-d')));
 $fundNumber = trim((string) ($_GET['fund_number'] ?? ''));
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
+$selectedBatch = null;
 
 if (!in_array($fundNumber, ['', '01', '05', '06', '07'], true)) {
     $fundNumber = '';
@@ -43,6 +46,58 @@ if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
     ensure_legacy_assets_fund_column($db);
+    $db->query("CREATE TABLE IF NOT EXISTS rpcppe_batches (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        batch_year SMALLINT UNSIGNED NOT NULL,
+        batch_name VARCHAR(150) NOT NULL,
+        as_of_date DATE NOT NULL,
+        status ENUM('draft', 'finalized') NOT NULL DEFAULT 'draft',
+        notes TEXT NULL,
+        created_by BIGINT UNSIGNED NULL,
+        finalized_by BIGINT UNSIGNED NULL,
+        finalized_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_rpcppe_batches_year_status (batch_year, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $db->query("CREATE TABLE IF NOT EXISTS rpcppe_batch_items (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        batch_id BIGINT UNSIGNED NOT NULL,
+        source_type ENUM('system', 'legacy') NOT NULL,
+        distribution_item_detail_id BIGINT UNSIGNED NULL,
+        legacy_asset_id BIGINT UNSIGNED NULL,
+        property_number VARCHAR(120) NOT NULL,
+        item_description TEXT NOT NULL,
+        description_detail TEXT NULL,
+        classification_name VARCHAR(255) NULL,
+        classification_family VARCHAR(255) NULL,
+        uom_name VARCHAR(120) NULL,
+        abbreviation VARCHAR(60) NULL,
+        unit_cost DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        brand VARCHAR(200) NULL,
+        model VARCHAR(200) NULL,
+        serial_no VARCHAR(200) NULL,
+        office_id BIGINT UNSIGNED NULL,
+        office_name VARCHAR(255) NULL,
+        employee_id BIGINT UNSIGNED NULL,
+        employee_name VARCHAR(255) NULL,
+        account_code_id BIGINT UNSIGNED NULL,
+        account_code VARCHAR(100) NULL,
+        account_name VARCHAR(255) NULL,
+        fund_code VARCHAR(100) NULL,
+        fund_source VARCHAR(150) NULL,
+        fund_number VARCHAR(10) NULL,
+        remarks VARCHAR(120) NULL,
+        is_included TINYINT(1) NOT NULL DEFAULT 1,
+        is_disposed TINYINT(1) NOT NULL DEFAULT 0,
+        disposed_at DATE NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_rpcppe_batch_items_batch_include (batch_id, is_included, is_disposed)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
     $officeResult = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeResult) {
         $offices = $officeResult->fetch_all(MYSQLI_ASSOC);
@@ -53,7 +108,96 @@ if (!$db) {
         $accountCodes = $accountCodeResult->fetch_all(MYSQLI_ASSOC);
     }
 
-    $systemSql = "
+    $batchResult = $db->query("SELECT id, batch_year, batch_name, as_of_date, status FROM rpcppe_batches WHERE status = 'finalized' ORDER BY batch_year DESC, id DESC");
+    if ($batchResult) {
+        $batches = $batchResult->fetch_all(MYSQLI_ASSOC);
+    }
+
+    foreach ($batches as $batch) {
+        if ((int) $batch['id'] === $batchId) {
+            $selectedBatch = $batch;
+            break;
+        }
+    }
+
+    if ($batchId > 0 && !$selectedBatch) {
+        $errors[] = 'Selected RPCPPE batch is not available or not finalized.';
+        $batchId = 0;
+    }
+
+    if ($selectedBatch) {
+        $asOf = (string) ($selectedBatch['as_of_date'] ?? $asOf);
+
+        $batchSql = "
+            SELECT
+                i.source_type,
+                i.property_number,
+                i.item_description,
+                i.description_detail,
+                i.classification_name,
+                i.classification_family,
+                i.uom_name,
+                i.abbreviation,
+                i.unit_cost,
+                i.acquisition_date,
+                i.qty_property_card,
+                i.qty_physical_count,
+                i.brand,
+                i.model,
+                i.serial_no,
+                i.office_name,
+                i.employee_name,
+                i.account_code,
+                i.account_name,
+                i.fund_code,
+                i.fund_source,
+                i.fund_number,
+                i.remarks
+            FROM rpcppe_batch_items i
+            WHERE i.batch_id = ?
+              AND i.is_included = 1
+              AND i.is_disposed = 0
+        ";
+        $batchTypes = 'i';
+        $batchParams = [$batchId];
+
+        if ($officeId > 0) {
+            $batchSql .= " AND i.office_id = ?";
+            $batchTypes .= 'i';
+            $batchParams[] = $officeId;
+        }
+        if ($accountCodeId > 0) {
+            $batchSql .= " AND i.account_code_id = ?";
+            $batchTypes .= 'i';
+            $batchParams[] = $accountCodeId;
+        }
+        if ($fundNumber !== '') {
+            $batchSql .= " AND (i.fund_code LIKE ? OR i.fund_source LIKE ? OR i.fund_number LIKE ?)";
+            $batchTypes .= 'sss';
+            $batchParams[] = '%' . $fundNumber . '%';
+            $batchParams[] = '%' . $fundNumber . '%';
+            $batchParams[] = '%' . $fundNumber . '%';
+        }
+
+        $batchSql .= " ORDER BY i.account_code ASC, i.classification_name ASC, i.item_description ASC, i.property_number ASC";
+        $batchStmt = $db->prepare($batchSql);
+        if ($batchStmt) {
+            $batchStmt->bind_param($batchTypes, ...$batchParams);
+            $batchStmt->execute();
+            $batchRows = $batchStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $batchStmt->close();
+            foreach ($batchRows as $row) {
+                if (trim((string) ($row['fund_number'] ?? '')) === '') {
+                    $row['fund_number'] = rpcppe_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
+                }
+                $rows[] = $row;
+            }
+        } else {
+            $errors[] = 'Unable to prepare the RPCPPE batch query.';
+        }
+    } else {
+
+        $systemSql = "
         SELECT
             'system' AS source_type,
             did.property_number,
@@ -98,42 +242,42 @@ if (!$db) {
           AND dp.id IS NULL
           AND rt.id IS NULL
     ";
-    $types = 'sss';
-    $params = [$asOf, $asOf, $asOf];
+        $types = 'sss';
+        $params = [$asOf, $asOf, $asOf];
 
-    if ($officeId > 0) {
-        $systemSql .= " AND COALESCE(did.current_office_id, d.office_id) = ?";
-        $types .= 'i';
-        $params[] = $officeId;
-    }
-    if ($accountCodeId > 0) {
-        $systemSql .= " AND poi.account_code_id = ?";
-        $types .= 'i';
-        $params[] = $accountCodeId;
-    }
-    if ($fundNumber !== '') {
-        $systemSql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
-        $types .= 'ss';
-        $params[] = '%' . $fundNumber . '%';
-        $params[] = '%' . $fundNumber . '%';
-    }
-
-    $systemSql .= " ORDER BY ac.account_code ASC, c.classification_name ASC, poi.item_description ASC, did.property_number ASC";
-    $stmt = $db->prepare($systemSql);
-    if ($stmt) {
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $systemRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $stmt->close();
-        foreach ($systemRows as $row) {
-            $row['fund_number'] = rpcppe_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
-            $rows[] = $row;
+        if ($officeId > 0) {
+            $systemSql .= " AND COALESCE(did.current_office_id, d.office_id) = ?";
+            $types .= 'i';
+            $params[] = $officeId;
         }
-    } else {
-        $errors[] = 'Unable to prepare the RPCPPE system-assets query.';
-    }
+        if ($accountCodeId > 0) {
+            $systemSql .= " AND poi.account_code_id = ?";
+            $types .= 'i';
+            $params[] = $accountCodeId;
+        }
+        if ($fundNumber !== '') {
+            $systemSql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
+            $types .= 'ss';
+            $params[] = '%' . $fundNumber . '%';
+            $params[] = '%' . $fundNumber . '%';
+        }
 
-    $legacySql = "
+        $systemSql .= " ORDER BY ac.account_code ASC, c.classification_name ASC, poi.item_description ASC, did.property_number ASC";
+        $stmt = $db->prepare($systemSql);
+        if ($stmt) {
+            $stmt->bind_param($types, ...$params);
+            $stmt->execute();
+            $systemRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $stmt->close();
+            foreach ($systemRows as $row) {
+                $row['fund_number'] = rpcppe_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
+                $rows[] = $row;
+            }
+        } else {
+            $errors[] = 'Unable to prepare the RPCPPE system-assets query.';
+        }
+
+        $legacySql = "
         SELECT
             'legacy' AS source_type,
             la.property_number,
@@ -166,39 +310,40 @@ if (!$db) {
           AND la.item_type = 'equipment'
           AND (la.acquisition_date IS NULL OR la.acquisition_date <= ?)
     ";
-    $legacyTypes = 's';
-    $legacyParams = [$asOf];
+        $legacyTypes = 's';
+        $legacyParams = [$asOf];
 
-    if ($officeId > 0) {
-        $legacySql .= " AND la.office_id = ?";
-        $legacyTypes .= 'i';
-        $legacyParams[] = $officeId;
-    }
-    if ($accountCodeId > 0) {
-        $legacySql .= " AND la.account_code_id = ?";
-        $legacyTypes .= 'i';
-        $legacyParams[] = $accountCodeId;
-    }
-    if ($fundNumber !== '') {
-        $legacySql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
-        $legacyTypes .= 'ss';
-        $legacyParams[] = '%' . $fundNumber . '%';
-        $legacyParams[] = '%' . $fundNumber . '%';
-    }
-
-    $legacySql .= " ORDER BY ac.account_code ASC, c.classification_name ASC, la.item_description ASC, la.property_number ASC";
-    $legacyStmt = $db->prepare($legacySql);
-    if ($legacyStmt) {
-        $legacyStmt->bind_param($legacyTypes, ...$legacyParams);
-        $legacyStmt->execute();
-        $legacyRows = $legacyStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $legacyStmt->close();
-        foreach ($legacyRows as $row) {
-            $row['fund_number'] = rpcppe_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
-            $rows[] = $row;
+        if ($officeId > 0) {
+            $legacySql .= " AND la.office_id = ?";
+            $legacyTypes .= 'i';
+            $legacyParams[] = $officeId;
         }
-    } else {
-        $errors[] = 'Unable to prepare the RPCPPE beginning-balance query.';
+        if ($accountCodeId > 0) {
+            $legacySql .= " AND la.account_code_id = ?";
+            $legacyTypes .= 'i';
+            $legacyParams[] = $accountCodeId;
+        }
+        if ($fundNumber !== '') {
+            $legacySql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
+            $legacyTypes .= 'ss';
+            $legacyParams[] = '%' . $fundNumber . '%';
+            $legacyParams[] = '%' . $fundNumber . '%';
+        }
+
+        $legacySql .= " ORDER BY ac.account_code ASC, c.classification_name ASC, la.item_description ASC, la.property_number ASC";
+        $legacyStmt = $db->prepare($legacySql);
+        if ($legacyStmt) {
+            $legacyStmt->bind_param($legacyTypes, ...$legacyParams);
+            $legacyStmt->execute();
+            $legacyRows = $legacyStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $legacyStmt->close();
+            foreach ($legacyRows as $row) {
+                $row['fund_number'] = rpcppe_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
+                $rows[] = $row;
+            }
+        } else {
+            $errors[] = 'Unable to prepare the RPCPPE beginning-balance query.';
+        }
     }
 }
 
@@ -246,8 +391,9 @@ if ($isExport) {
             $row['property_number'] ?? '',
             trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
             number_format((float) ($row['unit_cost'] ?? 0), 2),
-            '1',
-            '1',
+            (string) ($row['acquisition_date'] ?? ''),
+            (string) max(1, (int) ($row['qty_property_card'] ?? 1)),
+            (string) max(1, (int) ($row['qty_physical_count'] ?? 1)),
             '0',
             '0.00',
             ($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : '',
@@ -256,7 +402,7 @@ if ($isExport) {
 
     export_excel_rows(
         'rpcppe_' . date('Ymd') . '.xls',
-        ['Article', 'Description', 'Property Number', 'Unit of Measure', 'Unit Value', 'Qty per Property Card', 'Qty per Physical Count', 'Shortage/Overage Qty', 'Shortage/Overage Value', 'Remarks'],
+        ['Article', 'Description', 'Property Number', 'Unit of Measure', 'Unit Value', 'Date Acquired', 'Qty per Property Card', 'Qty per Physical Count', 'Shortage/Overage Qty', 'Shortage/Overage Value', 'Remarks'],
         $exportRows
     );
 }
@@ -349,6 +495,7 @@ if ($isPrint) {
                     <th rowspan="2">PROPERTY<br>NUMBER</th>
                     <th rowspan="2">UNIT OF<br>MEASURE</th>
                     <th rowspan="2">UNIT<br>VALUE</th>
+                    <th rowspan="2">DATE<br>ACQUIRED</th>
                     <th rowspan="2">QUANTITY<br>per<br>PROPERTY CARD</th>
                     <th rowspan="2">QUANTITY<br>per<br>PHYSICAL COUNT</th>
                     <th colspan="2">SHORTAGE/OVERAGE</th>
@@ -368,8 +515,10 @@ if ($isPrint) {
                             <td><?php echo h($row['property_number'] ?? ''); ?></td>
                             <td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
                             <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
-                            <td class="qty">1</td>
-                            <td class="qty">1</td>
+                            <?php $ad = (string) ($row['acquisition_date'] ?? ''); ?>
+                            <td><?php echo h($ad !== '' ? date('M d, Y', strtotime($ad)) : ''); ?></td>
+                            <td class="qty"><?php echo h((string) max(1, (int) ($row['qty_property_card'] ?? 1))); ?></td>
+                            <td class="qty"><?php echo h((string) max(1, (int) ($row['qty_physical_count'] ?? 1))); ?></td>
                             <td class="qty">0</td>
                             <td class="money">0.00</td>
                             <td><?php echo h(($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : ''); ?></td>
@@ -417,10 +566,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="report-toolbar">
                         <div>
                             <h5 class="report-toolbar-title mb-0">RPCPPE</h5>
-                            <p class="report-toolbar-copy">Review current accountable equipment from posted system transactions and beginning-balance assets, then print the COA physical count report.</p>
+                            <p class="report-toolbar-copy">Review accountable equipment from either a finalized yearly RPCPPE batch or live posted/legacy records, then print the COA physical count report.</p>
                         </div>
                         <div class="report-toolbar-actions">
+                            <a href="<?php echo h(base_url('modules/reports/rpcppe_batches.php')); ?>" class="btn btn-outline-primary"><i class="bi bi-calendar-check me-1"></i>Manage Batches</a>
                             <a href="<?php echo h(base_url('modules/reports/rpcppe.php?' . http_build_query(array_filter([
+                                'batch_id' => $batchId ?: null,
                                 'office_id' => $officeId ?: null,
                                 'as_of' => $asOf !== '' ? $asOf : null,
                                 'fund_number' => $fundNumber !== '' ? $fundNumber : null,
@@ -428,6 +579,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 'export' => 'excel',
                             ])))); ?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</a>
                             <a href="<?php echo h(base_url('modules/reports/rpcppe.php?' . http_build_query(array_filter([
+                                'batch_id' => $batchId ?: null,
                                 'office_id' => $officeId ?: null,
                                 'as_of' => $asOf !== '' ? $asOf : null,
                                 'fund_number' => $fundNumber !== '' ? $fundNumber : null,
@@ -455,6 +607,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
 
+                    <?php if ($selectedBatch): ?>
+                        <div class="alert alert-info py-2">
+                            Viewing finalized batch <strong><?php echo h(($selectedBatch['batch_name'] ?? 'RPCPPE Batch') . ' (' . ($selectedBatch['batch_year'] ?? '') . ')'); ?></strong> as of <strong><?php echo h(format_date((string) ($selectedBatch['as_of_date'] ?? ''), 'F d, Y')); ?></strong>.
+                        </div>
+                    <?php endif; ?>
+
                     <?php if ($errors): ?>
                         <div class="alert alert-danger">
                             <?php foreach ($errors as $error): ?>
@@ -466,6 +624,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="report-filter-card">
                         <h6 class="report-filter-title">Filter Report</h6>
                         <form method="get" class="row g-3 align-items-end">
+                            <div class="col-md-4">
+                                <label class="form-label">Finalized Batch</label>
+                                <select class="form-select" name="batch_id">
+                                    <option value="0">Live records (no batch)</option>
+                                    <?php foreach ($batches as $batch): ?>
+                                        <option value="<?php echo (int) $batch['id']; ?>" <?php echo $batchId === (int) $batch['id'] ? 'selected' : ''; ?>>
+                                            <?php echo h(($batch['batch_year'] ?? '') . ' - ' . ($batch['batch_name'] ?? 'RPCPPE Batch')); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
                             <div class="col-md-3">
                                 <label class="form-label">Office</label>
                                 <select class="form-select" name="office_id">
@@ -500,7 +669,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">As Of</label>
-                                <input type="date" class="form-control" name="as_of" value="<?php echo h($asOf); ?>">
+                                <input type="date" class="form-control" name="as_of" value="<?php echo h($asOf); ?>" <?php echo $selectedBatch ? 'readonly' : ''; ?>>
+                                <?php if ($selectedBatch): ?>
+                                    <div class="form-text">As Of is locked to selected batch date.</div>
+                                <?php endif; ?>
                             </div>
                             <div class="col-12 d-flex gap-2">
                                 <button type="submit" class="btn btn-primary">Load Report</button>
@@ -531,7 +703,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td><?php echo h($row['property_number'] ?? ''); ?></td>
                                             <td><?php echo h($row['fund_number'] ?? ''); ?></td>
                                             <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
-                                            <td><?php echo h(trim(implode(' / ', array_filter([$row['office_name'] ?? '', person_full_name($row)])))); ?></td>
+                                            <td><?php echo h(trim(implode(' / ', array_filter([
+                                                $row['office_name'] ?? '',
+                                                ($row['employee_name'] ?? '') !== '' ? (string) $row['employee_name'] : person_full_name($row),
+                                            ])))); ?></td>
                                             <td><?php echo h(($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : 'System'); ?></td>
                                         </tr>
                                     <?php endforeach; ?>

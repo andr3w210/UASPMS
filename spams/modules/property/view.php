@@ -543,6 +543,61 @@ if ($source === 'system') {
             $stmt->close();
         }
     }
+
+    if (schema_has_column($db, 'returns', 'legacy_asset_id') && schema_has_column($db, 'returns', 'source_type')) {
+        $stmt = $db->prepare("
+            SELECT
+                rt.system_reference,
+                rt.return_date,
+                rt.reason,
+                rt.remarks,
+                o.office_name,
+                e.first_name,
+                e.middle_name,
+                e.last_name,
+                e.suffix_name
+            FROM returns rt
+            LEFT JOIN offices o ON o.id = rt.office_id
+            LEFT JOIN employees e ON e.id = rt.employee_id
+            WHERE rt.source_type = 'legacy'
+              AND rt.legacy_asset_id = ?
+              AND rt.status = 'posted'
+            ORDER BY rt.return_date DESC, rt.id DESC
+        ");
+        if ($stmt) {
+            $stmt->bind_param('i', $id);
+            $stmt->execute();
+            $returnRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $stmt->close();
+        }
+    }
+
+    if (schema_has_column($db, 'disposals', 'legacy_asset_id') && schema_has_column($db, 'disposals', 'source_type')) {
+        $stmt = $db->prepare("
+            SELECT
+                dp.system_reference,
+                dp.disposal_date,
+                dp.disposal_type,
+                dp.reason,
+                dp.remarks,
+                ap.first_name,
+                ap.middle_name,
+                ap.last_name,
+                ap.suffix_name
+            FROM disposals dp
+            LEFT JOIN employees ap ON ap.id = dp.approved_by
+            WHERE dp.source_type = 'legacy'
+              AND dp.legacy_asset_id = ?
+              AND dp.status = 'posted'
+            ORDER BY dp.disposal_date DESC, dp.id DESC
+        ");
+        if ($stmt) {
+            $stmt->bind_param('i', $id);
+            $stmt->execute();
+            $disposalRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $stmt->close();
+        }
+    }
 }
 
 foreach ($transfers as $row) {
@@ -589,6 +644,7 @@ foreach ($returnRows as $row) {
 }
 
 foreach ($disposalRows as $row) {
+    $approvedByLabel = asset_view_person($row);
     $timeline[] = [
         'date' => $row['disposal_date'] ?? '',
         'event' => 'Disposed',
@@ -596,7 +652,7 @@ foreach ($disposalRows as $row) {
         'details' => trim(implode(' | ', array_filter([
             !empty($row['disposal_type']) ? 'Type: ' . $row['disposal_type'] : '',
             !empty($row['reason']) ? 'Reason: ' . $row['reason'] : '',
-            !empty($row['approved_by']) ? 'Approved by: ' . $row['approved_by'] : '',
+            $approvedByLabel !== '' ? 'Approved by: ' . $approvedByLabel : (!empty($row['approved_by']) ? 'Approved by: ' . $row['approved_by'] : ''),
         ]))),
     ];
 }
@@ -643,20 +699,52 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="text-muted small">Complete asset profile, accountability assignment, and lifecycle history.</div>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
+                        <?php $assetKey = $source . ':' . (int) $id; ?>
                         <a href="<?php echo base_url('modules/property/index.php'); ?>" class="btn btn-outline-secondary btn-sm">Back to Registry</a>
                         <a href="<?php echo $publicLookupUrl; ?>" class="btn btn-outline-primary btn-sm" target="_blank">Public Lookup</a>
-                        <?php if ($source === 'system' && !empty($asset['distribution_id'])): ?>
-                            <?php
-                            $docType = (string) ($asset['document_type'] ?? '');
-                            $docUrl = $docType === 'par'
-                                ? base_url('modules/distributions/par.php?id=' . (int) $asset['distribution_id'])
-                                : base_url('modules/distributions/ics.php?id=' . (int) $asset['distribution_id']);
-                            ?>
-                            <a href="<?php echo $docUrl; ?>" class="btn btn-outline-dark btn-sm" target="_blank">Print <?php echo h(strtoupper($docType)); ?></a>
-                            <a href="<?php echo base_url('modules/property/tags.php?detail_id=' . (int) $asset['id']); ?>" class="btn btn-dark btn-sm" target="_blank">Print Tag</a>
-                        <?php elseif ($source === 'legacy' && ($asset['item_type'] ?? '') === 'equipment' && !empty($asset['office_id'])): ?>
-                            <a href="<?php echo base_url('modules/distributions/par_office.php?office_id=' . (int) $asset['office_id'] . '&print=1'); ?>" class="btn btn-outline-dark btn-sm" target="_blank">Print PAR</a>
-                        <?php endif; ?>
+                        <div class="dropdown">
+                            <button class="btn btn-dark btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                Asset Actions
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="<?php echo base_url('modules/transfers/index.php?asset_key=' . urlencode($assetKey)); ?>">Transfer</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <?php if ($source === 'system'): ?>
+                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/maintenance/index.php?detail_id=' . (int) $asset['id']); ?>">Maintenance</a></li>
+                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/returns/index.php?detail_id=' . (int) $asset['id']); ?>">Return</a></li>
+                                    <?php if ((int) ($asset['is_disposed'] ?? 0) === 0): ?>
+                                        <li><a class="dropdown-item text-danger" href="<?php echo base_url('modules/disposals/index.php?detail_id=' . (int) $asset['id']); ?>">Disposal</a></li>
+                                    <?php else: ?>
+                                        <li><span class="dropdown-item-text text-muted small">Disposal already posted for this asset.</span></li>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    <li><span class="dropdown-item-text text-muted small">Maintenance: available for system assets only.</span></li>
+                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/returns/index.php?source=legacy&legacy_asset_id=' . (int) $asset['id']); ?>">Return</a></li>
+                                    <li><a class="dropdown-item text-danger" href="<?php echo base_url('modules/disposals/index.php?source=legacy&legacy_asset_id=' . (int) $asset['id']); ?>">Disposal</a></li>
+                                <?php endif; ?>
+
+                                <li><hr class="dropdown-divider"></li>
+                                <?php if ($source === 'system' && !empty($asset['distribution_id'])): ?>
+                                    <?php
+                                    $docType = (string) ($asset['document_type'] ?? '');
+                                    $docUrl = $docType === 'par'
+                                        ? base_url('modules/distributions/par.php?id=' . (int) $asset['distribution_id'])
+                                        : base_url('modules/distributions/ics.php?id=' . (int) $asset['distribution_id']);
+                                    ?>
+                                    <li><a class="dropdown-item" href="<?php echo $docUrl; ?>" target="_blank">Print <?php echo h(strtoupper($docType)); ?></a></li>
+                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/property/tags.php?detail_id=' . (int) $asset['id']); ?>" target="_blank">Print Tag</a></li>
+                                <?php elseif ($source === 'legacy'): ?>
+                                    <?php if (($asset['item_type'] ?? '') === 'semi_expendable'): ?>
+                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/ics_office.php?legacy_asset_id=' . (int) $asset['id'] . '&semi_type=all&print=1'); ?>" target="_blank">Print ICS</a></li>
+                                        <li><span class="dropdown-item-text text-muted small">PAR is for equipment assets only.</span></li>
+                                    <?php else: ?>
+                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/par_office.php?legacy_asset_id=' . (int) $asset['id'] . '&print=1'); ?>" target="_blank">Print PAR</a></li>
+                                        <li><span class="dropdown-item-text text-muted small">ICS is for semi-expendable assets only.</span></li>
+                                    <?php endif; ?>
+                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/property/tags.php?legacy_asset_id=' . (int) $asset['id']); ?>" target="_blank">Print Tag</a></li>
+                                <?php endif; ?>
+                            </ul>
+                        </div>
                     </div>
                 </div>
 
