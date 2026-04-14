@@ -1515,7 +1515,7 @@ function rpcppe_create_legacy_asset_from_excel_row(mysqli $db, array $excelRow, 
     ];
 }
 
-function rpcppe_update_legacy_asset_from_excel_row(mysqli $db, int $legacyAssetId, array $excelRow, ?array $office, ?array $employee): void
+function rpcppe_update_legacy_asset_from_excel_row(mysqli $db, int $legacyAssetId, array $excelRow, ?array $office, ?array $employee, ?array $classification = null): void
 {
     if ($legacyAssetId <= 0) {
         return;
@@ -1530,6 +1530,7 @@ function rpcppe_update_legacy_asset_from_excel_row(mysqli $db, int $legacyAssetI
     $brand = trim((string) ($excelRow['brand'] ?? ($metadata['brand'] ?? '')));
     $model = trim((string) ($excelRow['model'] ?? ($metadata['model'] ?? '')));
     $serialNo = trim((string) ($excelRow['serial_no'] ?? ($metadata['serial_no'] ?? '')));
+    $classificationId = isset($classification['id']) ? (int) $classification['id'] : 0;
 
     $stmt = $db->prepare("UPDATE legacy_assets
         SET acquisition_date = CASE WHEN ? <> '' THEN ? ELSE acquisition_date END,
@@ -1538,14 +1539,15 @@ function rpcppe_update_legacy_asset_from_excel_row(mysqli $db, int $legacyAssetI
             brand = CASE WHEN ? <> '' THEN ? ELSE brand END,
             model = CASE WHEN ? <> '' THEN ? ELSE model END,
             serial_no = CASE WHEN ? <> '' THEN ? ELSE serial_no END,
-            remarks = CASE WHEN ? <> '' THEN ? ELSE remarks END
+            remarks = CASE WHEN ? <> '' THEN ? ELSE remarks END,
+            classification_id = CASE WHEN ? > 0 THEN ? ELSE classification_id END
         WHERE id = ?");
     if (!$stmt) {
         return;
     }
 
     $stmt->bind_param(
-        'ssiiiisssssssi',
+        'ssiiiisssssssiiii',
         $acquisitionDate,
         $acquisitionDate,
         $officeId,
@@ -1560,6 +1562,8 @@ function rpcppe_update_legacy_asset_from_excel_row(mysqli $db, int $legacyAssetI
         $serialNo,
         $remarks,
         $remarks,
+        $classificationId,
+        $classificationId,
         $legacyAssetId
     );
     $stmt->execute();
@@ -1626,6 +1630,7 @@ function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $
     $fundCode = trim((string) ($row['fund_code'] ?? ''));
     $fundSource = trim((string) ($row['fund_source'] ?? ''));
     $fundNumber = trim((string) ($row['fund_number'] ?? ''));
+    $classificationName = trim((string) ($row['classification_name'] ?? ($excelRow['article'] ?? '')));
     $brand = trim((string) ($row['brand'] ?? ($excelRow['brand'] ?? '')));
     $model = trim((string) ($row['model'] ?? ($excelRow['model'] ?? '')));
     $serialNo = trim((string) ($row['serial_no'] ?? ($excelRow['serial_no'] ?? '')));
@@ -1658,6 +1663,7 @@ function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $
             account_code_id = CASE WHEN ? > 0 THEN ? ELSE account_code_id END,
             account_code = CASE WHEN ? <> '' THEN ? ELSE account_code END,
             account_name = CASE WHEN ? <> '' THEN ? ELSE account_name END,
+            classification_name = CASE WHEN ? <> '' THEN ? ELSE classification_name END,
             fund_code = CASE WHEN ? <> '' THEN ? ELSE fund_code END,
             fund_source = CASE WHEN ? <> '' THEN ? ELSE fund_source END,
             fund_number = CASE WHEN ? <> '' THEN ? ELSE fund_number END,
@@ -1668,7 +1674,7 @@ function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $
     }
 
     $stmt->bind_param(
-        'ssiiiiiissiissiisssssssssssssi',
+        'ssiiiiiissiissiisssssssssssssssi',
         $acquisitionDateSnapshot,
         $acquisitionDateSnapshot,
         $qtyPropertyCard,
@@ -1689,6 +1695,8 @@ function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $
         $accountCode,
         $accountName,
         $accountName,
+        $classificationName,
+        $classificationName,
         $fundCode,
         $fundCode,
         $fundSource,
@@ -2066,7 +2074,7 @@ if (!$db) {
                                         } else {
                                             $matchedExisting++;
                                             if (($liveRow['source_type'] ?? '') === 'legacy' && !empty($liveRow['legacy_asset_id'])) {
-                                                rpcppe_update_legacy_asset_from_excel_row($db, (int) $liveRow['legacy_asset_id'], $excelRow, $office, $employee);
+                                                rpcppe_update_legacy_asset_from_excel_row($db, (int) $liveRow['legacy_asset_id'], $excelRow, $office, $employee, $classification);
                                             }
                                         }
 
@@ -2078,6 +2086,11 @@ if (!$db) {
                                             $liveRow['account_code_id'] = (int) $account['id'];
                                             $liveRow['account_code'] = (string) ($account['account_code'] ?? '');
                                             $liveRow['account_name'] = (string) ($account['account_name'] ?? '');
+                                        }
+                                        if (!empty($classification['classification_name'])) {
+                                            $liveRow['classification_name'] = (string) $classification['classification_name'];
+                                        } elseif (!empty($excelRow['article'])) {
+                                            $liveRow['classification_name'] = (string) $excelRow['article'];
                                         }
                                         if ($fund) {
                                             $liveRow['fund_code'] = (string) ($fund['fund_code'] ?? '');
