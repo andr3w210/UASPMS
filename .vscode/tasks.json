@@ -1,0 +1,313 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "echo-hi",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Write-Output hi"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "analyze-ome-list",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\analyze_ome_list_candidates.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "find-ome-delta-subset",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\find_ome_delta_subset.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "search-ome-exclusions",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\search_ome_exclusions.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "apply-ome-fund01-14859918.75",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\apply_exact_ome_fund01_14859918_75.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-batch14-after-ome-fix",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\report_batch14_fund_account_totals.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "lint-asset-registry",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' -l 'C:\\xampp\\htdocs\\UASPMS\\spams\\modules\\property\\index.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "find-cs-fund01-subset-7000000",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\find_cs_fund01_subset_7000000.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "inspect-computer-software-candidates",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\inspect_computer_software_candidates.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-cs-fund01-list-total",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\verify_cs_fund01_list_total.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan-null-critical-fields",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' -r \"$m=new mysqli('127.0.0.1','root','','spamsdb'); $q=\\\"SELECT COUNT(*) c FROM rpcppe_batch_items WHERE batch_id=14 AND (account_code IS NULL OR account_name IS NULL OR fund_code IS NULL OR fund_source IS NULL OR fund_number IS NULL)\\\"; $r=$m->query($q)->fetch_assoc(); echo 'null_critical_rows='.$r['c'].PHP_EOL; $q2=\\\"SELECT id,property_number,item_description,account_code,account_name,fund_code,fund_source,fund_number FROM rpcppe_batch_items WHERE batch_id=14 AND (account_code IS NULL OR account_name IS NULL OR fund_code IS NULL OR fund_source IS NULL OR fund_number IS NULL) ORDER BY id LIMIT 30\\\"; $res=$m->query($q2); while($row=$res->fetch_assoc()){ echo $row['id'].'|'.$row['property_number'].'|'.$row['account_code'].'|'.$row['fund_code'].'/'.$row['fund_source'].'/'.$row['fund_number'].'|'.substr(str_replace([\\\"\\\\r\\\",\\\"\\\\n\\\"],' ',$row['item_description']),0,90).PHP_EOL; }\""
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan-null-critical-fields",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\scan_null_critical_fields.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "scan-null-critical-fields-v2",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\scan_null_critical_fields.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "describe-rpcppe-batch-items",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' -r \"$m=new mysqli('127.0.0.1','root','','spamsdb'); $res=$m->query('SHOW COLUMNS FROM rpcppe_batch_items'); while($r=$res->fetch_assoc()){ echo $r['Field'].'|'.$r['Type'].'|'.$r['Null'].'|'.$r['Key'].PHP_EOL; }\""
+			],
+			"isBackground": false
+		},
+		{
+			"label": "analyze-null-rows-sources",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\analyze_null_rows_sources.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "repair-null-legacy-snapshot-batch14",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\repair_null_legacy_snapshot_batch14.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "repair-null-legacy-snapshot-batch14-v2",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\repair_null_legacy_snapshot_batch14.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "inspect-rpcppe-tags",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\inspect_rpcppe_tags.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "repair-unlinked-legacy-rows-pattern",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\repair_unlinked_legacy_rows_from_property_pattern.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-null-critical-after-repair",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\scan_null_critical_fields.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-tags-after-repair",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\inspect_rpcppe_tags.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "refresh-batch14-totals-after-repair",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\report_batch14_fund_account_totals.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "normalize-batch14-fund-number",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\normalize_batch14_fund_number.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "refresh-batch14-after-fund-normalize",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\report_batch14_fund_account_totals.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "normalize-batch14-fund-number-v2",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\normalize_batch14_fund_number.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "refresh-batch14-after-normalize-v2",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\report_batch14_fund_account_totals.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "lint-property-view-edit",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' -l 'C:\\xampp\\htdocs\\UASPMS\\spams\\modules\\property\\view.php'"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "lint-property-view-searchable-brand-model",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"& 'C:\\xampp\\php\\php.exe' -l 'C:\\xampp\\htdocs\\UASPMS\\spams\\modules\\property\\view.php'"
+			],
+			"isBackground": false
+		}
+	]
+}

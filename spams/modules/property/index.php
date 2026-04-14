@@ -9,6 +9,8 @@ $itemType = trim($_GET['item_type'] ?? '');
 $sourceFilter = trim($_GET['source'] ?? '');
 $brandModelFilter = trim($_GET['brand_model'] ?? '');
 $serialFilter = trim($_GET['serial_no'] ?? '');
+$amountMinRaw = trim($_GET['amount_min'] ?? '');
+$amountMaxRaw = trim($_GET['amount_max'] ?? '');
 $dateFrom = trim($_GET['date_from'] ?? '');
 $dateTo = trim($_GET['date_to'] ?? '');
 $page = max(1, (int) ($_GET['page'] ?? 1));
@@ -23,6 +25,23 @@ if (!in_array($itemType, ['', 'equipment', 'semi_expendable'], true)) {
 }
 if (!in_array($sourceFilter, ['', 'system', 'legacy'], true)) {
     $sourceFilter = '';
+}
+
+$parseAmountFilter = static function (string $value): ?float {
+    if ($value === '') {
+        return null;
+    }
+    $normalized = str_replace(',', '', $value);
+    if (!is_numeric($normalized)) {
+        return null;
+    }
+    return (float) $normalized;
+};
+
+$amountMin = $parseAmountFilter($amountMinRaw);
+$amountMax = $parseAmountFilter($amountMaxRaw);
+if ($amountMin !== null && $amountMax !== null && $amountMin > $amountMax) {
+    [$amountMin, $amountMax] = [$amountMax, $amountMin];
 }
 
 $rows = [];
@@ -122,6 +141,16 @@ if ($db) {
             $types .= 's';
             $params[] = '%' . $serialFilter . '%';
         }
+        if ($amountMin !== null) {
+            $systemSql .= " AND ri.unit_cost >= ?";
+            $types .= 'd';
+            $params[] = $amountMin;
+        }
+        if ($amountMax !== null) {
+            $systemSql .= " AND ri.unit_cost <= ?";
+            $types .= 'd';
+            $params[] = $amountMax;
+        }
         if ($dateFrom !== '') {
             $systemSql .= " AND d.distribution_date >= ?";
             $types .= 's';
@@ -208,6 +237,16 @@ if ($db) {
             $legacySql .= " AND la.serial_no LIKE ?";
             $types .= 's';
             $params[] = '%' . $serialFilter . '%';
+        }
+        if ($amountMin !== null) {
+            $legacySql .= " AND la.acquisition_cost >= ?";
+            $types .= 'd';
+            $params[] = $amountMin;
+        }
+        if ($amountMax !== null) {
+            $legacySql .= " AND la.acquisition_cost <= ?";
+            $types .= 'd';
+            $params[] = $amountMax;
         }
         if ($dateFrom !== '') {
             $legacySql .= " AND (la.acquisition_date IS NULL OR la.acquisition_date >= ?)";
@@ -363,6 +402,8 @@ function build_registry_url(array $overrides = []): string
         'source' => $_GET['source'] ?? '',
         'brand_model' => $_GET['brand_model'] ?? '',
         'serial_no' => $_GET['serial_no'] ?? '',
+        'amount_min' => $_GET['amount_min'] ?? '',
+        'amount_max' => $_GET['amount_max'] ?? '',
         'date_from' => $_GET['date_from'] ?? '',
         'date_to' => $_GET['date_to'] ?? '',
         'per_page' => $_GET['per_page'] ?? 25,
@@ -390,11 +431,15 @@ foreach ([$officeId, $search, $itemType, $sourceFilter, $brandModelFilter, $seri
         $activeFilterCount++;
     }
 }
+$amountFilterCount = ($amountMin !== null ? 1 : 0) + ($amountMax !== null ? 1 : 0);
+$activeFilterCount += $amountFilterCount;
 $hasAdvancedFiltersActive = $officeId > 0
     || $itemType !== ''
     || $sourceFilter !== ''
     || $brandModelFilter !== ''
     || $serialFilter !== ''
+    || $amountMin !== null
+    || $amountMax !== null
     || $dateFrom !== ''
     || $dateTo !== '';
 $advancedFilterCount = 0;
@@ -403,6 +448,7 @@ foreach ([$officeId, $itemType, $sourceFilter, $brandModelFilter, $serialFilter,
         $advancedFilterCount++;
     }
 }
+$advancedFilterCount += $amountFilterCount;
 
 $selectedOfficeName = '';
 if ($officeId > 0) {
@@ -449,6 +495,20 @@ if ($serialFilter !== '') {
     $activeFilters[] = [
         'label' => 'Serial: ' . $serialFilter,
         'url' => build_registry_url(['serial_no' => '', 'page' => 1]),
+    ];
+}
+if ($amountMin !== null || $amountMax !== null) {
+    $amountLabel = 'Amount';
+    if ($amountMin !== null && $amountMax !== null) {
+        $amountLabel .= ': ' . number_format($amountMin, 2) . ' to ' . number_format($amountMax, 2);
+    } elseif ($amountMin !== null) {
+        $amountLabel .= ': min ' . number_format($amountMin, 2);
+    } else {
+        $amountLabel .= ': max ' . number_format((float) $amountMax, 2);
+    }
+    $activeFilters[] = [
+        'label' => $amountLabel,
+        'url' => build_registry_url(['amount_min' => '', 'amount_max' => '', 'page' => 1]),
     ];
 }
 if ($dateFrom !== '' || $dateTo !== '') {
@@ -534,10 +594,10 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                 <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#registryAdvancedFilters" aria-expanded="<?php echo $hasAdvancedFiltersActive ? 'true' : 'false'; ?>">
                                     Advanced<?php echo $advancedFilterCount > 0 ? ' (' . number_format($advancedFilterCount) . ')' : ''; ?>
                                 </button>
-                                <a href="<?php echo h(build_registry_url(['office_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="btn btn-outline-danger">Clear</a>
+                                <a href="<?php echo h(build_registry_url(['office_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'amount_min' => '', 'amount_max' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="btn btn-outline-danger">Clear</a>
                             </div>
                         </div>
-                        <div class="small text-muted mt-2">Quick Search auto-runs while typing. Use Advanced for office, type, source, brand/model, serial, and date filters.</div>
+                        <div class="small text-muted mt-2">Quick Search auto-runs while typing. Use Advanced for office, type, source, brand/model, serial, amount, and date filters.</div>
                         <div id="registryAdvancedFilters" class="collapse <?php echo $hasAdvancedFiltersActive ? 'show' : ''; ?> mt-3">
                             <div class="row g-3">
                                 <div class="col-md-3">
@@ -575,6 +635,14 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                     <label class="form-label">Brand / Model</label>
                                     <input type="text" name="brand_model" class="form-control" value="<?php echo h($brandModelFilter); ?>" placeholder="Search brand or model">
                                 </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Amount Min</label>
+                                    <input type="number" name="amount_min" class="form-control" value="<?php echo h($amountMinRaw); ?>" placeholder="0.00" min="0" step="0.01">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Amount Max</label>
+                                    <input type="number" name="amount_max" class="form-control" value="<?php echo h($amountMaxRaw); ?>" placeholder="0.00" min="0" step="0.01">
+                                </div>
                                 <div class="col-md-4">
                                     <label class="form-label">From</label>
                                     <input type="date" name="date_from" class="form-control" value="<?php echo h($dateFrom); ?>" data-autosubmit="true">
@@ -597,7 +665,7 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                     </a>
                                 <?php endforeach; ?>
                             </div>
-                            <a href="<?php echo h(build_registry_url(['office_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="small text-decoration-none">Clear all filters</a>
+                            <a href="<?php echo h(build_registry_url(['office_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'amount_min' => '', 'amount_max' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="small text-decoration-none">Clear all filters</a>
                         </div>
                     <?php endif; ?>
 
