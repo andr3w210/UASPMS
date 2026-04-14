@@ -18,6 +18,9 @@ if (!in_array($itemFilter, ['all', 'included', 'excluded', 'disposed'], true)) {
 
 function ensure_rpcppe_batch_tables(mysqli $db): void
 {
+    ensure_legacy_assets_fund_column($db);
+    ensure_legacy_assets_rpcppe_tracking_columns($db);
+
     $db->query("CREATE TABLE IF NOT EXISTS rpcppe_batches (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         batch_year SMALLINT UNSIGNED NOT NULL,
@@ -100,6 +103,7 @@ function ensure_rpcppe_batch_tables(mysqli $db): void
           AND TRIM(c.classification_name) <> ''");
 
     rpcppe_sync_item_name_references($db);
+    ensure_rpcppe_batch_tracking_columns($db);
 }
 
 function rpcppe_sync_item_name_references(mysqli $db): void
@@ -200,6 +204,8 @@ function rpcppe_batch_label(array $batch): string
 function rpcppe_fetch_live_rows(mysqli $db, string $asOf): array
 {
     ensure_legacy_assets_fund_column($db);
+    ensure_legacy_assets_rpcppe_tracking_columns($db);
+    ensure_rpcppe_batch_tracking_columns($db);
     $rows = [];
 
     $systemSql = "
@@ -270,6 +276,8 @@ function rpcppe_fetch_live_rows(mysqli $db, string $asOf): array
         foreach ($systemRows as $row) {
             $row['fund_number'] = fund_number_from_source($row['fund_code'] ?? '', $row['fund_source'] ?? '');
             $row['remarks'] = '';
+            $row['is_included'] = 1;
+            $row['reconciliation_status'] = 'included_draft';
             $rows[] = $row;
         }
     }
@@ -302,6 +310,8 @@ function rpcppe_fetch_live_rows(mysqli $db, string $asOf): array
             ac.account_name,
             f.fund_code,
             f.fund_source,
+            la.is_rpcppe_candidate,
+            la.rpcppe_status,
             la.quantity AS qty_property_card,
             la.quantity AS qty_physical_count
         FROM legacy_assets la
@@ -322,12 +332,15 @@ function rpcppe_fetch_live_rows(mysqli $db, string $asOf): array
         $legacyStmt->execute();
         $legacyRows = $legacyStmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $legacyStmt->close();
-        foreach ($legacyRows as $row) {
-            $row['fund_number'] = fund_number_from_source($row['fund_code'] ?? '', $row['fund_source'] ?? '');
-            $row['remarks'] = 'Beginning Balance';
-            $rows[] = $row;
+            foreach ($legacyRows as $row) {
+                $row['fund_number'] = fund_number_from_source($row['fund_code'] ?? '', $row['fund_source'] ?? '');
+                $row['remarks'] = 'Beginning Balance';
+                $isCandidate = (int) ($row['is_rpcppe_candidate'] ?? 0) === 1;
+                $row['is_included'] = $isCandidate ? 1 : 0;
+                $row['reconciliation_status'] = rpcppe_normalize_status((string) ($row['rpcppe_status'] ?? ''), $isCandidate);
+                $rows[] = $row;
+            }
         }
-    }
 
     return $rows;
 }
@@ -410,8 +423,8 @@ function rpcppe_sync_batch_disposals(mysqli $db, int $batchId, string $asOf): vo
 function rpcppe_insert_batch_rows(mysqli $db, int $batchId, array $rows): int
 {
     $insertStmt = $db->prepare("INSERT INTO rpcppe_batch_items
-        (batch_id, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_name, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included)
-        VALUES (?, ?, NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, 1)
+        (batch_id, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_name, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included, reconciliation_status)
+        VALUES (?, ?, NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     if (!$insertStmt) {
         return 0;
@@ -453,9 +466,11 @@ function rpcppe_insert_batch_rows(mysqli $db, int $batchId, array $rows): int
         $fundSource = trim((string) ($row['fund_source'] ?? ''));
         $fundNumber = trim((string) ($row['fund_number'] ?? ''));
         $remarks = trim((string) ($row['remarks'] ?? ''));
+        $isIncluded = (int) (($row['is_included'] ?? 1) ? 1 : 0);
+        $reconciliationStatus = rpcppe_normalize_status((string) ($row['reconciliation_status'] ?? ''), $isIncluded === 1);
 
         $insertStmt->bind_param(
-            'isiisssssssssdsiissississssss',
+            'isiisssssssssdsiissississssssis',
             $batchId,
             $sourceType,
             $distributionId,
@@ -485,7 +500,9 @@ function rpcppe_insert_batch_rows(mysqli $db, int $batchId, array $rows): int
             $fundCode,
             $fundSource,
             $fundNumber,
-            $remarks
+            $remarks,
+            $isIncluded,
+            $reconciliationStatus
         );
 
         if ($insertStmt->execute()) {
@@ -510,9 +527,9 @@ function rpcppe_insert_batch_rows(mysqli $db, int $batchId, array $rows): int
 function rpcppe_copy_carry_forward_items(mysqli $db, int $targetBatchId, int $sourceBatchId): int
 {
     $copyStmt = $db->prepare("INSERT INTO rpcppe_batch_items
-        (batch_id, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_name, item_name_id, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included, is_disposed, disposed_at)
+        (batch_id, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_name, item_name_id, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included, reconciliation_status, submitted_to_accounting_at, reconciled_at, is_disposed, disposed_at)
         SELECT
-            ?, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_name, item_name_id, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included, is_disposed, disposed_at
+            ?, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_name, item_name_id, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included, reconciliation_status, submitted_to_accounting_at, reconciled_at, is_disposed, disposed_at
         FROM rpcppe_batch_items
         WHERE batch_id = ?
           AND is_included = 1
@@ -2333,6 +2350,83 @@ if (!$db) {
                 $errors[] = 'Unable to update include status.';
             }
         }
+
+        if (empty($errors) && $action === 'update_item_tracking') {
+            $itemId = (int) ($_POST['item_id'] ?? 0);
+            $batchId = (int) ($_POST['batch_id'] ?? 0);
+            $includeValue = isset($_POST['is_included']) && (string) $_POST['is_included'] === '1' ? 1 : 0;
+            $requestedStatus = trim((string) ($_POST['reconciliation_status'] ?? ''));
+
+            $itemStmt = $db->prepare("SELECT i.source_type, i.legacy_asset_id, b.status
+                FROM rpcppe_batch_items i
+                INNER JOIN rpcppe_batches b ON b.id = i.batch_id
+                WHERE i.id = ? AND i.batch_id = ? LIMIT 1");
+            $itemRow = null;
+            if ($itemStmt) {
+                $itemStmt->bind_param('ii', $itemId, $batchId);
+                $itemStmt->execute();
+                $itemRow = $itemStmt->get_result()->fetch_assoc();
+                $itemStmt->close();
+            }
+
+            if (!$itemRow) {
+                $errors[] = 'Batch item not found.';
+            } elseif (($itemRow['status'] ?? '') !== 'draft') {
+                $errors[] = 'Only draft batch items can be changed.';
+            } else {
+                $normalizedStatus = rpcppe_normalize_status($requestedStatus, $includeValue === 1);
+                $syncStmt = $db->prepare("UPDATE rpcppe_batch_items
+                    SET is_included = ?,
+                        reconciliation_status = ?,
+                        submitted_to_accounting_at = CASE
+                            WHEN ? IN ('submitted_to_accounting', 'reconciled') THEN COALESCE(submitted_to_accounting_at, NOW())
+                            ELSE NULL
+                        END,
+                        reconciled_at = CASE
+                            WHEN ? = 'reconciled' THEN COALESCE(reconciled_at, NOW())
+                            ELSE NULL
+                        END
+                    WHERE id = ? AND batch_id = ?");
+                if ($syncStmt) {
+                    $syncStmt->bind_param('isssii', $includeValue, $normalizedStatus, $normalizedStatus, $normalizedStatus, $itemId, $batchId);
+                    $syncStmt->execute();
+                    $syncStmt->close();
+                }
+
+                if (($itemRow['source_type'] ?? '') === 'legacy' && (int) ($itemRow['legacy_asset_id'] ?? 0) > 0) {
+                    $legacyAssetId = (int) $itemRow['legacy_asset_id'];
+                    $legacyCandidate = $normalizedStatus === 'excluded' ? 0 : 1;
+                    $legacyStmt = $db->prepare("UPDATE legacy_assets
+                        SET is_rpcppe_candidate = ?,
+                            rpcppe_status = ?,
+                            rpcppe_batch_id = ?,
+                            rpcppe_submitted_at = CASE
+                                WHEN ? IN ('submitted_to_accounting', 'reconciled') THEN COALESCE(rpcppe_submitted_at, NOW())
+                                ELSE NULL
+                            END,
+                            rpcppe_reconciled_at = CASE
+                                WHEN ? = 'reconciled' THEN COALESCE(rpcppe_reconciled_at, NOW())
+                                ELSE NULL
+                            END
+                        WHERE id = ?");
+                    if ($legacyStmt) {
+                        $legacyStmt->bind_param('isissi', $legacyCandidate, $normalizedStatus, $batchId, $normalizedStatus, $normalizedStatus, $legacyAssetId);
+                        $legacyStmt->execute();
+                        $legacyStmt->close();
+                    }
+                }
+
+                set_flash('success', 'RPCPPE item tracking updated.');
+                $query = 'modules/reports/rpcppe_batches.php?batch_id=' . $batchId;
+                if ($itemFilter !== 'all') {
+                    $query .= '&item_filter=' . urlencode($itemFilter);
+                }
+                if ($search !== '') {
+                    $query .= '&search=' . urlencode($search);
+                }
+                redirect($query);
+            }
+        }
     }
 
     $batches = rpcppe_load_batches($db);
@@ -2663,29 +2757,30 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                             <span class="badge <?php echo ((int) ($item['is_included'] ?? 0) === 1) ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo ((int) ($item['is_included'] ?? 0) === 1) ? 'Included' : 'Excluded'; ?></span>
                                                             <span class="badge <?php echo ((int) ($item['is_disposed'] ?? 0) === 1) ? 'text-bg-danger' : 'text-bg-light'; ?>"><?php echo ((int) ($item['is_disposed'] ?? 0) === 1) ? 'Disposed/Returned' : 'Active'; ?></span>
                                                             <span class="badge text-bg-light"><?php echo h((string) (($item['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : 'System')); ?></span>
+                                                            <span class="badge <?php echo h(rpcppe_status_badge_class((string) ($item['reconciliation_status'] ?? 'excluded'))); ?>"><?php echo h(rpcppe_status_label((string) ($item['reconciliation_status'] ?? 'excluded'))); ?></span>
                                                         </div>
                                                     </td>
                                                     <td class="text-end">
                                                         <?php if (($selectedBatch['status'] ?? '') === 'draft'): ?>
-                                                            <?php if ((int) ($item['is_included'] ?? 0) === 1): ?>
-                                                                <form method="post" class="d-inline">
-                                                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
-                                                                    <input type="hidden" name="action" value="toggle_include">
-                                                                    <input type="hidden" name="batch_id" value="<?php echo (int) $selectedBatchId; ?>">
-                                                                    <input type="hidden" name="item_id" value="<?php echo (int) $item['id']; ?>">
-                                                                    <input type="hidden" name="include_value" value="0">
-                                                                    <button type="submit" class="btn btn-sm btn-outline-warning">Exclude</button>
-                                                                </form>
-                                                            <?php else: ?>
-                                                                <form method="post" class="d-inline">
-                                                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
-                                                                    <input type="hidden" name="action" value="toggle_include">
-                                                                    <input type="hidden" name="batch_id" value="<?php echo (int) $selectedBatchId; ?>">
-                                                                    <input type="hidden" name="item_id" value="<?php echo (int) $item['id']; ?>">
-                                                                    <input type="hidden" name="include_value" value="1">
-                                                                    <button type="submit" class="btn btn-sm btn-outline-success">Include</button>
-                                                                </form>
-                                                            <?php endif; ?>
+                                                            <form method="post" class="d-inline-flex align-items-center gap-2 flex-wrap justify-content-end">
+                                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                                <input type="hidden" name="action" value="update_item_tracking">
+                                                                <input type="hidden" name="batch_id" value="<?php echo (int) $selectedBatchId; ?>">
+                                                                <input type="hidden" name="item_id" value="<?php echo (int) $item['id']; ?>">
+                                                                <input type="hidden" name="is_included" value="0">
+                                                                <div class="form-check m-0">
+                                                                    <input class="form-check-input" type="checkbox" name="is_included" value="1" id="item_include_<?php echo (int) $item['id']; ?>" <?php echo ((int) ($item['is_included'] ?? 0) === 1) ? 'checked' : ''; ?>>
+                                                                    <label class="form-check-label small" for="item_include_<?php echo (int) $item['id']; ?>">RPCPPE</label>
+                                                                </div>
+                                                                <select name="reconciliation_status" class="form-select form-select-sm" data-no-select2 style="min-width: 150px;">
+                                                                    <?php foreach (rpcppe_status_options() as $statusValue => $statusLabel): ?>
+                                                                        <option value="<?php echo h($statusValue); ?>" <?php echo ((string) ($item['reconciliation_status'] ?? 'excluded') === $statusValue) ? 'selected' : ''; ?>>
+                                                                            <?php echo h($statusLabel); ?>
+                                                                        </option>
+                                                                    <?php endforeach; ?>
+                                                                </select>
+                                                                <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+                                                            </form>
                                                         <?php else: ?>
                                                             <span class="text-muted small">Locked</span>
                                                         <?php endif; ?>

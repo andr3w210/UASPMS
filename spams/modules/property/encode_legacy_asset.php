@@ -13,6 +13,7 @@ $brands = [];
 $models = [];
 $suppliers = [];
 $funds = [];
+$csrfToken = csrf_token();
 $form = [
     'property_number' => '',
     'po_number' => '',
@@ -248,7 +249,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <?php endif; ?>
 
                 <form method="post" class="workspace-form-section">
-                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                    <input type="hidden" name="_csrf" id="legacy_asset_csrf_token" value="<?php echo h($csrfToken); ?>">
                     <div class="row g-3">
 
                         <!-- ── Asset Details ── -->
@@ -343,7 +344,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-4">
                             <label class="form-label">Brand</label>
                             <div class="input-group qa-field-group">
-                                <select name="brand_id" class="form-select" id="brand_id" data-no-select2 data-placeholder="Select brand">
+                                <select name="brand_id" class="form-select" id="brand_id" data-placeholder="Select brand">
                                     <option value="">Select brand</option>
                                     <?php foreach ($brands as $brand): ?>
                                         <option value="<?php echo (int) $brand['id']; ?>" <?php echo $form['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo h($brand['brand_name']); ?></option>
@@ -355,7 +356,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-4">
                             <label class="form-label">Model</label>
                             <div class="input-group qa-field-group">
-                                <select name="model_id" class="form-select" id="model_id" data-no-select2 data-placeholder="Select model">
+                                <select name="model_id" class="form-select" id="model_id" data-placeholder="Select model">
                                     <option value="">Select model</option>
                                     <?php foreach ($models as $model): ?>
                                         <option value="<?php echo (int) $model['id']; ?>" <?php echo $form['model_id'] === (string) $model['id'] ? 'selected' : ''; ?> data-brand-id="<?php echo (int) ($model['brand_id'] ?? 0); ?>"><?php echo h($model['model_name']); ?></option>
@@ -439,16 +440,38 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
 <script>
 (function() {
-    function initLocalSelect2(select) {
-        if (!select || !window.jQuery || !jQuery.fn || !jQuery.fn.select2) { return; }
+    function select2Ready() {
+        return !!(window.jQuery && jQuery.fn && jQuery.fn.select2);
+    }
+
+    function initPageSelect2(select) {
+        if (!select || select.hasAttribute('data-no-select2') || !select2Ready()) {
+            return;
+        }
         var $select = jQuery(select);
-        if ($select.hasClass('select2-hidden-accessible')) { $select.select2('destroy'); }
+        if ($select.hasClass('select2-hidden-accessible')) {
+            $select.select2('destroy');
+        }
+        var allowClear = Array.from(select.options || []).some(function (option) {
+            return option.value === '';
+        });
         $select.select2({
             width: '100%',
             placeholder: select.getAttribute('data-placeholder') || 'Select an option',
-            allowClear: true,
-            dropdownParent: jQuery(select.parentElement || document.body)
+            allowClear: allowClear,
+            minimumResultsForSearch: 0,
+            dropdownParent: jQuery(document.body)
         });
+        select.setAttribute('data-select2-initialized', 'true');
+    }
+
+    function refreshEnhancedSelect(select) {
+        if (!select) { return; }
+        if (!select2Ready()) {
+            window.setTimeout(function () { refreshEnhancedSelect(select); }, 150);
+            return;
+        }
+        initPageSelect2(select);
     }
 
     var modelOptions = <?php
@@ -466,10 +489,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
         var brandSelect = document.querySelector('select[name="brand_id"]');
         var modelSelect = document.querySelector('select[name="model_id"]');
         if (!brandSelect || !modelSelect) { return; }
-        if (!window.jQuery || !jQuery.fn || !jQuery.fn.select2) {
-            window.setTimeout(setupBrandModelFilter, 150);
-            return;
-        }
         if (brandSelect.getAttribute('data-brand-model-wired') === '1') { return; }
         brandSelect.setAttribute('data-brand-model-wired', '1');
 
@@ -479,7 +498,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
             modelSelect.innerHTML = '';
             modelSelect.add(new Option('Select model', '', false, false));
             modelOptions.forEach(function(optionData) {
-                if (brandId !== '' && optionData.brandId !== '' && optionData.brandId !== brandId) { return; }
+                // When a brand is selected, only show models tied to that brand.
+                if (brandId !== '' && optionData.brandId !== brandId) { return; }
                 var option = new Option(optionData.text, optionData.value, false, optionData.value === previousValue);
                 option.setAttribute('data-brand-id', optionData.brandId);
                 modelSelect.add(option);
@@ -487,11 +507,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
             if (previousValue !== '' && !Array.from(modelSelect.options).some(function(o) { return o.value === previousValue; })) {
                 modelSelect.value = '';
             }
-            initLocalSelect2(modelSelect);
+            refreshEnhancedSelect(modelSelect);
         }
 
-        initLocalSelect2(brandSelect);
+        refreshEnhancedSelect(brandSelect);
         filterModels();
+        brandSelect.addEventListener('change', filterModels);
         jQuery(brandSelect).off('change.legacyBrandFilter').on('change.legacyBrandFilter', filterModels);
     }
 
@@ -500,7 +521,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
         var employeeSelect = document.querySelector('select[name="employee_id"]');
         var rcSelect = document.querySelector('select[name="responsibility_code_id"]');
         if (!officeSelect || !employeeSelect) { return; }
-        if (!window.jQuery || !jQuery.fn || !jQuery.fn.select2) {
+        if (!select2Ready()) {
             window.setTimeout(setupOfficeEmployeeFilter, 150);
             return;
         }
@@ -508,7 +529,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
         officeSelect.setAttribute('data-office-employee-wired', '1');
 
         function refreshSharedSelect(select) {
-            if (window.SPAMS && window.SPAMS.refreshSelect2) { window.SPAMS.refreshSelect2(select); }
+            refreshEnhancedSelect(select);
         }
 
         function filterResponsibilityCodes() {
@@ -575,10 +596,30 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () {
+            [
+                document.getElementById('classification_id'),
+                document.getElementById('account_code_id'),
+                document.getElementById('fund_id'),
+                document.getElementById('supplier_id'),
+                document.getElementById('brand_id'),
+                document.getElementById('model_id'),
+                document.getElementById('office_id'),
+                document.getElementById('employee_id')
+            ].forEach(refreshEnhancedSelect);
             setupBrandModelFilter();
             setupOfficeEmployeeFilter();
         });
     } else {
+        [
+            document.getElementById('classification_id'),
+            document.getElementById('account_code_id'),
+            document.getElementById('fund_id'),
+            document.getElementById('supplier_id'),
+            document.getElementById('brand_id'),
+            document.getElementById('model_id'),
+            document.getElementById('office_id'),
+            document.getElementById('employee_id')
+        ].forEach(refreshEnhancedSelect);
         setupBrandModelFilter();
         setupOfficeEmployeeFilter();
     }
@@ -778,7 +819,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
     });
 
     function getCsrf() {
-        var el = document.querySelector('input[name="_csrf"]');
+        var el = document.getElementById('legacy_asset_csrf_token');
+        if (!el) {
+            el = document.querySelector('form.workspace-form-section input[name="_csrf"]');
+        }
+        if (!el) {
+            el = document.querySelector('input[name="_csrf"]');
+        }
         return el ? el.value : '';
     }
 
@@ -809,13 +856,19 @@ require_once __DIR__ . '/../../includes/topbar.php';
         }
         sel.appendChild(opt);
         sel.value = id;
+        if (window.SPAMS && window.SPAMS.refreshSelect2) {
+            window.SPAMS.refreshSelect2(sel);
+        }
     }
 
     function postQA(payload, onSuccess, onError) {
         payload['_csrf'] = getCsrf();
         fetch(qaEndpoint, {
             method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-Token': getCsrf()
+            },
             body: new URLSearchParams(payload).toString()
         })
         .then(function (r) { return r.json(); })

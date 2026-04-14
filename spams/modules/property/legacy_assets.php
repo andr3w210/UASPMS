@@ -13,10 +13,44 @@ $encodedSummary = [
 
 if ($db) {
     ensure_legacy_assets_fund_column($db);
+    ensure_legacy_assets_rpcppe_tracking_columns($db);
 
     $db->query("UPDATE legacy_assets SET item_type = 'equipment' WHERE item_type IS NULL OR item_type = ''");
     $db->query("UPDATE legacy_assets SET quantity = 1 WHERE quantity IS NULL OR quantity <= 0");
     $db->query("UPDATE legacy_assets SET unit_cost = acquisition_cost WHERE unit_cost IS NULL OR unit_cost = 0");
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') === 'update_rpcppe_tracking') {
+        if (!csrf_verify()) {
+            set_flash('error', 'Invalid CSRF token.');
+            redirect('modules/property/legacy_assets.php');
+        }
+
+        $assetId = (int) ($_POST['asset_id'] ?? 0);
+        $isCandidate = isset($_POST['is_rpcppe_candidate']) && (string) $_POST['is_rpcppe_candidate'] === '1';
+        $requestedStatus = trim((string) ($_POST['rpcppe_status'] ?? ''));
+        $normalizedStatus = rpcppe_normalize_status($requestedStatus, $isCandidate);
+        $candidateValue = $normalizedStatus === 'excluded' ? 0 : 1;
+
+        $stmt = $db->prepare("UPDATE legacy_assets
+            SET is_rpcppe_candidate = ?,
+                rpcppe_status = ?,
+                rpcppe_submitted_at = CASE
+                    WHEN ? IN ('submitted_to_accounting', 'reconciled') THEN COALESCE(rpcppe_submitted_at, NOW())
+                    ELSE NULL
+                END,
+                rpcppe_reconciled_at = CASE
+                    WHEN ? = 'reconciled' THEN COALESCE(rpcppe_reconciled_at, NOW())
+                    ELSE NULL
+                END
+            WHERE id = ? AND is_active = 1");
+        if ($stmt) {
+            $stmt->bind_param('isssi', $candidateValue, $normalizedStatus, $normalizedStatus, $normalizedStatus, $assetId);
+            $stmt->execute();
+            $stmt->close();
+            set_flash('success', 'RPCPPE tracking updated.');
+            redirect('modules/property/legacy_assets.php');
+        }
+    }
 
     $listSql = "
         SELECT la.*, c.classification_name, c.classification_family, ac.account_code, ac.account_name,
@@ -58,7 +92,7 @@ if ($db) {
             'Classification', 'Classification Family', 'Account Code', 'Account Name',
             'Fund', 'Supplier', 'Brand', 'Model', 'Serial No', 'Acquisition Date',
             'Quantity', 'Unit Cost', 'Acquisition Cost',
-            'Office', 'Employee', 'Responsibility Code', 'Condition Status', 'Remarks', 'Created At',
+            'Office', 'Employee', 'Responsibility Code', 'Condition Status', 'RPCPPE Candidate', 'RPCPPE Status', 'Remarks', 'Created At',
         ]);
         foreach ($rows as $row) {
             $employeeName = trim(implode(' ', array_filter([
@@ -94,6 +128,8 @@ if ($db) {
                 $employeeName,
                 $row['rc_code'] ?? '',
                 $row['condition_status'] ?? '',
+                (int) ($row['is_rpcppe_candidate'] ?? 0) === 1 ? 'Yes' : 'No',
+                rpcppe_status_label((string) ($row['rpcppe_status'] ?? 'excluded')),
                 $row['remarks'] ?? '',
                 $row['created_at'] ?? '',
             ]);
@@ -131,7 +167,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
             </div>
             <div class="card-body p-4">
                 <?php if ($flash): ?>
-                    <div class="alert alert-success"><?php echo h($flash['message']); ?></div>
+                    <div class="alert <?php echo (($flash['type'] ?? 'success') === 'error') ? 'alert-danger' : 'alert-success'; ?>"><?php echo h($flash['message']); ?></div>
                 <?php endif; ?>
 
                 <div class="row g-3 mb-4">
@@ -195,6 +231,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <th>Unit Cost</th>
                                     <th>Cost</th>
                                     <th>Condition</th>
+                                    <th>RPCPPE</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -214,10 +251,36 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
                                         <td><?php echo h(number_format((float) ($row['acquisition_cost'] ?? 0), 2)); ?></td>
                                         <td><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['condition_status'] ?? '')))); ?></td>
+                                        <td>
+                                            <form method="post" class="d-grid gap-2" style="min-width: 210px;">
+                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="update_rpcppe_tracking">
+                                                <input type="hidden" name="asset_id" value="<?php echo (int) ($row['id'] ?? 0); ?>">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" name="is_rpcppe_candidate" value="1" id="rpcppe_candidate_<?php echo (int) ($row['id'] ?? 0); ?>" <?php echo ((int) ($row['is_rpcppe_candidate'] ?? 0) === 1) ? 'checked' : ''; ?>>
+                                                    <label class="form-check-label small" for="rpcppe_candidate_<?php echo (int) ($row['id'] ?? 0); ?>">
+                                                        Include in RPCPPE
+                                                    </label>
+                                                </div>
+                                                <select name="rpcppe_status" class="form-select form-select-sm" data-no-select2>
+                                                    <?php foreach (rpcppe_status_options() as $statusValue => $statusLabel): ?>
+                                                        <option value="<?php echo h($statusValue); ?>" <?php echo ((string) ($row['rpcppe_status'] ?? 'excluded') === $statusValue) ? 'selected' : ''; ?>>
+                                                            <?php echo h($statusLabel); ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <div class="d-flex align-items-center justify-content-between gap-2">
+                                                    <span class="badge <?php echo h(rpcppe_status_badge_class((string) ($row['rpcppe_status'] ?? 'excluded'))); ?>">
+                                                        <?php echo h(rpcppe_status_label((string) ($row['rpcppe_status'] ?? 'excluded'))); ?>
+                                                    </span>
+                                                    <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+                                                </div>
+                                            </form>
+                                        </td>
                                     </tr>
                                 <?php endforeach; else: ?>
                                     <tr>
-                                        <td colspan="14" class="text-center text-muted py-5">
+                                        <td colspan="15" class="text-center text-muted py-5">
                                             <i class="bi bi-inbox fs-3 d-block mb-2 text-muted opacity-50"></i>
                                             No encoded legacy assets yet.
                                             <a href="<?php echo h(base_url('modules/property/encode_legacy_asset.php')); ?>" class="d-block mt-1">Encode the first asset</a>

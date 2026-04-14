@@ -211,6 +211,9 @@ function stock_catalog_next_number(mysqli $db, ?int $classificationId, string $i
 function csrf_token(): string
 {
     if (!isset($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token']) || $_SESSION['csrf_token'] === '') {
+        if (isset($_SESSION['csrf_token']) && is_string($_SESSION['csrf_token']) && $_SESSION['csrf_token'] !== '') {
+            $_SESSION['csrf_token_prev'] = $_SESSION['csrf_token'];
+        }
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
     }
 
@@ -219,12 +222,30 @@ function csrf_token(): string
 
 function csrf_verify(): bool
 {
-    if (empty($_POST['_csrf']) || empty($_SESSION['csrf_token'])) {
+    if (empty($_SESSION['csrf_token']) && empty($_SESSION['csrf_token_prev'])) {
         return false;
     }
 
-    $posted = is_string($_POST['_csrf']) ? $_POST['_csrf'] : (string) $_POST['_csrf'];
-    return hash_equals((string) $_SESSION['csrf_token'], $posted);
+    $posted = '';
+    if (!empty($_POST['_csrf'])) {
+        $posted = is_string($_POST['_csrf']) ? $_POST['_csrf'] : (string) $_POST['_csrf'];
+    } elseif (!empty($_SERVER['HTTP_X_CSRF_TOKEN'])) {
+        $posted = is_string($_SERVER['HTTP_X_CSRF_TOKEN']) ? $_SERVER['HTTP_X_CSRF_TOKEN'] : (string) $_SERVER['HTTP_X_CSRF_TOKEN'];
+    }
+
+    $posted = trim($posted);
+    if ($posted === '') {
+        return false;
+    }
+
+    $current = isset($_SESSION['csrf_token']) ? (string) $_SESSION['csrf_token'] : '';
+    $previous = isset($_SESSION['csrf_token_prev']) ? (string) $_SESSION['csrf_token_prev'] : '';
+
+    if ($current !== '' && hash_equals($current, $posted)) {
+        return true;
+    }
+
+    return $previous !== '' && hash_equals($previous, $posted);
 }
 
 function reconcile_stock_item(mysqli $db, int $stockItemId): bool
@@ -470,6 +491,87 @@ function ensure_legacy_assets_fund_column(mysqli $db): void
     }
 }
 
+function ensure_legacy_assets_rpcppe_tracking_columns(mysqli $db): void
+{
+    $db->query("ALTER TABLE legacy_assets
+        ADD COLUMN IF NOT EXISTS is_rpcppe_candidate TINYINT(1) NOT NULL DEFAULT 0 AFTER fund_id,
+        ADD COLUMN IF NOT EXISTS rpcppe_status VARCHAR(30) NOT NULL DEFAULT 'excluded' AFTER is_rpcppe_candidate,
+        ADD COLUMN IF NOT EXISTS rpcppe_batch_id BIGINT UNSIGNED NULL AFTER rpcppe_status,
+        ADD COLUMN IF NOT EXISTS rpcppe_submitted_at DATETIME NULL AFTER rpcppe_batch_id,
+        ADD COLUMN IF NOT EXISTS rpcppe_reconciled_at DATETIME NULL AFTER rpcppe_submitted_at");
+
+    $db->query("UPDATE legacy_assets
+        SET rpcppe_status = CASE
+            WHEN COALESCE(is_rpcppe_candidate, 0) = 1 THEN 'included_draft'
+            ELSE 'excluded'
+        END
+        WHERE rpcppe_status IS NULL OR TRIM(rpcppe_status) = ''");
+}
+
+function ensure_rpcppe_batch_tracking_columns(mysqli $db): void
+{
+    $db->query("ALTER TABLE rpcppe_batch_items
+        ADD COLUMN IF NOT EXISTS reconciliation_status VARCHAR(30) NOT NULL DEFAULT 'included_draft' AFTER is_included,
+        ADD COLUMN IF NOT EXISTS submitted_to_accounting_at DATETIME NULL AFTER reconciliation_status,
+        ADD COLUMN IF NOT EXISTS reconciled_at DATETIME NULL AFTER submitted_to_accounting_at");
+
+    $db->query("UPDATE rpcppe_batch_items
+        SET reconciliation_status = CASE
+            WHEN COALESCE(is_included, 0) = 1 THEN 'included_draft'
+            ELSE 'excluded'
+        END
+        WHERE reconciliation_status IS NULL OR TRIM(reconciliation_status) = ''");
+}
+
+function rpcppe_status_options(): array
+{
+    return [
+        'excluded' => 'Excluded',
+        'included_draft' => 'Included Draft',
+        'submitted_to_accounting' => 'Submitted',
+        'reconciled' => 'Reconciled',
+    ];
+}
+
+function rpcppe_normalize_status(string $status, bool $isIncluded): string
+{
+    $status = trim($status);
+    $options = rpcppe_status_options();
+    if (!isset($options[$status])) {
+        $status = $isIncluded ? 'included_draft' : 'excluded';
+    }
+
+    if (!$isIncluded) {
+        return 'excluded';
+    }
+
+    if ($status === 'excluded') {
+        return 'included_draft';
+    }
+
+    return $status;
+}
+
+function rpcppe_status_badge_class(string $status): string
+{
+    switch ($status) {
+        case 'reconciled':
+            return 'text-bg-success';
+        case 'submitted_to_accounting':
+            return 'text-bg-primary';
+        case 'included_draft':
+            return 'text-bg-warning';
+        default:
+            return 'text-bg-secondary';
+    }
+}
+
+function rpcppe_status_label(string $status): string
+{
+    $options = rpcppe_status_options();
+    return $options[$status] ?? 'Excluded';
+}
+
 function ensure_legacy_assets_po_number_column(mysqli $db): void
 {
     if (function_exists('schema_has_column') && !schema_has_column($db, 'legacy_assets', 'po_number')) {
@@ -628,5 +730,4 @@ function generate_property_number(
          . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT)
          . '-' . $officeShort;
 }
-
 
