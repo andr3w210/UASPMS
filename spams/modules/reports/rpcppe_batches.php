@@ -42,6 +42,8 @@ function ensure_rpcppe_batch_tables(mysqli $db): void
         distribution_item_detail_id BIGINT UNSIGNED NULL,
         legacy_asset_id BIGINT UNSIGNED NULL,
         property_number VARCHAR(120) NOT NULL,
+        item_name VARCHAR(255) NULL,
+        item_name_id BIGINT UNSIGNED NULL,
         item_description TEXT NOT NULL,
         description_detail TEXT NULL,
         classification_name VARCHAR(255) NULL,
@@ -71,11 +73,123 @@ function ensure_rpcppe_batch_tables(mysqli $db): void
         PRIMARY KEY (id),
         KEY idx_rpcppe_batch_items_batch_include (batch_id, is_included, is_disposed),
         KEY idx_rpcppe_batch_items_property (property_number),
+        KEY idx_rpcppe_batch_items_item_name_id (item_name_id),
         KEY idx_rpcppe_batch_items_system_asset (distribution_item_detail_id),
         KEY idx_rpcppe_batch_items_legacy_asset (legacy_asset_id),
         UNIQUE KEY uq_rpcppe_batch_system_item (batch_id, distribution_item_detail_id),
         UNIQUE KEY uq_rpcppe_batch_legacy_item (batch_id, legacy_asset_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $db->query("ALTER TABLE rpcppe_batch_items
+        ADD COLUMN IF NOT EXISTS item_name VARCHAR(255) NULL AFTER property_number,
+        ADD COLUMN IF NOT EXISTS item_name_id BIGINT UNSIGNED NULL AFTER item_name");
+    $db->query("ALTER TABLE legacy_assets
+        ADD COLUMN IF NOT EXISTS item_name VARCHAR(255) NULL AFTER item_description,
+        ADD COLUMN IF NOT EXISTS item_name_id BIGINT UNSIGNED NULL AFTER item_name");
+
+    $db->query("UPDATE rpcppe_batch_items
+        SET item_name = TRIM(classification_name)
+        WHERE (item_name IS NULL OR item_name = '')
+          AND classification_name IS NOT NULL
+          AND TRIM(classification_name) <> ''");
+    $db->query("UPDATE legacy_assets la
+        LEFT JOIN classifications c ON c.id = la.classification_id
+        SET la.item_name = TRIM(c.classification_name)
+        WHERE (la.item_name IS NULL OR la.item_name = '')
+          AND c.classification_name IS NOT NULL
+          AND TRIM(c.classification_name) <> ''");
+
+    rpcppe_sync_item_name_references($db);
+}
+
+function rpcppe_sync_item_name_references(mysqli $db): void
+{
+    $db->query("CREATE TABLE IF NOT EXISTS item_names (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        item_name VARCHAR(255) NOT NULL,
+        normalized_name VARCHAR(255) NOT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_item_names_normalized (normalized_name),
+        KEY idx_item_names_item_name (item_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $db->query("INSERT INTO item_names (item_name, normalized_name, is_active)
+        SELECT src.item_name, LOWER(src.item_name), 1
+        FROM (
+            SELECT DISTINCT CONVERT(TRIM(classification_name) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS item_name
+            FROM classifications
+            WHERE classification_name IS NOT NULL AND TRIM(classification_name) <> ''
+            UNION
+            SELECT DISTINCT CONVERT(TRIM(item_name) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS item_name
+            FROM legacy_assets
+            WHERE item_name IS NOT NULL AND TRIM(item_name) <> ''
+            UNION
+            SELECT DISTINCT CONVERT(TRIM(item_name) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS item_name
+            FROM rpcppe_batch_items
+            WHERE item_name IS NOT NULL AND TRIM(item_name) <> ''
+        ) src
+        ON DUPLICATE KEY UPDATE item_name = VALUES(item_name), is_active = 1");
+
+    $db->query("UPDATE legacy_assets la
+        INNER JOIN item_names i ON i.normalized_name = LOWER(TRIM(la.item_name)) COLLATE utf8mb4_unicode_ci
+        SET la.item_name_id = i.id
+        WHERE la.item_name IS NOT NULL
+          AND TRIM(la.item_name) <> ''");
+
+    $db->query("UPDATE rpcppe_batch_items bi
+        INNER JOIN item_names i ON i.normalized_name = LOWER(TRIM(bi.item_name)) COLLATE utf8mb4_unicode_ci
+        SET bi.item_name_id = i.id
+        WHERE bi.item_name IS NOT NULL
+          AND TRIM(bi.item_name) <> ''");
+}
+
+function rpcppe_find_or_create_item_name_id(mysqli $db, string $itemName): int
+{
+    $itemName = trim($itemName);
+    if ($itemName === '') {
+        return 0;
+    }
+
+    $normalized = strtolower($itemName);
+    $select = $db->prepare("SELECT id FROM item_names WHERE normalized_name = ? LIMIT 1");
+    if ($select) {
+        $select->bind_param('s', $normalized);
+        $select->execute();
+        $row = $select->get_result()->fetch_assoc();
+        $select->close();
+        if ($row) {
+            return (int) $row['id'];
+        }
+    }
+
+    $insert = $db->prepare("INSERT INTO item_names (item_name, normalized_name, is_active) VALUES (?, ?, 1)");
+    if (!$insert) {
+        return 0;
+    }
+    $insert->bind_param('ss', $itemName, $normalized);
+    $ok = $insert->execute();
+    $newId = $ok ? (int) $insert->insert_id : 0;
+    $insert->close();
+
+    if ($newId > 0) {
+        return $newId;
+    }
+
+    $retry = $db->prepare("SELECT id FROM item_names WHERE normalized_name = ? LIMIT 1");
+    if ($retry) {
+        $retry->bind_param('s', $normalized);
+        $retry->execute();
+        $row = $retry->get_result()->fetch_assoc();
+        $retry->close();
+        if ($row) {
+            return (int) $row['id'];
+        }
+    }
+
+    return 0;
 }
 
 function rpcppe_batch_label(array $batch): string
@@ -94,6 +208,8 @@ function rpcppe_fetch_live_rows(mysqli $db, string $asOf): array
             did.id AS distribution_item_detail_id,
             NULL AS legacy_asset_id,
             did.property_number,
+            c.classification_name AS item_name,
+            NULL AS item_name_id,
             poi.item_description,
             poi.item_description AS description_detail,
             c.classification_name,
@@ -164,6 +280,8 @@ function rpcppe_fetch_live_rows(mysqli $db, string $asOf): array
             NULL AS distribution_item_detail_id,
             la.id AS legacy_asset_id,
             la.property_number,
+            COALESCE(NULLIF(la.item_name, ''), c.classification_name) AS item_name,
+            la.item_name_id,
             la.item_description,
             la.item_description AS description_detail,
             c.classification_name,
@@ -292,8 +410,8 @@ function rpcppe_sync_batch_disposals(mysqli $db, int $batchId, string $asOf): vo
 function rpcppe_insert_batch_rows(mysqli $db, int $batchId, array $rows): int
 {
     $insertStmt = $db->prepare("INSERT INTO rpcppe_batch_items
-        (batch_id, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included)
-        VALUES (?, ?, NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, 1)
+        (batch_id, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_name, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included)
+        VALUES (?, ?, NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, 1)
     ");
     if (!$insertStmt) {
         return 0;
@@ -309,6 +427,8 @@ function rpcppe_insert_batch_rows(mysqli $db, int $batchId, array $rows): int
             continue;
         }
 
+        $itemName = trim((string) ($row['item_name'] ?? ($row['classification_name'] ?? '')));
+        $itemNameId = !empty($row['item_name_id']) ? (int) $row['item_name_id'] : 0;
         $itemDescription = trim((string) ($row['item_description'] ?? ''));
         $descriptionDetail = trim((string) ($row['description_detail'] ?? $itemDescription));
         $classificationName = trim((string) ($row['classification_name'] ?? ''));
@@ -335,12 +455,13 @@ function rpcppe_insert_batch_rows(mysqli $db, int $batchId, array $rows): int
         $remarks = trim((string) ($row['remarks'] ?? ''));
 
         $insertStmt->bind_param(
-            'isiisssssssdsiissississssss',
+            'isiisssssssssdsiissississssss',
             $batchId,
             $sourceType,
             $distributionId,
             $legacyId,
             $propertyNumber,
+            $itemName,
             $itemDescription,
             $descriptionDetail,
             $classificationName,
@@ -368,6 +489,16 @@ function rpcppe_insert_batch_rows(mysqli $db, int $batchId, array $rows): int
         );
 
         if ($insertStmt->execute()) {
+            $newBatchItemId = (int) $insertStmt->insert_id;
+            $resolvedItemNameId = $itemNameId > 0 ? $itemNameId : rpcppe_find_or_create_item_name_id($db, $itemName);
+            if ($resolvedItemNameId > 0 && $newBatchItemId > 0) {
+                $itemRefStmt = $db->prepare("UPDATE rpcppe_batch_items SET item_name_id = ? WHERE id = ?");
+                if ($itemRefStmt) {
+                    $itemRefStmt->bind_param('ii', $resolvedItemNameId, $newBatchItemId);
+                    $itemRefStmt->execute();
+                    $itemRefStmt->close();
+                }
+            }
             $inserted++;
         }
     }
@@ -379,9 +510,9 @@ function rpcppe_insert_batch_rows(mysqli $db, int $batchId, array $rows): int
 function rpcppe_copy_carry_forward_items(mysqli $db, int $targetBatchId, int $sourceBatchId): int
 {
     $copyStmt = $db->prepare("INSERT INTO rpcppe_batch_items
-        (batch_id, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included, is_disposed, disposed_at)
+        (batch_id, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_name, item_name_id, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included, is_disposed, disposed_at)
         SELECT
-            ?, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included, is_disposed, disposed_at
+            ?, source_type, distribution_item_detail_id, legacy_asset_id, property_number, item_name, item_name_id, item_description, description_detail, classification_name, classification_family, uom_name, abbreviation, unit_cost, acquisition_date, qty_property_card, qty_physical_count, brand, model, serial_no, office_id, office_name, employee_id, employee_name, account_code_id, account_code, account_name, fund_code, fund_source, fund_number, remarks, is_included, is_disposed, disposed_at
         FROM rpcppe_batch_items
         WHERE batch_id = ?
           AND is_included = 1
@@ -1454,6 +1585,8 @@ function rpcppe_create_legacy_asset_from_excel_row(mysqli $db, array $excelRow, 
     $itemType = 'equipment';
     $itemDescription = trim((string) ($excelRow['description'] ?? ''));
     $classificationId = isset($classification['id']) ? (int) $classification['id'] : 0;
+    $itemName = trim((string) ($classification['classification_name'] ?? ($excelRow['article'] ?? '')));
+    $itemNameId = rpcppe_find_or_create_item_name_id($db, $itemName);
     $accountCodeId = (int) ($account['id'] ?? 0);
     $fundId = isset($fund['id']) ? (int) $fund['id'] : 0;
     $supplierId = 0;
@@ -1472,11 +1605,11 @@ function rpcppe_create_legacy_asset_from_excel_row(mysqli $db, array $excelRow, 
     $conditionStatus = 'good';
     $remarks = trim((string) ($excelRow['remarks'] ?? ''));
 
-    $insert = $db->prepare("INSERT INTO legacy_assets (system_reference, po_number, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by) VALUES (?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?)");
+    $insert = $db->prepare("INSERT INTO legacy_assets (system_reference, po_number, property_number, item_type, item_description, item_name, item_name_id, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by) VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?)");
     if (!$insert) {
         return null;
     }
-    $insert->bind_param('sssssiiiiiissssidddiiissi', $systemReference, $poNumber, $propertyNumber, $itemType, $itemDescription, $classificationId, $accountCodeId, $fundId, $supplierId, $brandId, $modelId, $brandName, $modelName, $serialNo, $acquisitionDate, $quantity, $unitCost, $acquisitionCost, $officeId, $employeeId, $rcId, $conditionStatus, $remarks, $userId);
+    $insert->bind_param('ssssssiiiiiiissssidddiiissi', $systemReference, $poNumber, $propertyNumber, $itemType, $itemDescription, $itemName, $itemNameId, $classificationId, $accountCodeId, $fundId, $supplierId, $brandId, $modelId, $brandName, $modelName, $serialNo, $acquisitionDate, $quantity, $unitCost, $acquisitionCost, $officeId, $employeeId, $rcId, $conditionStatus, $remarks, $userId);
     $saved = $insert->execute();
     $insert->close();
     if (!$saved) {
@@ -1488,6 +1621,8 @@ function rpcppe_create_legacy_asset_from_excel_row(mysqli $db, array $excelRow, 
         'distribution_item_detail_id' => null,
         'legacy_asset_id' => (int) $db->insert_id,
         'property_number' => $propertyNumber,
+        'item_name' => $itemName,
+        'item_name_id' => $itemNameId > 0 ? $itemNameId : null,
         'item_description' => $itemDescription,
         'description_detail' => $itemDescription,
         'classification_name' => (string) ($classification['classification_name'] ?? ($excelRow['article'] ?? '')),
@@ -1531,6 +1666,8 @@ function rpcppe_update_legacy_asset_from_excel_row(mysqli $db, int $legacyAssetI
     $model = trim((string) ($excelRow['model'] ?? ($metadata['model'] ?? '')));
     $serialNo = trim((string) ($excelRow['serial_no'] ?? ($metadata['serial_no'] ?? '')));
     $classificationId = isset($classification['id']) ? (int) $classification['id'] : 0;
+    $itemName = trim((string) ($classification['classification_name'] ?? ($excelRow['article'] ?? '')));
+    $itemNameId = rpcppe_find_or_create_item_name_id($db, $itemName);
 
     $stmt = $db->prepare("UPDATE legacy_assets
         SET acquisition_date = CASE WHEN ? <> '' THEN ? ELSE acquisition_date END,
@@ -1568,6 +1705,16 @@ function rpcppe_update_legacy_asset_from_excel_row(mysqli $db, int $legacyAssetI
     );
     $stmt->execute();
     $stmt->close();
+
+    $itemStmt = $db->prepare("UPDATE legacy_assets
+        SET item_name = CASE WHEN ? <> '' THEN ? ELSE item_name END,
+            item_name_id = CASE WHEN ? > 0 THEN ? ELSE item_name_id END
+        WHERE id = ?");
+    if ($itemStmt) {
+        $itemStmt->bind_param('ssiii', $itemName, $itemName, $itemNameId, $itemNameId, $legacyAssetId);
+        $itemStmt->execute();
+        $itemStmt->close();
+    }
 }
 
 function rpcppe_find_batch_item_id(mysqli $db, int $batchId, array $row): int
@@ -1631,6 +1778,7 @@ function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $
     $fundSource = trim((string) ($row['fund_source'] ?? ''));
     $fundNumber = trim((string) ($row['fund_number'] ?? ''));
     $classificationName = trim((string) ($row['classification_name'] ?? ($excelRow['article'] ?? '')));
+    $itemName = trim((string) ($row['item_name'] ?? $classificationName));
     $brand = trim((string) ($row['brand'] ?? ($excelRow['brand'] ?? '')));
     $model = trim((string) ($row['model'] ?? ($excelRow['model'] ?? '')));
     $serialNo = trim((string) ($row['serial_no'] ?? ($excelRow['serial_no'] ?? '')));
@@ -1719,6 +1867,17 @@ function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $
         $metaStmt->bind_param('ssssssi', $brand, $brand, $model, $model, $serialNo, $serialNo, $batchItemId);
         $metaStmt->execute();
         $metaStmt->close();
+    }
+
+    $itemStmt = $db->prepare("UPDATE rpcppe_batch_items
+        SET item_name = CASE WHEN ? <> '' THEN ? ELSE item_name END,
+            item_name_id = CASE WHEN ? > 0 THEN ? ELSE item_name_id END
+        WHERE id = ?");
+    if ($itemStmt) {
+        $itemNameId = rpcppe_find_or_create_item_name_id($db, $itemName);
+        $itemStmt->bind_param('ssiii', $itemName, $itemName, $itemNameId, $itemNameId, $batchItemId);
+        $itemStmt->execute();
+        $itemStmt->close();
     }
 }
 
