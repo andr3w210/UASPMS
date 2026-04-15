@@ -25,7 +25,7 @@ function receiving_tracks_identity(string $type): bool
 
 function receiving_blank_detail(): array
 {
-    return ['brand_id' => '', 'model_id' => '', 'brand' => '', 'model' => '', 'serial_no' => '', 'remarks' => '', 'no_brand_model' => '0'];
+    return ['brand_id' => '', 'model_id' => '', 'brand' => '', 'model' => '', 'serial_no' => '', 'remarks' => '', 'no_brand_model' => '0', 'no_serial_no' => '0', 'no_remarks' => '0'];
 }
 
 function receiving_normalize_details($rows): array
@@ -48,6 +48,8 @@ function receiving_normalize_details($rows): array
             'serial_no' => trim((string) ($row['serial_no'] ?? '')),
             'remarks' => trim((string) ($row['remarks'] ?? '')),
             'no_brand_model' => !empty($row['no_brand_model']) ? '1' : '0',
+            'no_serial_no' => !empty($row['no_serial_no']) ? '1' : '0',
+            'no_remarks' => !empty($row['no_remarks']) ? '1' : '0',
         ];
     }
 
@@ -220,6 +222,9 @@ if (!$db) {
                     $item['reject_quantity'] = '0.00';
                     $item['item_condition'] = 'Good Condition';
                     $item['remarks'] = '';
+                    $item['bulk_no_brand_model'] = '0';
+                    $item['bulk_no_serial_no'] = '0';
+                    $item['bulk_no_remarks'] = '0';
                     $item['detail_rows'] = receiving_tracks_identity((string) $item['item_type']) ? [receiving_blank_detail()] : [];
                     $receivingItems[] = $item;
                 }
@@ -261,6 +266,9 @@ if (!$db) {
             $item['reject_quantity'] = old($posted, 'reject_quantity', $item['reject_quantity']);
             $item['item_condition'] = old($posted, 'item_condition', $item['item_condition']);
             $item['remarks'] = old($posted, 'remarks');
+            $item['bulk_no_brand_model'] = !empty($posted['bulk_no_brand_model']) ? '1' : '0';
+            $item['bulk_no_serial_no'] = !empty($posted['bulk_no_serial_no']) ? '1' : '0';
+            $item['bulk_no_remarks'] = !empty($posted['bulk_no_remarks']) ? '1' : '0';
             $item['detail_rows'] = receiving_tracks_identity((string) $item['item_type'])
                 ? receiving_normalize_details($posted['details'] ?? $item['detail_rows'])
                 : [];
@@ -278,6 +286,48 @@ if (!$db) {
             $remaining = (float) $item['remaining_quantity'];
             $condition = trim((string) ($posted['item_condition'] ?? ''));
             $details = receiving_normalize_details($posted['details'] ?? []);
+            $allDetailsHaveNoBrandModelValues = !empty($details);
+            foreach ($details as $detailCheck) {
+                $hasBrandModelValue = trim((string) ($detailCheck['brand_id'] ?? '')) !== ''
+                    || trim((string) ($detailCheck['model_id'] ?? '')) !== ''
+                    || trim((string) ($detailCheck['brand'] ?? '')) !== ''
+                    || trim((string) ($detailCheck['model'] ?? '')) !== '';
+                if ($hasBrandModelValue) {
+                    $allDetailsHaveNoBrandModelValues = false;
+                    break;
+                }
+            }
+
+            if (!empty($posted['bulk_no_brand_model'])) {
+                foreach ($details as &$detail) {
+                    $detail['no_brand_model'] = '1';
+                    $detail['brand_id'] = '';
+                    $detail['model_id'] = '';
+                    $detail['brand'] = '';
+                    $detail['model'] = '';
+                }
+                unset($detail);
+            }
+            if ($allDetailsHaveNoBrandModelValues) {
+                foreach ($details as &$detail) {
+                    $detail['no_brand_model'] = '1';
+                }
+                unset($detail);
+            }
+            if (!empty($posted['bulk_no_serial_no'])) {
+                foreach ($details as &$detail) {
+                    $detail['no_serial_no'] = '1';
+                    $detail['serial_no'] = '';
+                }
+                unset($detail);
+            }
+            if (!empty($posted['bulk_no_remarks'])) {
+                foreach ($details as &$detail) {
+                    $detail['no_remarks'] = '1';
+                    $detail['remarks'] = '';
+                }
+                unset($detail);
+            }
 
             if ($delivered <= 0 && $accepted <= 0 && $rejected <= 0) {
                 $remainingAfterSave[$itemId] = $remaining;
@@ -307,11 +357,19 @@ if (!$db) {
             $detailRows = [];
             foreach ($details as $detail) {
                 $noBrandModel = !empty($detail['no_brand_model']);
+                $noSerialNo = !empty($detail['no_serial_no']);
+                $noRemarks = !empty($detail['no_remarks']);
                 if ($noBrandModel) {
                     $detail['brand_id'] = '';
                     $detail['model_id'] = '';
                     $detail['brand'] = '';
                     $detail['model'] = '';
+                }
+                if ($noSerialNo) {
+                    $detail['serial_no'] = '';
+                }
+                if ($noRemarks) {
+                    $detail['remarks'] = '';
                 }
                 $brandId = (int) ($detail['brand_id'] !== '' ? $detail['brand_id'] : 0);
                 $modelId = (int) ($detail['model_id'] !== '' ? $detail['model_id'] : 0);
@@ -356,6 +414,32 @@ if (!$db) {
                 $expectedDetailRows = max(1, (int) round($accepted));
                 for ($detailIndex = 0; $detailIndex < $expectedDetailRows; $detailIndex++) {
                     $detailRows[] = receiving_blank_detail();
+                }
+            }
+            if (receiving_tracks_identity((string) $item['item_type']) && $accepted > 0) {
+                $expectedDetailRows = max(1, (int) round($accepted));
+                $currentDetailRows = count($detailRows);
+
+                if ($currentDetailRows > $expectedDetailRows) {
+                    $detailRows = array_slice($detailRows, 0, $expectedDetailRows);
+                } elseif ($currentDetailRows < $expectedDetailRows) {
+                    $detailTemplate = $currentDetailRows > 0
+                        ? $detailRows[$currentDetailRows - 1]
+                        : receiving_blank_detail();
+
+                    for ($detailIndex = $currentDetailRows; $detailIndex < $expectedDetailRows; $detailIndex++) {
+                        $detailRows[] = [
+                            'brand_id' => (string) ($detailTemplate['brand_id'] ?? ''),
+                            'model_id' => (string) ($detailTemplate['model_id'] ?? ''),
+                            'brand' => (string) ($detailTemplate['brand'] ?? ''),
+                            'model' => (string) ($detailTemplate['model'] ?? ''),
+                            'serial_no' => '',
+                            'remarks' => (string) ($detailTemplate['remarks'] ?? ''),
+                            'no_brand_model' => !empty($detailTemplate['no_brand_model']) ? '1' : '0',
+                            'no_serial_no' => !empty($detailTemplate['no_serial_no']) ? '1' : '0',
+                            'no_remarks' => !empty($detailTemplate['no_remarks']) ? '1' : '0',
+                        ];
+                    }
                 }
             }
 
@@ -892,6 +976,69 @@ require_once __DIR__ . '/../../includes/topbar.php';
     overflow-x: auto;
 }
 
+.receiving-detail-row.is-no-brand-model .receiving-brand-model-group {
+    display: none;
+}
+
+.receiving-detail-row.is-no-serial-no .receiving-detail-serial-group {
+    display: none;
+}
+
+.receiving-detail-row.is-no-remarks .receiving-detail-remarks-group {
+    display: none;
+}
+
+.receiving-detail-row.is-no-brand-model .receiving-detail-serial-group {
+    flex: 0 0 50%;
+    max-width: 50%;
+}
+
+.receiving-detail-row.is-no-brand-model .receiving-detail-remarks-group {
+    flex: 0 0 33.333333%;
+    max-width: 33.333333%;
+}
+
+.receiving-detail-row.is-no-brand-model .receiving-detail-actions-group {
+    flex: 0 0 16.666667%;
+    max-width: 16.666667%;
+}
+
+.receiving-detail-row.is-no-brand-model.is-no-serial-no .receiving-detail-remarks-group {
+    flex: 0 0 83.333333%;
+    max-width: 83.333333%;
+}
+
+.receiving-detail-row.is-no-brand-model.is-no-remarks .receiving-detail-serial-group {
+    flex: 0 0 83.333333%;
+    max-width: 83.333333%;
+}
+
+.receiving-detail-row.is-no-brand-model.is-no-serial-no.is-no-remarks .receiving-detail-actions-group {
+    flex: 0 0 100%;
+    max-width: 100%;
+}
+
+.receiving-detail-compact-summary {
+    display: none;
+}
+
+.receiving-detail-panel.is-compact .receiving-detail-rows {
+    display: none;
+}
+
+.receiving-detail-panel.is-compact .receiving-detail-compact-summary {
+    display: block;
+}
+
+@media (max-width: 991.98px) {
+    .receiving-detail-row.is-no-brand-model .receiving-detail-serial-group,
+    .receiving-detail-row.is-no-brand-model .receiving-detail-remarks-group,
+    .receiving-detail-row.is-no-brand-model .receiving-detail-actions-group {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+}
+
 .receiving-workspace .table-responsive.mobile-table-frame {
     display: block;
     overflow-x: auto !important;
@@ -1368,24 +1515,76 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                                 <div class="fw-semibold">Brand / Model / Serial Details</div>
                                                                 <div class="small text-muted">Add one detail row per accepted item. Brand and model are required unless you check "No brand/model". Serial number and remarks stay optional.</div>
                                                             </div>
-                                                            <div class="small text-muted detail-row-status" data-item-id="<?php echo $itemId; ?>">0 detail row(s)</div>
+                                                            <div class="d-flex align-items-center flex-wrap gap-3">
+                                                                <div class="form-check m-0">
+                                                                    <input class="form-check-input receiving-bulk-no-brand-model" type="checkbox" id="bulk-no-brand-model-<?php echo $itemId; ?>" name="items[<?php echo $itemId; ?>][bulk_no_brand_model]" value="1" data-item-id="<?php echo $itemId; ?>" <?php echo !empty($item['bulk_no_brand_model']) ? 'checked' : ''; ?>>
+                                                                    <label class="form-check-label small" for="bulk-no-brand-model-<?php echo $itemId; ?>">Check all as no brand/model</label>
+                                                                </div>
+                                                                <div class="form-check m-0">
+                                                                    <input class="form-check-input receiving-bulk-no-serial-no" type="checkbox" id="bulk-no-serial-no-<?php echo $itemId; ?>" name="items[<?php echo $itemId; ?>][bulk_no_serial_no]" value="1" data-item-id="<?php echo $itemId; ?>" <?php echo !empty($item['bulk_no_serial_no']) ? 'checked' : ''; ?>>
+                                                                    <label class="form-check-label small" for="bulk-no-serial-no-<?php echo $itemId; ?>">Hide all serial no.</label>
+                                                                </div>
+                                                                <div class="form-check m-0">
+                                                                    <input class="form-check-input receiving-bulk-no-remarks" type="checkbox" id="bulk-no-remarks-<?php echo $itemId; ?>" name="items[<?php echo $itemId; ?>][bulk_no_remarks]" value="1" data-item-id="<?php echo $itemId; ?>" <?php echo !empty($item['bulk_no_remarks']) ? 'checked' : ''; ?>>
+                                                                    <label class="form-check-label small" for="bulk-no-remarks-<?php echo $itemId; ?>">Hide all remarks</label>
+                                                                </div>
+                                                                <div class="small text-muted detail-row-status" data-item-id="<?php echo $itemId; ?>">0 detail row(s)</div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="row g-2 align-items-end mb-3 receiving-bulk-apply-panel" data-item-id="<?php echo $itemId; ?>">
+                                                            <div class="col-12 col-lg-3">
+                                                                <label class="form-label">Apply Brand to All</label>
+                                                                <select class="form-select receiving-bulk-brand-select" data-item-id="<?php echo $itemId; ?>" data-placeholder="Select brand">
+                                                                    <option value="">Select brand</option>
+                                                                    <?php foreach ($brands as $brand): ?>
+                                                                        <option value="<?php echo (int) $brand['id']; ?>"><?php echo h($brand['brand_name']); ?></option>
+                                                                    <?php endforeach; ?>
+                                                                </select>
+                                                            </div>
+                                                            <div class="col-12 col-lg-3">
+                                                                <label class="form-label">Apply Model to All</label>
+                                                                <select class="form-select receiving-bulk-model-select" data-item-id="<?php echo $itemId; ?>" data-placeholder="Select model">
+                                                                    <option value="">Select model</option>
+                                                                </select>
+                                                            </div>
+                                                            <div class="col-12 col-lg-2">
+                                                                <button type="button" class="btn btn-outline-primary w-100 receiving-apply-brand-model-btn" data-item-id="<?php echo $itemId; ?>">Apply brand/model</button>
+                                                            </div>
+                                                            <div class="col-12 col-lg-3">
+                                                                <label class="form-label">Apply Remarks to All</label>
+                                                                <input type="text" class="form-control receiving-bulk-remarks-input" data-item-id="<?php echo $itemId; ?>" placeholder="Common remarks">
+                                                            </div>
+                                                            <div class="col-12 col-lg-1">
+                                                                <button type="button" class="btn btn-outline-secondary w-100 receiving-apply-remarks-btn" data-item-id="<?php echo $itemId; ?>">Apply</button>
+                                                            </div>
                                                         </div>
                                                         <div class="receiving-detail-rows" data-item-id="<?php echo $itemId; ?>">
                                                             <?php foreach ($item['detail_rows'] as $detailIndex => $detail): ?>
-                                                                <div class="row g-2 align-items-end receiving-detail-row mb-2">
-                                                                    <div class="col-12 col-lg-3"><label class="form-label">Brand</label><select class="form-select receiving-brand-select" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][brand_id]" data-placeholder="Select brand" <?php echo !empty($detail['no_brand_model']) ? 'disabled' : ''; ?>><option value="">Select brand</option><?php foreach ($brands as $brand): ?><option value="<?php echo (int) $brand['id']; ?>" <?php echo $detail['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo h($brand['brand_name']); ?></option><?php endforeach; ?></select><input type="hidden" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][brand]" value="<?php echo h($detail['brand']); ?>"></div>
-                                                                    <div class="col-12 col-lg-3"><label class="form-label">Model</label><select class="form-select receiving-model-select" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][model_id]" data-placeholder="Select model" <?php echo !empty($detail['no_brand_model']) ? 'disabled' : ''; ?>><option value="">Select model</option><?php foreach ($models as $model): ?><option value="<?php echo (int) $model['id']; ?>" data-brand-id="<?php echo (int) $model['brand_id']; ?>" <?php echo $detail['model_id'] === (string) $model['id'] ? 'selected' : ''; ?>><?php echo h($model['model_name']); ?></option><?php endforeach; ?></select><input type="hidden" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][model]" value="<?php echo h($detail['model']); ?>"></div>
-                                                                    <div class="col-12 col-lg-3"><label class="form-label">Serial Number</label><input type="text" class="form-control" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][serial_no]" value="<?php echo h($detail['serial_no']); ?>"></div>
-                                                                    <div class="col-12 col-lg-2"><label class="form-label">Remarks</label><input type="text" class="form-control" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][remarks]" value="<?php echo h($detail['remarks']); ?>"></div>
-                                                                    <div class="col-12 col-lg-1">
+                                                                <div class="row g-2 align-items-end receiving-detail-row mb-2 <?php echo !empty($detail['no_brand_model']) ? 'is-no-brand-model' : ''; ?> <?php echo !empty($detail['no_serial_no']) ? 'is-no-serial-no' : ''; ?> <?php echo !empty($detail['no_remarks']) ? 'is-no-remarks' : ''; ?>">
+                                                                    <div class="col-12 col-lg-3 receiving-brand-model-group"><label class="form-label">Brand</label><select class="form-select receiving-brand-select" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][brand_id]" data-placeholder="Select brand" <?php echo !empty($detail['no_brand_model']) ? 'disabled' : ''; ?>><option value="">Select brand</option><?php foreach ($brands as $brand): ?><option value="<?php echo (int) $brand['id']; ?>" <?php echo $detail['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo h($brand['brand_name']); ?></option><?php endforeach; ?></select><input type="hidden" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][brand]" value="<?php echo h($detail['brand']); ?>"></div>
+                                                                    <div class="col-12 col-lg-3 receiving-brand-model-group"><label class="form-label">Model</label><select class="form-select receiving-model-select" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][model_id]" data-placeholder="Select model" <?php echo !empty($detail['no_brand_model']) ? 'disabled' : ''; ?>><option value="">Select model</option><?php foreach ($models as $model): ?><option value="<?php echo (int) $model['id']; ?>" data-brand-id="<?php echo (int) $model['brand_id']; ?>" <?php echo $detail['model_id'] === (string) $model['id'] ? 'selected' : ''; ?>><?php echo h($model['model_name']); ?></option><?php endforeach; ?></select><input type="hidden" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][model]" value="<?php echo h($detail['model']); ?>"></div>
+                                                                    <div class="col-12 col-lg-3 receiving-detail-serial-group"><label class="form-label">Serial Number</label><input type="text" class="form-control" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][serial_no]" value="<?php echo h($detail['serial_no']); ?>"></div>
+                                                                    <div class="col-12 col-lg-2 receiving-detail-remarks-group"><label class="form-label">Remarks</label><input type="text" class="form-control" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][remarks]" value="<?php echo h($detail['remarks']); ?>"></div>
+                                                                    <div class="col-12 col-lg-1 receiving-detail-actions-group">
                                                                         <div class="form-check mb-2">
                                                                             <input class="form-check-input receiving-no-brand-model" type="checkbox" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][no_brand_model]" value="1" <?php echo !empty($detail['no_brand_model']) ? 'checked' : ''; ?>>
                                                                             <label class="form-check-label small">No brand/model</label>
+                                                                        </div>
+                                                                        <div class="form-check mb-2">
+                                                                            <input class="form-check-input receiving-no-serial-no" type="checkbox" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][no_serial_no]" value="1" <?php echo !empty($detail['no_serial_no']) ? 'checked' : ''; ?>>
+                                                                            <label class="form-check-label small">No serial no.</label>
+                                                                        </div>
+                                                                        <div class="form-check mb-2">
+                                                                            <input class="form-check-input receiving-no-remarks" type="checkbox" name="items[<?php echo $itemId; ?>][details][<?php echo $detailIndex; ?>][no_remarks]" value="1" <?php echo !empty($detail['no_remarks']) ? 'checked' : ''; ?>>
+                                                                            <label class="form-check-label small">No remarks</label>
                                                                         </div>
                                                                         <button type="button" class="btn btn-outline-danger btn-sm w-100 remove-detail-row">Remove</button>
                                                                     </div>
                                                                 </div>
                                                             <?php endforeach; ?>
+                                                        </div>
+                                                        <div class="alert alert-secondary py-2 px-3 mb-0 receiving-detail-compact-summary" data-item-id="<?php echo $itemId; ?>">
+                                                            Compact mode is active. Detail rows are hidden for this line.
                                                         </div>
                                                     </div>
                                                 </td>
@@ -1515,6 +1714,13 @@ document.addEventListener('DOMContentLoaded', function () {
         return html;
     }
 
+    function selectedOptionText(select) {
+        if (!select || !select.options || select.selectedIndex < 0) {
+            return '';
+        }
+        return select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '';
+    }
+
     function initReceivingSelect2(select) {
         if (!select || !window.jQuery || !window.jQuery.fn || !window.jQuery.fn.select2) {
             return;
@@ -1543,6 +1749,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!modelSelect) return;
 
         if (noBrandModel) {
+            row.classList.add('is-no-brand-model');
             if (brandSelect) {
                 brandSelect.value = '';
                 brandSelect.disabled = true;
@@ -1555,6 +1762,7 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        row.classList.remove('is-no-brand-model');
         if (brandSelect) {
             brandSelect.disabled = false;
         }
@@ -1571,14 +1779,202 @@ document.addEventListener('DOMContentLoaded', function () {
         initReceivingSelect2(modelSelect);
     }
 
+    function syncOptionalFieldVisibility(row) {
+        var noSerialNoCheckbox = row.querySelector('.receiving-no-serial-no');
+        var noRemarksCheckbox = row.querySelector('.receiving-no-remarks');
+        var serialInput = row.querySelector('input[name$="[serial_no]"]');
+        var remarksInput = row.querySelector('input[name$="[remarks]"]');
+
+        if (noSerialNoCheckbox && noSerialNoCheckbox.checked) {
+            row.classList.add('is-no-serial-no');
+            if (serialInput) {
+                serialInput.value = '';
+            }
+        } else {
+            row.classList.remove('is-no-serial-no');
+        }
+
+        if (noRemarksCheckbox && noRemarksCheckbox.checked) {
+            row.classList.add('is-no-remarks');
+            if (remarksInput) {
+                remarksInput.value = '';
+            }
+        } else {
+            row.classList.remove('is-no-remarks');
+        }
+    }
+
+    function syncBulkModelOptions(itemId, selectedModelId) {
+        var brandSelect = document.querySelector('.receiving-bulk-brand-select[data-item-id="' + itemId + '"]');
+        var modelSelect = document.querySelector('.receiving-bulk-model-select[data-item-id="' + itemId + '"]');
+        if (!brandSelect || !modelSelect) return;
+        var brandId = brandSelect.value || '';
+        modelSelect.innerHTML = modelOptions(selectedModelId || '', brandId);
+        initReceivingSelect2(modelSelect);
+    }
+
     function rowMarkup(itemId, index) {
-        return '<div class="row g-2 align-items-end receiving-detail-row mb-2">' +
-            '<div class="col-12 col-lg-3"><label class="form-label">Brand</label><select class="form-select receiving-brand-select" name="items[' + itemId + '][details][' + index + '][brand_id]" data-placeholder="Select brand" data-no-select2>' + brandOptions('') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][brand]" value=""></div>' +
-            '<div class="col-12 col-lg-3"><label class="form-label">Model</label><select class="form-select receiving-model-select" name="items[' + itemId + '][details][' + index + '][model_id]" data-placeholder="Select model" data-no-select2>' + modelOptions('', '') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][model]" value=""></div>' +
-            '<div class="col-12 col-lg-3"><label class="form-label">Serial Number</label><input type="text" class="form-control" name="items[' + itemId + '][details][' + index + '][serial_no]"></div>' +
-            '<div class="col-12 col-lg-2"><label class="form-label">Remarks</label><input type="text" class="form-control" name="items[' + itemId + '][details][' + index + '][remarks]"></div>' +
-            '<div class="col-12 col-lg-1"><div class="form-check mb-2"><input class="form-check-input receiving-no-brand-model" type="checkbox" name="items[' + itemId + '][details][' + index + '][no_brand_model]" value="1"><label class="form-check-label small">No brand/model</label></div><button type="button" class="btn btn-outline-danger btn-sm w-100 remove-detail-row">Remove</button></div>' +
+        var bulkNoBrandCheckbox = document.querySelector('.receiving-bulk-no-brand-model[data-item-id="' + itemId + '"]');
+        var bulkNoSerialCheckbox = document.querySelector('.receiving-bulk-no-serial-no[data-item-id="' + itemId + '"]');
+        var bulkNoRemarksCheckbox = document.querySelector('.receiving-bulk-no-remarks[data-item-id="' + itemId + '"]');
+        var noBrandChecked = !!(bulkNoBrandCheckbox && bulkNoBrandCheckbox.checked);
+        var noSerialChecked = !!(bulkNoSerialCheckbox && bulkNoSerialCheckbox.checked);
+        var noRemarksChecked = !!(bulkNoRemarksCheckbox && bulkNoRemarksCheckbox.checked);
+        return '<div class="row g-2 align-items-end receiving-detail-row mb-2' + (noBrandChecked ? ' is-no-brand-model' : '') + (noSerialChecked ? ' is-no-serial-no' : '') + (noRemarksChecked ? ' is-no-remarks' : '') + '">' +
+            '<div class="col-12 col-lg-3 receiving-brand-model-group"><label class="form-label">Brand</label><select class="form-select receiving-brand-select" name="items[' + itemId + '][details][' + index + '][brand_id]" data-placeholder="Select brand" data-no-select2' + (noBrandChecked ? ' disabled' : '') + '>' + brandOptions('') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][brand]" value=""></div>' +
+            '<div class="col-12 col-lg-3 receiving-brand-model-group"><label class="form-label">Model</label><select class="form-select receiving-model-select" name="items[' + itemId + '][details][' + index + '][model_id]" data-placeholder="Select model" data-no-select2' + (noBrandChecked ? ' disabled' : '') + '>' + modelOptions('', '') + '</select><input type="hidden" name="items[' + itemId + '][details][' + index + '][model]" value=""></div>' +
+            '<div class="col-12 col-lg-3 receiving-detail-serial-group"><label class="form-label">Serial Number</label><input type="text" class="form-control" name="items[' + itemId + '][details][' + index + '][serial_no]"' + (noSerialChecked ? ' value=""' : '') + '></div>' +
+            '<div class="col-12 col-lg-2 receiving-detail-remarks-group"><label class="form-label">Remarks</label><input type="text" class="form-control" name="items[' + itemId + '][details][' + index + '][remarks]"' + (noRemarksChecked ? ' value=""' : '') + '></div>' +
+            '<div class="col-12 col-lg-1 receiving-detail-actions-group"><div class="form-check mb-2"><input class="form-check-input receiving-no-brand-model" type="checkbox" name="items[' + itemId + '][details][' + index + '][no_brand_model]" value="1"' + (noBrandChecked ? ' checked' : '') + '><label class="form-check-label small">No brand/model</label></div><div class="form-check mb-2"><input class="form-check-input receiving-no-serial-no" type="checkbox" name="items[' + itemId + '][details][' + index + '][no_serial_no]" value="1"' + (noSerialChecked ? ' checked' : '') + '><label class="form-check-label small">No serial no.</label></div><div class="form-check mb-2"><input class="form-check-input receiving-no-remarks" type="checkbox" name="items[' + itemId + '][details][' + index + '][no_remarks]" value="1"' + (noRemarksChecked ? ' checked' : '') + '><label class="form-check-label small">No remarks</label></div><button type="button" class="btn btn-outline-danger btn-sm w-100 remove-detail-row">Remove</button></div>' +
         '</div>';
+    }
+
+    function syncBulkNoBrandModel(itemId) {
+        var container = document.querySelector('.receiving-detail-rows[data-item-id="' + itemId + '"]');
+        var bulkCheckbox = document.querySelector('.receiving-bulk-no-brand-model[data-item-id="' + itemId + '"]');
+        if (!container || !bulkCheckbox) return;
+        var detailCheckboxes = container.querySelectorAll('.receiving-no-brand-model');
+        if (detailCheckboxes.length === 0) {
+            bulkCheckbox.checked = false;
+            bulkCheckbox.indeterminate = false;
+            return;
+        }
+        var checkedCount = Array.from(detailCheckboxes).filter(function (checkbox) {
+            return checkbox.checked;
+        }).length;
+        bulkCheckbox.checked = checkedCount === detailCheckboxes.length;
+        bulkCheckbox.indeterminate = checkedCount > 0 && checkedCount < detailCheckboxes.length;
+    }
+
+    function applyBulkNoBrandModel(itemId, checked) {
+        var container = document.querySelector('.receiving-detail-rows[data-item-id="' + itemId + '"]');
+        if (!container) return;
+        container.querySelectorAll('.receiving-detail-row').forEach(function (detailRow) {
+            var checkbox = detailRow.querySelector('.receiving-no-brand-model');
+            if (checkbox) {
+                checkbox.checked = checked;
+            }
+            syncModelOptions(detailRow);
+        });
+        syncBulkNoBrandModel(itemId);
+    }
+
+    function syncBulkCheckboxState(itemId, rowSelector, bulkSelector) {
+        var container = document.querySelector('.receiving-detail-rows[data-item-id="' + itemId + '"]');
+        var bulkCheckbox = document.querySelector(bulkSelector + '[data-item-id="' + itemId + '"]');
+        if (!container || !bulkCheckbox) return;
+        var detailCheckboxes = container.querySelectorAll(rowSelector);
+        if (detailCheckboxes.length === 0) {
+            bulkCheckbox.checked = false;
+            bulkCheckbox.indeterminate = false;
+            return;
+        }
+        var checkedCount = Array.from(detailCheckboxes).filter(function (checkbox) {
+            return checkbox.checked;
+        }).length;
+        bulkCheckbox.checked = checkedCount === detailCheckboxes.length;
+        bulkCheckbox.indeterminate = checkedCount > 0 && checkedCount < detailCheckboxes.length;
+    }
+
+    function syncCompactDetailPanel(itemId) {
+        var panel = document.querySelector('.receiving-detail-rows[data-item-id="' + itemId + '"]');
+        var summary = document.querySelector('.receiving-detail-compact-summary[data-item-id="' + itemId + '"]');
+        if (!panel || !summary) return;
+        var wrapper = panel.closest('.receiving-detail-panel');
+        var bulkNoBrand = document.querySelector('.receiving-bulk-no-brand-model[data-item-id="' + itemId + '"]');
+        var bulkNoSerial = document.querySelector('.receiving-bulk-no-serial-no[data-item-id="' + itemId + '"]');
+        var bulkNoRemarks = document.querySelector('.receiving-bulk-no-remarks[data-item-id="' + itemId + '"]');
+        var acceptInput = document.querySelector('.receiving-accept-input[name="items[' + itemId + '][accept_quantity]"]');
+        var acceptedCount = acceptInput ? Math.max(0, Math.round(parseNum(acceptInput.value || 0))) : 0;
+        var isCompact = !!(bulkNoBrand && bulkNoBrand.checked && bulkNoSerial && bulkNoSerial.checked && bulkNoRemarks && bulkNoRemarks.checked);
+        if (wrapper) {
+            wrapper.classList.toggle('is-compact', isCompact);
+        }
+        summary.textContent = acceptedCount > 0
+            ? ('Compact mode is active. ' + acceptedCount + ' unit(s) will be saved with no brand/model, no serial number, and no remarks.')
+            : 'Compact mode is active. Detail rows are hidden for this line.';
+    }
+
+    function applyBulkToggle(itemId, rowSelector, bulkSelector, syncCallback) {
+        var container = document.querySelector('.receiving-detail-rows[data-item-id="' + itemId + '"]');
+        var bulkCheckbox = document.querySelector(bulkSelector + '[data-item-id="' + itemId + '"]');
+        if (!container || !bulkCheckbox) return;
+        container.querySelectorAll('.receiving-detail-row').forEach(function (detailRow) {
+            var checkbox = detailRow.querySelector(rowSelector);
+            if (checkbox) {
+                checkbox.checked = bulkCheckbox.checked;
+            }
+            syncCallback(detailRow);
+        });
+        syncBulkCheckboxState(itemId, rowSelector, bulkSelector);
+        syncCompactDetailPanel(itemId);
+    }
+
+    function applyBrandModelToAll(itemId) {
+        var container = document.querySelector('.receiving-detail-rows[data-item-id="' + itemId + '"]');
+        var bulkBrandSelect = document.querySelector('.receiving-bulk-brand-select[data-item-id="' + itemId + '"]');
+        var bulkModelSelect = document.querySelector('.receiving-bulk-model-select[data-item-id="' + itemId + '"]');
+        if (!container || !bulkBrandSelect || !bulkModelSelect) return;
+
+        var brandId = bulkBrandSelect.value || '';
+        var modelId = bulkModelSelect.value || '';
+        if (!brandId || !modelId) return;
+
+        var brandText = selectedOptionText(bulkBrandSelect);
+        var modelText = selectedOptionText(bulkModelSelect);
+
+        container.querySelectorAll('.receiving-detail-row').forEach(function (detailRow) {
+            var noBrandCheckbox = detailRow.querySelector('.receiving-no-brand-model');
+            if (noBrandCheckbox) {
+                noBrandCheckbox.checked = false;
+            }
+
+            syncModelOptions(detailRow);
+
+            var brandSelect = detailRow.querySelector('.receiving-brand-select');
+            var modelSelect = detailRow.querySelector('.receiving-model-select');
+            var hiddenBrand = detailRow.querySelector('input[name$="[brand]"]');
+            var hiddenModel = detailRow.querySelector('input[name$="[model]"]');
+
+            if (brandSelect) {
+                brandSelect.value = brandId;
+                if (hiddenBrand) hiddenBrand.value = brandText;
+                syncModelOptions(detailRow);
+            }
+            if (modelSelect) {
+                modelSelect.value = modelId;
+                if (hiddenModel) hiddenModel.value = modelText;
+                initReceivingSelect2(modelSelect);
+            }
+        });
+
+        syncBulkNoBrandModel(itemId);
+        syncCompactDetailPanel(itemId);
+    }
+
+    function applyRemarksToAll(itemId) {
+        var container = document.querySelector('.receiving-detail-rows[data-item-id="' + itemId + '"]');
+        var bulkRemarksInput = document.querySelector('.receiving-bulk-remarks-input[data-item-id="' + itemId + '"]');
+        if (!container || !bulkRemarksInput) return;
+
+        var remarksValue = bulkRemarksInput.value || '';
+        container.querySelectorAll('.receiving-detail-row').forEach(function (detailRow) {
+            var noRemarksCheckbox = detailRow.querySelector('.receiving-no-remarks');
+            var remarksInput = detailRow.querySelector('input[name$="[remarks]"]');
+            if (!remarksInput) return;
+            if (remarksValue !== '') {
+                if (noRemarksCheckbox) {
+                    noRemarksCheckbox.checked = false;
+                }
+                remarksInput.value = remarksValue;
+            } else {
+                remarksInput.value = '';
+            }
+            syncOptionalFieldVisibility(detailRow);
+        });
+
+        syncBulkCheckboxState(itemId, '.receiving-no-remarks', '.receiving-bulk-no-remarks');
+        syncCompactDetailPanel(itemId);
     }
 
     function updateDetailRowStatus(itemId) {
@@ -1617,16 +2013,43 @@ document.addEventListener('DOMContentLoaded', function () {
         Array.from(rows).forEach(function (detailRow) {
             initReceivingSelect2(detailRow.querySelector('.receiving-brand-select'));
             syncModelOptions(detailRow);
+            syncOptionalFieldVisibility(detailRow);
         });
 
+        syncBulkNoBrandModel(itemId);
+        syncBulkCheckboxState(itemId, '.receiving-no-serial-no', '.receiving-bulk-no-serial-no');
+        syncBulkCheckboxState(itemId, '.receiving-no-remarks', '.receiving-bulk-no-remarks');
+        syncCompactDetailPanel(itemId);
         updateDetailRowStatus(itemId);
     }
 
     document.querySelectorAll('.receiving-detail-row').forEach(function (row) {
         initReceivingSelect2(row.querySelector('.receiving-brand-select'));
         syncModelOptions(row);
+        syncOptionalFieldVisibility(row);
+    });
+    document.querySelectorAll('.receiving-bulk-brand-select, .receiving-bulk-model-select').forEach(function (select) {
+        initReceivingSelect2(select);
+    });
+    document.querySelectorAll('.receiving-detail-rows[data-item-id]').forEach(function (container) {
+        var itemId = container.getAttribute('data-item-id');
+        syncBulkNoBrandModel(itemId);
+        syncBulkCheckboxState(itemId, '.receiving-no-serial-no', '.receiving-bulk-no-serial-no');
+        syncBulkCheckboxState(itemId, '.receiving-no-remarks', '.receiving-bulk-no-remarks');
+        syncCompactDetailPanel(itemId);
+        syncBulkModelOptions(itemId);
     });
     document.addEventListener('click', function (event) {
+        if (event.target.classList.contains('receiving-apply-brand-model-btn')) {
+            applyBrandModelToAll(event.target.getAttribute('data-item-id'));
+            updateWorkspaceSummary();
+            return;
+        }
+        if (event.target.classList.contains('receiving-apply-remarks-btn')) {
+            applyRemarksToAll(event.target.getAttribute('data-item-id'));
+            updateWorkspaceSummary();
+            return;
+        }
         if (!event.target.classList.contains('remove-detail-row')) return;
         var row = event.target.closest('.receiving-detail-row');
         var container = row ? row.parentElement : null;
@@ -1639,6 +2062,26 @@ document.addEventListener('DOMContentLoaded', function () {
         updateWorkspaceSummary();
     });
     document.addEventListener('change', function (event) {
+        if (event.target.classList.contains('receiving-bulk-brand-select')) {
+            syncBulkModelOptions(event.target.getAttribute('data-item-id'));
+            return;
+        }
+        if (event.target.classList.contains('receiving-bulk-no-brand-model')) {
+            applyBulkNoBrandModel(event.target.getAttribute('data-item-id'), event.target.checked);
+            syncCompactDetailPanel(event.target.getAttribute('data-item-id'));
+            updateWorkspaceSummary();
+            return;
+        }
+        if (event.target.classList.contains('receiving-bulk-no-serial-no')) {
+            applyBulkToggle(event.target.getAttribute('data-item-id'), '.receiving-no-serial-no', '.receiving-bulk-no-serial-no', syncOptionalFieldVisibility);
+            updateWorkspaceSummary();
+            return;
+        }
+        if (event.target.classList.contains('receiving-bulk-no-remarks')) {
+            applyBulkToggle(event.target.getAttribute('data-item-id'), '.receiving-no-remarks', '.receiving-bulk-no-remarks', syncOptionalFieldVisibility);
+            updateWorkspaceSummary();
+            return;
+        }
         var row = event.target.closest('.receiving-detail-row');
         if (!row) return;
         if (event.target.classList.contains('receiving-brand-select')) {
@@ -1654,10 +2097,29 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (event.target.classList.contains('receiving-no-brand-model')) {
             syncModelOptions(row);
+            var container = row.closest('.receiving-detail-rows');
+            if (container) {
+                var itemId = container.getAttribute('data-item-id');
+                syncBulkNoBrandModel(itemId);
+                syncCompactDetailPanel(itemId);
+            }
+        }
+        if (event.target.classList.contains('receiving-no-serial-no') || event.target.classList.contains('receiving-no-remarks')) {
+            syncOptionalFieldVisibility(row);
+            var container = row.closest('.receiving-detail-rows');
+            if (container) {
+                var itemId = container.getAttribute('data-item-id');
+                syncBulkCheckboxState(itemId, '.receiving-no-serial-no', '.receiving-bulk-no-serial-no');
+                syncBulkCheckboxState(itemId, '.receiving-no-remarks', '.receiving-bulk-no-remarks');
+                syncCompactDetailPanel(itemId);
+            }
         }
         updateWorkspaceSummary();
     });
     if (window.jQuery) {
+        window.jQuery(document).on('select2:select select2:clear', '.receiving-bulk-brand-select', function () {
+            syncBulkModelOptions(this.getAttribute('data-item-id'));
+        });
         window.jQuery(document).on('select2:select select2:clear', '.receiving-brand-select', function () {
             var row = this.closest('.receiving-detail-row');
             if (!row) return;

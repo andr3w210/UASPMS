@@ -6,6 +6,8 @@ $db = db();
 $distributionId = (int) ($_GET['id'] ?? 0);
 $printFormat = ($_GET['print_format'] ?? 'long') === 'short' ? 'short' : 'long';
 $isShort = $printFormat === 'short';
+$viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
+$isGrouped = $viewMode === 'grouped';
 
 if (!$db || $distributionId <= 0) {
     http_response_code(404);
@@ -194,6 +196,84 @@ foreach ($rows as $r) {
     }
 }
 
+$buildPropertyRange = static function (array $propertyNumbers): string {
+    $values = array_values(array_filter(array_map('trim', $propertyNumbers), static function ($value) {
+        return $value !== '';
+    }));
+    if (!$values) {
+        return '';
+    }
+    if (count($values) === 1) {
+        return $values[0];
+    }
+
+    $first = $values[0];
+    $last = $values[count($values) - 1];
+    if ($first === $last) {
+        return $first;
+    }
+
+    if (preg_match('/^(.*?)(\d+)$/', $first, $firstMatches) && preg_match('/^(.*?)(\d+)$/', $last, $lastMatches) && $firstMatches[1] === $lastMatches[1]) {
+        return $first . ' to ' . $last;
+    }
+
+    return $first . ' to ' . $last;
+};
+
+$groupedItems = [];
+if ($isGrouped) {
+    foreach ($items as $item) {
+        $unitLabel = trim((string) ($item['abbreviation'] ?? $item['uom_name'] ?? ''));
+        $groupKey = implode('|', [
+            trim((string) ($item['classification_name'] ?? '')),
+            trim((string) ($item['classification_family'] ?? '')),
+            trim((string) ($item['item_description'] ?? '')),
+            $unitLabel,
+            trim((string) ($item['date_acquired'] ?? '')),
+            number_format((float) ($item['unit_cost'] ?? 0), 2, '.', ''),
+        ]);
+
+        if (!isset($groupedItems[$groupKey])) {
+            $groupedItems[$groupKey] = [
+                'quantity_distributed' => 0.0,
+                'unit_cost' => (float) ($item['unit_cost'] ?? 0),
+                'line_total' => 0.0,
+                'item_description' => (string) ($item['item_description'] ?? ''),
+                'classification_name' => (string) ($item['classification_name'] ?? ''),
+                'classification_family' => (string) ($item['classification_family'] ?? ''),
+                'uom_name' => (string) ($item['uom_name'] ?? ''),
+                'abbreviation' => (string) ($item['abbreviation'] ?? ''),
+                'date_acquired' => (string) ($item['date_acquired'] ?? ''),
+                'details' => [],
+                'property_numbers' => [],
+            ];
+        }
+
+        $groupedItems[$groupKey]['quantity_distributed'] += (float) ($item['quantity_distributed'] ?? 0);
+        $groupedItems[$groupKey]['line_total'] += (float) ($item['line_total'] ?? 0);
+
+        foreach ((array) ($item['details'] ?? []) as $detail) {
+            $groupedItems[$groupKey]['details'][] = $detail;
+            if (!empty($detail['property_number'])) {
+                $groupedItems[$groupKey]['property_numbers'][] = (string) $detail['property_number'];
+            }
+        }
+
+        if (empty($groupedItems[$groupKey]['property_numbers']) && !empty($item['property_number'])) {
+            $groupedItems[$groupKey]['property_numbers'][] = (string) $item['property_number'];
+        }
+    }
+
+    foreach ($groupedItems as &$groupedItem) {
+        $groupedItem['property_numbers'] = array_values(array_unique($groupedItem['property_numbers']));
+        sort($groupedItem['property_numbers']);
+        $groupedItem['property_number_range'] = $buildPropertyRange($groupedItem['property_numbers']);
+    }
+    unset($groupedItem);
+}
+
+$printItems = $isGrouped ? array_values($groupedItems) : array_values($items);
+
 // Received by name
 $receivedByName = '';
 if (function_exists('employee_display_name')) {
@@ -224,7 +304,7 @@ if (preg_match('/(?:^|[^0-9])(0[1567])(?:[^0-9]|$)/', $fundCluster, $matches)) {
 }
 
 $targetRows = $isShort ? 10 : 22;
-$blankRows = max(0, $targetRows - count($items));
+$blankRows = max(0, $targetRows - count($printItems));
 
 ?><!doctype html>
 <html lang="en">
@@ -298,6 +378,8 @@ $blankRows = max(0, $targetRows - count($items));
                 <button onclick="window.print()" class="btn btn-sm btn-primary no-print">Print</button>
                 <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=short')); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Short</a>
                 <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=long')); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Long</a>
+                <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=' . $printFormat . '&view_mode=grouped')); ?>" class="btn btn-sm <?php echo $isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Grouped</a>
+                <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=' . $printFormat . '&view_mode=detailed')); ?>" class="btn btn-sm <?php echo !$isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Detailed</a>
                 <a href="<?php echo base_url('modules/property/tags.php?distribution_id=' . (int)$distributionId); ?>" class="btn btn-outline-secondary btn-sm no-print" target="_blank">Print QR Tags</a>
             </div>
             <div class="appendix">Appendix 71</div>
@@ -333,7 +415,7 @@ $blankRows = max(0, $targetRows - count($items));
                 </tr>
             </thead>
             <tbody class="par-body">
-                    <?php $total = 0.0; foreach ($items as $it):
+                    <?php $total = 0.0; foreach ($printItems as $it):
                         $qty = (float) ($it['quantity_distributed'] ?? 0);
                         $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
                         $amount = (float) ($it['line_total'] ?? 0);
@@ -351,7 +433,14 @@ $blankRows = max(0, $targetRows - count($items));
                             <?php echo nl2br(h($parDescription)); ?>
                         </td>
                         <td>
-                            <?php if (!empty($it['details'])): ?>
+                            <?php if ($isGrouped): ?>
+                                <?php echo h((string) ($it['property_number_range'] ?? '')); ?>
+                                <?php if (!empty($it['property_numbers'])): ?>
+                                    <div class="small text-muted">
+                                        <?php echo h(count($it['property_numbers'])); ?> property no.(s)
+                                    </div>
+                                <?php endif; ?>
+                            <?php elseif (!empty($it['details'])): ?>
                                 <?php foreach ($it['details'] as $d): ?>
                                     <?php echo h($d['property_number'] ?? ''); ?><br>
                                 <?php endforeach; ?>

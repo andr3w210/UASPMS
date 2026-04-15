@@ -1228,6 +1228,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 refreshSummary();
             });
         });
+
+        Array.prototype.forEach.call(document.querySelectorAll('#distUnitsContainer .apply-group-remarks-btn'), function (button) {
+            button.addEventListener('click', function () {
+                var target = button.getAttribute('data-group-target');
+                var remarksInput = document.querySelector('#distUnitsContainer .group-remarks-input[data-group-target="' + target + '"]');
+                var remarksValue = remarksInput ? remarksInput.value : '';
+                Array.prototype.forEach.call(document.querySelectorAll('#distUnitsContainer input[name^="unit_remarks["][data-group-id="' + target + '"]'), function (unitRemarksInput) {
+                    unitRemarksInput.value = remarksValue;
+                });
+            });
+        });
     }
 
     function setActiveSource(row) {

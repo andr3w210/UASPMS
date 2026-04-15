@@ -51,6 +51,21 @@ function rpcppe_office_employee(array $row): string
     ])));
 }
 
+function rpcppe_qty_property(array $row): int
+{
+    return max(1, (int) ($row['qty_property_card'] ?? 1));
+}
+
+function rpcppe_qty_physical(array $row): int
+{
+    return max(1, (int) ($row['qty_physical_count'] ?? 1));
+}
+
+function rpcppe_line_total(array $row): float
+{
+    return round((float) ($row['unit_cost'] ?? 0) * rpcppe_qty_property($row), 2);
+}
+
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
@@ -388,8 +403,12 @@ if (!$db) {
 $rowCount = count($rows);
 $totalValue = 0.0;
 $legacyCount = 0;
+$totalQtyProperty = 0;
+$totalQtyPhysical = 0;
 foreach ($rows as $row) {
-    $totalValue += (float) ($row['unit_cost'] ?? 0);
+    $totalValue += rpcppe_line_total($row);
+    $totalQtyProperty += rpcppe_qty_property($row);
+    $totalQtyPhysical += rpcppe_qty_physical($row);
     if (($row['source_type'] ?? '') === 'legacy') {
         $legacyCount++;
     }
@@ -423,20 +442,34 @@ $typeOfProperty = report_account_name($rows, $selectedAccountCode, 'Equipment');
 if ($isExport) {
     $exportRows = [];
     foreach ($rows as $row) {
-        $exportRows[] = [
-            rpcppe_article($row),
-            rpcppe_label($row),
-            $row['property_number'] ?? '',
-            trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
-            number_format((float) ($row['unit_cost'] ?? 0), 2),
-            (string) ($row['acquisition_date'] ?? ''),
-            (string) max(1, (int) ($row['qty_property_card'] ?? 1)),
-            (string) max(1, (int) ($row['qty_physical_count'] ?? 1)),
-            '0',
-            '0.00',
-            rpcppe_office_employee($row),
-        ];
-    }
+            $exportRows[] = [
+                rpcppe_article($row),
+                rpcppe_label($row),
+                $row['property_number'] ?? '',
+                trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
+                number_format((float) ($row['unit_cost'] ?? 0), 2),
+                (string) ($row['acquisition_date'] ?? ''),
+                (string) rpcppe_qty_property($row),
+                (string) rpcppe_qty_physical($row),
+                '0',
+                '0.00',
+                rpcppe_office_employee($row),
+            ];
+        }
+
+    $exportRows[] = [
+        '',
+        'TOTAL',
+        '',
+        '',
+        number_format($totalValue, 2),
+        '',
+        (string) $totalQtyProperty,
+        (string) $totalQtyPhysical,
+        '0',
+        '0.00',
+        '',
+    ];
 
     export_excel_rows(
         'rpcppe_' . date('Ymd') . '.xls',
@@ -446,6 +479,11 @@ if ($isExport) {
 }
 
 if ($isPrint) {
+    $rowsPerPage = 18;
+    $pageChunks = array_chunk($rows, $rowsPerPage);
+    if (!$pageChunks) {
+        $pageChunks = [[]];
+    }
     ?>
     <!doctype html>
     <html lang="en">
@@ -458,6 +496,8 @@ if ($isPrint) {
             @page { size: landscape; margin: 0.35in; }
             body { color: #000; font-family: "Times New Roman", serif; font-size: 12px; overflow-x: auto; }
             .rpcppe-wrap { max-width: 1320px; margin: 0 auto; }
+            .rpcppe-page { page-break-after: always; }
+            .rpcppe-page:last-of-type { page-break-after: auto; }
             .appendix { text-align: right; font-style: italic; font-size: 14px; margin-bottom: 24px; }
             .title { text-align: center; font-size: 20px; font-weight: 700; text-transform: uppercase; margin-bottom: 18px; }
             .type-line { text-align: center; margin-bottom: 6px; }
@@ -475,9 +515,13 @@ if ($isPrint) {
             .rpcppe-table th, .rpcppe-table td, .rpcppe-sign td { border: 1px solid #000; padding: 4px 5px; }
             .rpcppe-table th { text-align: center; font-weight: 700; vertical-align: middle; }
             .rpcppe-table td { vertical-align: top; }
-            .rpcppe-table .qty, .rpcppe-table .val { text-align: center; }
+            .rpcppe-table .qty, .rpcppe-table .val, .rpcppe-table .date, .rpcppe-table .uom { text-align: center; }
             .rpcppe-table .money { text-align: right; white-space: nowrap; }
             .rpcppe-table tbody td { height: 28px; }
+            .rpcppe-table tfoot td { font-weight: 700; }
+            .rpcppe-table .remarks-col { font-size: 12px; line-height: 1.25; }
+            .rpcppe-table .subtotal-row td { font-weight: 700; background: #f7f7f7; }
+            .rpcppe-table .grandtotal-row td { font-weight: 700; background: #ececec; }
             .rpcppe-sign { margin-top: 0; }
             .rpcppe-sign td { height: 132px; vertical-align: top; }
             .sign-label { font-size: 14px; margin-bottom: 34px; }
@@ -486,105 +530,154 @@ if ($isPrint) {
             @media screen and (max-width: 991.98px) {
                 .rpcppe-wrap { min-width: 1120px; padding-bottom: 1rem; }
             }
-            @media print { .no-print { display: none !important; } }
+            @media print {
+                .no-print { display: none !important; }
+                .rpcppe-page { break-after: page; page-break-after: always; }
+                .rpcppe-page:last-of-type { break-after: auto; page-break-after: auto; }
+            }
         </style>
     </head>
     <body>
     <div class="rpcppe-wrap">
         <?php render_print_action_bar(); ?>
+        <?php foreach ($pageChunks as $pageIndex => $pageRows): ?>
+            <?php
+            $pageNumber = $pageIndex + 1;
+            $isLastPage = $pageIndex === count($pageChunks) - 1;
+            $pageTotalValue = 0.0;
+            $pageQtyProperty = 0;
+            $pageQtyPhysical = 0;
+            foreach ($pageRows as $pageRow) {
+                $pageTotalValue += rpcppe_line_total($pageRow);
+                $pageQtyProperty += rpcppe_qty_property($pageRow);
+                $pageQtyPhysical += rpcppe_qty_physical($pageRow);
+            }
+            ?>
+            <div class="rpcppe-page">
+                <div class="appendix">Appendix 73</div>
+                <div class="title">Report on the Physical Count of Property, Plant and Equipment</div>
 
-        <div class="appendix">Appendix 73</div>
-        <div class="title">Report on the Physical Count of Property, Plant and Equipment</div>
+                <div class="type-line">
+                    <span class="type-fill emphasis"><?php echo h($typeOfProperty); ?></span>
+                    <div class="type-caption">(Type of Property, Plant and Equipment)</div>
+                </div>
 
-        <div class="type-line">
-            <span class="type-fill emphasis"><?php echo h($typeOfProperty); ?></span>
-            <div class="type-caption">(Type of Property, Plant and Equipment)</div>
-        </div>
+                <div class="asof-line">As at <span class="asof-fill"><?php echo h(!empty($asOf) ? date('F d, Y', strtotime($asOf)) : ''); ?></span></div>
 
-        <div class="asof-line">As at <span class="asof-fill"><?php echo h(!empty($asOf) ? date('F d, Y', strtotime($asOf)) : ''); ?></span></div>
+                <div class="meta-line">Fund Cluster : <span class="meta-fill emphasis"><?php echo h($reportFundCluster); ?></span></div>
+                <div class="meta-line">
+                    For which
+                    <span class="meta-fill short emphasis"><?php echo h($presidentName); ?></span>,
+                    <span class="meta-fill short emphasis"><?php echo h($presidentPosition); ?></span>,
+                    <span class="meta-fill short emphasis"><?php echo h($entityName); ?></span>
+                    is accountable, having assumed such accountability on
+                    <span class="meta-fill long emphasis"><?php echo h($appointmentDate !== '' ? format_date($appointmentDate, 'F d, Y') : ''); ?></span>.
+                </div>
 
-        <div class="meta-line">Fund Cluster : <span class="meta-fill emphasis"><?php echo h($reportFundCluster); ?></span></div>
-        <div class="meta-line">
-            For which
-            <span class="meta-fill short emphasis"><?php echo h($presidentName); ?></span>,
-            <span class="meta-fill short emphasis"><?php echo h($presidentPosition); ?></span>,
-            <span class="meta-fill short emphasis"><?php echo h($entityName); ?></span>
-            is accountable, having assumed such accountability on
-            <span class="meta-fill long emphasis"><?php echo h($appointmentDate !== '' ? format_date($appointmentDate, 'F d, Y') : ''); ?></span>.
-        </div>
+                <div class="meta-line text-end">Page <?php echo h((string) $pageNumber); ?></div>
 
-        <table class="rpcppe-table">
-            <colgroup>
-                <col style="width:7%">
-                <col style="width:18%">
-                <col style="width:8.5%">
-                <col style="width:6%">
-                <col style="width:5.5%">
-                <col style="width:11.5%">
-                <col style="width:11.5%">
-                <col style="width:7.5%">
-                <col style="width:7%">
-                <col style="width:13.5%">
-            </colgroup>
-            <thead>
-                <tr>
-                    <th rowspan="2">ARTICLE</th>
-                    <th rowspan="2">DESCRIPTION</th>
-                    <th rowspan="2">PROPERTY<br>NUMBER</th>
-                    <th rowspan="2">UNIT OF<br>MEASURE</th>
-                    <th rowspan="2">UNIT<br>VALUE</th>
-                    <th rowspan="2">DATE<br>ACQUIRED</th>
-                    <th rowspan="2">QUANTITY<br>per<br>PROPERTY CARD</th>
-                    <th rowspan="2">QUANTITY<br>per<br>PHYSICAL COUNT</th>
-                    <th colspan="2">SHORTAGE/OVERAGE</th>
-                    <th rowspan="2">REMARKS</th>
-                </tr>
-                <tr>
-                    <th>Quantity</th>
-                    <th>Value</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if ($rows): ?>
-                    <?php foreach ($rows as $row): ?>
+                <table class="rpcppe-table">
+                    <colgroup>
+                        <col style="width:7%">
+                        <col style="width:17.5%">
+                        <col style="width:8.5%">
+                        <col style="width:6%">
+                        <col style="width:6%">
+                        <col style="width:10%">
+                        <col style="width:8.5%">
+                        <col style="width:7.5%">
+                        <col style="width:6%">
+                        <col style="width:8%">
+                        <col style="width:15%">
+                    </colgroup>
+                    <thead>
                         <tr>
-                            <td><?php echo h(rpcppe_article($row)); ?></td>
-                            <td><?php echo h(rpcppe_label($row)); ?></td>
-                            <td><?php echo h($row['property_number'] ?? ''); ?></td>
-                            <td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
-                            <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
-                            <?php $ad = (string) ($row['acquisition_date'] ?? ''); ?>
-                            <td><?php echo h($ad !== '' ? date('M d, Y', strtotime($ad)) : ''); ?></td>
-                            <td class="qty"><?php echo h((string) max(1, (int) ($row['qty_property_card'] ?? 1))); ?></td>
-                            <td class="qty"><?php echo h((string) max(1, (int) ($row['qty_physical_count'] ?? 1))); ?></td>
+                            <th rowspan="2">ARTICLE</th>
+                            <th rowspan="2">DESCRIPTION</th>
+                            <th rowspan="2">PROPERTY<br>NUMBER</th>
+                            <th rowspan="2">UNIT OF<br>MEASURE</th>
+                            <th rowspan="2">UNIT<br>VALUE</th>
+                            <th rowspan="2">DATE<br>ACQUIRED</th>
+                            <th rowspan="2">QUANTITY<br>PER PROPERTY CARD</th>
+                            <th rowspan="2">QUANTITY<br>PER PHYSICAL COUNT</th>
+                            <th colspan="2">SHORTAGE / OVERAGE</th>
+                            <th rowspan="2">REMARKS</th>
+                        </tr>
+                        <tr>
+                            <th>QUANTITY</th>
+                            <th>VALUE</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if ($pageRows): ?>
+                            <?php foreach ($pageRows as $row): ?>
+                                <tr>
+                                    <td><?php echo h(rpcppe_article($row)); ?></td>
+                                    <td><?php echo h(rpcppe_label($row)); ?></td>
+                                    <td><?php echo h($row['property_number'] ?? ''); ?></td>
+                                    <td class="uom"><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
+                                    <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                                    <?php $ad = (string) ($row['acquisition_date'] ?? ''); ?>
+                                    <td class="date"><?php echo h($ad !== '' ? date('M d, Y', strtotime($ad)) : ''); ?></td>
+                                    <td class="qty"><?php echo h((string) rpcppe_qty_property($row)); ?></td>
+                                    <td class="qty"><?php echo h((string) rpcppe_qty_physical($row)); ?></td>
+                                    <td class="qty">0</td>
+                                    <td class="money">0.00</td>
+                                    <td class="remarks-col"><?php echo h(rpcppe_office_employee($row)); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="11" class="text-center py-4">No PPE records found for the selected filters.</td>
+                            </tr>
+                        <?php endif; ?>
+                        <?php for ($i = count($pageRows); $i < $rowsPerPage; $i++): ?>
+                            <tr>
+                                <td>&nbsp;</td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                        <?php endfor; ?>
+                    </tbody>
+                    <tfoot>
+                        <tr class="subtotal-row">
+                            <td colspan="4" class="text-end">SUBTOTAL</td>
+                            <td class="money"><?php echo h(number_format($pageTotalValue, 2)); ?></td>
+                            <td></td>
+                            <td class="qty"><?php echo h((string) $pageQtyProperty); ?></td>
+                            <td class="qty"><?php echo h((string) $pageQtyPhysical); ?></td>
                             <td class="qty">0</td>
                             <td class="money">0.00</td>
-                            <td><?php echo h(rpcppe_office_employee($row)); ?></td>
+                            <td></td>
                         </tr>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <tr>
-                        <td colspan="10" class="text-center py-4">No PPE records found for the selected filters.</td>
-                    </tr>
-                <?php endif; ?>
-                <?php for ($i = count($rows); $i < 10; $i++): ?>
-                    <tr>
-                        <td>&nbsp;</td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                    </tr>
-                <?php endfor; ?>
-            </tbody>
-        </table>
+                        <?php if ($isLastPage): ?>
+                            <tr class="grandtotal-row">
+                                <td colspan="4" class="text-end">GRAND TOTAL</td>
+                                <td class="money"><?php echo h(number_format($totalValue, 2)); ?></td>
+                                <td></td>
+                                <td class="qty"><?php echo h((string) $totalQtyProperty); ?></td>
+                                <td class="qty"><?php echo h((string) $totalQtyPhysical); ?></td>
+                                <td class="qty">0</td>
+                                <td class="money">0.00</td>
+                                <td></td>
+                            </tr>
+                        <?php endif; ?>
+                    </tfoot>
+                </table>
 
-        <?php render_inventory_committee_signature_grid('rpcppe-sign'); ?>
+                <?php if ($isLastPage): ?>
+                    <?php render_inventory_committee_signature_grid('rpcppe-sign'); ?>
+                <?php endif; ?>
+            </div>
+        <?php endforeach; ?>
     </div>
     </body>
     </html>
@@ -636,7 +729,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="report-summary-card">
                             <div class="report-summary-label">Total Value</div>
                             <div class="report-summary-value"><?php echo number_format($totalValue, 2); ?></div>
-                            <div class="report-summary-note">Combined unit value of the loaded equipment.</div>
+                            <div class="report-summary-note">Extended value based on quantity per property card.</div>
                         </div>
                         <div class="report-summary-card">
                             <div class="report-summary-label">Beginning Balance</div>
@@ -726,8 +819,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <th>Article</th>
                                     <th>Description</th>
                                     <th>Property No.</th>
+                                    <th class="text-center">UOM</th>
                                     <th>Fund No.</th>
+                                    <th class="text-center">Qty PC</th>
+                                    <th class="text-center">Qty Count</th>
                                     <th class="text-end">Unit Value</th>
+                                    <th class="text-end">Total Value</th>
                                     <th>Office / Officer</th>
                                     <th>Source</th>
                                 </tr>
@@ -739,8 +836,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td><?php echo h(rpcppe_article($row)); ?></td>
                                             <td><?php echo h(rpcppe_label($row)); ?></td>
                                             <td><?php echo h($row['property_number'] ?? ''); ?></td>
+                                            <td class="text-center"><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
                                             <td><?php echo h($row['fund_number'] ?? ''); ?></td>
+                                            <td class="text-center"><?php echo h((string) rpcppe_qty_property($row)); ?></td>
+                                            <td class="text-center"><?php echo h((string) rpcppe_qty_physical($row)); ?></td>
                                             <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                                            <td class="text-end"><?php echo h(number_format(rpcppe_line_total($row), 2)); ?></td>
                                             <td><?php echo h(trim(implode(' / ', array_filter([
                                                 $row['office_name'] ?? '',
                                                 ($row['employee_name'] ?? '') !== '' ? (string) $row['employee_name'] : person_full_name($row),
@@ -748,9 +849,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td><?php echo h(($row['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : 'System'); ?></td>
                                         </tr>
                                     <?php endforeach; ?>
+                                    <tr class="table-light fw-semibold">
+                                        <td colspan="5" class="text-end">TOTAL</td>
+                                        <td class="text-center"><?php echo h((string) $totalQtyProperty); ?></td>
+                                        <td class="text-center"><?php echo h((string) $totalQtyPhysical); ?></td>
+                                        <td></td>
+                                        <td class="text-end"><?php echo h(number_format($totalValue, 2)); ?></td>
+                                        <td colspan="2"></td>
+                                    </tr>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="7" class="text-center text-muted py-4">No PPE records found for the selected filters.</td>
+                                        <td colspan="11" class="text-center text-muted py-4">No PPE records found for the selected filters.</td>
                                     </tr>
                                 <?php endif; ?>
                             </tbody>

@@ -63,6 +63,11 @@ function asset_view_can_edit_details(): bool
     return in_array((string) ($_SESSION['user_role'] ?? ''), ['Administrator', 'Property Officer', 'Supply Officer'], true);
 }
 
+function asset_view_can_delete_legacy(): bool
+{
+    return in_array((string) ($_SESSION['user_role'] ?? ''), ['Administrator', 'Property Officer', 'Supply Officer'], true);
+}
+
 function asset_view_can_edit_source_po(): bool
 {
     return in_array((string) ($_SESSION['user_role'] ?? ''), ['Administrator', 'Supply Officer'], true);
@@ -282,6 +287,7 @@ if (!$asset) {
 
 $canManagePhotos = asset_view_can_manage_photos();
 $canEditDetails = asset_view_can_edit_details();
+$canDeleteLegacy = asset_view_can_delete_legacy();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetails)) {
     if (!csrf_verify()) {
@@ -458,6 +464,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         }
 
         set_flash('error', 'Unable to update asset details right now.');
+        redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+    }
+
+    if ($action === 'delete_legacy_asset') {
+        if ($source !== 'legacy' || !$canDeleteLegacy) {
+            set_flash('error', 'You are not allowed to delete this asset.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+
+        $deleteStmt = $db->prepare("UPDATE legacy_assets SET is_active = 0 WHERE id = ? LIMIT 1");
+        if ($deleteStmt) {
+            $deleteStmt->bind_param('i', $id);
+            $deleted = $deleteStmt->execute();
+            $deleteStmt->close();
+            if ($deleted) {
+                write_audit_log($db, [
+                    'action' => 'delete',
+                    'table_name' => 'legacy_assets',
+                    'record_id' => $id,
+                    'module_name' => 'property',
+                    'record_type' => 'legacy_asset',
+                    'action_name' => 'delete_legacy_asset',
+                    'description' => 'Soft-deleted legacy asset from Asset Details page.',
+                    'old_values' => $asset,
+                    'new_values' => ['is_active' => 0],
+                ]);
+                set_flash('success', 'Legacy asset deleted.');
+                redirect('modules/property/legacy_assets.php');
+            }
+        }
+
+        set_flash('error', 'Unable to delete the legacy asset right now.');
         redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
     }
 
@@ -981,6 +1019,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <li><span class="dropdown-item-text text-muted small">Maintenance: available for system assets only.</span></li>
                                     <li><a class="dropdown-item" href="<?php echo base_url('modules/returns/index.php?source=legacy&legacy_asset_id=' . (int) $asset['id']); ?>">Return</a></li>
                                     <li><a class="dropdown-item text-danger" href="<?php echo base_url('modules/disposals/index.php?source=legacy&legacy_asset_id=' . (int) $asset['id']); ?>">Disposal</a></li>
+                                    <?php if ($canDeleteLegacy): ?>
+                                        <li>
+                                            <form method="post" onsubmit="return confirm('Delete this legacy asset? This will hide it from the active legacy list.');">
+                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="delete_legacy_asset">
+                                                <button type="submit" class="dropdown-item text-danger">Delete Legacy Asset</button>
+                                            </form>
+                                        </li>
+                                    <?php endif; ?>
                                 <?php endif; ?>
 
                                 <li><hr class="dropdown-divider"></li>
@@ -1512,4 +1559,3 @@ require_once __DIR__ . '/../../includes/topbar.php';
 </section>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-

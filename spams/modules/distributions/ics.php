@@ -6,6 +6,8 @@ $db = db();
 $distributionId = (int) ($_GET['id'] ?? 0);
 $printFormat = ($_GET['print_format'] ?? 'long') === 'short' ? 'short' : 'long';
 $isShort = $printFormat === 'short';
+$viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
+$isGrouped = $viewMode === 'grouped';
 
 if (!$db || $distributionId <= 0) {
     http_response_code(404);
@@ -188,6 +190,81 @@ foreach ($rows as $row) {
     }
 }
 
+$buildPropertyRange = static function (array $propertyNumbers): string {
+    $values = array_values(array_filter(array_map('trim', $propertyNumbers), static function ($value) {
+        return $value !== '';
+    }));
+    if (!$values) {
+        return '';
+    }
+    if (count($values) === 1) {
+        return $values[0];
+    }
+
+    $first = $values[0];
+    $last = $values[count($values) - 1];
+    if ($first === $last) {
+        return $first;
+    }
+
+    if (preg_match('/^(.*?)(\d+)$/', $first, $firstMatches) && preg_match('/^(.*?)(\d+)$/', $last, $lastMatches) && $firstMatches[1] === $lastMatches[1]) {
+        return $first . ' to ' . $last;
+    }
+
+    return $first . ' to ' . $last;
+};
+
+$groupedItems = [];
+if ($isGrouped) {
+    foreach ($items as $item) {
+        $unitLabel = trim((string) ($item['abbreviation'] ?? $item['uom_name'] ?? ''));
+        $groupKey = implode('|', [
+            trim((string) ($item['classification_name'] ?? '')),
+            trim((string) ($item['item_description'] ?? '')),
+            $unitLabel,
+            trim((string) ($item['useful_life_years'] ?? '')),
+            number_format((float) ($item['unit_cost'] ?? 0), 2, '.', ''),
+        ]);
+
+        if (!isset($groupedItems[$groupKey])) {
+            $groupedItems[$groupKey] = [
+                'quantity_distributed' => 0.0,
+                'unit_cost' => (float) ($item['unit_cost'] ?? 0),
+                'line_total' => 0.0,
+                'item_description' => (string) ($item['item_description'] ?? ''),
+                'classification_name' => (string) ($item['classification_name'] ?? ''),
+                'uom_name' => (string) ($item['uom_name'] ?? ''),
+                'abbreviation' => (string) ($item['abbreviation'] ?? ''),
+                'useful_life_years' => $item['useful_life_years'] ?? null,
+                'inventory_item_no' => '',
+                'property_numbers' => [],
+            ];
+        }
+
+        $groupedItems[$groupKey]['quantity_distributed'] += (float) ($item['quantity_distributed'] ?? 0);
+        $groupedItems[$groupKey]['line_total'] += (float) ($item['line_total'] ?? 0);
+
+        foreach ((array) ($item['details'] ?? []) as $detail) {
+            if (!empty($detail['property_number'])) {
+                $groupedItems[$groupKey]['property_numbers'][] = (string) $detail['property_number'];
+            }
+        }
+
+        if (empty($groupedItems[$groupKey]['property_numbers']) && !empty($item['inventory_item_no'])) {
+            $groupedItems[$groupKey]['property_numbers'][] = (string) $item['inventory_item_no'];
+        }
+    }
+
+    foreach ($groupedItems as &$groupedItem) {
+        $groupedItem['property_numbers'] = array_values(array_unique($groupedItem['property_numbers']));
+        sort($groupedItem['property_numbers']);
+        $groupedItem['inventory_item_no'] = $buildPropertyRange($groupedItem['property_numbers']);
+    }
+    unset($groupedItem);
+}
+
+$printItems = $isGrouped ? array_values($groupedItems) : array_values($items);
+
 $recipientHead = $resolveOfficeHead($db, $officeId);
 $supplyHead = $resolveSupplyOfficeHead($db);
 
@@ -210,7 +287,7 @@ if (preg_match('/(?:^|[^0-9])(0[1567])(?:[^0-9]|$)/', $fundCluster, $matches)) {
 }
 
 $targetRows = $isShort ? 10 : 22;
-$blankRows = max(0, $targetRows - count($items));
+$blankRows = max(0, $targetRows - count($printItems));
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -277,6 +354,8 @@ $blankRows = max(0, $targetRows - count($items));
             <button onclick="window.print()" style="border:1px solid #0d6efd;background:#0d6efd;color:#fff;padding:6px 10px;">Print</button>
             <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . '&print_format=short')); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo $isShort ? '#fff' : '#0d6efd'; ?>;background:<?php echo $isShort ? '#0d6efd' : '#fff'; ?>;">Short</a>
             <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . '&print_format=long')); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo !$isShort ? '#fff' : '#0d6efd'; ?>;background:<?php echo !$isShort ? '#0d6efd' : '#fff'; ?>;">Long</a>
+            <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . '&print_format=' . $printFormat . '&view_mode=grouped')); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo $isGrouped ? '#fff' : '#0d6efd'; ?>;background:<?php echo $isGrouped ? '#0d6efd' : '#fff'; ?>;">Grouped</a>
+            <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . '&print_format=' . $printFormat . '&view_mode=detailed')); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo !$isGrouped ? '#fff' : '#0d6efd'; ?>;background:<?php echo !$isGrouped ? '#0d6efd' : '#fff'; ?>;">Detailed</a>
             <a href="<?php echo base_url('modules/property/tags.php?distribution_id=' . (int) $distributionId); ?>" target="_blank" style="border:1px solid #666;padding:6px 10px;text-decoration:none;color:#111;">Print QR Tags</a>
         </div>
         <div class="print-copy" id="printCopy">
@@ -315,7 +394,7 @@ $blankRows = max(0, $targetRows - count($items));
                         </tr>
                     </thead>
                     <tbody class="ics-body">
-                        <?php foreach ($items as $it):
+                        <?php foreach ($printItems as $it):
                             $qty = (float) ($it['quantity_distributed'] ?? 0);
                             $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
                             $unitCost = (float) ($it['unit_cost'] ?? 0);
