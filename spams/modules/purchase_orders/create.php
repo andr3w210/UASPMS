@@ -244,7 +244,7 @@ if ($db) {
                                 if (!$headerStmt) throw new RuntimeException('Prepare failed: header');
 
                                 $headerStmt->bind_param(
-                                    'sssiisissssidii',
+                                    'sssiisisissidi',
                                     $systemReference,
                                     $form['po_number'],
                                     $form['po_date'],
@@ -261,7 +261,7 @@ if ($db) {
                                     $userId
                                 );
                                 if (!$headerStmt->execute()) {
-                                    throw new RuntimeException('Unable to save the purchase order header.');
+                                    throw new RuntimeException('Unable to save the purchase order header: ' . $headerStmt->error);
                                 }
                                 $purchaseOrderId = (int)$headerStmt->insert_id;
                                 $headerStmt->close();
@@ -308,7 +308,7 @@ if ($db) {
                                         );
                                     }
                                     if (!$itemStmt->execute()) {
-                                        throw new RuntimeException('Unable to save purchase order line items.');
+                                        throw new RuntimeException('Unable to save purchase order line items: ' . $itemStmt->error);
                                     }
                                 }
                                 $itemStmt->close();
@@ -342,7 +342,8 @@ if ($db) {
 
                             } catch (Throwable $e) {
                                 $db->rollback();
-                                $errors[] = 'Unable to save the purchase order. Please try again.';
+                                error_log('Purchase order save failed: ' . $e->getMessage());
+                                $errors[] = 'Unable to save the purchase order: ' . $e->getMessage();
                             }
                         }
         }

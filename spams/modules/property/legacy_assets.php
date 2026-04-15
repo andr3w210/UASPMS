@@ -252,10 +252,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td><?php echo h(number_format((float) ($row['acquisition_cost'] ?? 0), 2)); ?></td>
                                         <td><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['condition_status'] ?? '')))); ?></td>
                                         <td>
-                                            <form method="post" class="d-grid gap-2" style="min-width: 210px;">
-                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
-                                                <input type="hidden" name="action" value="update_rpcppe_tracking">
-                                                <input type="hidden" name="asset_id" value="<?php echo (int) ($row['id'] ?? 0); ?>">
+                                            <div class="d-grid gap-2" style="min-width: 210px;">
+                                                <a href="<?php echo h(base_url('modules/property/view.php?source=legacy&id=' . (int) ($row['id'] ?? 0))); ?>" class="btn btn-sm btn-outline-secondary">View Details</a>
+                                                <form method="post" class="d-grid gap-2">
+                                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                    <input type="hidden" name="action" value="update_rpcppe_tracking">
+                                                    <input type="hidden" name="asset_id" value="<?php echo (int) ($row['id'] ?? 0); ?>">
                                                 <div class="form-check">
                                                     <input class="form-check-input" type="checkbox" name="is_rpcppe_candidate" value="1" id="rpcppe_candidate_<?php echo (int) ($row['id'] ?? 0); ?>" <?php echo ((int) ($row['is_rpcppe_candidate'] ?? 0) === 1) ? 'checked' : ''; ?>>
                                                     <label class="form-check-label small" for="rpcppe_candidate_<?php echo (int) ($row['id'] ?? 0); ?>">
@@ -275,7 +277,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                     </span>
                                                     <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
                                                 </div>
-                                            </form>
+                                                </form>
+                                            </div>
                                         </td>
                                     </tr>
                                 <?php endforeach; else: ?>

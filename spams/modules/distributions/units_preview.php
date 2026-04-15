@@ -120,9 +120,11 @@ $groupNumber = 0;
 foreach ($groups as $group) {
     $groupNumber++;
     $groupId = 'dist-unit-group-' . $groupNumber;
+    $collapseId = $groupId . '-body';
     $groupLabel = trim((!empty($group['classification_family']) ? $group['classification_family'] . ' / ' : '') . ($group['classification'] ?: 'No classification'));
     $unitCount = count($group['units']);
     $groupTotal = (float) $group['unit_cost'] * $unitCount;
+    $startExpanded = $unitCount <= 20;
     ?>
     <div class="card shadow-sm mb-3 unit-group"
          data-group-id="<?php echo (int) $group['receiving_item_id']; ?>"
@@ -149,16 +151,32 @@ foreach ($groups as $group) {
                     <button class="btn btn-sm btn-outline-secondary"
                             type="button"
                             data-bs-toggle="collapse"
-                            data-bs-target="#<?php echo h($groupId); ?>"
-                            aria-expanded="true"
-                            aria-controls="<?php echo h($groupId); ?>">
-                        Show units
+                            data-bs-target="#<?php echo h($collapseId); ?>"
+                            aria-expanded="<?php echo $startExpanded ? 'true' : 'false'; ?>"
+                            aria-controls="<?php echo h($collapseId); ?>">
+                        <?php echo $startExpanded ? 'Hide units' : 'Show units'; ?>
                     </button>
                 </div>
             </div>
         </div>
-        <div class="collapse show" id="<?php echo h($groupId); ?>">
+        <div class="collapse <?php echo $startExpanded ? 'show' : ''; ?>" id="<?php echo h($collapseId); ?>">
             <div class="card-body p-3">
+                <div class="row g-2 align-items-end mb-3">
+                    <div class="col-12 col-lg-5">
+                        <label class="form-label small mb-1">Apply Remarks to This Group</label>
+                        <input type="text"
+                               class="form-control form-control-sm group-remarks-input"
+                               data-group-target="<?php echo h($groupId); ?>"
+                               placeholder="Common remarks for selected units">
+                    </div>
+                    <div class="col-12 col-lg-2">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm w-100 apply-group-remarks-btn"
+                                data-group-target="<?php echo h($groupId); ?>">
+                            Apply remarks
+                        </button>
+                    </div>
+                </div>
                 <div class="row g-2">
                     <?php foreach ($group['units'] as $index => $unit): ?>
                         <?php
@@ -187,6 +205,7 @@ foreach ($groups as $group) {
                                     <input type="text"
                                            class="form-control form-control-sm"
                                            name="unit_remarks[<?php echo (int) $unit['id']; ?>]"
+                                           data-group-id="<?php echo h($groupId); ?>"
                                            placeholder="Unit remarks">
                                 </div>
                                 <div style="width: 240px; max-width: 100%;">

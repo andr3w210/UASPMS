@@ -1,0 +1,43 @@
+fund_source,account_code,account_name,row_count,final_total,expected_total,status
+01,1.06.01.010.00,Land,11,24522936.00,24522936.00,OK
+01,1.06.02.990.00,"Other Land Improvements",6,37535052.26,37535052.26,OK
+01,1.06.03.040.00,"Water Supply Systems",1,559659.66,559659.66,OK
+01,1.06.03.050.00,"Power Supply Systems",7,4688170.92,4688170.92,OK
+01,1.06.04.010.00,Buildings,13,146379514.73,146379514.73,OK
+01,1.06.04.020.00,"School Buildings",17,181058566.73,181058566.73,OK
+01,1.06.04.990.00,"Other Structures",13,26862983.60,26862983.60,OK
+01,1.06.05.010.00,Machinery,44,11853860.00,11853860.00,OK
+01,1.06.05.020.00,"Office Equipment",151,12344704.00,12344704.00,OK
+01,1.06.05.030.00,"Information and Communication Technology Equipment",120,17339297.00,17339297.00,OK
+01,1.06.05.070.00,"Communication Equipment",5,391800.00,391800.00,OK
+01,1.06.05.090.00,"Disaster Response and Rescue Equipment",9,889920.00,889920.00,OK
+01,1.06.05.130.00,"Sports Equipment",6,464600.00,464600.00,OK
+01,1.06.05.140.00,"Technical and Scientific Equipment",51,19159114.48,19159114.48,OK
+01,1.06.05.990.00,"Other Machinery and Equipment",57,14859918.75,14859918.75,OK
+01,1.06.06.010.00,"Motor Vehicles",1,1640000.00,1640000.00,OK
+01,1.06.07.010.00,"Furniture and Fixtures",1,923555.99,923555.99,OK
+01,1.08.01.020.00,"Computer Software",24,7000000.00,7000000.00,OK
+05,1.06.01.010.00,Land,1,12000000.00,12000000.00,OK
+05,1.06.02.990.00,"Other Land Improvements",11,12251471.42,12251471.42,OK
+05,1.06.03.040.00,"Water Supply Systems",1,2226131.61,2226131.61,OK
+05,1.06.03.050.00,"Power Supply Systems",6,12710009.13,12710009.13,OK
+05,1.06.04.010.00,Buildings,2,26027285.00,26027285.00,OK
+05,1.06.04.020.00,"School Buildings",1,50839255.35,50839255.35,OK
+05,1.06.04.990.00,"Other Structures",21,22198580.57,22198580.57,OK
+05,1.06.05.010.00,Machinery,14,1856538.00,1856538.00,OK
+05,1.06.05.020.00,"Office Equipment",133,19961019.00,19961019.00,OK
+05,1.06.05.030.00,"Information and Communication Technology Equipment",212,17402861.73,17402861.73,OK
+05,1.06.05.070.00,"Communication Equipment",11,1520860.40,1520860.40,OK
+05,1.06.05.090.00,"Disaster Response and Rescue Equipment",4,645000.00,645000.00,OK
+05,1.06.05.110.00,"Medical Equipment",5,579249.67,579249.67,OK
+05,1.06.05.130.00,"Sports Equipment",1,264800.00,264800.00,OK
+05,1.06.05.140.00,"Technical and Scientific Equipment",39,47198308.98,47198308.98,OK
+05,1.06.05.990.00,"Other Machinery and Equipment",14,9155563.28,9155563.28,OK
+05,1.06.06.010.00,"Motor Vehicles",10,12842000.00,12842000.00,OK
+05,1.06.07.010.00,"Furniture and Fixtures",5,14641371.80,14641371.80,OK
+05,1.08.01.020.00,"Computer Software",15,9700937.00,9700937.00,OK
+06,1.06.05.020.00,"Office Equipment",1,55000.00,55000.00,OK
+06,1.06.05.990.00,"Other Machinery and Equipment",1,347440.00,347440.00,OK
+07,1.06.04.010.00,Buildings,1,9954264.93,9954264.93,OK
+07,1.06.05.140.00,"Technical and Scientific Equipment",14,90376646.00,90376646.00,OK
+07,1.06.05.990.00,"Other Machinery and Equipment",1,58272.00,58272.00,OK
