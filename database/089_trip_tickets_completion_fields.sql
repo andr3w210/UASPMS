@@ -1,0 +1,15 @@
+ALTER TABLE trip_tickets
+    ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'scheduled' AFTER received_by_title,
+    ADD COLUMN arrival_time TIME NULL AFTER status,
+    ADD COLUMN return_departure_time TIME NULL AFTER arrival_time,
+    ADD COLUMN return_arrival_time TIME NULL AFTER return_departure_time,
+    ADD COLUMN odometer_start DECIMAL(10,2) NULL AFTER return_arrival_time,
+    ADD COLUMN odometer_end DECIMAL(10,2) NULL AFTER odometer_start,
+    ADD COLUMN distance_traveled DECIMAL(10,2) NULL AFTER odometer_end,
+    ADD COLUMN fuel_purchased DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER distance_traveled,
+    ADD COLUMN fuel_consumed DECIMAL(10,2) NULL AFTER fuel_purchased,
+    ADD COLUMN oil_used DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER fuel_consumed,
+    ADD COLUMN grease_used DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER oil_used,
+    ADD COLUMN completion_remarks TEXT NULL AFTER grease_used,
+    ADD COLUMN completed_at DATETIME NULL AFTER completion_remarks,
+    ADD COLUMN completed_by INT(10) UNSIGNED NULL AFTER completed_at;

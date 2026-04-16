@@ -73,6 +73,10 @@ define('DB_HOST', spams_env('DB_HOST', '127.0.0.1'));
 define('DB_NAME', spams_env('DB_NAME', 'spamsdb'));
 define('DB_USER', spams_env('DB_USER', 'root'));
 define('DB_PASS', spams_env('DB_PASS', ''));
+define('TRIP_DB_HOST', spams_env('TRIP_DB_HOST', DB_HOST));
+define('TRIP_DB_NAME', spams_env('TRIP_DB_NAME', 'uaspms_tripdb'));
+define('TRIP_DB_USER', spams_env('TRIP_DB_USER', DB_USER));
+define('TRIP_DB_PASS', spams_env('TRIP_DB_PASS', DB_PASS));
 
 // Misc
 define('APP_NAME', spams_env('APP_NAME', 'University of Antique'));

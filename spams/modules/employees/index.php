@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
+require_role('Administrator', 'Transport Officer');
 
 function employees_has_reference(mysqli $db, int $recordId): bool
 {
@@ -70,7 +71,8 @@ $errors = [];
 $employees = [];
 $offices = [];
 $responsibilityCodes = [];
-$form = ['id'=>0,'employee_no'=>'','first_name'=>'','middle_name'=>'','last_name'=>'','suffix_name'=>'','email'=>'','photo_path'=>'','office_id'=>'','responsibility_code_id'=>'','position_title'=>'','employment_status'=>'','is_unit_head'=>'0','is_active'=>'1'];
+$hasDriverColumn = schema_has_column($db, 'employees', 'is_driver');
+$form = ['id'=>0,'employee_no'=>'','name_prefix'=>'','first_name'=>'','middle_name'=>'','last_name'=>'','suffix_name'=>'','email'=>'','photo_path'=>'','office_id'=>'','responsibility_code_id'=>'','position_title'=>'','employment_status'=>'','is_unit_head'=>'0','is_driver'=>'0','is_active'=>'1'];
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
@@ -92,6 +94,7 @@ if (!$db) {
         } elseif ($action === 'save') {
             $form['id']=(int)($_POST['id']??0);
             $form['employee_no']=$form['id']>0?strtoupper(old($_POST,'employee_no')):$generatedCode;
+            $form['name_prefix']=old($_POST,'name_prefix');
             $form['first_name']=old($_POST,'first_name');
             $form['middle_name']=old($_POST,'middle_name');
             $form['last_name']=old($_POST,'last_name');
@@ -103,6 +106,7 @@ if (!$db) {
             $form['position_title']=old($_POST,'position_title');
             $form['employment_status']=old($_POST,'employment_status');
             $form['is_unit_head']=isset($_POST['is_unit_head'])?'1':'0';
+            $form['is_driver']=isset($_POST['is_driver'])?'1':'0';
             $form['is_active']=isset($_POST['is_active'])?'1':'0';
             $removePhoto = isset($_POST['remove_photo']);
 
@@ -148,6 +152,7 @@ if (!$db) {
             if(!$errors){
                 $isActive=(int)$form['is_active'];
                 $isUnitHead=(int)$form['is_unit_head'];
+                $isDriver=(int)$form['is_driver'];
                 $userId=current_user_id();
                 if($isUnitHead===1&&$officeId){
                     $clearStmt=$db->prepare("UPDATE employees SET is_unit_head = 0 WHERE office_id = ? AND id != ?");
@@ -159,9 +164,16 @@ if (!$db) {
                 }
 
                 if($recordId>0){
-                    $stmt=$db->prepare("UPDATE employees SET employee_no = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, photo_path = ?, department_id = NULL, office_id = ?, responsibility_code_id = ?, position_title = ?, employment_status = ?, is_unit_head = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
+                    $updateSql = $hasDriverColumn
+                        ? "UPDATE employees SET employee_no = ?, name_prefix = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, photo_path = ?, department_id = NULL, office_id = ?, responsibility_code_id = ?, position_title = ?, employment_status = ?, is_unit_head = ?, is_driver = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?"
+                        : "UPDATE employees SET employee_no = ?, name_prefix = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, photo_path = ?, department_id = NULL, office_id = ?, responsibility_code_id = ?, position_title = ?, employment_status = ?, is_unit_head = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?";
+                    $stmt=$db->prepare($updateSql);
                     if($stmt){
-                        $stmt->bind_param('sssssssiissiiii',$form['employee_no'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isActive,$userId,$recordId);
+                        if ($hasDriverColumn) {
+                            $stmt->bind_param('ssssssssiissiiiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isDriver,$isActive,$userId,$recordId);
+                        } else {
+                            $stmt->bind_param('ssssssssiissiiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isActive,$userId,$recordId);
+                        }
                         $saved = $stmt->execute();
                         $stmt->close();
                         if ($saved) {
@@ -179,6 +191,7 @@ if (!$db) {
                                 'description' => 'Updated employee record.',
                                 'new_values' => [
                                     'employee_no' => $form['employee_no'],
+                                    'name_prefix' => $form['name_prefix'],
                                     'first_name' => $form['first_name'],
                                     'middle_name' => $form['middle_name'],
                                     'last_name' => $form['last_name'],
@@ -190,6 +203,7 @@ if (!$db) {
                                     'position_title' => $form['position_title'],
                                     'employment_status' => $form['employment_status'],
                                     'is_unit_head' => $isUnitHead,
+                                    'is_driver' => $isDriver,
                                     'is_active' => $isActive,
                                 ],
                             ]);
@@ -209,9 +223,16 @@ if (!$db) {
                     }
 
                     if (!$errors) {
-                        $stmt=$db->prepare("INSERT INTO employees (employee_no, first_name, middle_name, last_name, suffix_name, email, photo_path, department_id, office_id, responsibility_code_id, position_title, employment_status, is_unit_head, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)");
+                        $insertSql = $hasDriverColumn
+                            ? "INSERT INTO employees (employee_no, name_prefix, first_name, middle_name, last_name, suffix_name, email, photo_path, department_id, office_id, responsibility_code_id, position_title, employment_status, is_unit_head, is_driver, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)"
+                            : "INSERT INTO employees (employee_no, name_prefix, first_name, middle_name, last_name, suffix_name, email, photo_path, department_id, office_id, responsibility_code_id, position_title, employment_status, is_unit_head, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)";
+                        $stmt=$db->prepare($insertSql);
                         if($stmt){
-                            $stmt->bind_param('sssssssiissiii',$form['employee_no'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isActive,$userId);
+                            if ($hasDriverColumn) {
+                                $stmt->bind_param('ssssssssiissiiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isDriver,$isActive,$userId);
+                            } else {
+                                $stmt->bind_param('ssssssssiissiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isActive,$userId);
+                            }
                             $saved = $stmt->execute();
                             $newEmployeeId = (int) $stmt->insert_id;
                             $stmt->close();
@@ -226,6 +247,7 @@ if (!$db) {
                                     'description' => 'Created employee record.',
                                     'new_values' => [
                                         'employee_no' => $form['employee_no'],
+                                        'name_prefix' => $form['name_prefix'],
                                         'first_name' => $form['first_name'],
                                         'middle_name' => $form['middle_name'],
                                         'last_name' => $form['last_name'],
@@ -237,6 +259,7 @@ if (!$db) {
                                         'position_title' => $form['position_title'],
                                         'employment_status' => $form['employment_status'],
                                         'is_unit_head' => $isUnitHead,
+                                        'is_driver' => $isDriver,
                                         'is_active' => $isActive,
                                     ],
                                 ]);
@@ -285,7 +308,7 @@ if (!$db) {
                 redirect('modules/employees/index.php');
             }
             $auditSnapshot = ['id' => $recordId];
-            $auditStmt = $db->prepare("SELECT employee_no, first_name, middle_name, last_name, suffix_name, photo_path FROM employees WHERE id = ? LIMIT 1");
+            $auditStmt = $db->prepare("SELECT employee_no, name_prefix, first_name, middle_name, last_name, suffix_name, photo_path FROM employees WHERE id = ? LIMIT 1");
             if ($auditStmt) {
                 $auditStmt->bind_param('i', $recordId);
                 $auditStmt->execute();
@@ -324,19 +347,25 @@ if (!$db) {
 
     if(isset($_GET['edit'])){
         $recordId=(int)$_GET['edit'];
-        $stmt=$db->prepare("SELECT id, employee_no, first_name, middle_name, last_name, suffix_name, email, photo_path, office_id, responsibility_code_id, position_title, employment_status, is_unit_head, is_active FROM employees WHERE id = ? LIMIT 1");
+        $selectEditSql = $hasDriverColumn
+            ? "SELECT id, employee_no, name_prefix, first_name, middle_name, last_name, suffix_name, email, photo_path, office_id, responsibility_code_id, position_title, employment_status, is_unit_head, is_driver, is_active FROM employees WHERE id = ? LIMIT 1"
+            : "SELECT id, employee_no, name_prefix, first_name, middle_name, last_name, suffix_name, email, photo_path, office_id, responsibility_code_id, position_title, employment_status, is_unit_head, is_active FROM employees WHERE id = ? LIMIT 1";
+        $stmt=$db->prepare($selectEditSql);
         if($stmt){
             $stmt->bind_param('i',$recordId);
             $stmt->execute();
             $record=$stmt->get_result()->fetch_assoc();
             $stmt->close();
             if($record){
-                $form=['id'=>(int)$record['id'],'employee_no'=>$record['employee_no'],'first_name'=>$record['first_name'],'middle_name'=>$record['middle_name']??'','last_name'=>$record['last_name'],'suffix_name'=>$record['suffix_name']??'','email'=>$record['email']??'','photo_path'=>$record['photo_path']??'','office_id'=>(string)($record['office_id']??''),'responsibility_code_id'=>(string)($record['responsibility_code_id']??''),'position_title'=>$record['position_title']??'','employment_status'=>$record['employment_status']??'','is_unit_head'=>(string)(int)$record['is_unit_head'],'is_active'=>(string)(int)$record['is_active']];
+                $form=['id'=>(int)$record['id'],'employee_no'=>$record['employee_no'],'name_prefix'=>$record['name_prefix']??'','first_name'=>$record['first_name'],'middle_name'=>$record['middle_name']??'','last_name'=>$record['last_name'],'suffix_name'=>$record['suffix_name']??'','email'=>$record['email']??'','photo_path'=>$record['photo_path']??'','office_id'=>(string)($record['office_id']??''),'responsibility_code_id'=>(string)($record['responsibility_code_id']??''),'position_title'=>$record['position_title']??'','employment_status'=>$record['employment_status']??'','is_unit_head'=>(string)(int)$record['is_unit_head'],'is_driver'=>(string)(int)($record['is_driver']??0),'is_active'=>(string)(int)$record['is_active']];
             }
         }
     }
 
-    $listResult=$db->query("SELECT e.id, e.employee_no, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.email, e.photo_path, e.position_title, e.employment_status, e.is_unit_head, e.is_active, e.created_at, o.office_name, rc.code AS responsibility_code FROM employees e LEFT JOIN offices o ON o.id = e.office_id LEFT JOIN responsibility_codes rc ON rc.id = e.responsibility_code_id ORDER BY e.last_name ASC, e.first_name ASC");
+    $listSql = $hasDriverColumn
+        ? "SELECT e.id, e.employee_no, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.email, e.photo_path, e.position_title, e.employment_status, e.is_unit_head, e.is_driver, e.is_active, e.created_at, o.office_name, rc.code AS responsibility_code FROM employees e LEFT JOIN offices o ON o.id = e.office_id LEFT JOIN responsibility_codes rc ON rc.id = e.responsibility_code_id ORDER BY e.last_name ASC, e.first_name ASC"
+        : "SELECT e.id, e.employee_no, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.email, e.photo_path, e.position_title, e.employment_status, e.is_unit_head, e.is_active, e.created_at, o.office_name, rc.code AS responsibility_code FROM employees e LEFT JOIN offices o ON o.id = e.office_id LEFT JOIN responsibility_codes rc ON rc.id = e.responsibility_code_id ORDER BY e.last_name ASC, e.first_name ASC";
+    $listResult=$db->query($listSql);
     if($listResult){
         $employees=$listResult->fetch_all(MYSQLI_ASSOC);
     }
@@ -395,6 +424,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <label class="form-label">Employee No.</label>
                                 <input type="text" class="form-control" name="employee_no" value="<?php echo h($form['id']>0?$form['employee_no']:$generatedCode); ?>" readonly>
                                 <div class="form-text">Generated automatically using `EMP-YYYY-0001` format.</div>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Prefix</label>
+                                <input type="text" class="form-control" name="name_prefix" value="<?php echo h($form['name_prefix']); ?>" placeholder="Dr., Atty.">
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">First Name</label>
@@ -469,6 +502,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <label class="form-check-label">Unit head</label>
                                 </div>
                                 <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="is_driver" value="1" <?php echo $form['is_driver']==='1'?'checked':''; ?>>
+                                    <label class="form-check-label">Driver</label>
+                                </div>
+                                <div class="form-check form-switch">
                                     <input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active']==='1'?'checked':''; ?>>
                                     <label class="form-check-label">Active employee</label>
                                 </div>
@@ -519,6 +556,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <th>Office</th>
                             <th>Responsibility Code</th>
                             <th>Unit Head</th>
+                            <th>Driver</th>
                             <th>Status</th>
                             <th>Created</th>
                             <th class="text-end">Actions</th>
@@ -545,6 +583,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <td><?php echo h($employee['office_name'] ?? ''); ?></td>
                                 <td><?php echo h($employee['responsibility_code'] ?? ''); ?></td>
                                 <td><?php echo (int)$employee['is_unit_head']===1?'<span class="badge text-bg-primary">Yes</span>':'<span class="text-muted">No</span>'; ?></td>
+                                <td><?php echo (int)($employee['is_driver'] ?? 0)===1?'<span class="badge text-bg-info">Yes</span>':'<span class="text-muted">No</span>'; ?></td>
                                 <td><span class="badge <?php echo (int)$employee['is_active']===1?'text-bg-success':'text-bg-secondary'; ?>"><?php echo (int)$employee['is_active']===1?'Active':'Inactive'; ?></span></td>
                                 <td><?php echo h(date('M d, Y', strtotime($employee['created_at']))); ?></td>
                                 <td class="text-end">
@@ -570,7 +609,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 </td>
                             </tr>
                         <?php endforeach; else: ?>
-                            <tr data-status="inactive"><td colspan="7" class="text-center text-muted py-4">No employees found yet.</td></tr>
+                            <tr data-status="inactive"><td colspan="8" class="text-center text-muted py-4">No employees found yet.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -728,10 +767,6 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-
-
-
-
 
 
 

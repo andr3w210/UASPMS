@@ -206,11 +206,52 @@ if ($db) {
 
     $whereSql = $distWhere ? 'WHERE ' . implode(' AND ', $distWhere) : '';
 
+    $itemSummaryJoin = "
+        LEFT JOIN (
+            SELECT
+                item_names.distribution_id,
+                GROUP_CONCAT(DISTINCT item_names.item_label ORDER BY item_names.item_label SEPARATOR ' || ') AS distributed_items
+            FROM (
+                SELECT
+                    di2.distribution_id,
+                    TRIM(
+                        CONCAT(
+                            COALESCE(NULLIF(TRIM(c.classification_name), ''), 'Unclassified'),
+                            ' - ',
+                            COALESCE(NULLIF(TRIM(poi.item_description), ''), 'Unnamed item')
+                        )
+                    ) AS item_label
+                FROM distribution_items di2
+                LEFT JOIN receiving_items ri2 ON ri2.id = di2.receiving_item_id
+                LEFT JOIN purchase_order_items poi ON poi.id = ri2.purchase_order_item_id
+                LEFT JOIN classifications c ON c.id = poi.classification_id
+
+                UNION
+
+                SELECT
+                    di3.distribution_id,
+                    TRIM(
+                        CONCAT(
+                            COALESCE(NULLIF(TRIM(lc.classification_name), ''), 'Unclassified'),
+                            ' - ',
+                            COALESCE(NULLIF(TRIM(la.item_description), ''), 'Unnamed item')
+                        )
+                    ) AS item_label
+                FROM distribution_items di3
+                INNER JOIN distribution_item_details did3 ON did3.distribution_item_id = di3.id
+                INNER JOIN legacy_assets la ON la.property_number = did3.property_number
+                LEFT JOIN classifications lc ON lc.id = la.classification_id
+            ) item_names
+            GROUP BY item_names.distribution_id
+        ) item_summary ON item_summary.distribution_id = d.id";
+
     $sql = "SELECT d.id, d.system_reference, d.document_type, d.document_no, d.distribution_date, d.total_amount, d.status, " .
-        "o.office_name, e.employee_no, e.first_name, e.middle_name, e.last_name, e.suffix_name " .
+        "o.office_name, e.employee_no, e.first_name, e.middle_name, e.last_name, e.suffix_name, " .
+        "COALESCE(item_summary.distributed_items, '') AS distributed_items " .
         "FROM distributions d " .
         "INNER JOIN offices o ON o.id = d.office_id " .
         "LEFT JOIN employees e ON e.id = d.employee_id " .
+        $itemSummaryJoin . " " .
         $whereSql .
         " ORDER BY d.distribution_date DESC, d.id DESC";
 
@@ -581,11 +622,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $whereSql = $distWhere ? 'WHERE ' . implode(' AND ', $distWhere) : '';
 
+    $itemSummaryJoin = "
+        LEFT JOIN (
+            SELECT
+                item_names.distribution_id,
+                GROUP_CONCAT(DISTINCT item_names.item_label ORDER BY item_names.item_label SEPARATOR ' || ') AS distributed_items
+            FROM (
+                SELECT
+                    di2.distribution_id,
+                    TRIM(
+                        CONCAT(
+                            COALESCE(NULLIF(TRIM(c.classification_name), ''), 'Unclassified'),
+                            ' - ',
+                            COALESCE(NULLIF(TRIM(poi.item_description), ''), 'Unnamed item')
+                        )
+                    ) AS item_label
+                FROM distribution_items di2
+                LEFT JOIN receiving_items ri2 ON ri2.id = di2.receiving_item_id
+                LEFT JOIN purchase_order_items poi ON poi.id = ri2.purchase_order_item_id
+                LEFT JOIN classifications c ON c.id = poi.classification_id
+
+                UNION
+
+                SELECT
+                    di3.distribution_id,
+                    TRIM(
+                        CONCAT(
+                            COALESCE(NULLIF(TRIM(lc.classification_name), ''), 'Unclassified'),
+                            ' - ',
+                            COALESCE(NULLIF(TRIM(la.item_description), ''), 'Unnamed item')
+                        )
+                    ) AS item_label
+                FROM distribution_items di3
+                INNER JOIN distribution_item_details did3 ON did3.distribution_item_id = di3.id
+                INNER JOIN legacy_assets la ON la.property_number = did3.property_number
+                LEFT JOIN classifications lc ON lc.id = la.classification_id
+            ) item_names
+            GROUP BY item_names.distribution_id
+        ) item_summary ON item_summary.distribution_id = d.id";
+
     $sql = "SELECT d.id, d.system_reference, d.document_type, d.document_no, d.distribution_date, d.total_amount, d.status, " .
-        "o.office_name, e.employee_no, e.first_name, e.middle_name, e.last_name, e.suffix_name " .
+        "o.office_name, e.employee_no, e.first_name, e.middle_name, e.last_name, e.suffix_name, " .
+        "COALESCE(item_summary.distributed_items, '') AS distributed_items " .
         "FROM distributions d " .
         "INNER JOIN offices o ON o.id = d.office_id " .
         "LEFT JOIN employees e ON e.id = d.employee_id " .
+        $itemSummaryJoin . " " .
         $whereSql .
         " ORDER BY d.distribution_date DESC, d.id DESC";
 
@@ -878,6 +960,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <th>Document No.</th>
                                 <th>Date</th>
                                 <th>Type</th>
+                                <th>Items</th>
                                 <th>Office</th>
                                 <th>Employee</th>
                                 <th>Status</th>
@@ -893,6 +976,25 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td><?php echo h($distribution['document_no']); ?></td>
                                         <td><?php echo h(date('M d, Y', strtotime($distribution['distribution_date']))); ?></td>
                                         <td><?php echo h(strtoupper($distribution['document_type'])); ?></td>
+                                        <td style="min-width:260px;">
+                                            <?php
+                                                $itemNames = array_values(array_filter(array_map('trim', explode(' || ', (string) ($distribution['distributed_items'] ?? '')))));
+                                                $visibleItems = array_slice($itemNames, 0, 3);
+                                                $remainingItems = max(0, count($itemNames) - count($visibleItems));
+                                            ?>
+                                            <?php if ($visibleItems): ?>
+                                                <div class="d-flex flex-wrap gap-1">
+                                                    <?php foreach ($visibleItems as $itemName): ?>
+                                                        <span class="badge text-bg-light text-wrap text-start"><?php echo h($itemName); ?></span>
+                                                    <?php endforeach; ?>
+                                                    <?php if ($remainingItems > 0): ?>
+                                                        <span class="badge text-bg-secondary">+<?php echo h((string) $remainingItems); ?> more</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            <?php else: ?>
+                                                <span class="text-muted">No item summary</span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td><?php echo h($distribution['office_name']); ?></td>
                                         <td><?php echo $distribution['employee_no'] ? h(employee_display_name($distribution)) . ' - ' . h($distribution['employee_no']) : '<span class="text-muted">Not specified</span>'; ?></td>
                                         <td><span class="badge text-bg-light text-uppercase"><?php echo h($distribution['status']); ?></span></td>
@@ -910,7 +1012,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </tr>
                                 <?php endforeach; ?>
                             <?php else: ?>
-                                <tr><td colspan="9" class="text-center text-muted py-4">No distributions posted yet.</td></tr>
+                                <tr><td colspan="10" class="text-center text-muted py-4">No distributions posted yet.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>

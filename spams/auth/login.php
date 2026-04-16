@@ -21,7 +21,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Database connection error.';
         } else {
             $roleNameExpr = roles_name_expression($db, 'r');
-            $sql = "SELECT u.id, u.username, u.email, u.password_hash, u.full_name, u.profile_photo_path, u.failed_login_attempts, u.locked_until, {$roleNameExpr} AS role_name
+            $mustChangePasswordExpr = schema_has_column($db, 'users', 'must_change_password') ? 'u.must_change_password' : '0';
+            $sql = "SELECT u.id, u.username, u.email, u.password_hash, u.full_name, u.profile_photo_path, u.failed_login_attempts, u.locked_until, {$mustChangePasswordExpr} AS must_change_password, {$roleNameExpr} AS role_name
                     FROM users u
                     LEFT JOIN roles r ON r.id = u.role_id
                     WHERE (u.username = ? OR u.email = ?) AND u.is_active = 1
@@ -77,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_SESSION['user_photo_path'] = $row['profile_photo_path'] ?? '';
                         // Keep both a display name and a machine-friendly role key
                         $_SESSION['user_role'] = $row['role_name'] ?: 'User';
+                        $_SESSION['must_change_password'] = (int) ($row['must_change_password'] ?? 0) === 1;
                         $_SESSION['last_activity_at'] = time();
 
                         $updateStmt = $db->prepare("UPDATE users SET last_login_at = NOW(), failed_login_attempts = 0, locked_until = NULL WHERE id = ?");
@@ -100,6 +102,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ],
                             'description' => 'User logged in successfully.',
                         ]);
+
+                        if (!empty($_SESSION['must_change_password'])) {
+                            redirect('auth/change_password.php?first_login=1');
+                        }
 
                         redirect('dashboard/index.php');
                     } else {

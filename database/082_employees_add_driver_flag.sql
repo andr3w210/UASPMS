@@ -1,0 +1,2 @@
+ALTER TABLE employees
+ADD COLUMN is_driver TINYINT(1) NOT NULL DEFAULT 0 AFTER is_unit_head;

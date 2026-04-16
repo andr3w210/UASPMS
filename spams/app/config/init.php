@@ -2,6 +2,7 @@
 // Initialization for SPAMS pages
 require_once __DIR__ . '/constants.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/trip_db.php';
 
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
@@ -53,6 +54,38 @@ if (is_dir($helpers_dir)) {
             continue;
         }
         require_once $file;
+    }
+}
+
+if (!empty($_SESSION['user_id']) && function_exists('db') && function_exists('roles_name_expression')) {
+    $authDb = db();
+    if ($authDb) {
+        $roleNameExpr = roles_name_expression($authDb, 'r');
+        $stmt = $authDb->prepare("
+            SELECT u.username, u.full_name, u.profile_photo_path, {$roleNameExpr} AS role_name
+            FROM users u
+            LEFT JOIN roles r ON r.id = u.role_id
+            WHERE u.id = ?
+            LIMIT 1
+        ");
+        if ($stmt) {
+            $userId = (int) $_SESSION['user_id'];
+            $stmt->bind_param('i', $userId);
+            $stmt->execute();
+            $sessionUser = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if ($sessionUser) {
+                $_SESSION['username'] = $sessionUser['username'] ?? ($_SESSION['username'] ?? '');
+                $_SESSION['full_name'] = $sessionUser['full_name'] ?? ($_SESSION['full_name'] ?? '');
+                $_SESSION['user_name'] = ($sessionUser['full_name'] ?? '') !== ''
+                    ? $sessionUser['full_name']
+                    : ($_SESSION['username'] ?? '');
+                $_SESSION['user_photo_path'] = $sessionUser['profile_photo_path'] ?? ($_SESSION['user_photo_path'] ?? '');
+                $_SESSION['role_name'] = trim((string) ($sessionUser['role_name'] ?? 'User'));
+                $_SESSION['user_role'] = trim((string) ($sessionUser['role_name'] ?? 'User'));
+            }
+        }
     }
 }
 

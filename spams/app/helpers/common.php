@@ -104,6 +104,7 @@ function format_quantity($value): string
 
 function employee_display_name(array $employee): string
 {
+    $prefix = trim((string) ($employee['name_prefix'] ?? ''));
     $parts = [
         trim((string) ($employee['last_name'] ?? '')),
         trim((string) ($employee['first_name'] ?? '')),
@@ -119,6 +120,10 @@ function employee_display_name(array $employee): string
 
     if ($suffix !== '') {
         $name .= ' ' . $suffix;
+    }
+
+    if ($prefix !== '') {
+        $name = $prefix . ' ' . $name;
     }
 
     return trim($name);
@@ -322,6 +327,7 @@ function get_system_setting(mysqli $db, string $key, string $default = ''): stri
 function person_full_name(array $row): string
 {
     return trim(implode(' ', array_filter([
+        trim((string) ($row['name_prefix'] ?? '')),
         trim((string) ($row['first_name'] ?? '')),
         trim((string) ($row['middle_name'] ?? '')),
         trim((string) ($row['last_name'] ?? '')),
@@ -342,7 +348,7 @@ function get_university_president_profile(mysqli $db): array
     }
 
     $presidentSql = "
-        SELECT e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title
+        SELECT e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title
         FROM offices o
         LEFT JOIN employees e ON e.id = o.office_head_employee_id
         WHERE o.is_active = 1
@@ -730,4 +736,3 @@ function generate_property_number(
          . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT)
          . '-' . $officeShort;
 }
-
