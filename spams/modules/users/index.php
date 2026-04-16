@@ -31,6 +31,51 @@ function users_password_validation_errors(string $password): array
     return $errors;
 }
 
+function users_value_exists(mysqli $db, string $column, string $value, int $excludeId = 0): bool
+{
+    if (!in_array($column, ['username', 'email'], true)) {
+        return false;
+    }
+
+    $trimmedValue = trim($value);
+    if ($trimmedValue === '') {
+        return false;
+    }
+
+    $stmt = $db->prepare("SELECT id FROM users WHERE {$column} = ? AND id != ? LIMIT 1");
+    if (!$stmt) {
+        return false;
+    }
+
+    $stmt->bind_param('si', $trimmedValue, $excludeId);
+    $stmt->execute();
+    $exists = (bool) $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    return $exists;
+}
+
+function users_generate_initial_password(int $length = 12): string
+{
+    $upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    $lower = 'abcdefghijkmnopqrstuvwxyz';
+    $digits = '23456789';
+    $all = $upper . $lower . $digits;
+
+    $password = [
+        $upper[random_int(0, strlen($upper) - 1)],
+        $lower[random_int(0, strlen($lower) - 1)],
+        $digits[random_int(0, strlen($digits) - 1)],
+    ];
+
+    for ($i = count($password); $i < $length; $i++) {
+        $password[] = $all[random_int(0, strlen($all) - 1)];
+    }
+
+    shuffle($password);
+    return implode('', $password);
+}
+
 $db = db();
 $page_title = 'Users';
 $flash = get_flash();
@@ -39,7 +84,7 @@ $users = [];
 $roles = [];
 $employees = [];
 $offices = [];
-$form = ['id'=>0,'username'=>'','email'=>'','full_name'=>'','role_id'=>'','employee_id'=>'','office_id'=>'','password'=>'','is_active'=>'1'];
+$form = ['id'=>0,'username'=>'','email'=>'','full_name'=>'','role_id'=>'','employee_id'=>'','office_id'=>'','password'=>users_generate_initial_password(),'is_active'=>'1'];
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
@@ -80,18 +125,17 @@ if (!$db) {
 
             if($form['username']==='') $errors[]='Username is required.';
             if($form['role_id']==='') $errors[]='Role is required.';
-            if($form['id']===0 && trim($form['password'])==='') $errors[]='Password is required for a new user.';
+            if($form['id']===0 && trim($form['password'])==='') $errors[]='Initial password is required for a new user.';
             if (trim($form['password']) !== '') {
                 $errors = array_merge($errors, users_password_validation_errors($form['password']));
             }
 
             $recordId=(int)$form['id'];
-            $duplicateStmt=$db->prepare("SELECT id FROM users WHERE (username = ? OR email = ?) AND id != ? LIMIT 1");
-            if($duplicateStmt){
-                $duplicateStmt->bind_param('ssi',$form['username'],$form['email'],$recordId);
-                $duplicateStmt->execute();
-                if($duplicateStmt->get_result()->fetch_assoc()) $errors[]='Username or email already exists.';
-                $duplicateStmt->close();
+            if (users_value_exists($db, 'username', $form['username'], $recordId)) {
+                $errors[] = 'Username already exists. Please choose a different username.';
+            }
+            if (trim($form['email']) !== '' && users_value_exists($db, 'email', $form['email'], $recordId)) {
+                $errors[] = 'Email address is already linked to another user account.';
             }
 
             $employeeId=$form['employee_id']!==''?(int)$form['employee_id']:null;
@@ -194,7 +238,7 @@ if (!$db) {
                     }
                 } else {
                     $passwordHash=password_hash($form['password'], PASSWORD_DEFAULT);
-                    $stmt=$db->prepare("INSERT INTO users (username, email, password_hash, full_name, role_id, employee_id, office_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt=$db->prepare("INSERT INTO users (username, email, password_hash, full_name, role_id, employee_id, office_id, is_active, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)");
                     if($stmt){
                         $stmt->bind_param('ssssiiii',$form['username'],$form['email'],$passwordHash,$form['full_name'],$roleId,$employeeId,$officeId,$isActive);
                         $saved = $stmt->execute();
@@ -217,9 +261,10 @@ if (!$db) {
                                     'employee_id' => $employeeId,
                                     'office_id' => $officeId,
                                     'is_active' => $isActive,
+                                    'must_change_password' => 1,
                                 ],
                             ]);
-                            set_flash('success','User created successfully.');
+                            set_flash('success','User created successfully. The initial password is set and the user will be required to change it on first login.');
                             redirect('modules/users/index.php');
                         }
                     }
@@ -394,10 +439,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 </select>
                             </div>
                             <div class="col-12">
-                                <label class="form-label" for="password"><?php echo $form['id'] > 0 ? 'New Password' : 'Password'; ?></label>
-                                <input type="password" class="form-control" id="password" name="password" minlength="8" aria-describedby="passwordHelp passwordStrength">
+                                <label class="form-label" for="password"><?php echo $form['id'] > 0 ? 'New Password' : 'Initial Password'; ?></label>
+                                <div class="input-group">
+                                    <input type="password" class="form-control" id="password" name="password" minlength="8" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" value="<?php echo $form['id'] > 0 ? '' : h($form['password']); ?>" aria-describedby="passwordHelp passwordStrength passwordCopyFeedback" placeholder="<?php echo $form['id'] > 0 ? '' : 'Generated initial password'; ?>">
+                                    <?php if ($form['id'] === 0): ?>
+                                        <button type="button" class="btn btn-outline-dark" id="generatePasswordButton">Generate</button>
+                                    <?php endif; ?>
+                                    <button type="button" class="btn btn-outline-secondary" id="togglePasswordVisibility">Show</button>
+                                    <button type="button" class="btn btn-outline-primary" id="copyPasswordButton">Copy</button>
+                                </div>
                                 <div id="passwordStrength" class="small mt-2 text-muted">Use at least 8 characters with letters and numbers.</div>
-                                <div class="form-text" id="passwordHelp"><?php echo $form['id'] > 0 ? 'Leave blank to keep the current password.' : 'Set the initial password for the account.'; ?> Minimum: 8 characters, at least one letter, and at least one number.</div>
+                                <div id="passwordCopyFeedback" class="small mt-1 text-muted"></div>
+                                <div class="form-text" id="passwordHelp"><?php echo $form['id'] > 0 ? 'Leave blank to keep the current password.' : 'Set the initial password for the account. The user will be required to change it on first login.'; ?> Minimum: 8 characters, at least one letter, and at least one number.</div>
                             </div>
                             <div class="col-12">
                                 <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active user</label></div>
@@ -576,6 +629,38 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    function setPasswordCopyFeedback(message, stateClass) {
+        var feedbackNode = document.getElementById('passwordCopyFeedback');
+        if (!feedbackNode) return;
+        feedbackNode.className = 'small mt-1 ' + stateClass;
+        feedbackNode.textContent = message;
+    }
+
+    function generateRandomInitialPassword(length) {
+        var upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+        var lower = 'abcdefghijkmnopqrstuvwxyz';
+        var digits = '23456789';
+        var all = upper + lower + digits;
+        var password = [
+            upper.charAt(Math.floor(Math.random() * upper.length)),
+            lower.charAt(Math.floor(Math.random() * lower.length)),
+            digits.charAt(Math.floor(Math.random() * digits.length))
+        ];
+
+        while (password.length < length) {
+            password.push(all.charAt(Math.floor(Math.random() * all.length)));
+        }
+
+        for (var i = password.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var temp = password[i];
+            password[i] = password[j];
+            password[j] = temp;
+        }
+
+        return password.join('');
+    }
+
     var recordCountMobile = document.getElementById('recordCountMobile');
     var masterDataOptions = {
         recordCountFormatter: function (visible, total) {
@@ -600,9 +685,83 @@ document.addEventListener('DOMContentLoaded', function () {
         window.__spamsPendingMasterDataLists = window.__spamsPendingMasterDataLists || [];
         window.__spamsPendingMasterDataLists.push(['dataTable', masterDataOptions]);
     }
-    document.getElementById('office_id')?.addEventListener('change', syncOfficeEmployee);
-    document.getElementById('employee_id')?.addEventListener('change', syncOfficeFromEmployee);
-    document.getElementById('password')?.addEventListener('input', updatePasswordStrength);
+    var officeField = document.getElementById('office_id');
+    var employeeField = document.getElementById('employee_id');
+    var passwordField = document.getElementById('password');
+    var generatePasswordButton = document.getElementById('generatePasswordButton');
+    var togglePasswordButton = document.getElementById('togglePasswordVisibility');
+    var copyPasswordButton = document.getElementById('copyPasswordButton');
+
+    if (officeField) {
+        officeField.addEventListener('change', syncOfficeEmployee);
+    }
+    if (employeeField) {
+        employeeField.addEventListener('change', syncOfficeFromEmployee);
+    }
+    if (passwordField) {
+        passwordField.addEventListener('input', updatePasswordStrength);
+    }
+    if (generatePasswordButton && passwordField) {
+        generatePasswordButton.addEventListener('click', function () {
+            passwordField.value = generateRandomInitialPassword(12);
+            updatePasswordStrength();
+            setPasswordCopyFeedback('A new random initial password was generated.', 'text-success');
+        });
+    }
+    if (togglePasswordButton && passwordField) {
+        togglePasswordButton.addEventListener('click', function () {
+            var showing = passwordField.type === 'text';
+            passwordField.type = showing ? 'password' : 'text';
+            togglePasswordButton.textContent = showing ? 'Show' : 'Hide';
+        });
+    }
+    if (copyPasswordButton && passwordField) {
+        copyPasswordButton.addEventListener('click', function () {
+            if (passwordField.value === '') {
+                setPasswordCopyFeedback('Enter the initial password first before copying it.', 'text-warning');
+                passwordField.focus();
+                return;
+            }
+
+            var onCopySuccess = function () {
+                setPasswordCopyFeedback('Initial password copied. You can now send it to the user.', 'text-success');
+            };
+            var onCopyFailure = function () {
+                setPasswordCopyFeedback('Unable to copy automatically. Please copy the password manually.', 'text-danger');
+            };
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(passwordField.value).then(onCopySuccess).catch(function () {
+                    try {
+                        passwordField.focus();
+                        passwordField.select();
+                        passwordField.setSelectionRange(0, passwordField.value.length);
+                        if (document.execCommand('copy')) {
+                            onCopySuccess();
+                        } else {
+                            onCopyFailure();
+                        }
+                    } catch (error) {
+                        onCopyFailure();
+                    }
+                });
+                return;
+            }
+
+            try {
+                passwordField.focus();
+                passwordField.select();
+                passwordField.setSelectionRange(0, passwordField.value.length);
+                if (document.execCommand('copy')) {
+                    onCopySuccess();
+                } else {
+                    onCopyFailure();
+                }
+            } catch (error) {
+                onCopyFailure();
+            }
+        });
+    }
     syncOfficeEmployee();
     updatePasswordStrength();
 });

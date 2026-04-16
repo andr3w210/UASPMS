@@ -22,7 +22,7 @@ $headerStmt = $db->prepare(
     "       o.office_name, o.office_code,\n" .
     "       dep.name AS department_name,\n" .
     "       rc.code AS responsibility_center_code,\n" .
-    "       e.employee_no, e.first_name, e.middle_name, e.last_name, e.suffix_name,\n" .
+    "       e.employee_no, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name,\n" .
     "       e.position_title,\n" .
     "       f.fund_code, f.fund_source\n" .
     "FROM distributions d\n" .
@@ -65,7 +65,7 @@ $resolveOfficeHead = static function (mysqli $db, int $officeId): array {
     }
 
     $stmt = $db->prepare(
-        "SELECT e.id, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title, o.office_name
+        "SELECT e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title, o.office_name
          FROM offices o
          LEFT JOIN employees e ON e.id = o.office_head_employee_id
          WHERE o.id = ?
@@ -85,7 +85,7 @@ $resolveOfficeHead = static function (mysqli $db, int $officeId): array {
     }
 
     $stmt = $db->prepare(
-        "SELECT e.id, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title, o.office_name
+        "SELECT e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title, o.office_name
          FROM employees e
          INNER JOIN offices o ON o.id = e.office_id
          WHERE e.office_id = ? AND e.is_active = 1 AND e.is_unit_head = 1
@@ -275,21 +275,28 @@ if ($isGrouped) {
 $printItems = $isGrouped ? array_values($groupedItems) : array_values($items);
 
 // Received by name
-$receivedByName = '';
-if (function_exists('employee_display_name')) {
-    $receivedByName = employee_display_name($header);
-} else {
-    $receivedByName = trim(($header['first_name'] ?? '') . ' ' . ($header['middle_name'] ?? '') . ' ' . ($header['last_name'] ?? '') . ' ' . ($header['suffix_name'] ?? ''));
-}
+$signatoryDisplayName = static function (array $person): string {
+    if (function_exists('person_full_name')) {
+        return person_full_name($person);
+    }
+
+    return trim(implode(' ', array_filter([
+        trim((string) ($person['name_prefix'] ?? '')),
+        trim((string) ($person['first_name'] ?? '')),
+        trim((string) ($person['middle_name'] ?? '')),
+        trim((string) ($person['last_name'] ?? '')),
+        trim((string) ($person['suffix_name'] ?? '')),
+    ])));
+};
 
 $recipientHead = $resolveOfficeHead($db, $officeId);
 $supplyHead = $resolveSupplyOfficeHead($db);
 
-$recipientHeadName = !empty($recipientHead) ? employee_display_name($recipientHead) : '';
+$recipientHeadName = !empty($recipientHead) ? $signatoryDisplayName($recipientHead) : '';
 $recipientHeadTitle = trim((string) ($recipientHead['position_title'] ?? ''));
 $recipientOfficeName = trim((string) ($header['office_name'] ?? ''));
 
-$supplyHeadName = !empty($supplyHead) ? employee_display_name($supplyHead) : '';
+$supplyHeadName = !empty($supplyHead) ? $signatoryDisplayName($supplyHead) : '';
 $supplyHeadTitle = trim((string) ($supplyHead['position_title'] ?? ''));
 $supplyOfficeName = trim((string) ($supplyHead['office_name'] ?? 'Supply Office'));
 
@@ -315,9 +322,9 @@ $blankRows = max(0, $targetRows - count($printItems));
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         @page { size: 8.5in 13in; margin: 0.5in; }
-        body { font-size:12px; color:#000; }
+        body { margin: 0; font-size:12px; color:#000; font-family: "Times New Roman", serif; }
         table { font-size:11px; }
-        .no-print { display:block; }
+        .no-print { display:block; font-family: Arial, sans-serif; }
         .print-shell.short { font-size: 10.5px; }
         .print-shell.short table { font-size: 10px; }
         .duplicate-host { display: none; }
@@ -351,19 +358,19 @@ $blankRows = max(0, $targetRows - count($printItems));
         .print-shell.short .par-body td { height: 14px; }
         .par-sign-table { margin-top:0; }
         .par-sign-table .sign-head { font-weight:bold; text-align:left; }
-        .par-sign-table .sign-box { height:74px; text-align:center; vertical-align:middle; font-size:10px; }
-        .par-sign-table .sign-line { display:block; width:82%; margin:2px auto 4px; border-bottom:1px solid #000; height:12px; }
-        .par-sign-table .sign-name { font-weight:700; text-transform:uppercase; font-size:12px; letter-spacing:0.2px; }
-        .par-sign-table .meta-box { height:52px; text-align:center; vertical-align:middle; }
-        .par-sign-table .meta-line { display:block; width:68%; margin:2px auto 2px; border-bottom:1px solid #000; height:12px; }
-        .par-sign-table .meta-value { margin-bottom:2px; font-size:10px; line-height:1.15; }
+        .par-sign-table .sign-box { height:74px; text-align:center; vertical-align:top; font-size:10px; padding-top:8px; }
+        .par-sign-table .sign-line { display:none; }
+        .par-sign-table .sign-name { font-weight:700; text-transform:uppercase; font-size:12px; letter-spacing:0.2px; line-height:1.1; margin:26px 0 0; }
+        .par-sign-table .meta-box { height:52px; text-align:center; vertical-align:top; padding-top:6px; }
+        .par-sign-table .meta-line { display:none; }
+        .par-sign-table .meta-value { margin: 10px 0 0; font-size:10px; line-height:1.15; }
         .par-sign-table .meta-caption { text-align:center; font-size:10px; }
-        .print-shell.short .par-sign-table .sign-box { height:60px; font-size:9px; }
-        .print-shell.short .par-sign-table .sign-line { height:12px; }
-        .print-shell.short .par-sign-table .sign-name { font-size:10px; }
-        .print-shell.short .par-sign-table .meta-box { height:42px; }
-        .print-shell.short .par-sign-table .meta-value { font-size:9px; }
-        .print-shell.short .par-sign-table .meta-line { height:10px; }
+        .par-sign-table .underlined-value { display:inline-block; border-bottom:1px solid #000; padding:0 8px 1px; min-width:82%; }
+        .par-sign-table .meta-box .underlined-value { min-width:68%; }
+        .print-shell.short .par-sign-table .sign-box { height:60px; font-size:9px; padding-top:6px; }
+        .print-shell.short .par-sign-table .sign-name { font-size:10px; margin-top:16px; margin-bottom:0; }
+        .print-shell.short .par-sign-table .meta-box { height:42px; padding-top:4px; }
+        .print-shell.short .par-sign-table .meta-value { font-size:9px; margin-top:8px; }
         @media print { .no-print { display:none; } thead { display: table-header-group; } .print-shell.short .print-copy, .print-shell.short .duplicate-host { break-inside: avoid; } }
     </style>
 </head>
@@ -473,40 +480,34 @@ $blankRows = max(0, $targetRows - count($printItems));
             <tr>
                 <td class="sign-box">
                     <?php if ($recipientHeadName !== ''): ?>
-                        <div class="sign-name"><?php echo h($recipientHeadName); ?></div>
+                        <div class="sign-name"><span class="underlined-value"><?php echo h($recipientHeadName); ?></span></div>
                     <?php endif; ?>
-                    <span class="sign-line"></span>
                     <div>Signature over Printed Name of End User</div>
                 </td>
                 <td class="sign-box">
                     <?php if ($supplyHeadName !== ''): ?>
-                        <div class="sign-name"><?php echo h($supplyHeadName); ?></div>
+                        <div class="sign-name"><span class="underlined-value"><?php echo h($supplyHeadName); ?></span></div>
                     <?php endif; ?>
-                    <span class="sign-line"></span>
                     <div>Signature over Printed Name of Supply and/or Property Custodian</div>
                 </td>
             </tr>
             <tr>
                 <td class="meta-box">
-                    <div class="meta-value"><?php echo h(trim($recipientHeadTitle . ($recipientOfficeName !== '' ? ' / ' . $recipientOfficeName : ''))); ?></div>
-                    <span class="meta-line"></span>
-                    <div class="meta-caption">Position/Office</div>
+                    <div class="meta-value"><span class="underlined-value"><?php echo h(trim($recipientHeadTitle . ($recipientOfficeName !== '' ? ' / ' . $recipientOfficeName : ''))); ?></span></div>
+                    <div class="meta-caption">Designation/Office</div>
                 </td>
                 <td class="meta-box">
-                    <div class="meta-value"><?php echo h(trim($supplyHeadTitle . ($supplyOfficeName !== '' ? ' / ' . $supplyOfficeName : ''))); ?></div>
-                    <span class="meta-line"></span>
-                    <div class="meta-caption">Position/Office</div>
+                    <div class="meta-value"><span class="underlined-value"><?php echo h(trim($supplyHeadTitle . ($supplyOfficeName !== '' ? ' / ' . $supplyOfficeName : ''))); ?></span></div>
+                    <div class="meta-caption">Designation/Office</div>
                 </td>
             </tr>
             <tr>
                 <td class="meta-box">
-                    <div class="meta-value"><?php echo h(date('m/d/Y', strtotime($header['distribution_date'] ?? 'now'))); ?></div>
-                    <span class="meta-line"></span>
+                    <div class="meta-value"><span class="underlined-value"><?php echo h(date('m/d/Y', strtotime($header['distribution_date'] ?? 'now'))); ?></span></div>
                     <div class="meta-caption">Date</div>
                 </td>
                 <td class="meta-box">
-                    <div class="meta-value"><?php echo h(date('m/d/Y', strtotime($header['distribution_date'] ?? 'now'))); ?></div>
-                    <span class="meta-line"></span>
+                    <div class="meta-value"><span class="underlined-value"><?php echo h(date('m/d/Y', strtotime($header['distribution_date'] ?? 'now'))); ?></span></div>
                     <div class="meta-caption">Date</div>
                 </td>
             </tr>

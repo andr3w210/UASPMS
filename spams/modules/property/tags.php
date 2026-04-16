@@ -234,10 +234,10 @@ function property_tag_office_short(string $officeName): string
             color: #000;
             border: 0.15mm solid #d8d8d8;
             display: grid;
-            grid-template-columns: 17.8mm 1fr 33.8mm;
+            grid-template-columns: 16.4mm 1fr 32.8mm;
             align-items: center;
-            column-gap: 0.1mm;
-            padding: 0.4mm 0.8mm 0.5mm 0.8mm;
+            column-gap: 0.6mm;
+            padding: 0.8mm 1.2mm 0.8mm 1.4mm;
             overflow: hidden;
             page-break-after: always;
             break-after: page;
@@ -253,8 +253,8 @@ function property_tag_office_short(string $officeName): string
             height: 100%;
         }
         .tag-logo img {
-            width: 17.8mm;
-            height: 17.8mm;
+            width: 15.4mm;
+            height: 15.4mm;
             object-fit: contain;
         }
         .tag-info {
@@ -349,6 +349,5 @@ function property_tag_office_short(string $officeName): string
     </div>
 </body>
 </html>
-
 
 

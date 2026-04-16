@@ -1,5 +1,11 @@
 <?php
 
+function current_user_role(): string
+{
+    $role = $_SESSION['user_role'] ?? ($_SESSION['role_name'] ?? '');
+    return trim((string) $role);
+}
+
 function is_logged_in(): bool
 {
     return !empty($_SESSION['user_id']);
@@ -17,7 +23,7 @@ function require_role(string ...$allowedRoles): void
 {
     require_login();
 
-    $role = isset($_SESSION['user_role']) ? (string) $_SESSION['user_role'] : '';
+    $role = current_user_role();
 
     if (!in_array($role, $allowedRoles, true)) {
         set_flash('error', 'Access denied.');

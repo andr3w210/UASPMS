@@ -12,6 +12,10 @@ $deliveryOverdueCount = 0;
 $repeatExtensionCount = 0;
 $lowStockItemCount = 0;
 $unreadMessageCount = 0;
+$nextDayTripCount = 0;
+$pendingTripCompletionCount = 0;
+$vehicleConflictCount = 0;
+$returnTodayTripCount = 0;
 if ($notificationDb) {
     $tableExists = static function (mysqli $connection, string $tableName): bool {
         $escapedTable = $connection->real_escape_string($tableName);
@@ -192,6 +196,75 @@ if ($notificationDb) {
         }
     }
 }
+$transportNotificationRole = function_exists('current_user_role') ? current_user_role() : trim((string) ($_SESSION['user_role'] ?? ($_SESSION['role_name'] ?? '')));
+$tripNotificationDb = function_exists('trip_db') ? trip_db() : null;
+if ($tripNotificationDb && in_array($transportNotificationRole, ['Administrator', 'Transport Officer'], true)) {
+    $tripTableExists = static function (mysqli $connection, string $tableName): bool {
+        $escapedTable = $connection->real_escape_string($tableName);
+        $result = $connection->query("SHOW TABLES LIKE '{$escapedTable}'");
+        if ($result instanceof mysqli_result) {
+            $exists = $result->num_rows > 0;
+            $result->close();
+            return $exists;
+        }
+        return false;
+    };
+
+    if ($tripTableExists($tripNotificationDb, 'trip_tickets')) {
+        $nextDayTripStmt = $tripNotificationDb->prepare("
+            SELECT COUNT(*) AS total
+            FROM trip_tickets
+            WHERE departure_date = DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+              AND COALESCE(status, 'scheduled') IN ('scheduled', 'ongoing')
+        ");
+        if ($nextDayTripStmt) {
+            $nextDayTripStmt->execute();
+            $nextDayTripCount = (int) (($nextDayTripStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $nextDayTripStmt->close();
+        }
+
+        $pendingTripCompletionStmt = $tripNotificationDb->prepare("
+            SELECT COUNT(*) AS total
+            FROM trip_tickets
+            WHERE departure_date < CURDATE()
+              AND COALESCE(status, 'scheduled') <> 'completed'
+        ");
+        if ($pendingTripCompletionStmt) {
+            $pendingTripCompletionStmt->execute();
+            $pendingTripCompletionCount = (int) (($pendingTripCompletionStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $pendingTripCompletionStmt->close();
+        }
+
+        $returnTodayTripStmt = $tripNotificationDb->prepare("
+            SELECT COUNT(*) AS total
+            FROM trip_tickets
+            WHERE COALESCE(return_date, departure_date) = CURDATE()
+              AND COALESCE(status, 'scheduled') IN ('scheduled', 'ongoing')
+        ");
+        if ($returnTodayTripStmt) {
+            $returnTodayTripStmt->execute();
+            $returnTodayTripCount = (int) (($returnTodayTripStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $returnTodayTripStmt->close();
+        }
+
+        $vehicleConflictStmt = $tripNotificationDb->prepare("
+            SELECT COUNT(DISTINCT t1.vehicle_id) AS total
+            FROM trip_tickets t1
+            INNER JOIN trip_tickets t2
+                ON t1.vehicle_id = t2.vehicle_id
+               AND t1.id < t2.id
+               AND COALESCE(t1.status, 'scheduled') IN ('scheduled', 'ongoing')
+               AND COALESCE(t2.status, 'scheduled') IN ('scheduled', 'ongoing')
+               AND t1.departure_date <= COALESCE(t2.return_date, t2.departure_date)
+               AND t2.departure_date <= COALESCE(t1.return_date, t1.departure_date)
+        ");
+        if ($vehicleConflictStmt) {
+            $vehicleConflictStmt->execute();
+            $vehicleConflictCount = (int) (($vehicleConflictStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $vehicleConflictStmt->close();
+        }
+    }
+}
 $userPhotoUrl = upload_url($userPhotoPath);
 $notificationBadgeCount =
     $pendingDistributionUnits +
@@ -199,7 +272,11 @@ $notificationBadgeCount =
     $deliveryDueSoonCount +
     $deliveryOverdueCount +
     $repeatExtensionCount +
-    $lowStockItemCount;
+    $lowStockItemCount +
+    $nextDayTripCount +
+    $pendingTripCompletionCount +
+    $vehicleConflictCount +
+    $returnTodayTripCount;
 $hasNotifications = $notificationBadgeCount > 0;
 ?>
 <header id="header" class="header fixed-top d-flex align-items-center">
@@ -329,6 +406,82 @@ $hasNotifications = $notificationBadgeCount > 0;
                                         </div>
                                         <a class="btn btn-sm btn-outline-secondary mt-2" href="<?php echo base_url('modules/stock_catalog/index.php'); ?>">
                                             Open Stock Catalog
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
+                            <?php if ($nextDayTripCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-car-front"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Trips Scheduled for Tomorrow</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $nextDayTripCount); ?> trip(s) are scheduled to depart tomorrow.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-success mt-2" href="<?php echo base_url('modules/trip_tickets/schedules.php?month=' . date('Y-m')); ?>">
+                                            Open Schedule Calendar
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
+                            <?php if ($pendingTripCompletionCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-clipboard2-check"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Trips Pending Completion</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $pendingTripCompletionCount); ?> past trip(s) still need odometer or completion details.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-warning mt-2" href="<?php echo base_url('modules/trip_tickets/index.php'); ?>">
+                                            Review Trip Tickets
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
+                            <?php if ($returnTodayTripCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-info-subtle text-info d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-arrow-return-left"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Trips Due to Return Today</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $returnTodayTripCount); ?> trip(s) are expected to return today and may need completion later.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-info mt-2" href="<?php echo base_url('modules/trip_tickets/index.php'); ?>">
+                                            Open Trip Tickets
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
+                            <?php if ($vehicleConflictCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-exclamation-diamond"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Vehicle Schedule Conflict</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $vehicleConflictCount); ?> vehicle(s) have overlapping active trip schedules.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-danger mt-2" href="<?php echo base_url('modules/trip_tickets/schedules.php?month=' . date('Y-m')); ?>">
+                                            Review Transport Calendar
                                         </a>
                                     </div>
                                 </div>

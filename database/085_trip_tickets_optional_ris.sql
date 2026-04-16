@@ -1,0 +1,2 @@
+ALTER TABLE trip_tickets
+    MODIFY COLUMN ris_no VARCHAR(40) NULL;

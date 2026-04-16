@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS `responsibility_codes` (
 CREATE TABLE IF NOT EXISTS `employees` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `employee_no` VARCHAR(50) NOT NULL,
+  `name_prefix` VARCHAR(30) DEFAULT NULL,
   `first_name` VARCHAR(100) NOT NULL,
   `middle_name` VARCHAR(100) DEFAULT NULL,
   `last_name` VARCHAR(100) NOT NULL,

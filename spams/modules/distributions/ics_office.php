@@ -5,15 +5,129 @@ require_login();
 $db = db();
 $officeId = (int) ($_GET['office_id'] ?? 0);
 $legacyAssetId = (int) ($_GET['legacy_asset_id'] ?? 0);
+$printFormat = (($_GET['print_format'] ?? 'long') === 'short') ? 'short' : 'long';
+$isShort = $printFormat === 'short';
 $semiType = $_GET['semi_type'] ?? 'all';
 if (!in_array($semiType, ['all', 'high_value', 'low_value'], true)) {
     $semiType = 'all';
 }
 $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
+$viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
+$isGrouped = $viewMode === 'grouped';
 $offices = [];
 $header = null;
 $rows = [];
 $validationError = '';
+$selectedOfficeName = '';
+
+$resolveOfficeHead = static function (mysqli $db, int $officeId): array {
+    if ($officeId <= 0) {
+        return [];
+    }
+
+    $stmt = $db->prepare(
+        "SELECT e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title, o.office_name
+         FROM offices o
+         LEFT JOIN employees e ON e.id = o.office_head_employee_id
+         WHERE o.id = ?
+         LIMIT 1"
+    );
+
+    $head = [];
+    if ($stmt) {
+        $stmt->bind_param('i', $officeId);
+        $stmt->execute();
+        $head = $stmt->get_result()->fetch_assoc() ?: [];
+        $stmt->close();
+    }
+
+    if (!empty($head['id'])) {
+        return $head;
+    }
+
+    $stmt = $db->prepare(
+        "SELECT e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title, o.office_name
+         FROM employees e
+         INNER JOIN offices o ON o.id = e.office_id
+         WHERE e.office_id = ? AND e.is_active = 1 AND e.is_unit_head = 1
+         ORDER BY e.last_name ASC, e.first_name ASC
+         LIMIT 1"
+    );
+    if ($stmt) {
+        $stmt->bind_param('i', $officeId);
+        $stmt->execute();
+        $head = $stmt->get_result()->fetch_assoc() ?: [];
+        $stmt->close();
+    }
+
+    return $head;
+};
+
+$resolveSupplyOfficeHead = static function (mysqli $db) use ($resolveOfficeHead): array {
+    $stmt = $db->query(
+        "SELECT o.id
+         FROM offices o
+         WHERE o.is_active = 1
+           AND (
+                o.office_name LIKE '%Supply%'
+                OR o.office_code LIKE '%SUPPLY%'
+                OR o.office_code IN ('SO', 'SPO')
+           )
+         ORDER BY
+            CASE
+                WHEN o.office_name LIKE '%Supply Office%' THEN 0
+                WHEN o.office_name LIKE '%Supply%' THEN 1
+                ELSE 2
+            END,
+            o.office_name ASC
+         LIMIT 1"
+    );
+
+    $office = $stmt ? ($stmt->fetch_assoc() ?: []) : [];
+    if (empty($office['id'])) {
+        return [];
+    }
+
+    return $resolveOfficeHead($db, (int) $office['id']);
+};
+
+$signatoryDisplayName = static function (array $person): string {
+    if (function_exists('person_full_name')) {
+        return person_full_name($person);
+    }
+
+    return trim(implode(' ', array_filter([
+        trim((string) ($person['name_prefix'] ?? '')),
+        trim((string) ($person['first_name'] ?? '')),
+        trim((string) ($person['middle_name'] ?? '')),
+        trim((string) ($person['last_name'] ?? '')),
+        trim((string) ($person['suffix_name'] ?? '')),
+    ])));
+};
+
+$buildPropertyRange = static function (array $propertyNumbers): string {
+    $values = array_values(array_filter(array_map('trim', $propertyNumbers), static function ($value) {
+        return $value !== '';
+    }));
+    if (!$values) {
+        return '';
+    }
+    if (count($values) === 1) {
+        return $values[0];
+    }
+
+    $first = $values[0];
+    $last = $values[count($values) - 1];
+    if ($first === $last) {
+        return $first;
+    }
+
+    if (preg_match('/^(.*?)(\d+)$/', $first, $firstMatches) && preg_match('/^(.*?)(\d+)$/', $last, $lastMatches) && $firstMatches[1] === $lastMatches[1]) {
+        return $first . ' to ' . $last;
+    }
+
+    return $first . ' to ' . $last;
+};
 
 if ($db) {
     $threshold = get_active_threshold($db);
@@ -23,6 +137,13 @@ if ($db) {
     $officeRes = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeRes) {
         $offices = $officeRes->fetch_all(MYSQLI_ASSOC);
+    }
+
+    foreach ($offices as $office) {
+        if ((int) ($office['id'] ?? 0) === $officeId) {
+            $selectedOfficeName = (string) ($office['office_name'] ?? '');
+            break;
+        }
     }
 
     if ($legacyAssetId > 0 && $officeId <= 0) {
@@ -76,11 +197,9 @@ if ($db) {
 
     if (($officeId > 0 || $legacyAssetId > 0) && $validationError === '') {
         $headStmt = $db->prepare(
-            "SELECT o.id, o.office_name, o.office_code, rc.code AS rc_code,
-                    e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title
+            "SELECT o.id, o.office_name, o.office_code, rc.code AS rc_code
              FROM offices o
              LEFT JOIN responsibility_codes rc ON rc.office_id = o.id
-             LEFT JOIN employees e ON e.office_id = o.id AND e.is_unit_head = 1
              WHERE o.id = ?
              LIMIT 1"
         );
@@ -109,11 +228,6 @@ if ($db) {
                     'office_name' => (string) ($fallback['office_name'] ?? 'Unassigned Office'),
                     'office_code' => (string) ($fallback['office_code'] ?? ''),
                     'rc_code' => '',
-                    'first_name' => '',
-                    'middle_name' => '',
-                    'last_name' => '',
-                    'suffix_name' => '',
-                    'position_title' => '',
                 ];
             }
         }
@@ -127,10 +241,7 @@ if ($db) {
                     c.classification_family,
                     c.useful_life_years,
                     u.abbreviation,
-                    ri.unit_cost,
-                    did.brand,
-                    did.model,
-                    did.serial_no
+                    ri.unit_cost
                 FROM distribution_item_details did
                 INNER JOIN distribution_items di ON di.id = did.distribution_item_id
                 INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted' AND d.document_type = 'ics'
@@ -180,10 +291,7 @@ if ($db) {
                         c.classification_family,
                         c.useful_life_years,
                         '' AS abbreviation,
-                        la.unit_cost,
-                        la.brand,
-                        la.model,
-                        la.serial_no
+                        la.unit_cost
                       FROM legacy_assets la
                       LEFT JOIN classifications c ON c.id = la.classification_id
                       WHERE la.id = ?
@@ -199,10 +307,7 @@ if ($db) {
                         c.classification_family,
                         c.useful_life_years,
                         '' AS abbreviation,
-                        la.unit_cost,
-                        la.brand,
-                        la.model,
-                        la.serial_no
+                        la.unit_cost
                       FROM legacy_assets la
                       LEFT JOIN classifications c ON c.id = la.classification_id
                       WHERE la.is_active = 1
@@ -234,8 +339,104 @@ if ($db) {
     }
 }
 
-$unitHeadName = $header ? employee_display_name($header) : '';
+$groupedRows = [];
+if ($isGrouped) {
+    foreach ($rows as $row) {
+        $unitLabel = trim((string) ($row['abbreviation'] ?? 'unit'));
+        $groupKey = implode('|', [
+            trim((string) ($row['classification_name'] ?? '')),
+            trim((string) ($row['item_description'] ?? '')),
+            $unitLabel,
+            trim((string) ($row['useful_life_years'] ?? '')),
+            number_format((float) ($row['unit_cost'] ?? 0), 2, '.', ''),
+        ]);
+
+        if (!isset($groupedRows[$groupKey])) {
+            $groupedRows[$groupKey] = [
+                'abbreviation' => (string) ($row['abbreviation'] ?? 'unit'),
+                'classification_name' => (string) ($row['classification_name'] ?? ''),
+                'classification_family' => (string) ($row['classification_family'] ?? ''),
+                'item_description' => (string) ($row['item_description'] ?? ''),
+                'useful_life_years' => $row['useful_life_years'] ?? null,
+                'unit_cost' => (float) ($row['unit_cost'] ?? 0),
+                'line_total' => 0.0,
+                'quantity' => 0,
+                'property_numbers' => [],
+                'property_number' => '',
+            ];
+        }
+
+        $groupedRows[$groupKey]['quantity']++;
+        $groupedRows[$groupKey]['line_total'] += (float) ($row['unit_cost'] ?? 0);
+        if (!empty($row['property_number'])) {
+            $groupedRows[$groupKey]['property_numbers'][] = (string) $row['property_number'];
+        }
+    }
+
+    foreach ($groupedRows as &$groupedRow) {
+        $groupedRow['property_numbers'] = array_values(array_unique($groupedRow['property_numbers']));
+        sort($groupedRow['property_numbers']);
+        $groupedRow['property_number'] = $buildPropertyRange($groupedRow['property_numbers']);
+    }
+    unset($groupedRow);
+}
+
+$printRows = $isGrouped ? array_values($groupedRows) : array_map(static function (array $row): array {
+    $row['quantity'] = 1;
+    $row['line_total'] = (float) ($row['unit_cost'] ?? 0);
+    return $row;
+}, $rows);
+
+$recipientHead = ($db && $officeId > 0) ? $resolveOfficeHead($db, $officeId) : [];
+$supplyHead = $db ? $resolveSupplyOfficeHead($db) : [];
+
+$recipientHeadName = !empty($recipientHead) ? $signatoryDisplayName($recipientHead) : '';
+$recipientHeadTitle = trim((string) ($recipientHead['position_title'] ?? ''));
+$recipientOfficeName = trim((string) ($header['office_name'] ?? ''));
+
+$supplyHeadName = !empty($supplyHead) ? $signatoryDisplayName($supplyHead) : '';
+$supplyHeadTitle = trim((string) ($supplyHead['position_title'] ?? ''));
+$supplyOfficeName = trim((string) ($supplyHead['office_name'] ?? 'Supply Office'));
+
+$fundCluster = '';
+if ($db && $officeId > 0 && $legacyAssetId <= 0) {
+    $funds = [];
+    $fundStmt = $db->prepare(
+        "SELECT DISTINCT COALESCE(NULLIF(TRIM(f.fund_source), ''), NULLIF(TRIM(f.fund_code), '')) AS fund_label
+         FROM distributions d
+         INNER JOIN distribution_items di ON di.distribution_id = d.id
+         INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
+         INNER JOIN receivings r ON r.id = ri.receiving_id
+         INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
+         LEFT JOIN funds f ON f.id = po.fund_id
+         WHERE d.office_id = ?
+           AND d.status = 'posted'
+           AND d.document_type = 'ics'"
+    );
+    if ($fundStmt) {
+        $fundStmt->bind_param('i', $officeId);
+        $fundStmt->execute();
+        $fundRes = $fundStmt->get_result();
+        while ($fundRes && ($fundRow = $fundRes->fetch_assoc())) {
+            $label = trim((string) ($fundRow['fund_label'] ?? ''));
+            if ($label !== '') {
+                $funds[] = $label;
+            }
+        }
+        $fundStmt->close();
+    }
+    $funds = array_values(array_unique($funds));
+    if (count($funds) === 1) {
+        $fundCluster = $funds[0];
+    } elseif (count($funds) > 1) {
+        $fundCluster = 'Various';
+    }
+}
+
 $subtypeLabel = $semiType === 'low_value' ? 'Low Value Semi-Expendable' : ($semiType === 'high_value' ? 'High Value Semi-Expendable' : 'All Semi-Expendable');
+$officePrintNo = 'ICS-OFFICE-' . str_pad((string) max(1, $officeId), 4, '0', STR_PAD_LEFT);
+$targetRows = $isShort ? 10 : 22;
+$blankRows = max(0, $targetRows - count($printRows));
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -244,15 +445,50 @@ $subtypeLabel = $semiType === 'low_value' ? 'Low Value Semi-Expendable' : ($semi
     <title>ICS by Office</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { font-size:12px; }
+        @page { size: 8.5in 13in; margin: 0.5in; }
+        body { margin:0; font-size:12px; font-family: "Times New Roman", serif; color:#000; }
         table { font-size:11px; }
-        .appendix { position:absolute; right:24px; top:18px; font-size:12px; }
-        .table-bordered td, .table-bordered th { border:1px solid #000 !important; }
-        @media print { .no-print { display:none !important; } }
+        .no-print { display:block; font-family: Arial, sans-serif; }
+        .duplicate-host { display: none; }
+        .print-shell.short { font-size: 10.5px; }
+        .print-shell.short table { font-size: 10px; }
+        .print-shell.short { display:flex; flex-direction:column; gap:0.2in; }
+        .print-shell.short .print-copy,
+        .print-shell.short .duplicate-host {
+            flex: 0 0 calc((13in - 1in - 0.2in) / 2);
+            min-height: calc((13in - 1in - 0.2in) / 2);
+        }
+        .print-shell.short .duplicate-host { display:block; }
+        .print-shell.short .duplicate-host .no-print { display:none !important; }
+        .ics-form { position: relative; }
+        .appendix { position: absolute; right: 0; top: 0; font-style: italic; font-size: 12px; }
+        .ics-title { text-align: center; font-weight: bold; font-size: 16px; text-transform: uppercase; margin: 18px 0 22px; }
+        .line-value { display: inline-block; border-bottom: 1px solid #000; min-width: 150px; padding: 0 2px; line-height: 1.1; }
+        .line-value.long { min-width: 220px; }
+        .ics-meta, .ics-table, .ics-sign-table { width: 100%; border-collapse: collapse; }
+        .ics-meta td { padding: 2px 4px; vertical-align: bottom; }
+        .ics-meta .label { font-weight: bold; white-space: nowrap; }
+        .ics-table th, .ics-table td, .ics-sign-table td, .ics-sign-table th { border: 1px solid #000; padding: 3px 4px; vertical-align: top; }
+        .ics-table thead th { text-align: center; font-weight: bold; }
+        .ics-body td { height: 25px; }
+        .print-shell.short .ics-body td { height: 14px; }
+        .ics-sign-table .sign-head { text-align: left; font-weight: bold; }
+        .ics-sign-table .sign-box { height: 74px; text-align: center; vertical-align: top; font-size: 10px; padding-top: 8px; }
+        .ics-sign-table .sign-name { font-weight: 700; text-transform: uppercase; font-size: 12px; letter-spacing: 0.2px; line-height: 1.1; margin: 26px 0 0; }
+        .ics-sign-table .meta-box { height: 52px; text-align: center; vertical-align: top; padding-top: 6px; }
+        .ics-sign-table .meta-value { margin: 10px 0 0; font-size: 10px; line-height: 1.15; }
+        .ics-sign-table .meta-caption { text-align: center; font-size: 10px; }
+        .ics-sign-table .underlined-value { display:inline-block; border-bottom:1px solid #000; padding:0 8px 1px; min-width:82%; }
+        .ics-sign-table .meta-box .underlined-value { min-width:68%; }
+        .print-shell.short .ics-sign-table .sign-box { height: 60px; font-size: 9px; padding-top: 6px; }
+        .print-shell.short .ics-sign-table .sign-name { font-size: 10px; margin-top: 16px; margin-bottom: 0; }
+        .print-shell.short .ics-sign-table .meta-box { height: 42px; padding-top: 4px; }
+        .print-shell.short .ics-sign-table .meta-value { font-size: 9px; margin-top: 8px; }
+        @media print { .no-print { display:none !important; } thead { display: table-header-group; } .print-shell.short .print-copy, .print-shell.short .duplicate-host { break-inside: avoid; } }
     </style>
 </head>
 <body>
-<div class="container" style="max-width:1000px;">
+<div class="container print-shell <?php echo $isShort ? 'short' : 'long'; ?>" style="max-width:1000px;">
     <div class="no-print mt-3 mb-3">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <div>
@@ -262,7 +498,7 @@ $subtypeLabel = $semiType === 'low_value' ? 'Low Value Semi-Expendable' : ($semi
             <div class="d-flex gap-2">
                 <a href="<?php echo base_url('modules/distributions/index.php?document_type=ics'); ?>" class="btn btn-outline-secondary">Back to Distribution</a>
                 <?php if (($officeId > 0 || $legacyAssetId > 0) && $rows): ?>
-                    <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&semi_type=' . urlencode($semiType) . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : '') . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
+                    <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&semi_type=' . urlencode($semiType) . '&view_mode=' . $viewMode . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : '') . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
                 <?php endif; ?>
             </div>
         </div>
@@ -273,18 +509,17 @@ $subtypeLabel = $semiType === 'low_value' ? 'Low Value Semi-Expendable' : ($semi
             <?php if ($legacyAssetId > 0): ?>
                 <input type="hidden" name="legacy_asset_id" value="<?php echo (int) $legacyAssetId; ?>">
             <?php endif; ?>
-            <div class="col-md-6">
+            <div class="col-lg-5 col-md-12">
                 <label class="form-label">Office</label>
-                <select name="office_id" class="form-select" required>
-                    <option value="">Select office</option>
+                <input type="hidden" name="office_id" id="office_id" value="<?php echo (int) $officeId; ?>">
+                <input type="text" class="form-control" id="office_name" list="office_options" value="<?php echo h($selectedOfficeName); ?>" placeholder="Search office" required>
+                <datalist id="office_options">
                     <?php foreach ($offices as $office): ?>
-                        <option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>>
-                            <?php echo h($office['office_name']); ?>
-                        </option>
+                        <option data-office-id="<?php echo (int) $office['id']; ?>" value="<?php echo h($office['office_name']); ?>"></option>
                     <?php endforeach; ?>
-                </select>
+                </datalist>
             </div>
-            <div class="col-md-3">
+            <div class="col-lg-2 col-md-4">
                 <label class="form-label">Subtype</label>
                 <select name="semi_type" class="form-select">
                     <option value="all" <?php echo $semiType === 'all' ? 'selected' : ''; ?>>All</option>
@@ -292,100 +527,193 @@ $subtypeLabel = $semiType === 'low_value' ? 'Low Value Semi-Expendable' : ($semi
                     <option value="low_value" <?php echo $semiType === 'low_value' ? 'selected' : ''; ?>>Low Value</option>
                 </select>
             </div>
-            <div class="col-md-3 d-flex gap-2">
-                <button type="submit" class="btn btn-primary">Load ICS</button>
-                <a href="<?php echo base_url('modules/distributions/ics_office.php'); ?>" class="btn btn-outline-secondary">Clear</a>
+            <div class="col-lg-3 col-md-4">
+                <label class="form-label">View</label>
+                <div class="btn-group w-100" role="group" aria-label="ICS view mode">
+                    <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&semi_type=' . urlencode($semiType) . '&view_mode=grouped' . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-outline-primary <?php echo $isGrouped ? 'active' : ''; ?>">Grouped</a>
+                    <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&semi_type=' . urlencode($semiType) . '&view_mode=detailed' . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-outline-primary <?php echo !$isGrouped ? 'active' : ''; ?>">Detailed</a>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4">
+                <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
+                <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
+                <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                    <button type="submit" class="btn btn-primary flex-fill">Load ICS</button>
+                    <a href="<?php echo base_url('modules/distributions/ics_office.php'); ?>" class="btn btn-outline-secondary flex-fill">Clear</a>
+                </div>
             </div>
         </form>
     </div>
-
     <?php if (($officeId > 0 || $legacyAssetId > 0) && $header): ?>
-        <div class="d-flex justify-content-between align-items-start mt-3 mb-2">
-            <div class="appendix">Appendix 59</div>
-        </div>
-        <div style="text-align:center; margin-bottom:12px; border-bottom:1px solid #000; padding-bottom:8px;">
-            <img src="<?php echo h(LOGO_PATH); ?>" style="width:60px; height:60px; object-fit:contain;" alt="UA Logo">
-            <div style="font-size:11pt; font-weight:bold; margin-top:4px;">University of Antique</div>
-            <div style="font-size:9pt;">Sibalom, Antique</div>
-            <div style="font-size:9pt;">Supply and Property Management System</div>
-        </div>
-
-        <div class="row mb-2" style="font-size:12px;">
-            <div class="col-6">
-                <div><strong>Entity Name:</strong> University of Antique</div>
-                <div><strong>Fund Cluster:</strong></div>
-            </div>
-            <div class="col-6 text-end">
-                <div><strong>ICS No.:</strong> Office Bulk Print</div>
-                <div style="font-size:10pt; color:#555;"><strong>Type:</strong> <?php echo h($subtypeLabel); ?></div>
+        <div class="d-flex justify-content-between align-items-start mt-3 mb-2 no-print">
+            <div class="d-flex gap-2 flex-wrap">
+                <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=short&semi_type=' . urlencode($semiType) . '&view_mode=' . $viewMode . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Short</a>
+                <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=long&semi_type=' . urlencode($semiType) . '&view_mode=' . $viewMode . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Long</a>
             </div>
         </div>
+        <div class="print-copy" id="printCopy">
+            <div class="ics-form">
+                <div class="appendix">Appendix 59</div>
+                <div class="ics-title">Inventory Custodian Slip</div>
 
-        <div class="table-responsive">
-            <table class="table table-sm table-bordered">
-                <thead>
+                <table class="ics-meta">
                     <tr>
-                        <th style="width:8%">Qty</th>
-                        <th style="width:6%">Unit</th>
-                        <th style="width:10%" class="text-end">Unit Cost</th>
-                        <th style="width:10%" class="text-end">Total Cost</th>
-                        <th>Description</th>
-                        <th style="width:12%">Inventory Item No.</th>
-                        <th style="width:12%">Estimated Useful Life</th>
+                        <td style="width:14%;" class="label">Entity Name:</td>
+                        <td style="width:46%;"><span class="line-value long"><?php echo h(APP_NAME); ?></span></td>
+                        <td style="width:12%;" class="label">ICS No :</td>
+                        <td style="width:28%;"><span class="line-value"><?php echo h($officePrintNo); ?></span></td>
                     </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($rows as $row): ?>
-                        <tr>
-                            <td class="text-end">1.00</td>
-                            <td><?php echo h($row['abbreviation'] ?: 'unit'); ?></td>
-                            <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
-                            <td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
-                            <td>
-                                <?php
-                                    $label = trim((!empty($row['classification_family']) ? $row['classification_family'] . ' / ' : '') . ($row['classification_name'] ?? ''));
-                                    $desc = trim(($label !== '' ? $label . ' - ' : '') . ($row['item_description'] ?? ''));
-                                ?>
-                                <?php echo nl2br(h($desc)); ?>
-                                <div class="small text-muted">
-                                    Brand: <?php echo h($row['brand'] ?? ''); ?> | Model: <?php echo h($row['model'] ?? ''); ?> | Serial No.: <?php echo h($row['serial_no'] ?? ''); ?>
-                                </div>
-                            </td>
-                            <td><?php echo h($row['property_number'] ?? ''); ?></td>
-                            <td>
-                                <?php
-                                    $useful = '—';
-                                    if (!empty($row['useful_life_years'])) {
-                                        $useful = $row['useful_life_years'] . ' yr' . ((int) $row['useful_life_years'] > 1 ? 's' : '');
-                                    }
-                                    echo h($useful);
-                                ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
+                    <tr>
+                        <td class="label">Fund Cluster :</td>
+                        <td><span class="line-value long"><?php echo h($fundCluster); ?></span></td>
+                        <td></td>
+                        <td><span style="font-size:10px;"><?php echo h($subtypeLabel); ?></span></td>
+                    </tr>
+                </table>
 
-        <div class="row mt-4">
-            <div class="col-md-6 text-center">
-                <div><strong>Received from:</strong></div>
-                <div style="height:60px;border-bottom:1px solid #000;margin:12px 40px;"></div>
-                <div>Signature Over Printed Name</div>
-                <div>Name: <?php echo h($unitHeadName); ?></div>
-                <div>Position/Office: <?php echo h($header['position_title'] ?? ''); ?> / <?php echo h($header['office_name'] ?? ''); ?></div>
-            </div>
-            <div class="col-md-6 text-center">
-                <div><strong>Received by:</strong></div>
-                <div style="height:60px;border-bottom:1px solid #000;margin:12px 40px;"></div>
-                <div>Signature Over Printed Name</div>
-                <div>Position/Office</div>
+                <table class="ics-table">
+                    <thead>
+                        <tr>
+                            <th style="width:8%;" rowspan="2">Quanti<br>ty</th>
+                            <th style="width:8%;" rowspan="2">Unit</th>
+                            <th style="width:16%;" colspan="2">Amount</th>
+                            <th style="width:32%;" rowspan="2">Description</th>
+                            <th style="width:15%;" rowspan="2">Inventory Item No.</th>
+                            <th style="width:15%;" rowspan="2">Estimated Useful Life</th>
+                        </tr>
+                        <tr>
+                            <th style="width:8%;">Unit Cost</th>
+                            <th style="width:8%;">Total Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody class="ics-body">
+                        <?php foreach ($printRows as $row):
+                            $qty = (float) ($row['quantity'] ?? 1);
+                            $unitLabel = trim((string) ($row['abbreviation'] ?: 'unit'));
+                            $unitCost = (float) ($row['unit_cost'] ?? 0);
+                            $totalCost = (float) ($row['line_total'] ?? 0);
+                            $itemClass = trim((string) ($row['classification_name'] ?? ''));
+                            $itemDescription = trim((string) ($row['item_description'] ?? ''));
+                            $icsDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                            $inventoryItemNo = trim((string) ($row['property_number'] ?? ''));
+                            $useful = '';
+                            if (!empty($row['useful_life_years'])) {
+                                $useful = (string) ((int) $row['useful_life_years']) . ' yr' . ((int) $row['useful_life_years'] > 1 ? 's' : '');
+                            }
+                        ?>
+                        <tr>
+                            <td class="text-end"><?php echo h(format_quantity($qty)); ?></td>
+                            <td><?php echo h($unitLabel); ?></td>
+                            <td class="text-end"><?php echo h(number_format($unitCost, 2)); ?></td>
+                            <td class="text-end"><?php echo h(number_format($totalCost, 2)); ?></td>
+                            <td><?php echo nl2br(h($icsDescription)); ?></td>
+                            <td><?php echo h($inventoryItemNo); ?></td>
+                            <td><?php echo h($useful); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php for ($i = 0; $i < $blankRows; $i++): ?>
+                        <tr>
+                            <td>&nbsp;</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        <?php endfor; ?>
+                    </tbody>
+                </table>
+
+                <table class="ics-sign-table">
+                    <tr>
+                        <th class="sign-head" style="width:50%;">Received from:</th>
+                        <th class="sign-head" style="width:50%;">Received by:</th>
+                    </tr>
+                    <tr>
+                        <td class="sign-box">
+                            <?php if ($supplyHeadName !== ''): ?>
+                                <div class="sign-name"><span class="underlined-value"><?php echo h($supplyHeadName); ?></span></div>
+                            <?php endif; ?>
+                            <div>Signature Over Printed Name</div>
+                        </td>
+                        <td class="sign-box">
+                            <?php if ($recipientHeadName !== ''): ?>
+                                <div class="sign-name"><span class="underlined-value"><?php echo h($recipientHeadName); ?></span></div>
+                            <?php endif; ?>
+                            <div>Signature Over Printed Name</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="meta-box">
+                            <div class="meta-value"><span class="underlined-value"><?php echo h(trim($supplyHeadTitle . ($supplyOfficeName !== '' ? ' / ' . $supplyOfficeName : ''))); ?></span></div>
+                            <div class="meta-caption">Designation/Office</div>
+                        </td>
+                        <td class="meta-box">
+                            <div class="meta-value"><span class="underlined-value"><?php echo h(trim($recipientHeadTitle . ($recipientOfficeName !== '' ? ' / ' . $recipientOfficeName : ''))); ?></span></div>
+                            <div class="meta-caption">Designation/Office</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="meta-box">
+                            <div class="meta-value"><span class="underlined-value"><?php echo h(date('m/d/Y')); ?></span></div>
+                            <div class="meta-caption">Date</div>
+                        </td>
+                        <td class="meta-box">
+                            <div class="meta-value"><span class="underlined-value"><?php echo h(date('m/d/Y')); ?></span></div>
+                            <div class="meta-caption">Date</div>
+                        </td>
+                    </tr>
+                </table>
             </div>
         </div>
+        <div class="duplicate-host" id="duplicateHost"></div>
     <?php elseif ($officeId > 0 || $legacyAssetId > 0): ?>
         <div class="alert alert-info">No ICS items found for the selected office.</div>
     <?php endif; ?>
 </div>
 <?php if ($autoPrint && $rows): ?><script>window.addEventListener('load', function(){ window.print(); });</script><?php endif; ?>
+<?php if ($isShort && (($officeId > 0 || $legacyAssetId > 0) && $header)): ?>
+<script>
+(function () {
+    var source = document.getElementById('printCopy');
+    var host = document.getElementById('duplicateHost');
+    if (!source || !host || host.children.length) return;
+    var clone = source.cloneNode(true);
+    clone.removeAttribute('id');
+    host.appendChild(clone);
+})();
+</script>
+<?php endif; ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const officeInput = document.getElementById('office_name');
+    const officeIdInput = document.getElementById('office_id');
+    const officeOptions = Array.from(document.querySelectorAll('#office_options option'));
+
+    if (!officeInput || !officeIdInput) {
+        return;
+    }
+
+    const syncOfficeId = function () {
+        const match = officeOptions.find(function (option) {
+            return option.value === officeInput.value;
+        });
+        officeIdInput.value = match ? (match.dataset.officeId || '') : '';
+    };
+
+    officeInput.addEventListener('input', syncOfficeId);
+    officeInput.form && officeInput.form.addEventListener('submit', function (event) {
+        syncOfficeId();
+        if (!officeIdInput.value) {
+            event.preventDefault();
+            officeInput.setCustomValidity('Please select a valid office from the list.');
+            officeInput.reportValidity();
+        } else {
+            officeInput.setCustomValidity('');
+        }
+    });
+});
+</script>
 </body>
 </html>
