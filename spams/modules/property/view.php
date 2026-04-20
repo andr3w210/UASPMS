@@ -990,6 +990,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="d-flex flex-wrap gap-2">
                         <?php $assetKey = $source . ':' . (int) $id; ?>
                         <a href="<?php echo base_url('modules/property/index.php'); ?>" class="btn btn-outline-secondary btn-sm">Back to Registry</a>
+                        <a href="<?php echo base_url('modules/transfers/index.php?mode=direct&asset_key=' . urlencode($assetKey)); ?>" class="btn btn-outline-primary btn-sm">Transfer Accountability</a>
                         <?php if ($source === 'system' && !empty($asset['purchase_order_id'])): ?>
                             <a href="<?php echo base_url('modules/purchase_orders/view.php?id=' . (int) $asset['purchase_order_id']); ?>" class="btn btn-outline-info btn-sm">Source PO</a>
                             <?php if ($canEditSourcePo): ?>
@@ -1005,7 +1006,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 Asset Actions
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end">
-                                <li><a class="dropdown-item" href="<?php echo base_url('modules/transfers/index.php?asset_key=' . urlencode($assetKey)); ?>">Transfer</a></li>
+                                <li><a class="dropdown-item" href="<?php echo base_url('modules/transfers/index.php?mode=direct&asset_key=' . urlencode($assetKey)); ?>">Transfer Accountability</a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <?php if ($source === 'system'): ?>
                                     <li><a class="dropdown-item" href="<?php echo base_url('modules/maintenance/index.php?detail_id=' . (int) $asset['id']); ?>">Maintenance</a></li>

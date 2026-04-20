@@ -246,13 +246,31 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="master-data-editor-header"><div><h5 class="mb-1"><?php echo $form['id'] > 0 ? 'Edit Fund' : 'New Fund'; ?></h5><div class="text-muted small">Maintain funding sources used in procurement and reporting.</div></div></div>
                     <form method="post" class="workspace-form-section mt-3">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
-                        <div class="row g-3">
-                            <div class="col-md-4"><label class="form-label">Fund Code</label><input type="text" class="form-control" name="fund_code" value="<?php echo h($form['fund_code']); ?>" required></div>
-                            <div class="col-md-4"><label class="form-label">Fund Name</label><input type="text" class="form-control" name="fund_name" value="<?php echo h($form['fund_name']); ?>" required></div>
-                            <div class="col-md-4"><label class="form-label">Fund Source</label><input type="text" class="form-control" name="fund_source" value="<?php echo h($form['fund_source']); ?>"></div>
-                            <div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3"><?php echo h($form['description']); ?></textarea></div>
-                            <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active fund</label></div></div>
-                            <div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/funds/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Fund' : 'Save Fund'; ?></button></div>
+                        <div class="master-data-form-layout">
+                            <div class="master-data-form-main">
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header"><div><div class="master-data-panel-kicker">Identity</div><h6 class="mb-1">Fund Details</h6><div class="text-muted small">Keep the fund code stable and the name readable across procurement and reporting views.</div></div></div>
+                                    <div class="master-data-panel-body">
+                                        <div class="row g-3">
+                                            <div class="col-md-4"><label class="form-label">Fund Code</label><input type="text" class="form-control" name="fund_code" value="<?php echo h($form['fund_code']); ?>" required></div>
+                                            <div class="col-md-4"><label class="form-label">Fund Name</label><input type="text" class="form-control" name="fund_name" value="<?php echo h($form['fund_name']); ?>" required></div>
+                                            <div class="col-md-4"><label class="form-label">Fund Source</label><input type="text" class="form-control" name="fund_source" value="<?php echo h($form['fund_source']); ?>" placeholder="General Fund, Trust Fund"></div>
+                                            <div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="4"><?php echo h($form['description']); ?></textarea></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="master-data-form-actions"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/funds/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Fund' : 'Save Fund'; ?></button></div>
+                            </div>
+                            <div class="master-data-form-side">
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header"><div><div class="master-data-panel-kicker">Status</div><h6 class="mb-1">Fund Controls</h6></div></div>
+                                    <div class="master-data-panel-body">
+                                        <div class="master-data-helper mb-3">Recommendation: use one source label consistently so fund summaries and printed reports stay uniform.</div>
+                                        <div class="master-data-side-list"><div class="master-data-side-item"><span>Directory status</span><span class="badge <?php echo $form['is_active'] === '1' ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo $form['is_active'] === '1' ? 'Active' : 'Inactive'; ?></span></div></div>
+                                        <div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active fund</label></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </form>
                 </div>
@@ -289,7 +307,6 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-
 
 
 

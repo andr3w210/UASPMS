@@ -690,6 +690,10 @@ document.addEventListener('DOMContentLoaded', function () {
         var currentPage = 1;
         var perPage = parseInt(perPageSelect && perPageSelect.value, 10) || 25;
         var emptyRow = null;
+        var toolbar = searchInput
+            ? searchInput.closest('.master-data-toolbar, .workspace-filter-panel, .d-flex.flex-wrap.gap-2.align-items-center.mb-3')
+            : null;
+        var resetButton = null;
 
         [statusFilter, perPageSelect].forEach(function (select) {
             if (!select) {
@@ -708,16 +712,10 @@ document.addEventListener('DOMContentLoaded', function () {
         (function movePaginationControlsAboveTable() {
             var wrapper = table.closest('.table-responsive') || table.parentElement;
             var controlContainer = null;
-            var toolbar = null;
-
             if (pageInfo && pageInfo.parentElement) {
                 controlContainer = pageInfo.parentElement;
             } else if (perPageSelect && perPageSelect.parentElement) {
                 controlContainer = perPageSelect.parentElement;
-            }
-
-            if (searchInput) {
-                toolbar = searchInput.closest('.master-data-toolbar, .workspace-filter-panel, .d-flex.flex-wrap.gap-2.align-items-center.mb-3');
             }
 
             if (!wrapper || !controlContainer || !wrapper.parentNode) {
@@ -748,6 +746,53 @@ document.addEventListener('DOMContentLoaded', function () {
         table.setAttribute('data-no-table-search', 'true');
         table.setAttribute('data-table-search-initialized', 'true');
         table.setAttribute('data-managed-datatable', 'true');
+
+        function ensureResetButton() {
+            if (!toolbar || resetButton) {
+                return;
+            }
+
+            var actionHost = toolbar.querySelector('.master-data-toolbar-actions');
+            if (!actionHost) {
+                actionHost = document.createElement('div');
+                actionHost.className = 'master-data-toolbar-actions';
+                toolbar.appendChild(actionHost);
+            }
+
+            resetButton = document.createElement('button');
+            resetButton.type = 'button';
+            resetButton.className = 'btn btn-sm btn-outline-secondary master-data-reset-btn';
+            resetButton.textContent = 'Reset Filters';
+            resetButton.addEventListener('click', function () {
+                if (searchInput) {
+                    searchInput.value = '';
+                }
+                if (statusFilter) {
+                    statusFilter.value = '';
+                }
+                resetToFirstPage();
+            });
+            actionHost.appendChild(resetButton);
+        }
+
+        function syncToolbarState() {
+            var hasSearch = !!(((searchInput && searchInput.value) || '').trim());
+            var hasStatus = !!(((statusFilter && statusFilter.value) || '').trim());
+            var hasActiveFilters = hasSearch || hasStatus;
+
+            if (toolbar) {
+                toolbar.classList.toggle('master-data-toolbar-active', hasActiveFilters);
+            }
+            if (searchInput) {
+                searchInput.classList.toggle('master-data-search-active', hasSearch);
+            }
+            if (statusFilter) {
+                statusFilter.classList.toggle('master-data-filter-active', hasStatus);
+            }
+            if (resetButton) {
+                resetButton.classList.toggle('d-none', !hasActiveFilters);
+            }
+        }
 
         function getVisibleRows() {
             var term = ((searchInput && searchInput.value) || '').toLowerCase().trim();
@@ -844,10 +889,21 @@ document.addEventListener('DOMContentLoaded', function () {
         function resetToFirstPage() {
             currentPage = 1;
             renderRows();
+            syncToolbarState();
         }
+
+        ensureResetButton();
+        syncToolbarState();
 
         if (searchInput) {
             searchInput.addEventListener('input', resetToFirstPage);
+            searchInput.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && searchInput.value !== '') {
+                    event.preventDefault();
+                    searchInput.value = '';
+                    resetToFirstPage();
+                }
+            });
         }
         if (statusFilter) {
             statusFilter.addEventListener('change', resetToFirstPage);
@@ -1100,6 +1156,5 @@ document.addEventListener('DOMContentLoaded', function () {
         subtree: true
     });
 });
-
 
 
