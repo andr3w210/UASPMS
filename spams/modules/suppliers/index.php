@@ -268,47 +268,68 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
                         <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
-
-                        <div class="row g-3">
-                            <div class="col-md-3">
-                                <label class="form-label">Supplier Code</label>
-                                <input type="text" class="form-control" name="supplier_code" value="<?php echo h($form['id'] > 0 ? $form['supplier_code'] : $generatedCode); ?>" readonly>
-                            </div>
-                            <div class="col-md-9">
-                                <label class="form-label">Supplier Name</label>
-                                <input type="text" class="form-control" name="supplier_name" value="<?php echo h($form['supplier_name']); ?>" placeholder="Enter supplier or company name" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Contact Person</label>
-                                <input type="text" class="form-control" name="contact_person" value="<?php echo h($form['contact_person']); ?>" placeholder="Primary contact name">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Contact Number</label>
-                                <input type="text" class="form-control" name="contact_no" value="<?php echo h($form['contact_no']); ?>" placeholder="Phone or mobile number">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Email</label>
-                                <input type="email" class="form-control" name="email" value="<?php echo h($form['email']); ?>" placeholder="supplier@example.com">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">TIN No.</label>
-                                <input type="text" class="form-control" name="tin_no" value="<?php echo h($form['tin_no']); ?>" placeholder="Enter TIN number">
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Address</label>
-                                <textarea class="form-control" name="address" rows="3" placeholder="Business address"><?php echo h($form['address']); ?></textarea>
-                            </div>
-                            <div class="col-12">
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>>
-                                    <label class="form-check-label">Active supplier</label>
+                        <div class="master-data-form-layout">
+                            <div class="master-data-form-main">
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header">
+                                        <div>
+                                            <div class="master-data-panel-kicker">Identity</div>
+                                            <h6 class="mb-1">Supplier Profile</h6>
+                                            <div class="text-muted small">Keep supplier identity and legal contact information complete so purchase orders and receiving records stay clean.</div>
+                                        </div>
+                                    </div>
+                                    <div class="master-data-panel-body">
+                                        <div class="row g-3">
+                                            <div class="col-md-3">
+                                                <label class="form-label">Supplier Code</label>
+                                                <input type="text" class="form-control" name="supplier_code" value="<?php echo h($form['id'] > 0 ? $form['supplier_code'] : $generatedCode); ?>" readonly>
+                                            </div>
+                                            <div class="col-md-9">
+                                                <label class="form-label">Supplier Name</label>
+                                                <input type="text" class="form-control" name="supplier_name" value="<?php echo h($form['supplier_name']); ?>" placeholder="Enter supplier or company name" required>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Contact Person</label>
+                                                <input type="text" class="form-control" name="contact_person" value="<?php echo h($form['contact_person']); ?>" placeholder="Primary contact name">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Contact Number</label>
+                                                <input type="text" class="form-control" name="contact_no" value="<?php echo h($form['contact_no']); ?>" placeholder="Phone or mobile number">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Email</label>
+                                                <input type="email" class="form-control" name="email" value="<?php echo h($form['email']); ?>" placeholder="supplier@example.com">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">TIN No.</label>
+                                                <input type="text" class="form-control" name="tin_no" value="<?php echo h($form['tin_no']); ?>" placeholder="Enter TIN number">
+                                            </div>
+                                            <div class="col-12">
+                                                <label class="form-label">Address</label>
+                                                <textarea class="form-control" name="address" rows="4" placeholder="Business address"><?php echo h($form['address']); ?></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="master-data-form-actions">
+                                    <?php if ($form['id'] > 0): ?>
+                                        <a href="<?php echo base_url('modules/suppliers/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a>
+                                    <?php endif; ?>
+                                    <button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Supplier' : 'Save Supplier'; ?></button>
                                 </div>
                             </div>
-                            <div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2">
-                                <?php if ($form['id'] > 0): ?>
-                                    <a href="<?php echo base_url('modules/suppliers/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a>
-                                <?php endif; ?>
-                                <button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Supplier' : 'Save Supplier'; ?></button>
+                            <div class="master-data-form-side">
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header"><div><div class="master-data-panel-kicker">Status</div><h6 class="mb-1">Supplier Controls</h6></div></div>
+                                    <div class="master-data-panel-body">
+                                        <div class="master-data-helper mb-3">Recommendation: keep one clean supplier record per legal entity to avoid duplicate procurement history.</div>
+                                        <div class="master-data-side-list"><div class="master-data-side-item"><span>Directory status</span><span class="badge <?php echo $form['is_active'] === '1' ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo $form['is_active'] === '1' ? 'Active' : 'Inactive'; ?></span></div></div>
+                                        <div class="form-check form-switch mt-3">
+                                            <input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>>
+                                            <label class="form-check-label">Active supplier</label>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </form>
@@ -418,4 +439,3 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-

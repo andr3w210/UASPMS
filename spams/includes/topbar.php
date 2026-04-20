@@ -3,6 +3,7 @@ $displayName = $_SESSION['user_name'] ?? 'User';
 $roleName = $_SESSION['role_name'] ?? 'Administrator';
 $userRole = $_SESSION['user_role'] ?? 'User';
 $userPhotoPath = (string) ($_SESSION['user_photo_path'] ?? '');
+$transportNotificationRole = function_exists('current_user_role') ? current_user_role() : trim((string) ($_SESSION['user_role'] ?? ($_SESSION['role_name'] ?? '')));
 $notificationDb = (isset($db) && $db instanceof mysqli) ? $db : db();
 $pendingDistributionUnits = 0;
 $pendingDistributionRecords = 0;
@@ -12,9 +13,13 @@ $deliveryOverdueCount = 0;
 $repeatExtensionCount = 0;
 $lowStockItemCount = 0;
 $unreadMessageCount = 0;
+$unclassifiedReceivedItemCount = 0;
+$mustChangePasswordUserCount = 0;
 $nextDayTripCount = 0;
 $pendingTripCompletionCount = 0;
+$overdueTripCompletionCount = 0;
 $vehicleConflictCount = 0;
+$driverConflictCount = 0;
 $returnTodayTripCount = 0;
 if ($notificationDb) {
     $tableExists = static function (mysqli $connection, string $tableName): bool {
@@ -195,8 +200,40 @@ if ($notificationDb) {
             $lowStockStmt->close();
         }
     }
+
+    if ($tableExists($notificationDb, 'receiving_items')
+        && $tableExists($notificationDb, 'receivings')
+        && $tableExists($notificationDb, 'purchase_order_items')) {
+        $unclassifiedReceivedStmt = $notificationDb->prepare(
+            "SELECT COUNT(*) AS total
+             FROM receiving_items ri
+             INNER JOIN receivings r ON r.id = ri.receiving_id
+             INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+             WHERE r.status != 'cancelled'
+               AND COALESCE(ri.quantity_delivered, 0) > 0
+               AND poi.classification_id IS NULL"
+        );
+        if ($unclassifiedReceivedStmt) {
+            $unclassifiedReceivedStmt->execute();
+            $unclassifiedReceivedItemCount = (int) (($unclassifiedReceivedStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $unclassifiedReceivedStmt->close();
+        }
+    }
+
+    if (in_array($transportNotificationRole, ['Administrator'], true) && $tableExists($notificationDb, 'users')) {
+        $mustChangePasswordStmt = $notificationDb->prepare(
+            "SELECT COUNT(*) AS total
+             FROM users
+             WHERE is_active = 1
+               AND COALESCE(must_change_password, 0) = 1"
+        );
+        if ($mustChangePasswordStmt) {
+            $mustChangePasswordStmt->execute();
+            $mustChangePasswordUserCount = (int) (($mustChangePasswordStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $mustChangePasswordStmt->close();
+        }
+    }
 }
-$transportNotificationRole = function_exists('current_user_role') ? current_user_role() : trim((string) ($_SESSION['user_role'] ?? ($_SESSION['role_name'] ?? '')));
 $tripNotificationDb = function_exists('trip_db') ? trip_db() : null;
 if ($tripNotificationDb && in_array($transportNotificationRole, ['Administrator', 'Transport Officer'], true)) {
     $tripTableExists = static function (mysqli $connection, string $tableName): bool {
@@ -235,6 +272,18 @@ if ($tripNotificationDb && in_array($transportNotificationRole, ['Administrator'
             $pendingTripCompletionStmt->close();
         }
 
+        $overdueTripCompletionStmt = $tripNotificationDb->prepare("
+            SELECT COUNT(*) AS total
+            FROM trip_tickets
+            WHERE COALESCE(return_date, departure_date) < CURDATE()
+              AND COALESCE(status, 'scheduled') <> 'completed'
+        ");
+        if ($overdueTripCompletionStmt) {
+            $overdueTripCompletionStmt->execute();
+            $overdueTripCompletionCount = (int) (($overdueTripCompletionStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $overdueTripCompletionStmt->close();
+        }
+
         $returnTodayTripStmt = $tripNotificationDb->prepare("
             SELECT COUNT(*) AS total
             FROM trip_tickets
@@ -263,6 +312,24 @@ if ($tripNotificationDb && in_array($transportNotificationRole, ['Administrator'
             $vehicleConflictCount = (int) (($vehicleConflictStmt->get_result()->fetch_assoc()['total'] ?? 0));
             $vehicleConflictStmt->close();
         }
+
+        $driverConflictStmt = $tripNotificationDb->prepare("
+            SELECT COUNT(DISTINCT t1.driver_employee_id) AS total
+            FROM trip_tickets t1
+            INNER JOIN trip_tickets t2
+                ON t1.driver_employee_id = t2.driver_employee_id
+               AND t1.id < t2.id
+               AND t1.driver_employee_id IS NOT NULL
+               AND COALESCE(t1.status, 'scheduled') IN ('scheduled', 'ongoing')
+               AND COALESCE(t2.status, 'scheduled') IN ('scheduled', 'ongoing')
+               AND t1.departure_date <= COALESCE(t2.return_date, t2.departure_date)
+               AND t2.departure_date <= COALESCE(t1.return_date, t1.departure_date)
+        ");
+        if ($driverConflictStmt) {
+            $driverConflictStmt->execute();
+            $driverConflictCount = (int) (($driverConflictStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $driverConflictStmt->close();
+        }
     }
 }
 $userPhotoUrl = upload_url($userPhotoPath);
@@ -273,9 +340,13 @@ $notificationBadgeCount =
     $deliveryOverdueCount +
     $repeatExtensionCount +
     $lowStockItemCount +
+    $unclassifiedReceivedItemCount +
+    $mustChangePasswordUserCount +
     $nextDayTripCount +
     $pendingTripCompletionCount +
+    $overdueTripCompletionCount +
     $vehicleConflictCount +
+    $driverConflictCount +
     $returnTodayTripCount;
 $hasNotifications = $notificationBadgeCount > 0;
 ?>
@@ -412,6 +483,44 @@ $hasNotifications = $notificationBadgeCount > 0;
                                 <?php $hasPreviousNotification = true; ?>
                             <?php endif; ?>
 
+                            <?php if ($unclassifiedReceivedItemCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-tags"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Received Items Still Unclassified</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $unclassifiedReceivedItemCount); ?> received item row(s) still have no classification and can block downstream distribution or reporting.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-warning mt-2" href="<?php echo base_url('modules/receivings/index.php'); ?>">
+                                            Review Receivings
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
+                            <?php if ($mustChangePasswordUserCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-secondary-subtle text-secondary d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-key"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Users Still on Initial Password</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $mustChangePasswordUserCount); ?> active user account(s) have not changed the initial password yet.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-secondary mt-2" href="<?php echo base_url('modules/users/index.php'); ?>">
+                                            Review Users
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
                             <?php if ($nextDayTripCount > 0): ?>
                                 <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
                                 <div class="d-flex align-items-start gap-3">
@@ -425,6 +534,25 @@ $hasNotifications = $notificationBadgeCount > 0;
                                         </div>
                                         <a class="btn btn-sm btn-outline-success mt-2" href="<?php echo base_url('modules/trip_tickets/schedules.php?month=' . date('Y-m')); ?>">
                                             Open Schedule Calendar
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
+                            <?php if ($overdueTripCompletionCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-clock-history"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Overdue Trip Completion</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $overdueTripCompletionCount); ?> trip(s) are already past the expected return date and still not completed.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-danger mt-2" href="<?php echo base_url('modules/trip_tickets/index.php'); ?>">
+                                            Review Trip Tickets
                                         </a>
                                     </div>
                                 </div>
@@ -479,6 +607,25 @@ $hasNotifications = $notificationBadgeCount > 0;
                                         <div class="fw-semibold">Vehicle Schedule Conflict</div>
                                         <div class="small text-muted">
                                             <?php echo h((string) $vehicleConflictCount); ?> vehicle(s) have overlapping active trip schedules.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-danger mt-2" href="<?php echo base_url('modules/trip_tickets/schedules.php?month=' . date('Y-m')); ?>">
+                                            Review Transport Calendar
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
+                            <?php if ($driverConflictCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-person-exclamation"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Driver Schedule Conflict</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $driverConflictCount); ?> driver(s) are assigned to overlapping active trips.
                                         </div>
                                         <a class="btn btn-sm btn-outline-danger mt-2" href="<?php echo base_url('modules/trip_tickets/schedules.php?month=' . date('Y-m')); ?>">
                                             Review Transport Calendar

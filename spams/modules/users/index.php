@@ -401,63 +401,124 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
                         <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
-
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label">Username</label>
-                                <input type="text" class="form-control" name="username" value="<?php echo h($form['username']); ?>" required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Email</label>
-                                <input type="email" class="form-control" id="email" name="email" value="<?php echo h($form['email']); ?>">
-                                <div class="form-text">Auto-filled from linked employee when available.</div>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Full Name</label>
-                                <input type="text" class="form-control" id="full_name" name="full_name" value="<?php echo h($form['full_name']); ?>">
-                                <div class="form-text">Auto-filled from linked employee when available.</div>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Role</label>
-                                <select class="form-select" id="role_id" name="role_id" data-placeholder="Select role" required>
-                                    <option value="">Select role</option>
-                                    <?php foreach ($roles as $role): ?><option value="<?php echo (int) $role['id']; ?>" <?php echo $form['role_id'] === (string) $role['id'] ? 'selected' : ''; ?>><?php echo h($role['name']); ?></option><?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Office</label>
-                                <select class="form-select" id="office_id" name="office_id" data-placeholder="Select office">
-                                    <option value="">Select office</option>
-                                    <?php foreach ($offices as $office): ?><option value="<?php echo (int) $office['id']; ?>" <?php echo $form['office_id'] === (string) $office['id'] ? 'selected' : ''; ?>><?php echo h($office['office_name'] . ' (' . $office['office_code'] . ')'); ?></option><?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Linked Employee</label>
-                                <select class="form-select" id="employee_id" name="employee_id" data-placeholder="Select employee" onchange="window.syncUserOfficeFromEmployee && window.syncUserOfficeFromEmployee();">
-                                    <option value="">Select employee</option>
-                                    <?php foreach ($employees as $employee): ?><option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>" data-email="<?php echo h($employee['email'] ?? ''); ?>" data-full-name="<?php echo h(employee_display_name($employee)); ?>" <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>><?php echo h(employee_display_name($employee) . ' - ' . $employee['employee_no']); ?></option><?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label" for="password"><?php echo $form['id'] > 0 ? 'New Password' : 'Initial Password'; ?></label>
-                                <div class="input-group">
-                                    <input type="password" class="form-control" id="password" name="password" minlength="8" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" value="<?php echo $form['id'] > 0 ? '' : h($form['password']); ?>" aria-describedby="passwordHelp passwordStrength passwordCopyFeedback" placeholder="<?php echo $form['id'] > 0 ? '' : 'Generated initial password'; ?>">
-                                    <?php if ($form['id'] === 0): ?>
-                                        <button type="button" class="btn btn-outline-dark" id="generatePasswordButton">Generate</button>
-                                    <?php endif; ?>
-                                    <button type="button" class="btn btn-outline-secondary" id="togglePasswordVisibility">Show</button>
-                                    <button type="button" class="btn btn-outline-primary" id="copyPasswordButton">Copy</button>
+                        <div class="master-data-form-layout">
+                            <div class="master-data-form-main">
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header">
+                                        <div>
+                                            <div class="master-data-panel-kicker">Account</div>
+                                            <h6 class="mb-1">Login Identity</h6>
+                                            <div class="text-muted small">Create a clear login record first, then connect it to an employee and role context.</div>
+                                        </div>
+                                    </div>
+                                    <div class="master-data-panel-body">
+                                        <div class="row g-3">
+                                            <div class="col-md-4">
+                                                <label class="form-label">Username</label>
+                                                <input type="text" class="form-control" name="username" value="<?php echo h($form['username']); ?>" required>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">Email</label>
+                                                <input type="email" class="form-control" id="email" name="email" value="<?php echo h($form['email']); ?>">
+                                                <div class="form-text">Auto-filled from linked employee when available.</div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">Full Name</label>
+                                                <input type="text" class="form-control" id="full_name" name="full_name" value="<?php echo h($form['full_name']); ?>">
+                                                <div class="form-text">Auto-filled from linked employee when available.</div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div id="passwordStrength" class="small mt-2 text-muted">Use at least 8 characters with letters and numbers.</div>
-                                <div id="passwordCopyFeedback" class="small mt-1 text-muted"></div>
-                                <div class="form-text" id="passwordHelp"><?php echo $form['id'] > 0 ? 'Leave blank to keep the current password.' : 'Set the initial password for the account. The user will be required to change it on first login.'; ?> Minimum: 8 characters, at least one letter, and at least one number.</div>
+
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header">
+                                        <div>
+                                            <div class="master-data-panel-kicker">Access</div>
+                                            <h6 class="mb-1">Role and Employee Link</h6>
+                                        </div>
+                                    </div>
+                                    <div class="master-data-panel-body">
+                                        <div class="master-data-helper mb-3">
+                                            Recommendation: link the user to an employee whenever possible so office and contact details stay synchronized.
+                                        </div>
+                                        <div class="row g-3">
+                                            <div class="col-md-4">
+                                                <label class="form-label">Role</label>
+                                                <select class="form-select" id="role_id" name="role_id" data-placeholder="Select role" required>
+                                                    <option value="">Select role</option>
+                                                    <?php foreach ($roles as $role): ?><option value="<?php echo (int) $role['id']; ?>" <?php echo $form['role_id'] === (string) $role['id'] ? 'selected' : ''; ?>><?php echo h($role['name']); ?></option><?php endforeach; ?>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">Office</label>
+                                                <select class="form-select" id="office_id" name="office_id" data-placeholder="Select office">
+                                                    <option value="">Select office</option>
+                                                    <?php foreach ($offices as $office): ?><option value="<?php echo (int) $office['id']; ?>" <?php echo $form['office_id'] === (string) $office['id'] ? 'selected' : ''; ?>><?php echo h($office['office_name'] . ' (' . $office['office_code'] . ')'); ?></option><?php endforeach; ?>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">Linked Employee</label>
+                                                <select class="form-select" id="employee_id" name="employee_id" data-placeholder="Select employee" onchange="window.syncUserOfficeFromEmployee && window.syncUserOfficeFromEmployee();">
+                                                    <option value="">Select employee</option>
+                                                    <?php foreach ($employees as $employee): ?><option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>" data-email="<?php echo h($employee['email'] ?? ''); ?>" data-full-name="<?php echo h(employee_display_name($employee)); ?>" <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>><?php echo h(employee_display_name($employee) . ' - ' . $employee['employee_no']); ?></option><?php endforeach; ?>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header">
+                                        <div>
+                                            <div class="master-data-panel-kicker">Security</div>
+                                            <h6 class="mb-1">Password Setup</h6>
+                                        </div>
+                                    </div>
+                                    <div class="master-data-panel-body">
+                                        <label class="form-label" for="password"><?php echo $form['id'] > 0 ? 'New Password' : 'Initial Password'; ?></label>
+                                        <div class="input-group">
+                                            <input type="password" class="form-control" id="password" name="password" minlength="8" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" value="<?php echo $form['id'] > 0 ? '' : h($form['password']); ?>" aria-describedby="passwordHelp passwordStrength passwordCopyFeedback" placeholder="<?php echo $form['id'] > 0 ? '' : 'Generated initial password'; ?>">
+                                            <?php if ($form['id'] === 0): ?>
+                                                <button type="button" class="btn btn-outline-dark" id="generatePasswordButton">Generate</button>
+                                            <?php endif; ?>
+                                            <button type="button" class="btn btn-outline-secondary" id="togglePasswordVisibility">Show</button>
+                                            <button type="button" class="btn btn-outline-primary" id="copyPasswordButton">Copy</button>
+                                        </div>
+                                        <div id="passwordStrength" class="small mt-2 text-muted">Use at least 8 characters with letters and numbers.</div>
+                                        <div id="passwordCopyFeedback" class="small mt-1 text-muted"></div>
+                                        <div class="form-text" id="passwordHelp"><?php echo $form['id'] > 0 ? 'Leave blank to keep the current password.' : 'Set the initial password for the account. The user will be required to change it on first login.'; ?> Minimum: 8 characters, at least one letter, and at least one number.</div>
+                                    </div>
+                                </div>
+
+                                <div class="master-data-form-actions">
+                                    <?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/users/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?>
+                                    <button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update User' : 'Save User'; ?></button>
+                                </div>
                             </div>
-                            <div class="col-12">
-                                <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active user</label></div>
-                            </div>
-                            <div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2">
-                                <?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/users/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?>
-                                <button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update User' : 'Save User'; ?></button>
+
+                            <div class="master-data-form-side">
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header">
+                                        <div>
+                                            <div class="master-data-panel-kicker">Status</div>
+                                            <h6 class="mb-1">Account Controls</h6>
+                                        </div>
+                                    </div>
+                                    <div class="master-data-panel-body">
+                                        <div class="master-data-side-list">
+                                            <div class="master-data-side-item">
+                                                <span>Account state</span>
+                                                <span class="badge <?php echo $form['is_active'] === '1' ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo $form['is_active'] === '1' ? 'Active' : 'Inactive'; ?></span>
+                                            </div>
+                                            <div class="master-data-side-item">
+                                                <span>Linked employee</span>
+                                                <strong><?php echo $form['employee_id'] !== '' ? 'Yes' : 'No'; ?></strong>
+                                            </div>
+                                        </div>
+                                        <div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active user</label></div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </form>

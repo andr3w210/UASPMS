@@ -6,6 +6,7 @@ require_login();
 function offices_has_reference(mysqli $db, int $recordId): bool
 {
     $checks = [
+        "SELECT 1 FROM employee_assignments WHERE office_id = ? LIMIT 1",
         "SELECT 1 FROM employees WHERE office_id = ? LIMIT 1",
         "SELECT 1 FROM distributions WHERE office_id = ? LIMIT 1",
     ];
@@ -33,6 +34,7 @@ $flash = get_flash();
 $errors = [];
 $offices = [];
 $employees = [];
+$employeeAssignmentSummaryMap = [];
 $form = [
     'id' => 0,
     'office_code' => '',
@@ -50,6 +52,11 @@ if (!$db) {
     $employeeResult = $db->query("SELECT id, first_name, middle_name, last_name, suffix_name, employee_no FROM employees WHERE is_active = 1 ORDER BY last_name, first_name");
     if ($employeeResult) {
         $employees = $employeeResult->fetch_all(MYSQLI_ASSOC);
+    }
+    if (employee_assignments_enabled($db)) {
+        foreach ($employees as $employeeRow) {
+            $employeeAssignmentSummaryMap[(int) ($employeeRow['id'] ?? 0)] = employee_assignment_summary(employee_fetch_assignments($db, (int) ($employeeRow['id'] ?? 0), true));
+        }
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -243,14 +250,23 @@ if (!$db) {
         }
     }
 
-    $unitHeadWhere = "is_active = 1 AND office_id IS NOT NULL";
-    if (schema_has_column($db, 'employees', 'is_unit_head')) {
-        $unitHeadWhere .= " AND is_unit_head = 1";
-    }
-    $unitHeadResult = $db->query("SELECT office_id, first_name, middle_name, last_name, suffix_name FROM employees WHERE {$unitHeadWhere}");
-    if ($unitHeadResult) {
-        foreach ($unitHeadResult->fetch_all(MYSQLI_ASSOC) as $unitHeadRow) {
-            $unitHeads[(int) $unitHeadRow['office_id']] = employee_display_name($unitHeadRow);
+    if (employee_assignments_enabled($db)) {
+        foreach ($offices as $officeRow) {
+            $head = employee_resolve_office_head($db, (int) ($officeRow['id'] ?? 0));
+            if ($head) {
+                $unitHeads[(int) $officeRow['id']] = employee_display_name($head);
+            }
+        }
+    } else {
+        $unitHeadWhere = "is_active = 1 AND office_id IS NOT NULL";
+        if (schema_has_column($db, 'employees', 'is_unit_head')) {
+            $unitHeadWhere .= " AND is_unit_head = 1";
+        }
+        $unitHeadResult = $db->query("SELECT office_id, first_name, middle_name, last_name, suffix_name FROM employees WHERE {$unitHeadWhere}");
+        if ($unitHeadResult) {
+            foreach ($unitHeadResult->fetch_all(MYSQLI_ASSOC) as $unitHeadRow) {
+                $unitHeads[(int) $unitHeadRow['office_id']] = employee_display_name($unitHeadRow);
+            }
         }
     }
 
@@ -312,42 +328,86 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
                         <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
+                        <div class="master-data-form-layout">
+                            <div class="master-data-form-main">
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header">
+                                        <div>
+                                            <div class="master-data-panel-kicker">Identity</div>
+                                            <h6 class="mb-1">Office Details</h6>
+                                            <div class="text-muted small">Use a short code and a full office name that users can recognize quickly in transactions and reports.</div>
+                                        </div>
+                                    </div>
+                                    <div class="master-data-panel-body">
+                                        <div class="row g-3">
+                                            <div class="col-md-4">
+                                                <label class="form-label">Office Code</label>
+                                                <input type="text" class="form-control" name="office_code" value="<?php echo h($form['office_code']); ?>" placeholder="Enter office code" required>
+                                            </div>
+                                            <div class="col-md-8">
+                                                <label class="form-label">Office Name</label>
+                                                <input type="text" class="form-control" name="office_name" value="<?php echo h($form['office_name']); ?>" placeholder="Enter full office name" required>
+                                            </div>
+                                            <div class="col-12">
+                                                <label class="form-label">Description</label>
+                                                <textarea class="form-control" name="description" rows="4" placeholder="Optional office notes or scope details"><?php echo h($form['description']); ?></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
 
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label">Office Code</label>
-                                <input type="text" class="form-control" name="office_code" value="<?php echo h($form['office_code']); ?>" placeholder="Enter office code" required>
-                            </div>
-                            <div class="col-md-8">
-                                <label class="form-label">Office Name</label>
-                                <input type="text" class="form-control" name="office_name" value="<?php echo h($form['office_name']); ?>" placeholder="Enter full office name" required>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Office Head</label>
-                                <select class="form-select" name="office_head_employee_id" data-placeholder="Select employee">
-                                    <option value="">Select employee</option>
-                                    <?php foreach ($employees as $employee): ?>
-                                        <option value="<?php echo (int) $employee['id']; ?>" <?php echo $form['office_head_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
-                                            <?php echo h(employee_display_name($employee) . ' - ' . $employee['employee_no']); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Description</label>
-                                <textarea class="form-control" name="description" rows="3" placeholder="Optional office notes or scope details"><?php echo h($form['description']); ?></textarea>
-                            </div>
-                            <div class="col-12">
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>>
-                                    <label class="form-check-label">Active office</label>
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header">
+                                        <div>
+                                            <div class="master-data-panel-kicker">Leadership</div>
+                                            <h6 class="mb-1">Office Head Assignment</h6>
+                                        </div>
+                                    </div>
+                                    <div class="master-data-panel-body">
+                                        <div class="master-data-helper mb-3">
+                                            Recommendation: assign an employee here only when the office has a clear accountable head. If the employee has multiple assignments, choose the one that matches this office.
+                                        </div>
+                                        <label class="form-label">Office Head</label>
+                                        <select class="form-select" name="office_head_employee_id" data-placeholder="Select employee">
+                                            <option value="">Select employee</option>
+                                            <?php foreach ($employees as $employee): ?>
+                                                <option value="<?php echo (int) $employee['id']; ?>" <?php echo $form['office_head_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
+                                                    <?php echo h(employee_choice_label($employee, $employeeAssignmentSummaryMap[(int) ($employee['id'] ?? 0)] ?? '')); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="master-data-form-actions">
+                                    <?php if ($form['id'] > 0): ?>
+                                        <a href="<?php echo base_url('modules/offices/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a>
+                                    <?php endif; ?>
+                                    <button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Office' : 'Save Office'; ?></button>
                                 </div>
                             </div>
-                            <div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2">
-                                <?php if ($form['id'] > 0): ?>
-                                    <a href="<?php echo base_url('modules/offices/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a>
-                                <?php endif; ?>
-                                <button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Office' : 'Save Office'; ?></button>
+
+                            <div class="master-data-form-side">
+                                <div class="master-data-panel">
+                                    <div class="master-data-panel-header">
+                                        <div>
+                                            <div class="master-data-panel-kicker">Status</div>
+                                            <h6 class="mb-1">Office Controls</h6>
+                                        </div>
+                                    </div>
+                                    <div class="master-data-panel-body">
+                                        <div class="master-data-side-list">
+                                            <div class="master-data-side-item">
+                                                <span>Directory status</span>
+                                                <span class="badge <?php echo $form['is_active'] === '1' ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo $form['is_active'] === '1' ? 'Active' : 'Inactive'; ?></span>
+                                            </div>
+                                        </div>
+                                        <div class="form-check form-switch mt-3">
+                                            <input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>>
+                                            <label class="form-check-label">Active office</label>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </form>

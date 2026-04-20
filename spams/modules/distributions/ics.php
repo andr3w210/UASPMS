@@ -65,74 +65,11 @@ if ((!empty($header['document_type']) && $header['document_type'] === 'par') || 
 $officeId = (int) ($header['office_id'] ?? 0);
 
 $resolveOfficeHead = static function (mysqli $db, int $officeId): array {
-    if ($officeId <= 0) {
-        return [];
-    }
-
-    $stmt = $db->prepare(
-        "SELECT e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title, o.office_name
-         FROM offices o
-         LEFT JOIN employees e ON e.id = o.office_head_employee_id
-         WHERE o.id = ?
-         LIMIT 1"
-    );
-
-    $head = [];
-    if ($stmt) {
-        $stmt->bind_param('i', $officeId);
-        $stmt->execute();
-        $head = $stmt->get_result()->fetch_assoc() ?: [];
-        $stmt->close();
-    }
-
-    if (!empty($head['id'])) {
-        return $head;
-    }
-
-    $stmt = $db->prepare(
-        "SELECT e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title, o.office_name
-         FROM employees e
-         INNER JOIN offices o ON o.id = e.office_id
-         WHERE e.office_id = ? AND e.is_active = 1 AND e.is_unit_head = 1
-         ORDER BY e.last_name ASC, e.first_name ASC
-         LIMIT 1"
-    );
-    if ($stmt) {
-        $stmt->bind_param('i', $officeId);
-        $stmt->execute();
-        $head = $stmt->get_result()->fetch_assoc() ?: [];
-        $stmt->close();
-    }
-
-    return $head;
+    return employee_resolve_office_head($db, $officeId);
 };
 
-$resolveSupplyOfficeHead = static function (mysqli $db) use ($resolveOfficeHead): array {
-    $stmt = $db->query(
-        "SELECT o.id
-         FROM offices o
-         WHERE o.is_active = 1
-           AND (
-                o.office_name LIKE '%Supply%'
-                OR o.office_code LIKE '%SUPPLY%'
-                OR o.office_code IN ('SO', 'SPO')
-           )
-         ORDER BY
-            CASE
-                WHEN o.office_name LIKE '%Supply Office%' THEN 0
-                WHEN o.office_name LIKE '%Supply%' THEN 1
-                ELSE 2
-            END,
-            o.office_name ASC
-         LIMIT 1"
-    );
-
-    $office = $stmt ? ($stmt->fetch_assoc() ?: []) : [];
-    if (empty($office['id'])) {
-        return [];
-    }
-
-    return $resolveOfficeHead($db, (int) $office['id']);
+$resolveSupplyOfficeHead = static function (mysqli $db): array {
+    return employee_resolve_supply_office_head($db);
 };
 
 $itemStmt = $db->prepare(
