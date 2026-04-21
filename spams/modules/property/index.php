@@ -100,7 +100,7 @@ if ($db) {
               AND (did.is_disposed IS NULL OR did.is_disposed = 0)";
 
         if ($officeId > 0) {
-            $systemSql .= " AND d.office_id = ?";
+            $systemSql .= " AND COALESCE(did.current_office_id, d.office_id) = ?";
             $types .= 'i';
             $params[] = $officeId;
         }
@@ -854,5 +854,4 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-
 

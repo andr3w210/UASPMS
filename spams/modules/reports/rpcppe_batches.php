@@ -551,6 +551,24 @@ function rpcppe_copy_carry_forward_items(mysqli $db, int $targetBatchId, int $so
     return $copied;
 }
 
+function rpcppe_sync_batch_snapshots_from_live(mysqli $db, int $batchId, string $asOf): int
+{
+    $liveRows = rpcppe_fetch_live_rows($db, $asOf);
+    $updated = 0;
+
+    foreach ($liveRows as $row) {
+        $batchItemId = rpcppe_find_batch_item_id($db, $batchId, $row);
+        if ($batchItemId <= 0) {
+            continue;
+        }
+
+        rpcppe_update_batch_item_snapshot($db, $batchItemId, $row, [], null, null);
+        $updated++;
+    }
+
+    return $updated;
+}
+
 function rpcppe_load_batches(mysqli $db): array
 {
     $sql = "SELECT
@@ -1783,11 +1801,11 @@ function rpcppe_find_batch_item_id(mysqli $db, int $batchId, array $row): int
 
 function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $row, array $excelRow, ?array $office, ?array $employee): void
 {
-    $officeId = isset($office['id']) ? (int) $office['id'] : 0;
-    $officeName = trim((string) ($office['office_name'] ?? ''));
-    $employeeId = isset($employee['id']) ? (int) $employee['id'] : 0;
-    $employeeName = $employee ? trim(person_full_name($employee)) : '';
-    $remarks = trim((string) ($excelRow['remarks'] ?? ''));
+    $officeId = isset($office['id']) ? (int) $office['id'] : (int) ($row['office_id'] ?? 0);
+    $officeName = trim((string) ($office['office_name'] ?? ($row['office_name'] ?? '')));
+    $employeeId = isset($employee['id']) ? (int) $employee['id'] : (int) ($row['employee_id'] ?? 0);
+    $employeeName = $employee ? trim(person_full_name($employee)) : trim((string) ($row['employee_name'] ?? ''));
+    $remarks = trim((string) ($excelRow['remarks'] ?? ($row['remarks'] ?? '')));
     $accountCodeId = !empty($row['account_code_id']) ? (int) $row['account_code_id'] : 0;
     $accountCode = trim((string) ($row['account_code'] ?? ''));
     $accountName = trim((string) ($row['account_name'] ?? ''));
@@ -1812,9 +1830,9 @@ function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $
         }
     }
 
-    $acquisitionDateSnapshot = trim((string) ($excelRow['acquisition_date'] ?? ''));
-    $qtyPropertyCard = max(1, (int) ($excelRow['qty_property_card'] ?? 1));
-    $qtyPhysicalCount = max(1, (int) ($excelRow['qty_physical_count'] ?? 1));
+    $acquisitionDateSnapshot = trim((string) ($excelRow['acquisition_date'] ?? ($row['acquisition_date'] ?? '')));
+    $qtyPropertyCard = max(1, (int) ($excelRow['qty_property_card'] ?? ($row['qty_property_card'] ?? 1)));
+    $qtyPhysicalCount = max(1, (int) ($excelRow['qty_physical_count'] ?? ($row['qty_physical_count'] ?? 1)));
 
     $stmt = $db->prepare("UPDATE rpcppe_batch_items
         SET is_included = 1,
@@ -1977,10 +1995,11 @@ if (!$db) {
                     $insertBatchStmt->close();
 
                     $copied = rpcppe_copy_carry_forward_items($db, $newBatchId, (int) $latestFinalized['id']);
+                    $refreshed = rpcppe_sync_batch_snapshots_from_live($db, $newBatchId, $nextAsOfDate);
                     rpcppe_sync_batch_disposals($db, $newBatchId, $nextAsOfDate);
                     $db->commit();
 
-                    set_flash('success', 'Created ' . $nextBatchName . ' and carried forward ' . number_format($copied) . ' asset(s) from finalized batch #' . (int) $latestFinalized['id'] . '.');
+                    set_flash('success', 'Created ' . $nextBatchName . ', carried forward ' . number_format($copied) . ' asset(s) from finalized batch #' . (int) $latestFinalized['id'] . ', and refreshed ' . number_format($refreshed) . ' snapshot(s) from live records.');
                     redirect('modules/reports/rpcppe_batches.php?batch_id=' . $newBatchId);
                 } catch (Throwable $e) {
                     $db->rollback();
@@ -2113,8 +2132,9 @@ if (!$db) {
                         }
                     }
 
+                    $refreshed = rpcppe_sync_batch_snapshots_from_live($db, $postBatchId, $asOfDate);
                     rpcppe_sync_batch_disposals($db, $postBatchId, $asOfDate);
-                    set_flash('success', 'Added ' . number_format($inserted) . ' new asset(s) from live records.');
+                    set_flash('success', 'Added ' . number_format($inserted) . ' new asset(s) from live records and refreshed ' . number_format($refreshed) . ' existing snapshot(s).');
                     redirect('modules/reports/rpcppe_batches.php?batch_id=' . $postBatchId);
                 }
 
@@ -2138,8 +2158,9 @@ if (!$db) {
                         $errors[] = 'No finalized source batch available for carry-forward.';
                     } else {
                         $copied = rpcppe_copy_carry_forward_items($db, $postBatchId, $sourceBatchId);
+                        $refreshed = rpcppe_sync_batch_snapshots_from_live($db, $postBatchId, $asOfDate);
                         rpcppe_sync_batch_disposals($db, $postBatchId, $asOfDate);
-                        set_flash('success', 'Carry-forward copied ' . number_format($copied) . ' asset(s) from finalized batch #' . $sourceBatchId . '.');
+                        set_flash('success', 'Carry-forward copied ' . number_format($copied) . ' asset(s) from finalized batch #' . $sourceBatchId . ' and refreshed ' . number_format($refreshed) . ' snapshot(s) from live records.');
                         redirect('modules/reports/rpcppe_batches.php?batch_id=' . $postBatchId);
                     }
                 }

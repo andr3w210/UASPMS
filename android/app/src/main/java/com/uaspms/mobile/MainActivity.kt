@@ -17,12 +17,14 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import com.google.android.material.floatingactionbutton.FloatingActionButton
 import java.io.File
 import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
+    private lateinit var scanFab: FloatingActionButton
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var cameraImageUri: Uri? = null
 
@@ -33,6 +35,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         webView = findViewById(R.id.webView)
+        scanFab = findViewById(R.id.scanFab)
+        scanFab.setOnClickListener {
+            launchQrScanner()
+        }
 
         fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val callback = filePathCallback
@@ -76,7 +82,7 @@ class MainActivity : AppCompatActivity() {
         settings.allowFileAccess = true
         settings.loadsImagesAutomatically = true
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-        settings.cacheMode = WebSettings.LOAD_DEFAULT
+        settings.cacheMode = WebSettings.LOAD_NO_CACHE
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -166,11 +172,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.menu_refresh -> {
+                webView.reload()
+                true
+            }
             R.id.menu_scan_qr -> {
-                startActivity(Intent(this, QRScannerActivity::class.java))
+                launchQrScanner()
                 true
             }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun launchQrScanner() {
+        startActivity(Intent(this, QRScannerActivity::class.java))
     }
 }

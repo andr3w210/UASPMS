@@ -2,6 +2,11 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/menu_refresh"
+        android:title="@string/menu_refresh"
+        android:icon="@android:drawable/ic_popup_sync"
+        app:showAsAction="ifRoom" />
+    <item
         android:id="@+id/menu_scan_qr"
         android:title="@string/menu_scan_qr"
         android:icon="@android:drawable/ic_menu_camera"

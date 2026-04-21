@@ -28,8 +28,97 @@ function employee_display_name_from_row(array $row): string
     return trim(implode(' ', array_filter($parts)));
 }
 
-function load_property_lookup_row(mysqli $db, string $ref): ?array
+function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $assetId): ?array
 {
+    if ($assetId <= 0) {
+        return null;
+    }
+
+    if ($sourceType === 'system') {
+        $stmt = $db->prepare(
+            "SELECT si.system_reference, did.property_number, si.item_description, si.item_type, si.unit_cost, si.quantity_received,
+                    poi.item_description AS original_description,
+                    c.classification_name,
+                    ac.account_code, ac.account_name,
+                    u.uom_name,
+                    r.ris_no, r.received_date,
+                    po.po_number,
+                    s.supplier_name,
+                    did.brand, did.model, did.serial_no, did.qr_tag_code,
+                    d.document_no, d.document_type, d.distribution_date,
+                    COALESCE(did.current_office_id, d.office_id) AS office_id,
+                    o.office_name,
+                    COALESCE(did.current_employee_id, d.employee_id) AS employee_id,
+                    e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
+                    did.id AS distribution_item_detail_id,
+                    0 AS legacy_asset_id,
+                    'system' AS source_type
+             FROM distribution_item_details did
+             LEFT JOIN receiving_item_details rid ON rid.id = did.receiving_item_detail_id
+             LEFT JOIN stock_items si ON si.id = rid.stock_item_id
+             LEFT JOIN receiving_items ri ON ri.id = rid.receiving_item_id
+             LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+             LEFT JOIN classifications c ON c.id = COALESCE(poi.classification_id, si.classification_id)
+             LEFT JOIN account_codes ac ON ac.id = COALESCE(poi.account_code_id, si.account_code_id)
+             LEFT JOIN unit_of_measures u ON u.id = COALESCE(poi.unit_of_measure_id, si.unit_of_measure_id)
+             LEFT JOIN receivings r ON r.id = COALESCE(ri.receiving_id, si.receiving_id)
+             LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+             LEFT JOIN suppliers s ON s.id = po.supplier_id
+             LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
+             LEFT JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
+             LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
+             LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
+             WHERE did.id = ?
+             LIMIT 1"
+        );
+        if ($stmt) {
+            $stmt->bind_param('i', $assetId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc() ?: null;
+            $stmt->close();
+            return $row;
+        }
+    }
+
+    if ($sourceType === 'legacy') {
+        $stmt = $db->prepare(
+            "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
+                    la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
+                    '' AS ris_no, la.acquisition_date AS received_date, la.po_number, '' AS supplier_name,
+                    la.brand, la.model, la.serial_no, la.qr_tag_code, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
+                    la.acquisition_date AS distribution_date, la.office_id,
+                    o.office_name, la.employee_id,
+                    e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
+                    0 AS distribution_item_detail_id,
+                    la.id AS legacy_asset_id,
+                    'legacy' AS source_type
+             FROM legacy_assets la
+             LEFT JOIN classifications c ON c.id = la.classification_id
+             LEFT JOIN account_codes ac ON ac.id = la.account_code_id
+             LEFT JOIN offices o ON o.id = la.office_id
+             LEFT JOIN employees e ON e.id = la.employee_id
+             WHERE la.id = ?
+             LIMIT 1"
+        );
+        if ($stmt) {
+            $stmt->bind_param('i', $assetId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc() ?: null;
+            $stmt->close();
+            return $row;
+        }
+    }
+
+    return null;
+}
+
+function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
+{
+    $ref = trim($ref);
+    if ($ref === '') {
+        return null;
+    }
+
     $stmt = $db->prepare(
         "SELECT si.system_reference, did.property_number, si.item_description, si.item_type, si.unit_cost, si.quantity_received,
                 poi.item_description AS original_description,
@@ -39,7 +128,7 @@ function load_property_lookup_row(mysqli $db, string $ref): ?array
                 r.ris_no, r.received_date,
                 po.po_number,
                 s.supplier_name,
-                did.brand, did.model, did.serial_no,
+                did.brand, did.model, did.serial_no, did.qr_tag_code,
                 d.document_no, d.document_type, d.distribution_date,
                 COALESCE(did.current_office_id, d.office_id) AS office_id,
                 o.office_name,
@@ -64,14 +153,13 @@ function load_property_lookup_row(mysqli $db, string $ref): ?array
          LEFT JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
          LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
          LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
-         WHERE did.property_number = ? OR si.system_reference = ?
+         WHERE did.property_number = ? OR si.system_reference = ? OR did.serial_no = ?
          LIMIT 1"
     );
     if ($stmt) {
-        $stmt->bind_param('ss', $ref, $ref);
+        $stmt->bind_param('sss', $ref, $ref, $ref);
         $stmt->execute();
-        $res = $stmt->get_result();
-        $row = $res ? $res->fetch_assoc() : null;
+        $row = $stmt->get_result()->fetch_assoc() ?: null;
         $stmt->close();
         if ($row) {
             return $row;
@@ -82,7 +170,7 @@ function load_property_lookup_row(mysqli $db, string $ref): ?array
         "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
                 la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
                 '' AS ris_no, la.acquisition_date AS received_date, la.po_number, '' AS supplier_name,
-                la.brand, la.model, la.serial_no, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
+                la.brand, la.model, la.serial_no, la.qr_tag_code, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
                 la.acquisition_date AS distribution_date, la.office_id,
                 o.office_name, la.employee_id,
                 e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
@@ -94,14 +182,13 @@ function load_property_lookup_row(mysqli $db, string $ref): ?array
          LEFT JOIN account_codes ac ON ac.id = la.account_code_id
          LEFT JOIN offices o ON o.id = la.office_id
          LEFT JOIN employees e ON e.id = la.employee_id
-         WHERE la.property_number = ?
+         WHERE la.property_number = ? OR la.serial_no = ?
          LIMIT 1"
     );
     if ($legacyStmt) {
-        $legacyStmt->bind_param('s', $ref);
+        $legacyStmt->bind_param('ss', $ref, $ref);
         $legacyStmt->execute();
-        $legacyRes = $legacyStmt->get_result();
-        $row = $legacyRes ? $legacyRes->fetch_assoc() : null;
+        $row = $legacyStmt->get_result()->fetch_assoc() ?: null;
         $legacyStmt->close();
         if ($row) {
             return $row;
@@ -109,6 +196,38 @@ function load_property_lookup_row(mysqli $db, string $ref): ?array
     }
 
     return null;
+}
+
+function load_property_lookup_row(mysqli $db, string $ref): ?array
+{
+    property_qr_ensure_schema($db);
+    $payload = property_qr_parse_payload($ref);
+
+    if ($payload['tag_code'] !== '') {
+        $assetRef = property_qr_find_asset_by_tag_code($db, $payload['tag_code']);
+        if ($assetRef) {
+            $row = load_property_lookup_row_by_asset($db, (string) ($assetRef['source_type'] ?? ''), (int) ($assetRef['id'] ?? 0));
+            if ($row) {
+                return $row;
+            }
+        }
+    }
+
+    if ($payload['property_number'] !== '') {
+        $row = load_property_lookup_row_by_reference($db, $payload['property_number']);
+        if ($row) {
+            return $row;
+        }
+    }
+
+    if ($payload['serial_number'] !== '') {
+        $row = load_property_lookup_row_by_reference($db, $payload['serial_number']);
+        if ($row) {
+            return $row;
+        }
+    }
+
+    return load_property_lookup_row_by_reference($db, $payload['raw']);
 }
 
 function find_active_inventory_match(mysqli $db, string $propertyNumber, int $officeId = 0): array

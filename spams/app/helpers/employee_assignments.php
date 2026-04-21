@@ -347,6 +347,40 @@ function employee_resolve_office_head(mysqli $db, int $officeId): array
         return [];
     }
 
+    if (employee_assignments_enabled($db)) {
+        $stmt = $db->prepare("SELECT ea.employee_id
+                              FROM employee_assignments ea
+                              WHERE ea.office_id = ? AND ea.is_active = 1 AND ea.is_unit_head = 1
+                              ORDER BY ea.is_primary DESC, ea.id ASC
+                              LIMIT 1");
+        if ($stmt) {
+            $stmt->bind_param('i', $officeId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc() ?: [];
+            $stmt->close();
+            $employeeId = (int) ($row['employee_id'] ?? 0);
+            if ($employeeId > 0) {
+                $stmt = $db->prepare("SELECT id, name_prefix, first_name, middle_name, last_name, suffix_name, position_title FROM employees WHERE id = ? LIMIT 1");
+                if ($stmt) {
+                    $stmt->bind_param('i', $employeeId);
+                    $stmt->execute();
+                    $head = $stmt->get_result()->fetch_assoc() ?: [];
+                    $stmt->close();
+                    if ($head) {
+                        foreach (employee_fetch_assignments($db, $employeeId, true) as $assignment) {
+                            if ((int) ($assignment['office_id'] ?? 0) === $officeId) {
+                                $head['position_title'] = $assignment['role_title'] ?? ($head['position_title'] ?? '');
+                                $head['office_name'] = $assignment['office_name'] ?? '';
+                                break;
+                            }
+                        }
+                        return $head;
+                    }
+                }
+            }
+        }
+    }
+
     $officeStmt = $db->prepare("SELECT office_head_employee_id FROM offices WHERE id = ? LIMIT 1");
     $officeHeadEmployeeId = 0;
     if ($officeStmt) {
@@ -380,40 +414,6 @@ function employee_resolve_office_head(mysqli $db, int $officeId): array
                     $head['office_name'] = $assignment['office_name'] ?? '';
                 }
                 return $head;
-            }
-        }
-    }
-
-    if (employee_assignments_enabled($db)) {
-        $stmt = $db->prepare("SELECT ea.employee_id
-                              FROM employee_assignments ea
-                              WHERE ea.office_id = ? AND ea.is_active = 1 AND ea.is_unit_head = 1
-                              ORDER BY ea.is_primary DESC, ea.id ASC
-                              LIMIT 1");
-        if ($stmt) {
-            $stmt->bind_param('i', $officeId);
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc() ?: [];
-            $stmt->close();
-            $employeeId = (int) ($row['employee_id'] ?? 0);
-            if ($employeeId > 0) {
-                $stmt = $db->prepare("SELECT id, name_prefix, first_name, middle_name, last_name, suffix_name, position_title FROM employees WHERE id = ? LIMIT 1");
-                if ($stmt) {
-                    $stmt->bind_param('i', $employeeId);
-                    $stmt->execute();
-                    $head = $stmt->get_result()->fetch_assoc() ?: [];
-                    $stmt->close();
-                    if ($head) {
-                        foreach (employee_fetch_assignments($db, $employeeId, true) as $assignment) {
-                            if ((int) ($assignment['office_id'] ?? 0) === $officeId) {
-                                $head['position_title'] = $assignment['role_title'] ?? ($head['position_title'] ?? '');
-                                $head['office_name'] = $assignment['office_name'] ?? '';
-                                break;
-                            }
-                        }
-                        return $head;
-                    }
-                }
             }
         }
     }

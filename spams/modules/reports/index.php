@@ -6,6 +6,28 @@ $page_title = 'Reports';
 
 $sections = [
     [
+        'title' => 'Office Accountability',
+        'description' => 'Quick access to office-based PAR and ICS accountability print pages for easier lookup and bulk printing.',
+        'items' => [
+            [
+                'appendix' => 'Office Forms',
+                'title' => 'PAR and ICS by Office',
+                'description' => 'Choose an office once, then open or print the office-level PAR and ICS pages with grouped or detailed views.',
+                'path' => 'modules/reports/accountability_by_office.php',
+                'icon' => 'bi bi-diagram-3',
+                'tags' => ['Office', 'PAR', 'ICS'],
+            ],
+            [
+                'appendix' => 'Asset Tagging',
+                'title' => 'QR Printing',
+                'description' => 'Open a dedicated QR printing workspace for posted distributions, system assets, and legacy assets.',
+                'path' => 'modules/reports/qr_printing.php',
+                'icon' => 'bi bi-qr-code',
+                'tags' => ['QR', 'Tags', 'Assets'],
+            ],
+        ],
+    ],
+    [
         'title' => 'Supply Reports',
         'description' => 'Supply issuance and movement reports used for stock-based inventory monitoring.',
         'items' => [

@@ -1,10 +1,13 @@
 package com.uaspms.mobile
 
 import android.Manifest
+import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
+import android.view.animation.LinearInterpolator
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
@@ -25,7 +28,10 @@ import java.util.concurrent.Executors
 class QRScannerActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
+    private lateinit var scannerFrame: View
+    private lateinit var scannerLine: View
     private lateinit var cameraExecutor: ExecutorService
+    private var scanLineAnimator: ValueAnimator? = null
     private var lastScannedValue = ""
     private var lastScannedTime = 0L
 
@@ -34,7 +40,12 @@ class QRScannerActivity : AppCompatActivity() {
         setContentView(R.layout.activity_qr_scanner)
 
         previewView = findViewById(R.id.previewView)
+        scannerFrame = findViewById(R.id.scannerFrame)
+        scannerLine = findViewById(R.id.scannerLine)
         cameraExecutor = Executors.newSingleThreadExecutor()
+        scannerFrame.post {
+            startScanLineAnimation()
+        }
 
         if (allPermissionsGranted()) {
             startCamera()
@@ -120,8 +131,37 @@ class QRScannerActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        scanLineAnimator?.cancel()
+        scanLineAnimator = null
         super.onDestroy()
         cameraExecutor.shutdown()
+    }
+
+    private fun startScanLineAnimation() {
+        val frameHeight = scannerFrame.height
+        val lineHeight = scannerLine.height
+        if (frameHeight <= 0 || lineHeight <= 0) {
+            return
+        }
+
+        val topPadding = 20f
+        val bottomPadding = 20f
+        val travelDistance = frameHeight - lineHeight - topPadding - bottomPadding
+        if (travelDistance <= 0f) {
+            return
+        }
+
+        scanLineAnimator?.cancel()
+        scanLineAnimator = ValueAnimator.ofFloat(topPadding, topPadding + travelDistance).apply {
+            duration = 1800L
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            interpolator = LinearInterpolator()
+            addUpdateListener { animation ->
+                scannerLine.translationY = animation.animatedValue as Float
+            }
+            start()
+        }
     }
 
     private inner class BarcodeAnalyzer(private val onBarcodeDetected: (String) -> Unit) :

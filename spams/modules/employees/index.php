@@ -64,6 +64,28 @@ function employees_employee_no_exists(mysqli $db, string $employeeNo, int $exclu
 
     return $exists;
 }
+
+function employees_recommended_statuses(): array
+{
+    return [
+        'Regular',
+        'Permanent',
+        'Contractual',
+        'Job Order',
+        'Part-Time',
+        'Retired',
+        'Retired - Part-Time',
+        'Retired - Contractual',
+        'Resigned',
+        'Separated',
+    ];
+}
+
+function employees_normalize_status(string $status): string
+{
+    return preg_replace('/\s+/', ' ', trim($status)) ?? '';
+}
+
 $db = db();
 $page_title = 'Employees';
 $flash = get_flash();
@@ -77,6 +99,7 @@ $primaryAssignmentMap = [];
 $assignmentsEnabled = employee_assignments_enabled($db);
 $assignmentFormRows = $assignmentsEnabled ? [employee_assignment_empty_row()] : [];
 $form = ['id'=>0,'employee_no'=>'','name_prefix'=>'','first_name'=>'','middle_name'=>'','last_name'=>'','suffix_name'=>'','email'=>'','photo_path'=>'','office_id'=>'','responsibility_code_id'=>'','position_title'=>'','employment_status'=>'','is_unit_head'=>'0','is_driver'=>'0','is_active'=>'1'];
+$employmentStatusOptions = employees_recommended_statuses();
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
@@ -89,6 +112,9 @@ if (!$db) {
     $codeResult = $db->query("SELECT rc.id, rc.office_id, rc.code, rc.description, o.office_name FROM responsibility_codes rc INNER JOIN offices o ON o.id = rc.office_id WHERE rc.is_active = 1 ORDER BY o.office_name ASC, rc.code ASC");
     if ($codeResult) {
         $responsibilityCodes = $codeResult->fetch_all(MYSQLI_ASSOC);
+    }
+    if ($form['employment_status'] !== '' && !in_array($form['employment_status'], $employmentStatusOptions, true)) {
+        $employmentStatusOptions[] = $form['employment_status'];
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -108,7 +134,7 @@ if (!$db) {
             $form['office_id']=old($_POST,'office_id');
             $form['responsibility_code_id']=old($_POST,'responsibility_code_id');
             $form['position_title']=old($_POST,'position_title');
-            $form['employment_status']=old($_POST,'employment_status');
+            $form['employment_status']=employees_normalize_status((string) old($_POST,'employment_status'));
             $form['is_unit_head']=isset($_POST['is_unit_head'])?'1':'0';
             $form['is_driver']=isset($_POST['is_driver'])?'1':'0';
             $form['is_active']=isset($_POST['is_active'])?'1':'0';
@@ -449,6 +475,10 @@ if (!$db) {
         }
     }
 
+    if ($form['employment_status'] !== '' && !in_array($form['employment_status'], $employmentStatusOptions, true)) {
+        $employmentStatusOptions[] = $form['employment_status'];
+    }
+
     $listSql = $hasDriverColumn
         ? "SELECT e.id, e.employee_no, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.email, e.photo_path, e.position_title, e.employment_status, e.is_unit_head, e.is_driver, e.is_active, e.created_at, o.office_name, rc.code AS responsibility_code FROM employees e LEFT JOIN offices o ON o.id = e.office_id LEFT JOIN responsibility_codes rc ON rc.id = e.responsibility_code_id ORDER BY e.last_name ASC, e.first_name ASC"
         : "SELECT e.id, e.employee_no, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.email, e.photo_path, e.position_title, e.employment_status, e.is_unit_head, e.is_active, e.created_at, o.office_name, rc.code AS responsibility_code FROM employees e LEFT JOIN offices o ON o.id = e.office_id LEFT JOIN responsibility_codes rc ON rc.id = e.responsibility_code_id ORDER BY e.last_name ASC, e.first_name ASC";
@@ -670,7 +700,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </div>
                                             <div class="col-md-5">
                                                 <label class="form-label">Employment Status</label>
-                                                <input type="text" class="form-control" name="employment_status" value="<?php echo h($form['employment_status']); ?>" placeholder="Regular, Contractual, Job Order">
+                                                <input type="text" class="form-control" list="employmentStatusOptions" name="employment_status" value="<?php echo h($form['employment_status']); ?>" placeholder="Regular, Retired - Part-Time, Contractual">
+                                                <datalist id="employmentStatusOptions">
+                                                    <?php foreach ($employmentStatusOptions as $statusOption): ?>
+                                                        <option value="<?php echo h($statusOption); ?>"></option>
+                                                    <?php endforeach; ?>
+                                                </datalist>
+                                                <div class="form-text">Use `Retired - Part-Time` or `Retired - Contractual` when the employee is retired from regular service but still has an active assignment.</div>
                                             </div>
                                         </div>
                                     </div>
@@ -691,7 +727,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </div>
                                     <div class="employee-panel-body">
                                         <div class="assignment-editor-tip mb-3">
-                                            Recommendation: use this section for office-based designation and authority. Example: `College of Industrial Technology` + `Administrative Officer VI`, then turn on `OIC` if the employee is acting head.
+                                            Recommendation: use this section for office-based designation and authority. Example: `College of Industrial Technology` + `Administrative Officer VI`, then turn on `OIC` if the employee is acting head. For retired but still serving personnel, keep the assignment active only while the person still holds that office role.
                                         </div>
                                         <?php if ($assignmentsEnabled): ?>
                                             <div class="assignment-editor-shell">
@@ -866,6 +902,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <input class="form-check-input" type="checkbox" name="is_driver" value="1" <?php echo $form['is_driver']==='1'?'checked':''; ?>>
                                             <label class="form-check-label">Driver</label>
                                         </div>
+                                        <div class="employee-panel-note text-muted small mb-2">
+                                            Keep `Active employee` on for retired personnel who still teach or serve part-time. Turn it off only when the person no longer has any active assignment.
+                                        </div>
                                         <div class="form-check form-switch">
                                             <input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active']==='1'?'checked':''; ?>>
                                             <label class="form-check-label">Active employee</label>
@@ -934,6 +973,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <div>
                                             <div class="fw-semibold"><?php echo h(employee_display_name($employee)); ?></div>
                                             <small class="text-muted"><?php echo h($employee['employee_no'].($employee['position_title']?' - '.$employee['position_title']:'')); ?></small>
+                                            <?php if (!empty($employee['employment_status'])): ?>
+                                                <div><small class="text-muted"><?php echo h($employee['employment_status']); ?></small></div>
+                                            <?php endif; ?>
                                         </div>
                                     </div>
                                 </td>
