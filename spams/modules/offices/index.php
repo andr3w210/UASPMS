@@ -454,7 +454,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </thead>
                     <tbody>
                         <?php if ($offices): foreach ($offices as $office): ?>
-                            <?php $displayHead = trim(employee_display_name($office)); if ($displayHead === '') { $displayHead = $unitHeads[(int) $office['id']] ?? ''; } ?>
+                            <?php $displayHead = $unitHeads[(int) $office['id']] ?? trim(employee_display_name($office)); ?>
                             <tr data-status="<?php echo (int) $office['is_active'] ? 'active' : 'inactive'; ?>">
                                 <td class="fw-semibold"><?php echo h($office['office_code']); ?></td>
                                 <td>

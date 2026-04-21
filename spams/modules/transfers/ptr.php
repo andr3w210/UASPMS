@@ -5,6 +5,10 @@ require_login();
 $db = db();
 $transferId = (int) ($_GET['id'] ?? 0);
 $batchId = (int) ($_GET['batch_id'] ?? 0);
+$printFormat = (($_GET['print_format'] ?? 'long') === 'short') ? 'short' : 'long';
+$isShort = $printFormat === 'short';
+$viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
+$isGrouped = $viewMode === 'grouped';
 
 if (!$db || ($transferId <= 0 && $batchId <= 0)) {
     http_response_code(404);
@@ -43,6 +47,37 @@ function ptr_item_meta(array $row): string
         trim(trim((string) ($row['brand'] ?? '')) . ' ' . trim((string) ($row['model'] ?? ''))),
         !empty($row['serial_no']) ? 'SN ' . $row['serial_no'] : null,
     ])));
+}
+
+function ptr_build_reference_range(array $values): string
+{
+    $values = array_values(array_unique(array_filter(array_map(static function ($value): string {
+        return trim((string) $value);
+    }, $values), static function (string $value): bool {
+        return $value !== '';
+    })));
+
+    if (!$values) {
+        return '';
+    }
+
+    sort($values);
+
+    if (count($values) === 1) {
+        return $values[0];
+    }
+
+    $first = $values[0];
+    $last = $values[count($values) - 1];
+    if ($first === $last) {
+        return $first;
+    }
+
+    if (preg_match('/^(.*?)(\d+)$/', $first, $firstMatches) && preg_match('/^(.*?)(\d+)$/', $last, $lastMatches) && $firstMatches[1] === $lastMatches[1]) {
+        return $first . ' to ' . $last;
+    }
+
+    return $first . ' to ' . $last;
 }
 
 $header = null;
@@ -179,6 +214,50 @@ if (!$header || !$items) {
     exit;
 }
 
+$groupedItems = [];
+if ($isGrouped) {
+    foreach ($items as $item) {
+        $groupKey = implode('|', [
+            trim((string) ($item['item_description'] ?? '')),
+            trim((string) ($item['brand'] ?? '')),
+            trim((string) ($item['model'] ?? '')),
+            trim((string) ($item['date_acquired'] ?? '')),
+            number_format((float) ($item['amount'] ?? 0), 2, '.', ''),
+        ]);
+
+        if (!isset($groupedItems[$groupKey])) {
+            $groupedItems[$groupKey] = $item;
+            $groupedItems[$groupKey]['quantity'] = 0;
+            $groupedItems[$groupKey]['total_amount'] = 0.0;
+            $groupedItems[$groupKey]['property_numbers'] = [];
+            $groupedItems[$groupKey]['serial_numbers'] = [];
+        }
+
+        $groupedItems[$groupKey]['quantity']++;
+        $groupedItems[$groupKey]['total_amount'] += (float) ($item['amount'] ?? 0);
+        if (!empty($item['property_number'])) {
+            $groupedItems[$groupKey]['property_numbers'][] = (string) $item['property_number'];
+        }
+        if (!empty($item['serial_no'])) {
+            $groupedItems[$groupKey]['serial_numbers'][] = (string) $item['serial_no'];
+        }
+    }
+
+    foreach ($groupedItems as &$groupedItem) {
+        $groupedItem['property_numbers'] = array_values(array_unique($groupedItem['property_numbers']));
+        $groupedItem['serial_numbers'] = array_values(array_unique($groupedItem['serial_numbers']));
+        sort($groupedItem['serial_numbers']);
+        $groupedItem['property_number'] = ptr_build_reference_range($groupedItem['property_numbers']);
+        $groupedItem['amount'] = (float) ($groupedItem['total_amount'] ?? 0);
+        if (count($groupedItem['serial_numbers']) > 1) {
+            $groupedItem['serial_no'] = implode(', ', $groupedItem['serial_numbers']);
+        }
+    }
+    unset($groupedItem);
+}
+
+$printItems = $isGrouped ? array_values($groupedItems) : array_values($items);
+
 $fromOfficer = trim(ptr_name($header, 'from_') . (!empty($header['from_office_name']) ? ' / ' . $header['from_office_name'] : ''));
 $toOfficer = trim(ptr_name($header, 'to_') . (!empty($header['to_office_name']) ? ' / ' . $header['to_office_name'] : ''));
 $reasonText = trim((string) ($header['reason'] ?? ''));
@@ -191,6 +270,8 @@ foreach ($items as $item) {
     }
 }
 $totalAmount = array_sum(array_map(static fn(array $item): float => (float) ($item['amount'] ?? 0), $items));
+$targetRows = $isShort ? 10 : 22;
+$blankRows = max(0, $targetRows - count($printItems));
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -199,31 +280,49 @@ $totalAmount = array_sum(array_map(static fn(array $item): float => (float) ($it
     <title>PTR <?php echo h($header['system_reference']); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { color:#000; font-family:"Times New Roman", Times, serif; font-size:12px; }
-        .ptr-wrap { margin:0 auto; max-width:980px; }
+        @page { size: 8.5in 13in; margin: 0.5in; }
+        body { margin:0; color:#000; font-family:"Times New Roman", Times, serif; font-size:12px; }
+        .ptr-wrap { margin:0 auto; max-width:1000px; }
         .ptr-appendix { font-size:11px; font-style:italic; text-align:right; }
         .ptr-title { font-size:18px; font-weight:700; text-align:center; text-transform:uppercase; }
         .ptr-table, .ptr-table td, .ptr-table th { border:1px solid #000 !important; border-collapse:collapse; }
         .ptr-table { width:100%; }
         .ptr-table td, .ptr-table th { padding:.3rem .35rem; vertical-align:top; }
+        .ptr-body td { height:25px; }
         .ptr-line { border-bottom:1px solid #000; min-height:20px; }
         .no-print { display:block; }
+        .duplicate-host { display:none; }
+        .print-shell.short { font-size:10.5px; display:flex; flex-direction:column; gap:0.2in; }
+        .print-shell.short .ptr-table { font-size:10px; }
+        .print-shell.short .print-copy,
+        .print-shell.short .duplicate-host {
+            flex: 0 0 calc((13in - 1in - 0.2in) / 2);
+            min-height: calc((13in - 1in - 0.2in) / 2);
+        }
+        .print-shell.short .duplicate-host { display:block; }
+        .print-shell.short .duplicate-host .no-print { display:none !important; }
+        .print-shell.short .ptr-body td { height:14px; }
         @media print {
             .no-print { display:none !important; }
-            @page { size: legal portrait; margin:0.4in; }
-            body { margin:0; }
+            thead { display: table-header-group; }
+            .print-shell.short .print-copy,
+            .print-shell.short .duplicate-host { break-inside: avoid; }
         }
     </style>
 </head>
 <body>
-<div class="container ptr-wrap">
+<div class="container ptr-wrap print-shell <?php echo $isShort ? 'short' : 'long'; ?>">
     <div class="d-flex justify-content-between align-items-center my-3 no-print">
         <div>
             <a href="<?php echo base_url('modules/transfers/index.php'); ?>" class="btn btn-sm btn-outline-secondary">Back</a>
             <button onclick="window.print()" class="btn btn-sm btn-primary">Print</button>
+            <a href="<?php echo h(base_url('modules/transfers/ptr.php?' . ($batchId > 0 ? 'batch_id=' . $batchId : 'id=' . $transferId) . '&print_format=short&view_mode=' . $viewMode)); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Short</a>
+            <a href="<?php echo h(base_url('modules/transfers/ptr.php?' . ($batchId > 0 ? 'batch_id=' . $batchId : 'id=' . $transferId) . '&print_format=long&view_mode=' . $viewMode)); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Long</a>
+            <a href="<?php echo h(base_url('modules/transfers/ptr.php?' . ($batchId > 0 ? 'batch_id=' . $batchId : 'id=' . $transferId) . '&print_format=' . $printFormat . '&view_mode=grouped')); ?>" class="btn btn-sm <?php echo $isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?>">Grouped</a>
+            <a href="<?php echo h(base_url('modules/transfers/ptr.php?' . ($batchId > 0 ? 'batch_id=' . $batchId : 'id=' . $transferId) . '&print_format=' . $printFormat . '&view_mode=detailed')); ?>" class="btn btn-sm <?php echo !$isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?>">Detailed</a>
         </div>
     </div>
-
+    <div class="print-copy" id="printCopy">
     <div class="ptr-appendix">Appendix 76</div>
     <div class="ptr-title">Property Transfer Report</div>
 
@@ -263,12 +362,17 @@ $totalAmount = array_sum(array_map(static fn(array $item): float => (float) ($it
                 <th style="width:18%;">Condition of PPE</th>
             </tr>
         </thead>
-        <tbody>
-            <?php foreach ($items as $item): ?>
+        <tbody class="ptr-body">
+            <?php foreach ($printItems as $item): ?>
                 <?php $meta = ptr_item_meta($item); ?>
                 <tr>
                     <td><?php echo h(!empty($item['date_acquired']) ? date('M d, Y', strtotime((string) $item['date_acquired'])) : ''); ?></td>
-                    <td><?php echo h($item['property_number'] ?? ''); ?></td>
+                    <td>
+                        <?php echo h($item['property_number'] ?? ''); ?>
+                        <?php if ($isGrouped && !empty($item['quantity']) && (int) $item['quantity'] > 1): ?>
+                            <div class="small text-muted"><?php echo h((string) $item['quantity']); ?> item(s)</div>
+                        <?php endif; ?>
+                    </td>
                     <td>
                         <div><?php echo nl2br(h((string) ($item['item_description'] ?? ''))); ?></div>
                         <?php if ($meta !== ''): ?>
@@ -279,6 +383,15 @@ $totalAmount = array_sum(array_map(static fn(array $item): float => (float) ($it
                     <td>Good</td>
                 </tr>
             <?php endforeach; ?>
+            <?php for ($i = 0; $i < $blankRows; $i++): ?>
+                <tr>
+                    <td>&nbsp;</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            <?php endfor; ?>
             <tr>
                 <td colspan="3" class="text-end fw-bold">TOTAL</td>
                 <td class="text-end fw-bold"><?php echo h(number_format($totalAmount, 2)); ?></td>
@@ -306,6 +419,20 @@ $totalAmount = array_sum(array_map(static fn(array $item): float => (float) ($it
         <tr><td>Designation :</td><td>Designation :</td><td>Designation : <?php echo h($header['to_position_title'] ?? ''); ?></td></tr>
         <tr><td>Date :</td><td>Date :</td><td>Date : <?php echo h(!empty($header['transfer_date']) ? date('M d, Y', strtotime((string) $header['transfer_date'])) : ''); ?></td></tr>
     </table>
+    </div>
+    <div class="duplicate-host" id="duplicateHost"></div>
 </div>
+<?php if ($isShort): ?>
+<script>
+(function () {
+    var source = document.getElementById('printCopy');
+    var host = document.getElementById('duplicateHost');
+    if (!source || !host || host.children.length) return;
+    var clone = source.cloneNode(true);
+    clone.removeAttribute('id');
+    host.appendChild(clone);
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>

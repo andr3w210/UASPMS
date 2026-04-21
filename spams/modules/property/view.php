@@ -297,7 +297,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
 
     $action = trim((string) ($_POST['action'] ?? ''));
     if ($action === 'save_asset_details') {
-        if (!$canEditDetails || $source !== 'legacy') {
+        if (!$canEditDetails) {
             set_flash('error', 'You are not allowed to edit asset details.');
             redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
         }
@@ -388,11 +388,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         $acquisitionDate = trim((string) ($_POST['acquisition_date'] ?? ''));
         $quantity = max(1, (int) ($_POST['quantity'] ?? 1));
         $unitCostInput = trim((string) ($_POST['unit_cost'] ?? '0'));
+        $amountInput = trim((string) ($_POST['acquisition_cost'] ?? ''));
         $unitCost = is_numeric($unitCostInput) ? round((float) $unitCostInput, 2) : 0.0;
         if ($unitCost < 0) {
             $unitCost = 0.0;
         }
-        $acquisitionCost = round($unitCost * $quantity, 2);
+        $acquisitionCost = is_numeric($amountInput) ? round((float) $amountInput, 2) : round($unitCost * $quantity, 2);
+        if ($acquisitionCost < 0) {
+            $acquisitionCost = 0.0;
+        }
+        if ($quantity > 0) {
+            $unitCost = round($acquisitionCost / $quantity, 2);
+        }
         $conditionStatus = trim((string) ($_POST['condition_status'] ?? 'serviceable'));
         $remarksInput = trim((string) ($_POST['remarks'] ?? ''));
 
@@ -997,7 +1004,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $asset['purchase_order_id']); ?>" class="btn btn-outline-primary btn-sm">Edit Source PO</a>
                             <?php endif; ?>
                         <?php endif; ?>
-                        <?php if ($canEditDetails && $source === 'legacy'): ?>
+                        <?php if ($canEditDetails): ?>
                             <button class="btn btn-outline-warning btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#assetEditPanel" aria-expanded="false" aria-controls="assetEditPanel">Edit</button>
                         <?php endif; ?>
                         <a href="<?php echo $publicLookupUrl; ?>" class="btn btn-outline-primary btn-sm" target="_blank">Public Lookup</a>
@@ -1070,11 +1077,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                 <?php endif; ?>
 
-                <?php if ($canEditDetails && $source === 'legacy'): ?>
+                <?php if ($canEditDetails): ?>
                     <div class="collapse mb-4" id="assetEditPanel">
                         <div class="card border border-warning-subtle">
                             <div class="card-body">
                                 <h6 class="mb-3">Edit Asset Details</h6>
+                                <?php if ($source === 'system'): ?>
+                                    <div class="alert alert-light border small">
+                                        Update the core asset identity fields here for registry corrections. Other acquisition and source transaction details stay tied to the original PO and receiving records.
+                                    </div>
+                                <?php endif; ?>
                                 <form method="post" class="row g-3">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                     <input type="hidden" name="action" value="save_asset_details">
@@ -1140,6 +1152,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <div class="col-md-3">
                                             <label class="form-label">Unit Cost</label>
                                             <input type="number" name="unit_cost" min="0" step="0.01" class="form-control" value="<?php echo h((string) number_format((float) ($asset['unit_cost'] ?? 0), 2, '.', '')); ?>">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label">Amount</label>
+                                            <input type="number" name="acquisition_cost" min="0" step="0.01" class="form-control" value="<?php echo h((string) number_format((float) ($asset['acquisition_cost'] ?? 0), 2, '.', '')); ?>">
                                         </div>
                                         <div class="col-md-3">
                                             <label class="form-label">Condition</label>

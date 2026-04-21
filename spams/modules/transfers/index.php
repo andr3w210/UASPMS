@@ -40,8 +40,6 @@ $form = [
 $bulkForm = [
     'source_office_id' => '',
     'source_employee_id' => '',
-    'source_type' => '',
-    'item_type' => '',
     'transfer_date' => date('Y-m-d'),
     'to_office_id' => '',
     'to_employee_id' => '',
@@ -389,17 +387,11 @@ if (!$db) {
                 if (!$ok) $errors[] = 'Selected new responsibility code does not belong to the chosen receiving office.';
             }
 
-            $bulkCandidates = array_values(array_filter($assets, static function (array $asset) use ($sourceOfficeId, $sourceEmployeeId, $bulkForm): bool {
+            $bulkCandidates = array_values(array_filter($assets, static function (array $asset) use ($sourceOfficeId, $sourceEmployeeId): bool {
                 if ((int) ($asset['current_office_id'] ?? 0) !== $sourceOfficeId) {
                     return false;
                 }
                 if ($sourceEmployeeId > 0 && (int) ($asset['current_employee_id'] ?? 0) !== $sourceEmployeeId) {
-                    return false;
-                }
-                if ($bulkForm['source_type'] !== '' && (string) ($asset['source_type'] ?? '') !== $bulkForm['source_type']) {
-                    return false;
-                }
-                if ($bulkForm['item_type'] !== '' && (string) ($asset['item_type'] ?? '') !== $bulkForm['item_type']) {
                     return false;
                 }
                 return true;
@@ -681,31 +673,15 @@ if (!$db) {
 $bulkPreviewAssets = [];
 $bulkSourceOfficeId = (int) (($bulkForm['source_office_id'] !== '' ? $bulkForm['source_office_id'] : ($_GET['source_office_id'] ?? 0)));
 $bulkSourceEmployeeId = (int) (($bulkForm['source_employee_id'] !== '' ? $bulkForm['source_employee_id'] : ($_GET['source_employee_id'] ?? 0)));
-$bulkSourceType = $bulkForm['source_type'] !== '' ? $bulkForm['source_type'] : trim((string) ($_GET['bulk_source_type'] ?? ''));
-$bulkItemType = $bulkForm['item_type'] !== '' ? $bulkForm['item_type'] : trim((string) ($_GET['bulk_item_type'] ?? ''));
-if (!in_array($bulkSourceType, ['', 'system', 'legacy'], true)) {
-    $bulkSourceType = '';
-}
-if (!in_array($bulkItemType, ['', 'equipment', 'semi_expendable'], true)) {
-    $bulkItemType = '';
-}
 $bulkForm['source_office_id'] = $bulkSourceOfficeId > 0 ? (string) $bulkSourceOfficeId : $bulkForm['source_office_id'];
 $bulkForm['source_employee_id'] = $bulkSourceEmployeeId > 0 ? (string) $bulkSourceEmployeeId : $bulkForm['source_employee_id'];
-$bulkForm['source_type'] = $bulkSourceType;
-$bulkForm['item_type'] = $bulkItemType;
 
 if ($bulkSourceOfficeId > 0) {
-    $bulkPreviewAssets = array_values(array_filter($assets, static function (array $asset) use ($bulkSourceOfficeId, $bulkSourceEmployeeId, $bulkSourceType, $bulkItemType): bool {
+    $bulkPreviewAssets = array_values(array_filter($assets, static function (array $asset) use ($bulkSourceOfficeId, $bulkSourceEmployeeId): bool {
         if ((int) ($asset['current_office_id'] ?? 0) !== $bulkSourceOfficeId) {
             return false;
         }
         if ($bulkSourceEmployeeId > 0 && (int) ($asset['current_employee_id'] ?? 0) !== $bulkSourceEmployeeId) {
-            return false;
-        }
-        if ($bulkSourceType !== '' && (string) ($asset['source_type'] ?? '') !== $bulkSourceType) {
-            return false;
-        }
-        if ($bulkItemType !== '' && (string) ($asset['item_type'] ?? '') !== $bulkItemType) {
             return false;
         }
         return true;
@@ -713,8 +689,8 @@ if ($bulkSourceOfficeId > 0) {
 }
 
 $bulkPreviewByType = [
-    'system' => count(array_filter($bulkPreviewAssets, static fn(array $asset): bool => ($asset['source_type'] ?? '') === 'system')),
-    'legacy' => count(array_filter($bulkPreviewAssets, static fn(array $asset): bool => ($asset['source_type'] ?? '') === 'legacy')),
+    'equipment' => count(array_filter($bulkPreviewAssets, static fn(array $asset): bool => ($asset['item_type'] ?? '') === 'equipment')),
+    'semi_expendable' => count(array_filter($bulkPreviewAssets, static fn(array $asset): bool => ($asset['item_type'] ?? '') === 'semi_expendable')),
 ];
 
 $searchQuery = trim((string) $searchForm['query']);
@@ -1046,23 +1022,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-lg-2 col-md-4">
-                            <label class="form-label mb-0">Source</label>
-                            <select name="bulk_source_type" class="form-select">
-                                <option value="">All sources</option>
-                                <option value="system" <?php echo $bulkForm['source_type'] === 'system' ? 'selected' : ''; ?>>System</option>
-                                <option value="legacy" <?php echo $bulkForm['source_type'] === 'legacy' ? 'selected' : ''; ?>>Beginning Balance</option>
-                            </select>
+                        <div class="col-lg-4 col-md-6">
+                            <div class="small text-muted border rounded-3 px-3 py-2 bg-white">
+                                Office turnover previews all accountable assets in the selected office, including both equipment and semi-expendable items.
+                            </div>
                         </div>
-                        <div class="col-lg-2 col-md-4">
-                            <label class="form-label mb-0">Item Type</label>
-                            <select name="bulk_item_type" class="form-select">
-                                <option value="">All types</option>
-                                <option value="equipment" <?php echo $bulkForm['item_type'] === 'equipment' ? 'selected' : ''; ?>>Equipment</option>
-                                <option value="semi_expendable" <?php echo $bulkForm['item_type'] === 'semi_expendable' ? 'selected' : ''; ?>>Semi-Expendable</option>
-                            </select>
-                        </div>
-                        <div class="col-lg-2 col-md-4 d-grid">
+                        <div class="col-lg-2 col-md-6 d-grid">
                             <button type="submit" class="btn btn-outline-primary">Load Preview</button>
                         </div>
                     </div>
@@ -1074,12 +1039,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="fs-4 fw-semibold"><?php echo h(number_format(count($bulkPreviewAssets))); ?></div>
                     </div>
                     <div class="transfer-summary-card">
-                        <div class="text-muted small">System Assets</div>
-                        <div class="fs-4 fw-semibold"><?php echo h(number_format($bulkPreviewByType['system'])); ?></div>
+                        <div class="text-muted small">Equipment</div>
+                        <div class="fs-4 fw-semibold"><?php echo h(number_format($bulkPreviewByType['equipment'])); ?></div>
                     </div>
                     <div class="transfer-summary-card">
-                        <div class="text-muted small">Beginning Balance Assets</div>
-                        <div class="fs-4 fw-semibold"><?php echo h(number_format($bulkPreviewByType['legacy'])); ?></div>
+                        <div class="text-muted small">Semi-Expendable</div>
+                        <div class="fs-4 fw-semibold"><?php echo h(number_format($bulkPreviewByType['semi_expendable'])); ?></div>
                     </div>
                 </div>
 
@@ -1093,8 +1058,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <input type="hidden" name="mode" value="bulk">
                                 <input type="hidden" name="source_office_id" value="<?php echo h($bulkForm['source_office_id']); ?>">
                                 <input type="hidden" name="source_employee_id" value="<?php echo h($bulkForm['source_employee_id']); ?>">
-                                <input type="hidden" name="source_type" value="<?php echo h($bulkForm['source_type']); ?>">
-                                <input type="hidden" name="item_type" value="<?php echo h($bulkForm['item_type']); ?>">
                                 <div class="row g-3">
                                     <div class="col-md-6">
                                         <label class="form-label">Transfer Date</label>
@@ -1156,7 +1119,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <span class="badge text-bg-light"><span id="bulkSelectedCount"><?php echo count($bulkPreviewAssets); ?></span> selected</span>
                                 </div>
                             </div>
-                            <div class="small text-muted mb-3">This preview includes all assets currently accountable to the selected office and optional current accountable employee filter. Uncheck any asset you do not want to transfer.</div>
+                            <div class="small text-muted mb-3">This preview includes all equipment and semi-expendable assets currently accountable to the selected office and optional current accountable employee filter. Uncheck any asset you do not want to transfer.</div>
                             <div class="table-responsive mobile-table-frame">
                                 <table class="table table-sm align-middle">
                                     <thead>

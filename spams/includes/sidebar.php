@@ -141,7 +141,7 @@ $menuGroups = [
             ['heading' => 'Print & Tagging'],
             ['label' => 'Property Card Print', 'path' => 'modules/property/property_card_print.php', 'needle' => '/property/property_card_print', 'icon' => 'bi bi-printer', 'roles' => ['Administrator', 'Property Officer']],
             ['label' => 'Ledger Card Print', 'path' => 'modules/property/ledger_card_print.php', 'needle' => '/property/ledger_card_print', 'icon' => 'bi bi-journal-text', 'roles' => ['Administrator', 'Property Officer']],
-            ['label' => 'Print QR Tags', 'path' => 'modules/property/tags.php', 'needle' => '/property/tags', 'icon' => 'bi bi-qr-code', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
+            ['label' => 'QR Printing', 'path' => 'modules/reports/qr_printing.php', 'needle' => '/reports/qr_printing', 'icon' => 'bi bi-qr-code', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
         ],
     ],
     [

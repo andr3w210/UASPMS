@@ -38,6 +38,7 @@ foreach ($possible as $path) {
 }
 
 if ($db) {
+    property_qr_ensure_schema($db);
     if ($legacyAssetId > 0) {
         $stmt = $db->prepare("SELECT
             la.id AS did_id,
@@ -45,6 +46,7 @@ if ($db) {
             la.brand,
             la.model,
             la.serial_no,
+            la.qr_tag_code,
             la.system_reference,
             'legacy' AS document_type,
             'Beginning Balance' AS document_no,
@@ -76,6 +78,7 @@ if ($db) {
             did.brand,
             did.model,
             did.serial_no,
+            did.qr_tag_code,
             si.system_reference,
             d.document_type,
             d.document_no,
@@ -125,18 +128,23 @@ if ($db) {
 
 $units = [];
 foreach ($rows as $row) {
+    $sourceType = ($legacyAssetId > 0) ? 'legacy' : 'system';
+    $assetId = (int) ($row['did_id'] ?? 0);
     $systemReference = trim((string) ($row['system_reference'] ?? ''));
     $propertyNumber = trim((string) ($row['property_number'] ?? ''));
-    $lookupRef = $propertyNumber !== '' ? $propertyNumber : $systemReference;
-    $scanUrl = app_url('modules/property/scan.php?ref=' . rawurlencode($lookupRef));
+    $serialNumber = trim((string) ($row['serial_no'] ?? ''));
+    $tagCode = property_qr_resolve_tag_code($db, $sourceType, $assetId, (string) ($row['qr_tag_code'] ?? ''));
+    $qrPayload = property_qr_build_payload($tagCode, $propertyNumber, $serialNumber);
+    $lookupRef = $tagCode !== '' ? $tagCode : ($propertyNumber !== '' ? $propertyNumber : $systemReference);
+    $scanUrl = base_url('modules/property/scan.php?ref=' . rawurlencode($lookupRef));
 
     $qrBase64 = null;
-    $qrUrl = 'https://quickchart.io/qr?size=180&text=' . rawurlencode($scanUrl);
+    $qrUrl = 'https://quickchart.io/qr?size=180&text=' . rawurlencode($qrPayload !== '' ? $qrPayload : $lookupRef);
 
     if ($havePhpQr && class_exists('QRcode') && is_callable(['QRcode', 'png'])) {
         $qrLevel = defined('QR_ECLEVEL_M') ? constant('QR_ECLEVEL_M') : 'M';
         ob_start();
-        call_user_func(['QRcode', 'png'], $scanUrl, null, $qrLevel, 6, 2);
+        call_user_func(['QRcode', 'png'], $qrPayload !== '' ? $qrPayload : $lookupRef, null, $qrLevel, 6, 2);
         $qrRaw = ob_get_clean();
         if ($qrRaw !== false && $qrRaw !== '') {
             $qrBase64 = base64_encode($qrRaw);
@@ -145,7 +153,9 @@ foreach ($rows as $row) {
 
     $units[] = [
         'did_id' => (int) ($row['did_id'] ?? 0),
+        'source_type' => $sourceType,
         'property_number' => $propertyNumber,
+        'tag_code' => $tagCode,
         'lookup_ref' => $lookupRef,
         'system_reference' => $systemReference,
         'document_type' => (string) ($row['document_type'] ?? ''),
@@ -157,9 +167,10 @@ foreach ($rows as $row) {
         'office_name' => (string) ($row['office_name'] ?? ''),
         'brand' => (string) ($row['brand'] ?? ''),
         'model' => (string) ($row['model'] ?? ''),
-        'serial_no' => (string) ($row['serial_no'] ?? ''),
+        'serial_no' => $serialNumber,
         'qr_base64' => $qrBase64,
         'qr_url' => $qrUrl,
+        'qr_payload' => $qrPayload,
         'scan_url' => $scanUrl,
     ];
 }
@@ -314,7 +325,7 @@ function property_tag_office_short(string $officeName): string
         <button class="btn btn-sm btn-primary" onclick="window.print()">Print Labels</button>
         <a class="btn btn-sm btn-secondary" href="javascript:history.back()">Back</a>
         <span style="margin-left:12px;">Label count: <?php echo count($units); ?> label(s) - DK-11201 (29mm x 90mm)</span>
-        <div class="mt-2 small text-muted">Scanning this QR opens the asset page in the system. Login is still required before any asset details or inventory actions are shown.</div>
+        <div class="mt-2 small text-muted">This QR now encodes the internal tag code with backup property and serial data. No server IP or direct URL is exposed on the label.</div>
     </div>
 
     <div class="tag-list">
@@ -349,5 +360,4 @@ function property_tag_office_short(string $officeName): string
     </div>
 </body>
 </html>
-
 

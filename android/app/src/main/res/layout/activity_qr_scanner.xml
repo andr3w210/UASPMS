@@ -1,11 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
 
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <FrameLayout
+            android:id="@+id/scannerFrame"
+            android:layout_width="280dp"
+            android:layout_height="280dp"
+            android:background="@drawable/scanner_frame"
+            android:clipToPadding="false"
+            android:clipChildren="false">
+
+            <View
+                android:id="@+id/scannerLine"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginStart="18dp"
+                android:layout_marginEnd="18dp"
+                android:background="@drawable/scanner_line" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/scannerHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:background="@drawable/scanner_hint_bg"
+            android:paddingStart="16dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="10dp"
+            android:text="Align the QR code inside the frame"
+            android:textColor="@android:color/white"
+            android:textSize="15sp" />
+    </LinearLayout>
 
 </FrameLayout>

@@ -6,8 +6,8 @@ $db = db();
 $officeId = (int) ($_GET['office_id'] ?? 0);
 $legacyAssetId = (int) ($_GET['legacy_asset_id'] ?? 0);
 $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
-$printFormat = (($_GET['print_format'] ?? 'long') === 'short') ? 'short' : 'long';
-$isShort = $printFormat === 'short';
+$printFormat = 'long';
+$isShort = false;
 $viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
 $isGrouped = $viewMode === 'grouped';
 $offices = [];
@@ -412,7 +412,7 @@ $blankRows = max(0, $targetRows - count($printRows));
             <div class="d-flex gap-2">
                 <a href="<?php echo base_url('modules/distributions/index.php?document_type=par'); ?>" class="btn btn-outline-secondary">Back to Distribution</a>
                 <?php if (($officeId > 0 || $legacyAssetId > 0) && $rows): ?>
-                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&view_mode=' . $viewMode . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : '') . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
+                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&view_mode=' . $viewMode . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : '') . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
                 <?php endif; ?>
             </div>
         </div>
@@ -436,13 +436,12 @@ $blankRows = max(0, $targetRows - count($printRows));
             <div class="col-lg-3 col-md-6">
                 <label class="form-label">View</label>
                 <div class="btn-group w-100" role="group" aria-label="PAR view mode">
-                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&view_mode=grouped' . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-outline-primary <?php echo $isGrouped ? 'active' : ''; ?>">Grouped</a>
-                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&view_mode=detailed' . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-outline-primary <?php echo !$isGrouped ? 'active' : ''; ?>">Detailed</a>
+                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&view_mode=grouped' . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-outline-primary <?php echo $isGrouped ? 'active' : ''; ?>">Grouped</a>
+                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&view_mode=detailed' . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-outline-primary <?php echo !$isGrouped ? 'active' : ''; ?>">Detailed</a>
                 </div>
             </div>
             <div class="col-lg-2 col-md-6">
                 <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
-                <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
                 <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                     <button type="submit" class="btn btn-primary flex-fill">Load PAR</button>
                     <a href="<?php echo base_url('modules/distributions/par_office.php'); ?>" class="btn btn-outline-secondary flex-fill">Clear</a>
@@ -451,12 +450,6 @@ $blankRows = max(0, $targetRows - count($printRows));
         </form>
     </div>
     <?php if (($officeId > 0 || $legacyAssetId > 0) && $header): ?>
-        <div class="d-flex justify-content-between align-items-start mt-3 mb-2 no-print">
-            <div class="d-flex gap-2 flex-wrap">
-                <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=short&view_mode=' . $viewMode . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Short</a>
-                <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=long&view_mode=' . $viewMode . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Long</a>
-            </div>
-        </div>
         <div class="print-copy" id="printCopy">
             <div class="par-form">
                 <div class="appendix">Appendix 71</div>

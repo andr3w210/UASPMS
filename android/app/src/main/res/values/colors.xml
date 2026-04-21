@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="launcher_background">#0E7490</color>
+    <color name="launcher_accent">#14B8A6</color>
+    <color name="launcher_foreground">#F8FAFC</color>
+    <color name="launcher_foreground_dark">#0F172A</color>
+    <color name="scanner_frame">#CCF8FAFC</color>
+    <color name="scanner_line_start">#0014B8A6</color>
+    <color name="scanner_line_mid">#FF2DD4BF</color>
+    <color name="scanner_line_end">#0014B8A6</color>
+    <color name="scanner_hint_bg">#660F172A</color>
+</resources>
