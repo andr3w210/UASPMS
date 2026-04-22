@@ -12,6 +12,24 @@ function return_asset_label(array $row): string
     return trim(($prefix !== '' ? $prefix . ' - ' : '') . (string) ($row['item_description'] ?? ''));
 }
 
+function return_asset_person_label(array $row): string
+{
+    return trim((string) employee_display_name([
+        'first_name' => $row['first_name'] ?? '',
+        'middle_name' => $row['middle_name'] ?? '',
+        'last_name' => $row['last_name'] ?? '',
+        'suffix_name' => $row['suffix_name'] ?? '',
+    ]));
+}
+
+function return_asset_document_label(array $row): string
+{
+    return trim(implode(' / ', array_filter([
+        $row['document_type'] ?? '',
+        $row['document_no'] ?? '',
+    ])));
+}
+
 $db = db();
 $page_title = 'Returns';
 $flash = get_flash();
@@ -27,6 +45,7 @@ $preselectedSourceType = trim((string) ($_GET['source'] ?? ''));
 $form = [
     'source_type' => 'system',
     'distribution_item_detail_id' => '',
+    'distribution_item_detail_ids' => [],
     'legacy_asset_id' => '',
     'return_date' => date('Y-m-d'),
     'reason' => '',
@@ -54,6 +73,11 @@ if (!$db) {
         }
 
         $form['distribution_item_detail_id'] = trim((string) ($_POST['distribution_item_detail_id'] ?? ''));
+        $form['distribution_item_detail_ids'] = array_values(array_filter(array_map(static function ($value): string {
+            return trim((string) $value);
+        }, (array) ($_POST['distribution_item_detail_ids'] ?? [])), static function ($value): bool {
+            return $value !== '';
+        }));
         $form['legacy_asset_id'] = trim((string) ($_POST['legacy_asset_id'] ?? ''));
         $form['return_date'] = trim((string) ($_POST['return_date'] ?? date('Y-m-d')));
         $form['reason'] = trim((string) ($_POST['reason'] ?? ''));
@@ -65,20 +89,25 @@ if (!$db) {
 
         $sourceType = $form['source_type'];
         $detailId = (int) ($form['distribution_item_detail_id'] !== '' ? $form['distribution_item_detail_id'] : 0);
+        $detailIds = array_values(array_unique(array_map('intval', $form['distribution_item_detail_ids'])));
         $legacyAssetId = (int) ($form['legacy_asset_id'] !== '' ? $form['legacy_asset_id'] : 0);
+
+        if ($sourceType === 'system' && $detailId > 0 && !in_array($detailId, $detailIds, true)) {
+            $detailIds[] = $detailId;
+        }
 
         if ($sourceType === 'legacy') {
             if ($legacyAssetId <= 0) {
                 $errors[] = 'Select a legacy asset to return.';
             }
-        } elseif ($detailId <= 0) {
-            $errors[] = 'Select an accountable asset to return.';
+        } elseif (!$detailIds) {
+            $errors[] = 'Select at least one accountable asset to return.';
         }
         if ($form['return_date'] === '') {
             $errors[] = 'Return date is required.';
         }
 
-        $asset = null;
+        $assets = [];
         if (!$errors) {
             if ($sourceType === 'legacy') {
                 $assetStmt = $db->prepare("
@@ -126,43 +155,55 @@ if (!$db) {
                     WHERE did.id = ?
                     LIMIT 1
                 ");
-                if ($assetStmt) {
-                    $assetStmt->bind_param('i', $detailId);
-                    $assetStmt->execute();
-                    $asset = $assetStmt->get_result()->fetch_assoc() ?: null;
-                    $assetStmt->close();
-                }
+                $dupStmt = $db->prepare("SELECT id FROM returns WHERE source_type = 'system' AND distribution_item_detail_id = ? AND status = 'posted' LIMIT 1");
 
-                if (!$asset) {
-                    $errors[] = 'The selected asset could not be found.';
-                } elseif ((int) ($asset['is_disposed'] ?? 0) === 1) {
-                    $errors[] = 'Disposed assets can no longer be returned.';
-                } elseif ((int) ($asset['is_distributed'] ?? 0) !== 1) {
-                    $errors[] = 'The selected asset is no longer marked as distributed.';
-                } else {
-                    $dupStmt = $db->prepare("SELECT id FROM returns WHERE source_type = 'system' AND distribution_item_detail_id = ? AND status = 'posted' LIMIT 1");
+                foreach ($detailIds as $selectedDetailId) {
+                    $asset = null;
+                    if ($assetStmt) {
+                        $assetStmt->bind_param('i', $selectedDetailId);
+                        $assetStmt->execute();
+                        $asset = $assetStmt->get_result()->fetch_assoc() ?: null;
+                    }
+
+                    if (!$asset) {
+                        $errors[] = 'One selected asset could not be found.';
+                        continue;
+                    }
+                    if ((int) ($asset['is_disposed'] ?? 0) === 1) {
+                        $errors[] = 'Disposed assets can no longer be returned.';
+                        continue;
+                    }
+                    if ((int) ($asset['is_distributed'] ?? 0) !== 1) {
+                        $errors[] = 'One selected asset is no longer marked as distributed.';
+                        continue;
+                    }
+
                     if ($dupStmt) {
-                        $dupStmt->bind_param('i', $detailId);
+                        $dupStmt->bind_param('i', $selectedDetailId);
                         $dupStmt->execute();
                         $existing = $dupStmt->get_result()->fetch_assoc();
-                        $dupStmt->close();
                         if ($existing) {
-                            $errors[] = 'A posted return already exists for the selected asset.';
+                            $errors[] = 'One selected asset already has a posted return.';
+                            continue;
                         }
                     }
+
+                    $assets[] = $asset;
+                }
+
+                if ($assetStmt) {
+                    $assetStmt->close();
+                }
+                if ($dupStmt) {
+                    $dupStmt->close();
                 }
             }
         }
 
-        if (!$errors && $asset) {
+        if (!$errors && ($sourceType === 'legacy' ? !empty($asset) : !empty($assets))) {
             $db->begin_transaction();
             try {
-                $systemRef = next_module_code($db, 'returns');
                 $userId = current_user_id();
-                $officeId = (int) ($asset['current_office_id'] ?? 0);
-                $employeeId = (int) ($asset['current_employee_id'] ?? 0);
-                $detailIdToSave = $sourceType === 'system' ? $detailId : null;
-                $legacyIdToSave = $sourceType === 'legacy' ? $legacyAssetId : null;
 
                 $ins = $db->prepare("
                     INSERT INTO returns (
@@ -183,12 +224,16 @@ if (!$db) {
                 if (!$ins) {
                     throw new RuntimeException('Unable to prepare the return insert statement.');
                 }
-
-                $ins->bind_param('sssiiiissi', $systemRef, $sourceType, $form['return_date'], $detailIdToSave, $legacyIdToSave, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
-                $ins->execute();
-                $ins->close();
-
                 if ($sourceType === 'legacy') {
+                    $systemRef = next_module_code($db, 'returns');
+                    $officeId = (int) ($asset['current_office_id'] ?? 0);
+                    $employeeId = (int) ($asset['current_employee_id'] ?? 0);
+                    $detailIdToSave = null;
+                    $legacyIdToSave = $legacyAssetId;
+
+                    $ins->bind_param('sssiiiissi', $systemRef, $sourceType, $form['return_date'], $detailIdToSave, $legacyIdToSave, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
+                    $ins->execute();
+
                     $upd = $db->prepare("
                         UPDATE legacy_assets
                         SET office_id = NULL, employee_id = NULL, responsibility_code_id = NULL
@@ -200,6 +245,27 @@ if (!$db) {
                     $upd->bind_param('i', $legacyAssetId);
                     $upd->execute();
                     $upd->close();
+
+                    $returnId = (int) $db->insert_id;
+                    write_audit_log($db, [
+                        'action' => 'insert',
+                        'table_name' => 'returns',
+                        'record_id' => $returnId,
+                        'module_name' => 'returns',
+                        'record_type' => 'return',
+                        'action_name' => 'post_return',
+                        'new_values' => [
+                            'system_reference' => $systemRef,
+                            'source_type' => $sourceType,
+                            'return_date' => $form['return_date'],
+                            'distribution_item_detail_id' => $detailIdToSave,
+                            'legacy_asset_id' => $legacyIdToSave,
+                            'office_id' => $officeId,
+                            'employee_id' => $employeeId,
+                            'reason' => $form['reason'],
+                        ],
+                        'description' => 'Posted asset return.',
+                    ]);
                 } else {
                     $upd = $db->prepare("
                         UPDATE distribution_item_details
@@ -213,34 +279,48 @@ if (!$db) {
                     if (!$upd) {
                         throw new RuntimeException('Unable to update the asset accountability state.');
                     }
-                    $upd->bind_param('i', $detailId);
-                    $upd->execute();
+
+                    foreach ($assets as $assetRow) {
+                        $systemRef = next_module_code($db, 'returns');
+                        $officeId = (int) ($assetRow['current_office_id'] ?? 0);
+                        $employeeId = (int) ($assetRow['current_employee_id'] ?? 0);
+                        $detailIdToSave = (int) ($assetRow['id'] ?? 0);
+                        $legacyIdToSave = null;
+
+                        $ins->bind_param('sssiiiissi', $systemRef, $sourceType, $form['return_date'], $detailIdToSave, $legacyIdToSave, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
+                        $ins->execute();
+
+                        $upd->bind_param('i', $detailIdToSave);
+                        $upd->execute();
+
+                        $returnId = (int) $db->insert_id;
+                        write_audit_log($db, [
+                            'action' => 'insert',
+                            'table_name' => 'returns',
+                            'record_id' => $returnId,
+                            'module_name' => 'returns',
+                            'record_type' => 'return',
+                            'action_name' => 'post_return',
+                            'new_values' => [
+                                'system_reference' => $systemRef,
+                                'source_type' => $sourceType,
+                                'return_date' => $form['return_date'],
+                                'distribution_item_detail_id' => $detailIdToSave,
+                                'legacy_asset_id' => $legacyIdToSave,
+                                'office_id' => $officeId,
+                                'employee_id' => $employeeId,
+                                'reason' => $form['reason'],
+                            ],
+                            'description' => 'Posted asset return.',
+                        ]);
+                    }
                     $upd->close();
                 }
-
-                $returnId = (int) $db->insert_id;
-                write_audit_log($db, [
-                    'action' => 'insert',
-                    'table_name' => 'returns',
-                    'record_id' => $returnId,
-                    'module_name' => 'returns',
-                    'record_type' => 'return',
-                    'action_name' => 'post_return',
-                    'new_values' => [
-                        'system_reference' => $systemRef,
-                        'source_type' => $sourceType,
-                        'return_date' => $form['return_date'],
-                        'distribution_item_detail_id' => $detailIdToSave,
-                        'legacy_asset_id' => $legacyIdToSave,
-                        'office_id' => $officeId,
-                        'employee_id' => $employeeId,
-                        'reason' => $form['reason'],
-                    ],
-                    'description' => 'Posted asset return.',
-                ]);
+                $ins->close();
 
                 $db->commit();
-                set_flash('success', 'Return recorded successfully.');
+                $returnCount = $sourceType === 'legacy' ? 1 : count($assets);
+                set_flash('success', $returnCount > 1 ? ('Bulk return recorded successfully for ' . number_format($returnCount) . ' assets.') : 'Return recorded successfully.');
                 redirect('modules/returns/index.php');
             } catch (Throwable $e) {
                 $db->rollback();
@@ -321,6 +401,7 @@ if (!$db) {
             if ((int) ($assetRow['id'] ?? 0) === $preselectedDetailId) {
                 $form['source_type'] = 'system';
                 $form['distribution_item_detail_id'] = (string) $preselectedDetailId;
+                $form['distribution_item_detail_ids'] = [(string) $preselectedDetailId];
                 break;
             }
         }
@@ -406,7 +487,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="report-toolbar">
                         <div>
                             <h5 class="report-toolbar-title mb-0">Returns</h5>
-                            <p class="report-toolbar-copy">Record the return of distributed semi-expendable or equipment assets and bring them back out of active accountability without losing the audit trail.</p>
+                            <p class="report-toolbar-copy">Accept distributed semi-expendable or equipment assets back from the end-user, receive them into the Supply Office pool, and keep the audit trail plus the correct COA/GAM return form.</p>
                         </div>
                     </div>
 
@@ -421,7 +502,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="report-summary-card">
                             <div class="report-summary-label">Available Assets</div>
                             <div class="report-summary-value"><?php echo number_format($availableCount); ?></div>
-                            <div class="report-summary-note">Distributed assets that can still be returned.</div>
+                            <div class="report-summary-note">Distributed assets that can still be received back into Supply Office.</div>
                         </div>
                         <div class="report-summary-card">
                             <div class="report-summary-label">Semi-Expendable</div>
@@ -453,7 +534,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                             <div class="col-md-7">
                                 <label class="form-label">Search</label>
-                                <input type="text" name="q" class="form-control" value="<?php echo h($search); ?>" placeholder="Property no., serial no., description, brand, model, or office">
+                                <input type="text" name="q" class="form-control" value="<?php echo h($search); ?>" placeholder="Property no., serial no., description, brand, model, accountable office, or accountable person">
                             </div>
                             <div class="col-md-2 d-flex gap-2">
                                 <button type="submit" class="btn btn-primary w-100">Apply</button>
@@ -464,47 +545,130 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                     <div class="report-filter-card">
                         <h6 class="report-filter-title">Record Return</h6>
-                        <form method="post" class="row g-3 align-items-end">
+                        <form method="post" class="row g-3">
                             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                             <input type="hidden" name="source_type" value="<?php echo h($form['source_type']); ?>">
-                            <div class="col-md-6">
-                                <label class="form-label">Accountable Asset</label>
+                            <div class="col-lg-7">
                                 <?php if ($form['source_type'] === 'legacy' && $form['legacy_asset_id'] !== ''): ?>
-                                    <input type="hidden" name="legacy_asset_id" value="<?php echo h($form['legacy_asset_id']); ?>">
-                                    <input type="text" class="form-control" value="Legacy asset #<?php echo h($form['legacy_asset_id']); ?> (from Asset Details)" readonly>
+                                    <div class="return-workspace-panel h-100">
+                                        <div class="return-workspace-head">
+                                            <div>
+                                                <div class="return-workspace-eyebrow">Selected Source</div>
+                                                <h6 class="mb-1">Legacy Asset Return</h6>
+                                                <div class="text-muted small">This return was opened directly from the asset details page.</div>
+                                            </div>
+                                        </div>
+                                        <input type="hidden" name="legacy_asset_id" value="<?php echo h($form['legacy_asset_id']); ?>">
+                                        <div class="return-selection-empty">
+                                            <i class="bi bi-archive"></i>
+                                            <div class="fw-semibold">Legacy asset #<?php echo h($form['legacy_asset_id']); ?></div>
+                                            <div class="small">Review the return details on the right, then receive this asset back into Supply Office.</div>
+                                        </div>
+                                    </div>
                                 <?php else: ?>
-                                    <select name="distribution_item_detail_id" class="form-select" required>
-                                        <option value="">Select distributed asset</option>
-                                        <?php foreach ($available as $asset): ?>
-                                            <option value="<?php echo (int) $asset['id']; ?>" <?php echo $form['distribution_item_detail_id'] === (string) $asset['id'] ? 'selected' : ''; ?>>
-                                                <?php
-                                                echo h(trim(implode(' | ', array_filter([
-                                                    strtoupper((string) ($asset['item_type'] ?? '')),
-                                                    $asset['property_number'] ?? '',
-                                                    $asset['serial_no'] ?? '',
-                                                    return_asset_label($asset),
-                                                    $asset['office_name'] ?? '',
-                                                ]))));
-                                                ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
+                                    <div class="return-workspace-panel h-100">
+                                        <div class="return-workspace-head">
+                                            <div>
+                                                <div class="return-workspace-eyebrow">Item Browser</div>
+                                                <h6 class="mb-1">Select Assets To Receive</h6>
+                                                <div class="text-muted small">Search the loaded list, tick one or more assets, and review the details before posting the return.</div>
+                                            </div>
+                                            <span class="badge rounded-pill text-bg-light" id="returnSelectionCount"><?php echo count($form['distribution_item_detail_ids']) > 0 ? number_format(count($form['distribution_item_detail_ids'])) : '0'; ?> selected</span>
+                                        </div>
+                                        <div class="return-picker-toolbar">
+                                            <div class="input-group">
+                                                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                                <input type="search" class="form-control" id="returnAssetPickerSearch" placeholder="Search inside loaded assets">
+                                            </div>
+                                        </div>
+                                        <div class="return-picker-list" id="returnAssetPickerList">
+                                            <?php if ($available): ?>
+                                                <?php foreach ($available as $asset): ?>
+                                                    <?php
+                                                    $isSelected = in_array((string) $asset['id'], array_map('strval', $form['distribution_item_detail_ids']), true) || $form['distribution_item_detail_id'] === (string) $asset['id'];
+                                                    $payload = [
+                                                        'id' => (int) ($asset['id'] ?? 0),
+                                                        'item_type' => (string) ($asset['item_type'] ?? ''),
+                                                        'property_number' => (string) ($asset['property_number'] ?? ''),
+                                                        'serial_no' => (string) ($asset['serial_no'] ?? ''),
+                                                        'asset_label' => return_asset_label($asset),
+                                                        'office_name' => (string) ($asset['office_name'] ?? ''),
+                                                        'accountable_person' => return_asset_person_label($asset),
+                                                        'document_label' => return_asset_document_label($asset),
+                                                        'brand' => (string) ($asset['brand'] ?? ''),
+                                                        'model' => (string) ($asset['model'] ?? ''),
+                                                        'classification_family' => (string) ($asset['classification_family'] ?? ''),
+                                                        'classification_name' => (string) ($asset['classification_name'] ?? ''),
+                                                    ];
+                                                    $searchBlob = strtolower(trim(implode(' ', array_filter([
+                                                        $asset['item_type'] ?? '',
+                                                        $asset['property_number'] ?? '',
+                                                        $asset['serial_no'] ?? '',
+                                                        $asset['item_description'] ?? '',
+                                                        $asset['classification_name'] ?? '',
+                                                        $asset['classification_family'] ?? '',
+                                                        $asset['brand'] ?? '',
+                                                        $asset['model'] ?? '',
+                                                        $asset['office_name'] ?? '',
+                                                        return_asset_person_label($asset),
+                                                    ]))));
+                                                    ?>
+                                                    <label class="return-picker-item<?php echo $isSelected ? ' is-selected' : ''; ?>" data-search="<?php echo h($searchBlob); ?>">
+                                                        <input class="return-picker-checkbox" type="checkbox" name="distribution_item_detail_ids[]" value="<?php echo (int) $asset['id']; ?>" <?php echo $isSelected ? 'checked' : ''; ?> data-asset="<?php echo h((string) json_encode($payload, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP)); ?>">
+                                                        <span class="return-picker-item-body">
+                                                            <span class="return-picker-item-top">
+                                                                <span class="return-picker-title"><?php echo h(return_asset_label($asset)); ?></span>
+                                                                <span class="badge <?php echo ($asset['item_type'] ?? '') === 'equipment' ? 'badge-soft-info' : 'badge-soft-success'; ?>"><?php echo h(($asset['item_type'] ?? '') === 'equipment' ? 'Equipment' : 'Semi-Expendable'); ?></span>
+                                                            </span>
+                                                            <span class="return-picker-meta"><?php echo h(trim(implode(' | ', array_filter([$asset['property_number'] ?? '', $asset['serial_no'] ?? '', return_asset_document_label($asset)])))); ?></span>
+                                                            <span class="return-picker-submeta"><?php echo h(trim(implode(' / ', array_filter([$asset['office_name'] ?? '', return_asset_person_label($asset)])))); ?></span>
+                                                        </span>
+                                                    </label>
+                                                <?php endforeach; ?>
+                                            <?php else: ?>
+                                                <div class="return-selection-empty">
+                                                    <i class="bi bi-inbox"></i>
+                                                    <div class="fw-semibold">No assets match the current filter</div>
+                                                    <div class="small">Adjust the inventory type or search keywords above to load more returnable items.</div>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="return-picker-empty d-none" id="returnAssetPickerEmpty">No loaded assets match the local search.</div>
+                                    </div>
                                 <?php endif; ?>
                             </div>
-                            <div class="col-md-2">
-                                <label class="form-label">Return Date</label>
-                                <input type="date" name="return_date" class="form-control" value="<?php echo h($form['return_date']); ?>" required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Reason</label>
-                                <input type="text" name="reason" class="form-control" value="<?php echo h($form['reason']); ?>" placeholder="Reason for return">
-                            </div>
-                            <div class="col-md-10">
-                                <label class="form-label">Remarks</label>
-                                <input type="text" name="remarks" class="form-control" value="<?php echo h($form['remarks']); ?>" placeholder="Optional notes for the return record">
-                            </div>
-                            <div class="col-md-2 d-grid">
-                                <button class="btn btn-primary">Post Return</button>
+                            <div class="col-lg-5">
+                                <div class="return-workspace-panel h-100">
+                                    <div class="return-workspace-head">
+                                        <div>
+                                            <div class="return-workspace-eyebrow">Selection Preview</div>
+                                            <h6 class="mb-1">Selected Item Details</h6>
+                                            <div class="text-muted small">The panel updates as users tick assets for single or bulk return.</div>
+                                        </div>
+                                    </div>
+                                    <div id="returnSelectionPreview" class="return-selection-empty">
+                                        <i class="bi bi-check2-square"></i>
+                                        <div class="fw-semibold">No asset selected yet</div>
+                                        <div class="small">Choose an asset from the left to preview its details here before receiving the return.</div>
+                                    </div>
+                                    <div class="row g-3 mt-1">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Return Date</label>
+                                            <input type="date" name="return_date" class="form-control" value="<?php echo h($form['return_date']); ?>" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Reason</label>
+                                            <input type="text" name="reason" class="form-control" value="<?php echo h($form['reason']); ?>" placeholder="Reason for return">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label">Remarks</label>
+                                            <input type="text" name="remarks" class="form-control" value="<?php echo h($form['remarks']); ?>" placeholder="Optional notes for the return record">
+                                        </div>
+                                        <div class="col-12 d-grid">
+                                            <button class="btn btn-primary">Receive Return</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </form>
                     </div>
@@ -519,6 +683,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <th>Document</th>
                                     <th>From Office / Officer</th>
                                     <th>Reason</th>
+                                    <th>COA/GAM Form</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -542,10 +707,19 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td><?php echo h(trim(implode(' / ', array_filter([$row['document_type'] ?? '', $row['document_no'] ?? ''])))); ?></td>
                                             <td><?php echo h(trim(implode(' / ', array_filter([$row['office_name'] ?? '', employee_display_name($row)])))); ?></td>
                                             <td><?php echo h(trim(implode(' | ', array_filter([$row['reason'] ?? '', $row['remarks'] ?? ''])))); ?></td>
+                                            <td>
+                                                <?php if (($row['item_type'] ?? '') === 'semi_expendable'): ?>
+                                                    <a class="btn btn-outline-primary btn-sm" href="<?php echo h(base_url('modules/reports/semi_rrsp.php?return_id=' . (int) $row['id'])); ?>">Annex A.6 RRSP</a>
+                                                <?php elseif (($row['item_type'] ?? '') === 'equipment'): ?>
+                                                    <a class="btn btn-outline-primary btn-sm" href="<?php echo h(base_url('modules/reports/property_return_slip.php?return_id=' . (int) $row['id'])); ?>">Appendix 72 RRP</a>
+                                                <?php else: ?>
+                                                    <span class="text-muted">No form</span>
+                                                <?php endif; ?>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <tr><td colspan="6" class="text-center text-muted py-4">No return records yet.</td></tr>
+                                    <tr><td colspan="7" class="text-center text-muted py-4">No return records yet.</td></tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
@@ -555,4 +729,120 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     </div>
 </section>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var pickerList = document.getElementById('returnAssetPickerList');
+    var searchInput = document.getElementById('returnAssetPickerSearch');
+    var preview = document.getElementById('returnSelectionPreview');
+    var countBadge = document.getElementById('returnSelectionCount');
+    var emptySearch = document.getElementById('returnAssetPickerEmpty');
+
+    if (!pickerList || !preview) {
+        return;
+    }
+
+    var checkboxes = Array.prototype.slice.call(pickerList.querySelectorAll('.return-picker-checkbox'));
+    var items = Array.prototype.slice.call(pickerList.querySelectorAll('.return-picker-item'));
+
+    function parseAsset(checkbox) {
+        try {
+            return JSON.parse(checkbox.getAttribute('data-asset') || '{}');
+        } catch (error) {
+            return {};
+        }
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function selectedCheckboxes() {
+        return checkboxes.filter(function (checkbox) {
+            return checkbox.checked;
+        });
+    }
+
+    function renderPreview() {
+        var selected = selectedCheckboxes();
+
+        items.forEach(function (item) {
+            var checkbox = item.querySelector('.return-picker-checkbox');
+            item.classList.toggle('is-selected', !!checkbox && checkbox.checked);
+        });
+
+        if (countBadge) {
+            countBadge.textContent = selected.length + ' selected';
+        }
+
+        if (selected.length === 0) {
+            preview.className = 'return-selection-empty';
+            preview.innerHTML = '<i class="bi bi-check2-square"></i><div class="fw-semibold">No asset selected yet</div><div class="small">Choose an asset from the left to preview its details here before receiving the return.</div>';
+            return;
+        }
+
+        var summaryCards = selected.slice(0, 3).map(function (checkbox) {
+            var asset = parseAsset(checkbox);
+            var typeLabel = asset.item_type === 'equipment' ? 'Equipment' : 'Semi-Expendable';
+            return '<div class="return-selection-card">'
+                + '<div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">'
+                + '<div class="fw-semibold">' + escapeHtml(asset.asset_label) + '</div>'
+                + '<span class="badge ' + (asset.item_type === 'equipment' ? 'badge-soft-info' : 'badge-soft-success') + '">' + escapeHtml(typeLabel) + '</span>'
+                + '</div>'
+                + '<div class="small text-muted mt-1">' + escapeHtml([asset.property_number, asset.serial_no].filter(Boolean).join(' | ')) + '</div>'
+                + '<div class="small text-muted">' + escapeHtml([asset.office_name, asset.accountable_person].filter(Boolean).join(' / ')) + '</div>'
+                + '<div class="return-selection-grid">'
+                + '<div><span class="return-selection-label">Document</span><strong>' + escapeHtml(asset.document_label || '-') + '</strong></div>'
+                + '<div><span class="return-selection-label">Brand / Model</span><strong>' + escapeHtml([asset.brand, asset.model].filter(Boolean).join(' / ') || '-') + '</strong></div>'
+                + '<div><span class="return-selection-label">Classification</span><strong>' + escapeHtml([asset.classification_family, asset.classification_name].filter(Boolean).join(' / ') || '-') + '</strong></div>'
+                + '</div>'
+                + '</div>';
+        }).join('');
+
+        if (selected.length > 3) {
+            summaryCards += '<div class="return-selection-more">+' + (selected.length - 3) + ' more selected item(s)</div>';
+        }
+
+        preview.className = '';
+        preview.innerHTML = summaryCards;
+    }
+
+    function applyLocalSearch() {
+        if (!searchInput) {
+            return;
+        }
+
+        var keyword = searchInput.value.trim().toLowerCase();
+        var visibleCount = 0;
+
+        items.forEach(function (item) {
+            var haystack = (item.getAttribute('data-search') || '').toLowerCase();
+            var matches = keyword === '' || haystack.indexOf(keyword) !== -1;
+            item.classList.toggle('d-none', !matches);
+            if (matches) {
+                visibleCount += 1;
+            }
+        });
+
+        if (emptySearch) {
+            emptySearch.classList.toggle('d-none', visibleCount !== 0);
+        }
+    }
+
+    checkboxes.forEach(function (checkbox) {
+        checkbox.addEventListener('change', renderPreview);
+    });
+
+    if (searchInput) {
+        searchInput.addEventListener('input', applyLocalSearch);
+    }
+
+    renderPreview();
+    applyLocalSearch();
+});
+</script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

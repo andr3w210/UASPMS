@@ -10,14 +10,30 @@ $encodedSummary = [
     'quantity' => 0,
     'cost'     => 0.0,
 ];
+$search = trim((string) ($_GET['q'] ?? ''));
+$itemTypeFilter = trim((string) ($_GET['item_type'] ?? 'all'));
+$page = max(1, (int) ($_GET['page'] ?? 1));
+$perPageOptions = [25, 50, 100, 250];
+$perPage = (int) ($_GET['per_page'] ?? 25);
+if (!in_array($perPage, $perPageOptions, true)) {
+    $perPage = 25;
+}
+if (!in_array($itemTypeFilter, ['all', 'equipment', 'semi_expendable'], true)) {
+    $itemTypeFilter = 'all';
+}
+$totalRecords = 0;
+$totalPages = 1;
 
 if ($db) {
     ensure_legacy_assets_fund_column($db);
     ensure_legacy_assets_rpcppe_tracking_columns($db);
 
-    $db->query("UPDATE legacy_assets SET item_type = 'equipment' WHERE item_type IS NULL OR item_type = ''");
-    $db->query("UPDATE legacy_assets SET quantity = 1 WHERE quantity IS NULL OR quantity <= 0");
-    $db->query("UPDATE legacy_assets SET unit_cost = acquisition_cost WHERE unit_cost IS NULL OR unit_cost = 0");
+    if (!isset($_SESSION['legacy_assets_normalized_once'])) {
+        $db->query("UPDATE legacy_assets SET item_type = 'equipment' WHERE item_type IS NULL OR item_type = ''");
+        $db->query("UPDATE legacy_assets SET quantity = 1 WHERE quantity IS NULL OR quantity <= 0");
+        $db->query("UPDATE legacy_assets SET unit_cost = acquisition_cost WHERE unit_cost IS NULL OR unit_cost = 0");
+        $_SESSION['legacy_assets_normalized_once'] = 1;
+    }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') === 'update_rpcppe_tracking') {
         if (!csrf_verify()) {
@@ -52,6 +68,63 @@ if ($db) {
         }
     }
 
+    $whereSql = " WHERE la.is_active = 1
+        AND la.item_description NOT LIKE 'RPCPPE Reconciliation Adjustment %'
+        AND la.item_description NOT LIKE 'RPCPPE 2025 Reconciliation Adjustment %'";
+    $whereTypes = '';
+    $whereParams = [];
+    if ($itemTypeFilter !== 'all') {
+        $whereSql .= " AND la.item_type = ?";
+        $whereTypes .= 's';
+        $whereParams[] = $itemTypeFilter;
+    }
+    if ($search !== '') {
+        $whereSql .= " AND (
+            la.property_number LIKE CONCAT('%', ?, '%')
+            OR la.po_number LIKE CONCAT('%', ?, '%')
+            OR la.item_description LIKE CONCAT('%', ?, '%')
+            OR COALESCE(o.office_name, '') LIKE CONCAT('%', ?, '%')
+            OR CONCAT_WS(' ', COALESCE(e.first_name, ''), COALESCE(e.middle_name, ''), COALESCE(e.last_name, ''), COALESCE(e.suffix_name, '')) LIKE CONCAT('%', ?, '%')
+            OR COALESCE(s.supplier_name, '') LIKE CONCAT('%', ?, '%')
+            OR COALESCE(b.brand_name, la.brand, '') LIKE CONCAT('%', ?, '%')
+            OR COALESCE(m.model_name, la.model, '') LIKE CONCAT('%', ?, '%')
+        )";
+        $whereTypes .= 'ssssssss';
+        array_push($whereParams, $search, $search, $search, $search, $search, $search, $search, $search);
+    }
+
+    $summarySql = "
+        SELECT
+            COUNT(*) AS record_count,
+            COALESCE(SUM(la.quantity), 0) AS total_quantity,
+            COALESCE(SUM(la.acquisition_cost), 0) AS total_cost
+        FROM legacy_assets la
+        LEFT JOIN suppliers s ON s.id = la.supplier_id
+        LEFT JOIN brands b ON b.id = la.brand_id
+        LEFT JOIN models m ON m.id = la.model_id
+        LEFT JOIN offices o ON o.id = la.office_id
+        LEFT JOIN employees e ON e.id = la.employee_id
+        " . $whereSql;
+    $summaryStmt = $db->prepare($summarySql);
+    if ($summaryStmt) {
+        if ($whereParams) {
+            $summaryStmt->bind_param($whereTypes, ...$whereParams);
+        }
+        $summaryStmt->execute();
+        $summaryRow = $summaryStmt->get_result()->fetch_assoc() ?: [];
+        $summaryStmt->close();
+        $encodedSummary['count'] = (int) ($summaryRow['record_count'] ?? 0);
+        $encodedSummary['quantity'] = (int) ($summaryRow['total_quantity'] ?? 0);
+        $encodedSummary['cost'] = (float) ($summaryRow['total_cost'] ?? 0);
+    }
+
+    $totalRecords = $encodedSummary['count'];
+    $totalPages = max(1, (int) ceil($totalRecords / $perPage));
+    if ($page > $totalPages) {
+        $page = $totalPages;
+    }
+    $offset = ($page - 1) * $perPage;
+
     $listSql = "
         SELECT la.*, c.classification_name, c.classification_family, ac.account_code, ac.account_name,
                f.fund_code, f.fund_name, f.fund_source, o.office_name,
@@ -67,22 +140,51 @@ if ($db) {
         LEFT JOIN offices o ON o.id = la.office_id
         LEFT JOIN employees e ON e.id = la.employee_id
         LEFT JOIN responsibility_codes rc ON rc.id = la.responsibility_code_id
-        WHERE la.is_active = 1
+        " . $whereSql . "
         ORDER BY la.created_at DESC, la.id DESC
+        LIMIT ? OFFSET ?
     ";
     $listStmt = $db->prepare($listSql);
     if ($listStmt) {
+        $listTypes = $whereTypes . 'ii';
+        $listParams = $whereParams;
+        $listParams[] = $perPage;
+        $listParams[] = $offset;
+        $listStmt->bind_param($listTypes, ...$listParams);
         $listStmt->execute();
         $rows = $listStmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $listStmt->close();
-        foreach ($rows as $summaryRow) {
-            $encodedSummary['count']++;
-            $encodedSummary['quantity'] += (int) ($summaryRow['quantity'] ?? 0);
-            $encodedSummary['cost']     += (float) ($summaryRow['acquisition_cost'] ?? 0);
-        }
     }
 
     if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+        $exportRows = [];
+        $exportSql = "
+            SELECT la.*, c.classification_name, c.classification_family, ac.account_code, ac.account_name,
+                   f.fund_code, f.fund_name, f.fund_source, o.office_name,
+                   s.supplier_name, b.brand_name, m.model_name,
+                   e.first_name, e.middle_name, e.last_name, e.suffix_name, rc.code AS rc_code
+            FROM legacy_assets la
+            LEFT JOIN classifications c ON c.id = la.classification_id
+            LEFT JOIN account_codes ac ON ac.id = la.account_code_id
+            LEFT JOIN funds f ON f.id = la.fund_id
+            LEFT JOIN suppliers s ON s.id = la.supplier_id
+            LEFT JOIN brands b ON b.id = la.brand_id
+            LEFT JOIN models m ON m.id = la.model_id
+            LEFT JOIN offices o ON o.id = la.office_id
+            LEFT JOIN employees e ON e.id = la.employee_id
+            LEFT JOIN responsibility_codes rc ON rc.id = la.responsibility_code_id
+            " . $whereSql . "
+            ORDER BY la.created_at DESC, la.id DESC
+        ";
+        $exportStmt = $db->prepare($exportSql);
+        if ($exportStmt) {
+            if ($whereParams) {
+                $exportStmt->bind_param($whereTypes, ...$whereParams);
+            }
+            $exportStmt->execute();
+            $exportRows = $exportStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $exportStmt->close();
+        }
         $filename = 'legacy_assets_export_' . date('Y-m-d_H-i-s') . '.csv';
         header('Content-Type: text/csv');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -94,7 +196,7 @@ if ($db) {
             'Quantity', 'Unit Cost', 'Acquisition Cost',
             'Office', 'Employee', 'Responsibility Code', 'Condition Status', 'RPCPPE Candidate', 'RPCPPE Status', 'Remarks', 'Created At',
         ]);
-        foreach ($rows as $row) {
+        foreach ($exportRows as $row) {
             $employeeName = trim(implode(' ', array_filter([
                 trim((string) ($row['first_name'] ?? '')),
                 trim((string) ($row['middle_name'] ?? '')),
@@ -143,6 +245,14 @@ $page_title = 'Beginning Balance Encoding';
 require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
+$pageBaseParams = [
+    'q' => $search,
+    'item_type' => $itemTypeFilter,
+    'per_page' => $perPage,
+];
+$prevUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(array_merge($pageBaseParams, ['page' => max(1, $page - 1)])));
+$nextUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(array_merge($pageBaseParams, ['page' => min($totalPages, $page + 1)])));
+$exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(array_merge($pageBaseParams, ['export' => 'csv'])));
 ?>
 <section class="page-section">
 <div class="row g-4">
@@ -156,7 +266,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="small text-muted">Encoded assets already owned by the university prior to system adoption.</div>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
-                        <a href="<?php echo h(base_url('modules/property/legacy_assets.php?export=csv')); ?>" class="btn btn-outline-success">
+                        <a href="<?php echo h($exportUrl); ?>" class="btn btn-outline-success">
                             <i class="bi bi-download me-1"></i>Export CSV
                         </a>
                         <a href="<?php echo h(base_url('modules/property/encode_legacy_asset.php')); ?>" class="btn btn-primary">
@@ -192,24 +302,34 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
 
                 <div class="master-data-toolbar mb-3">
-                    <div class="row g-3 align-items-end">
+                    <form method="get" class="row g-3 align-items-end">
                         <div class="col-lg-8">
                             <label class="form-label">Search</label>
                             <div class="input-group">
                                 <span class="input-group-text"><i class="bi bi-search"></i></span>
-                                <input type="search" id="legacyTableSearch" class="form-control" placeholder="Search property no., description, office, accountable, supplier, brand, model">
+                                <input type="search" name="q" class="form-control" value="<?php echo h($search); ?>" placeholder="Search property no., description, office, accountable, supplier, brand, model">
                             </div>
                         </div>
-                        <div class="col-sm-6 col-lg-4">
-                            <label class="form-label">Rows Per Page</label>
-                            <select id="legacyPerPageSelect" class="form-select" data-no-select2>
-                                <option value="25" selected>25 rows</option>
-                                <option value="50">50 rows</option>
-                                <option value="100">100 rows</option>
-                                <option value="250">250 rows</option>
+                        <div class="col-sm-4 col-lg-2">
+                            <label class="form-label">Type</label>
+                            <select name="item_type" class="form-select" data-no-select2>
+                                <option value="all" <?php echo $itemTypeFilter === 'all' ? 'selected' : ''; ?>>All</option>
+                                <option value="equipment" <?php echo $itemTypeFilter === 'equipment' ? 'selected' : ''; ?>>Equipment</option>
+                                <option value="semi_expendable" <?php echo $itemTypeFilter === 'semi_expendable' ? 'selected' : ''; ?>>Semi-Expendable</option>
                             </select>
                         </div>
-                    </div>
+                        <div class="col-sm-4 col-lg-1">
+                            <label class="form-label">Rows</label>
+                            <select name="per_page" class="form-select" data-no-select2>
+                                <?php foreach ($perPageOptions as $option): ?>
+                                    <option value="<?php echo $option; ?>" <?php echo $perPage === $option ? 'selected' : ''; ?>><?php echo $option; ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-sm-4 col-lg-1 d-flex gap-2">
+                            <button type="submit" class="btn btn-primary w-100">Load</button>
+                        </div>
+                    </form>
                 </div>
 
                 <div class="master-data-table-shell">
@@ -294,11 +414,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </table>
                     </div>
                     <div class="master-data-pagination">
-                        <div id="legacyRecordCountMobile" class="master-data-pagination-meta">Search updates the table instantly.</div>
+                        <div id="legacyRecordCountMobile" class="master-data-pagination-meta">
+                            Showing <?php echo number_format(count($rows)); ?> of <?php echo number_format($totalRecords); ?> records
+                        </div>
                         <div class="master-data-pagination-controls">
-                            <button class="btn btn-sm btn-outline-secondary" id="legacyPrevPage" type="button">Previous</button>
-                            <span id="legacyPageInfo" class="small text-muted">Page 1 of 1</span>
-                            <button class="btn btn-sm btn-outline-secondary" id="legacyNextPage" type="button">Next</button>
+                            <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo $page <= 1 ? '#' : h($prevUrl); ?>">Previous</a>
+                            <span id="legacyPageInfo" class="small text-muted">Page <?php echo number_format($page); ?> of <?php echo number_format($totalPages); ?></span>
+                            <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo $page >= $totalPages ? '#' : h($nextUrl); ?>">Next</a>
                         </div>
                     </div>
                 </div>
@@ -308,32 +430,4 @@ require_once __DIR__ . '/../../includes/topbar.php';
     </div>
 </div>
 </section>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    var recordCountEl = document.getElementById('legacyRecordCountMobile');
-    var options = {
-        searchInputId: 'legacyTableSearch',
-        statusFilterId: null,
-        prevButtonId: 'legacyPrevPage',
-        nextButtonId: 'legacyNextPage',
-        pageInfoId: 'legacyPageInfo',
-        perPageSelectId: 'legacyPerPageSelect',
-        recordCountId: null,
-        recordCountFormatter: function (state) {
-            var text = 'Showing ' + state.totalVisible + ' of ' + state.totalOverall + ' records';
-            if (recordCountEl) { recordCountEl.textContent = text; }
-            return text;
-        },
-        pageInfoFormatter: function (state) {
-            return 'Page ' + state.currentPage + ' of ' + state.totalPages + ' (' + state.totalVisible + ' matches)';
-        }
-    };
-    if (typeof window.initDataTable === 'function') {
-        window.initDataTable('legacyAssetsTable', options);
-        return;
-    }
-    window.__spamsPendingInitDataTables = window.__spamsPendingInitDataTables || [];
-    window.__spamsPendingInitDataTables.push(['legacyAssetsTable', options]);
-});
-</script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

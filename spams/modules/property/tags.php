@@ -52,10 +52,12 @@ if ($db) {
             'Beginning Balance' AS document_no,
             la.acquisition_date AS distribution_date,
             la.acquisition_date AS date_acquired,
+            c.classification_name,
             la.item_description,
             o.office_name,
             TRIM(CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, ''))) AS employee_name
         FROM legacy_assets la
+        LEFT JOIN classifications c ON c.id = la.classification_id
         LEFT JOIN offices o ON o.id = la.office_id
         LEFT JOIN employees e ON e.id = la.employee_id
         WHERE la.id = ?
@@ -84,6 +86,7 @@ if ($db) {
             d.document_no,
             d.distribution_date,
             r.received_date AS date_acquired,
+            c.classification_name,
             poi.item_description,
             COALESCE(curr_o.office_name, o.office_name) AS office_name,
             CONCAT(COALESCE(curr_e.first_name, e.first_name, ''), ' ', COALESCE(curr_e.last_name, e.last_name, '')) AS employee_name
@@ -93,6 +96,7 @@ if ($db) {
          INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
          INNER JOIN receivings r ON r.id = ri.receiving_id
          INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+         LEFT JOIN classifications c ON c.id = poi.classification_id
          LEFT JOIN receiving_item_details rid ON rid.id = did.receiving_item_detail_id
          LEFT JOIN stock_items si ON si.id = rid.stock_item_id
          LEFT JOIN offices o ON o.id = d.office_id
@@ -133,8 +137,13 @@ foreach ($rows as $row) {
     $systemReference = trim((string) ($row['system_reference'] ?? ''));
     $propertyNumber = trim((string) ($row['property_number'] ?? ''));
     $serialNumber = trim((string) ($row['serial_no'] ?? ''));
+    $dateAcquiredRaw = trim((string) ($row['date_acquired'] ?? ''));
+    $dateAcquiredQr = $dateAcquiredRaw !== '' ? date('Y-m-d', strtotime($dateAcquiredRaw)) : '';
+    $displayName = trim((string) ($row['classification_name'] ?? '')) !== ''
+        ? trim((string) ($row['classification_name'] ?? ''))
+        : trim((string) ($row['item_description'] ?? ''));
     $tagCode = property_qr_resolve_tag_code($db, $sourceType, $assetId, (string) ($row['qr_tag_code'] ?? ''));
-    $qrPayload = property_qr_build_payload($tagCode, $propertyNumber, $serialNumber);
+    $qrPayload = property_qr_build_payload($tagCode, $propertyNumber, $serialNumber, $dateAcquiredQr, $displayName);
     $lookupRef = $tagCode !== '' ? $tagCode : ($propertyNumber !== '' ? $propertyNumber : $systemReference);
     $scanUrl = base_url('modules/property/scan.php?ref=' . rawurlencode($lookupRef));
 
@@ -162,6 +171,7 @@ foreach ($rows as $row) {
         'document_no' => (string) ($row['document_no'] ?? ''),
         'distribution_date' => (string) ($row['distribution_date'] ?? ''),
         'date_acquired' => (string) ($row['date_acquired'] ?? ''),
+        'classification_name' => (string) ($row['classification_name'] ?? ''),
         'item_description' => (string) ($row['item_description'] ?? ''),
         'employee_name' => trim((string) ($row['employee_name'] ?? '')),
         'office_name' => (string) ($row['office_name'] ?? ''),
@@ -186,33 +196,18 @@ if (!$units) {
     exit;
 }
 
-function property_tag_office_short(string $officeName): string
+function property_tag_shorten(string $value, int $limit): string
 {
-    $officeName = trim($officeName);
-    if ($officeName === '') {
+    $value = trim(preg_replace('/\s+/', ' ', $value) ?? '');
+    if ($value === '' || $limit < 1) {
         return '';
     }
 
-    $clean = preg_replace('/[^A-Za-z0-9 ]+/', ' ', $officeName);
-    $words = preg_split('/\s+/', (string) $clean, -1, PREG_SPLIT_NO_EMPTY);
-    if (!$words) {
-        return strtoupper($officeName);
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        return mb_strlen($value) > $limit ? rtrim(mb_substr($value, 0, $limit - 3)) . '...' : $value;
     }
 
-    $skip = ['and', 'of', 'the', 'for', 'in', 'on', 'at'];
-    $letters = '';
-    foreach ($words as $word) {
-        if (in_array(strtolower($word), $skip, true)) {
-            continue;
-        }
-        $letters .= strtoupper(substr($word, 0, 1));
-    }
-
-    if ($letters === '') {
-        $letters = strtoupper(substr(preg_replace('/\s+/', '', $officeName), 0, 5));
-    }
-
-    return substr($letters, 0, 6);
+    return strlen($value) > $limit ? rtrim(substr($value, 0, $limit - 1)) . '...' : $value;
 }
 ?><!doctype html>
 <html lang="en">
@@ -245,10 +240,10 @@ function property_tag_office_short(string $officeName): string
             color: #000;
             border: 0.15mm solid #d8d8d8;
             display: grid;
-            grid-template-columns: 16.4mm 1fr 32.8mm;
+            grid-template-columns: 1fr 30.5mm;
             align-items: center;
-            column-gap: 0.6mm;
-            padding: 0.8mm 1.2mm 0.8mm 1.4mm;
+            column-gap: 1.1mm;
+            padding: 0.35mm 2.5mm 0.35mm 2.9mm;
             overflow: hidden;
             page-break-after: always;
             break-after: page;
@@ -257,52 +252,144 @@ function property_tag_office_short(string $officeName): string
             page-break-after: avoid;
             break-after: auto;
         }
-        .tag-logo {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-        }
-        .tag-logo img {
-            width: 15.4mm;
-            height: 15.4mm;
-            object-fit: contain;
-        }
         .tag-info {
             min-width: 0;
             height: 100%;
             display: flex;
             flex-direction: column;
-            align-items: center;
             justify-content: center;
-            padding: 0 0.8mm;
-            text-align: center;
-            line-height: 1.06;
+            gap: 0.25mm;
+            padding: 0.05mm 0.5mm 0.05mm 0;
+            text-align: left;
+            line-height: 1.04;
         }
-        .tag-line-label {
-            font-size: 2.35mm;
-            font-weight: 700;
+        .tag-head {
+            display: flex;
+            align-items: center;
+            gap: 1.1mm;
+            min-width: 0;
         }
-        .tag-line-value {
-            font-size: 2.85mm;
+        .tag-head-logo {
+            width: 5.4mm;
+            height: 5.4mm;
+            object-fit: contain;
+            flex: 0 0 auto;
+            display: block;
+        }
+        .tag-head-copy {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .tag-kicker {
+            font-size: 1.95mm;
             font-weight: 700;
-            margin-bottom: 0.45mm;
+            letter-spacing: 0.14mm;
+            text-transform: uppercase;
+            color: #0f2438;
+            margin-bottom: 0.05mm;
+        }
+        .tag-brandline {
+            font-size: 1.62mm;
+            font-weight: 700;
+            letter-spacing: 0.06mm;
+            text-transform: uppercase;
+            color: #5b6570;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tag-number-box {
+            border: 0.18mm solid #0f2438;
+            border-radius: 1.2mm;
+            padding: 0.55mm 0.9mm 0.6mm;
+            background: #f7fafc;
+        }
+        .tag-number-label {
+            font-size: 1.58mm;
+            font-weight: 700;
+            letter-spacing: 0.08mm;
+            text-transform: uppercase;
+            color: #5f6975;
+            margin-bottom: 0.15mm;
+        }
+        .tag-property-number {
+            font-size: 3.35mm;
+            font-weight: 700;
+            line-height: 1.02;
+            color: #081522;
             word-break: break-word;
         }
-        .tag-line-value.compact {
-            font-size: 2.45mm;
-            margin-bottom: 0;
+        .tag-item {
+            font-size: 2.58mm;
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #18222d;
+        }
+        .tag-meta-row {
+            display: flex;
+            align-items: center;
+            gap: 0.9mm;
+            white-space: nowrap;
+            overflow: hidden;
+            min-width: 0;
+        }
+        .tag-meta {
+            min-width: 0;
+            flex: 1 1 0;
+            font-size: 2.04mm;
+            color: #334150;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tag-meta strong {
+            font-weight: 700;
+            color: #12202f;
+        }
+        .tag-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1.2mm;
+            min-width: 0;
+        }
+        .tag-pill {
+            display: inline-flex;
+            align-items: center;
+            border: 0.15mm solid #a8b4c0;
+            border-radius: 99px;
+            padding: 0.2mm 0.9mm 0.25mm;
+            font-size: 1.72mm;
+            font-weight: 700;
+            letter-spacing: 0.04mm;
+            text-transform: uppercase;
+            color: #34404c;
+            background: #fff;
+            flex: 0 0 auto;
+        }
+        .tag-code {
+            font-size: 1.84mm;
+            font-weight: 700;
+            color: #444;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
         }
         .tag-qr {
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-end;
             height: 100%;
-            padding-right: 0.2mm;
+            padding-right: 0;
         }
-        .tag-qr img {
-            width: 29mm;
-            height: 29mm;
+        .tag-qr-code {
+            width: 25.8mm;
+            height: 25.8mm;
             object-fit: contain;
             display: block;
         }
@@ -330,34 +417,46 @@ function property_tag_office_short(string $officeName): string
 
     <div class="tag-list">
         <?php foreach ($units as $item):
-            $dateAcquired = !empty($item['date_acquired']) ? date('m/d/Y', strtotime($item['date_acquired'])) : '';
-            $officeLabel = property_tag_office_short((string) ($item['office_name'] ?? ''));
+            $propertyLabel = (string) ($item['property_number'] !== '' ? $item['property_number'] : ($item['system_reference'] ?? 'UNASSIGNED'));
+            $serialLabel = property_tag_shorten((string) ($item['serial_no'] !== '' ? $item['serial_no'] : 'N/A'), 24);
+            $displayName = trim((string) ($item['classification_name'] ?? '')) !== ''
+                ? (string) ($item['classification_name'] ?? '')
+                : (string) ($item['item_description'] ?? 'Property Asset');
+            $itemLabel = property_tag_shorten(ucwords(strtolower($displayName)), 30);
+            $dateAcquiredLabel = !empty($item['date_acquired']) ? date('m/d/Y', strtotime((string) $item['date_acquired'])) : 'N/A';
             $qrSrc = !empty($item['qr_base64'])
                 ? 'data:image/png;base64,' . $item['qr_base64']
                 : $item['qr_url'];
+            $uaLogoSrc = $logoBase64 !== '' ? $logoBase64 : '/UASPMS/spams/assets/img/ua-logo.png';
         ?>
             <div class="tag-sheet">
-                <div class="tag-logo">
-                    <?php if ($logoBase64 !== ''): ?>
-                        <img src="<?php echo h($logoBase64); ?>" alt="UA logo">
-                    <?php else: ?>
-                        <img src="/UASPMS/spams/assets/img/ua-logo.png" alt="UA logo">
-                    <?php endif; ?>
-                </div>
-
                 <div class="tag-info">
-                    <div class="tag-line-label">Date Acquired</div>
-                    <div class="tag-line-value"><?php echo h($dateAcquired); ?></div>
-                    <div class="tag-line-label">Location</div>
-                    <div class="tag-line-value compact"><?php echo h($officeLabel); ?></div>
+                    <div class="tag-head">
+                        <img src="<?php echo h($uaLogoSrc); ?>" alt="UA logo" class="tag-head-logo">
+                        <div class="tag-head-copy">
+                            <div class="tag-kicker">UA Property</div>
+                            <div class="tag-brandline">University Of Antique</div>
+                        </div>
+                    </div>
+                    <div class="tag-number-box">
+                        <div class="tag-number-label">Property Number</div>
+                        <div class="tag-property-number"><?php echo h($propertyLabel); ?></div>
+                    </div>
+                    <div class="tag-item"><?php echo h($itemLabel); ?></div>
+                    <div class="tag-meta-row">
+                        <div class="tag-meta"><strong>SN:</strong> <?php echo h($serialLabel); ?></div>
+                    </div>
+                    <div class="tag-footer">
+                        <span class="tag-pill">Scan To Verify</span>
+                        <span class="tag-code"><?php echo h('Acq: ' . $dateAcquiredLabel); ?></span>
+                    </div>
                 </div>
 
                 <div class="tag-qr">
-                    <img src="<?php echo h($qrSrc); ?>" alt="QR Code" crossorigin="anonymous">
+                    <img src="<?php echo h($qrSrc); ?>" alt="QR Code" class="tag-qr-code" crossorigin="anonymous">
                 </div>
             </div>
         <?php endforeach; ?>
     </div>
 </body>
 </html>
-

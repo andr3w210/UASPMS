@@ -17,6 +17,7 @@ $transfers = [];
 $maintenanceRows = [];
 $returnRows = [];
 $disposalRows = [];
+$latestInventoryCheck = null;
 $brandOptions = [];
 $modelOptions = [];
 $accountCodeOptions = [];
@@ -91,6 +92,43 @@ function asset_view_sort_timeline(array &$entries): void
         }
         return strcmp($bDate, $aDate);
     });
+}
+
+function asset_view_latest_inventory_check(mysqli $db, string $propertyNumber): ?array
+{
+    $propertyNumber = trim($propertyNumber);
+    if ($propertyNumber === '') {
+        return null;
+    }
+
+    $stmt = $db->prepare(
+        "SELECT ici.id,
+                ici.status,
+                ici.remarks,
+                ici.checked_at,
+                ici.session_id,
+                ics.system_reference AS session_reference,
+                ics.count_type,
+                ics.count_date,
+                o.office_name
+         FROM inventory_count_items ici
+         INNER JOIN inventory_count_sessions ics ON ics.id = ici.session_id
+         LEFT JOIN offices o ON o.id = ics.office_id
+         WHERE ici.property_number = ?
+           AND ici.checked_at IS NOT NULL
+         ORDER BY ici.checked_at DESC, ici.id DESC
+         LIMIT 1"
+    );
+    if (!$stmt) {
+        return null;
+    }
+
+    $stmt->bind_param('s', $propertyNumber);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: null;
+    $stmt->close();
+
+    return $row ?: null;
 }
 
 if (!$db) {
@@ -968,6 +1006,7 @@ $detailTitle = asset_view_type_label((string) ($asset['item_type'] ?? '')) . ' D
 $publicLookupUrl = base_url('modules/property/scan.php?ref=' . urlencode((string) ($asset['property_number'] ?? '')));
 $historyCount = count($transfers) + count($maintenanceRows) + count($returnRows) + count($disposalRows);
 $canEditSourcePo = asset_view_can_edit_source_po();
+$latestInventoryCheck = asset_view_latest_inventory_check($db, (string) ($asset['property_number'] ?? ''));
 
 require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
@@ -997,27 +1036,33 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="d-flex flex-wrap gap-2">
                         <?php $assetKey = $source . ':' . (int) $id; ?>
                         <a href="<?php echo base_url('modules/property/index.php'); ?>" class="btn btn-outline-secondary btn-sm">Back to Registry</a>
-                        <a href="<?php echo base_url('modules/transfers/index.php?mode=direct&asset_key=' . urlencode($assetKey)); ?>" class="btn btn-outline-primary btn-sm">Transfer Accountability</a>
-                        <?php if ($source === 'system' && !empty($asset['purchase_order_id'])): ?>
-                            <a href="<?php echo base_url('modules/purchase_orders/view.php?id=' . (int) $asset['purchase_order_id']); ?>" class="btn btn-outline-info btn-sm">Source PO</a>
-                            <?php if ($canEditSourcePo): ?>
-                                <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $asset['purchase_order_id']); ?>" class="btn btn-outline-primary btn-sm">Edit Source PO</a>
-                            <?php endif; ?>
-                        <?php endif; ?>
-                        <?php if ($canEditDetails): ?>
-                            <button class="btn btn-outline-warning btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#assetEditPanel" aria-expanded="false" aria-controls="assetEditPanel">Edit</button>
-                        <?php endif; ?>
-                        <a href="<?php echo $publicLookupUrl; ?>" class="btn btn-outline-primary btn-sm" target="_blank">Public Lookup</a>
                         <div class="dropdown">
                             <button class="btn btn-dark btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                Asset Actions
+                                Actions
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end">
+                                <?php if ($source === 'system'): ?>
+                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/returns/index.php?detail_id=' . (int) $asset['id']); ?>">Return</a></li>
+                                <?php else: ?>
+                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/returns/index.php?source=legacy&legacy_asset_id=' . (int) $asset['id']); ?>">Return</a></li>
+                                <?php endif; ?>
                                 <li><a class="dropdown-item" href="<?php echo base_url('modules/transfers/index.php?mode=direct&asset_key=' . urlencode($assetKey)); ?>">Transfer Accountability</a></li>
                                 <li><hr class="dropdown-divider"></li>
+
+                                <?php if ($canEditDetails): ?>
+                                    <li><button class="dropdown-item" type="button" data-bs-toggle="collapse" data-bs-target="#assetEditPanel" aria-expanded="false" aria-controls="assetEditPanel">Edit Asset Details</button></li>
+                                <?php endif; ?>
+
                                 <?php if ($source === 'system'): ?>
                                     <li><a class="dropdown-item" href="<?php echo base_url('modules/maintenance/index.php?detail_id=' . (int) $asset['id']); ?>">Maintenance</a></li>
-                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/returns/index.php?detail_id=' . (int) $asset['id']); ?>">Return</a></li>
+                                    <?php if (!empty($asset['purchase_order_id'])): ?>
+                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/purchase_orders/view.php?id=' . (int) $asset['purchase_order_id']); ?>">View Source PO</a></li>
+                                        <?php if ($canEditSourcePo): ?>
+                                            <li><a class="dropdown-item" href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $asset['purchase_order_id']); ?>">Edit Source PO</a></li>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
+                                    <li><a class="dropdown-item" href="<?php echo $publicLookupUrl; ?>" target="_blank">Public Lookup</a></li>
+                                    <li><hr class="dropdown-divider"></li>
                                     <?php if ((int) ($asset['is_disposed'] ?? 0) === 0): ?>
                                         <li><a class="dropdown-item text-danger" href="<?php echo base_url('modules/disposals/index.php?detail_id=' . (int) $asset['id']); ?>">Disposal</a></li>
                                     <?php else: ?>
@@ -1025,7 +1070,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <?php endif; ?>
                                 <?php else: ?>
                                     <li><span class="dropdown-item-text text-muted small">Maintenance: available for system assets only.</span></li>
-                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/returns/index.php?source=legacy&legacy_asset_id=' . (int) $asset['id']); ?>">Return</a></li>
+                                    <li><a class="dropdown-item" href="<?php echo $publicLookupUrl; ?>" target="_blank">Public Lookup</a></li>
+                                    <li><hr class="dropdown-divider"></li>
                                     <li><a class="dropdown-item text-danger" href="<?php echo base_url('modules/disposals/index.php?source=legacy&legacy_asset_id=' . (int) $asset['id']); ?>">Disposal</a></li>
                                     <?php if ($canDeleteLegacy): ?>
                                         <li>
@@ -1213,8 +1259,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                     <div class="col-md-3">
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
-                            <div class="text-muted small">History Entries</div>
-                            <div class="fw-semibold"><?php echo h((string) $historyCount); ?></div>
+                            <div class="text-muted small">Last Checked</div>
+                            <?php if ($latestInventoryCheck): ?>
+                                <div class="fw-semibold"><?php echo h(!empty($latestInventoryCheck['checked_at']) ? date('M d, Y g:i A', strtotime((string) $latestInventoryCheck['checked_at'])) : ''); ?></div>
+                                <div class="small text-muted"><?php echo h(ucfirst((string) ($latestInventoryCheck['status'] ?? 'pending'))); ?><?php echo !empty($latestInventoryCheck['session_reference']) ? ' | ' . h((string) $latestInventoryCheck['session_reference']) : ''; ?></div>
+                            <?php else: ?>
+                                <div class="fw-semibold">Not checked yet</div>
+                                <div class="small text-muted">No completed inventory check recorded.</div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -1358,6 +1410,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div><?php echo h($accountableName !== '' ? $accountableName : 'Unassigned'); ?></div>
                                     <div class="text-muted small"><?php echo h($asset['position_title'] ?? ''); ?><?php echo !empty($asset['rc_code']) ? ' | ' . h($asset['rc_code']) : ''; ?></div>
                                 </div>
+                                <?php if ($latestInventoryCheck): ?>
+                                    <div class="mb-3">
+                                        <div class="small text-muted">Latest Inventory Check</div>
+                                        <div class="fw-semibold"><?php echo h(!empty($latestInventoryCheck['checked_at']) ? date('M d, Y g:i A', strtotime((string) $latestInventoryCheck['checked_at'])) : ''); ?></div>
+                                        <div class="text-muted small"><?php echo h(ucfirst((string) ($latestInventoryCheck['status'] ?? 'pending'))); ?><?php echo !empty($latestInventoryCheck['office_name']) ? ' | ' . h((string) $latestInventoryCheck['office_name']) : ''; ?><?php echo !empty($latestInventoryCheck['session_reference']) ? ' | ' . h((string) $latestInventoryCheck['session_reference']) : ''; ?></div>
+                                    </div>
+                                <?php endif; ?>
                                 <?php if ($source === 'system'): ?>
                                     <div class="mb-2"><span class="text-muted small d-block">Purchase Order</span><?php echo h($asset['po_number'] ?? ''); ?></div>
                                     <div class="mb-2"><span class="text-muted small d-block">Supplier</span><?php echo h($asset['supplier_name'] ?? ''); ?></div>

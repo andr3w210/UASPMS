@@ -298,8 +298,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             } elseif ($action === 'scan_item') {
                 $scanValue = extract_supply_scan_code((string) ($_POST['scan_value'] ?? ''));
+                $scanIncrementRaw = trim((string) ($_POST['scan_increment'] ?? '1'));
+                $scanIncrement = $scanIncrementRaw === '' ? 1 : (float) $scanIncrementRaw;
                 if ($scanValue === '') {
                     $errors[] = 'Scan or enter a packaging barcode first.';
+                } elseif ($scanIncrement <= 0) {
+                    $errors[] = 'Enter a quantity greater than zero.';
                 } else {
                     $matchStmt = $db->prepare("
                         SELECT id, counted_quantity, system_quantity, barcode, stock_no, stock_reference
@@ -320,7 +324,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!$matchedItem) {
                         $errors[] = 'Scanned code does not match any loaded supply item in this session.';
                     } else {
-                        $newCountedQty = round((float) ($matchedItem['counted_quantity'] ?? 0) + 1, 2);
+                        $newCountedQty = round((float) ($matchedItem['counted_quantity'] ?? 0) + $scanIncrement, 2);
                         [$countStatus, $variance] = compute_supply_count_status($newCountedQty, (float) $matchedItem['system_quantity']);
                         $userId = current_user_id();
                         $itemId = (int) $matchedItem['id'];
@@ -342,8 +346,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     'module_name' => 'supply_counts',
                                     'record_type' => 'supply_count_item',
                                     'action_name' => 'scan_supply_count_item',
-                                    'new_values' => ['scan_code' => $scanValue, 'counted_quantity' => $newCountedQty, 'count_status' => $countStatus],
-                                    'description' => 'Scanned and incremented a supply count item.',
+                                    'new_values' => ['scan_code' => $scanValue, 'scan_increment' => $scanIncrement, 'counted_quantity' => $newCountedQty, 'count_status' => $countStatus],
+                                    'description' => 'Scanned and incremented a supply count item by the requested quantity.',
                                 ]);
                                 redirect('modules/property/supply_counts.php?session_id=' . $sessionId . '&highlight_item_id=' . $itemId . '&scan_feedback=success');
                             }
@@ -604,6 +608,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <input type="text" name="scan_value" id="scan_value" class="form-control form-control-lg" placeholder="Scan packaging barcode, stock no., or stock reference" autocomplete="off">
                         </div>
                         <div>
+                            <label for="scan_increment" class="form-label">Qty To Add</label>
+                            <input type="number" name="scan_increment" id="scan_increment" class="form-control form-control-lg" min="0.01" step="0.01" value="1">
+                            <div class="form-text">Scan once, then add this quantity to the counted total.</div>
+                        </div>
+                        <div>
                             <button type="submit" class="btn btn-primary btn-lg">Scan Supply</button>
                         </div>
                     </form>
@@ -615,7 +624,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <i class="bi bi-stop-circle me-1"></i>Stop Camera
                         </button>
                         <span class="small text-muted align-self-center" id="barcodeScanStatus">
-                            You can use a handheld scanner, type the code, or open the camera scanner.
+                            You can use a handheld scanner, type the code, or open the camera scanner. The entered quantity will be added when the code is submitted.
                         </span>
                     </div>
                     <div class="inventory-camera-panel d-none mt-3" id="barcodeScanPanel">
@@ -704,6 +713,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     var scanInput = document.getElementById('scan_value');
+    var scanIncrementInput = document.getElementById('scan_increment');
     var highlightedRow = document.querySelector('.inventory-count-highlight');
     var scanForm = scanInput ? scanInput.closest('form') : null;
     var startScanButton = document.getElementById('startBarcodeScan');
@@ -781,7 +791,7 @@ document.addEventListener('DOMContentLoaded', function () {
             stopScanButton.classList.add('d-none');
         }
         if (resetMessage) {
-            setScanStatus('You can use a handheld scanner, type the code, or open the camera scanner.');
+            setScanStatus('You can use a handheld scanner, type the code, or open the camera scanner. The entered quantity will be added when the code is submitted.');
         }
     }
 
@@ -790,7 +800,7 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
         scanInput.value = String(value).trim();
-        setScanStatus('Barcode detected. Submitting scanned item...', 'success');
+        setScanStatus('Barcode detected. Submitting scanned item with the entered quantity...', 'success');
         stopBarcodeScanner(false);
         scanForm.submit();
     }
@@ -905,6 +915,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (scanInput) {
         scanInput.focus();
         scanInput.select();
+    }
+
+    if (scanIncrementInput && (!scanIncrementInput.value || Number(scanIncrementInput.value) <= 0)) {
+        scanIncrementInput.value = '1';
     }
 
     if (highlightedRow) {

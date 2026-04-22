@@ -100,6 +100,14 @@ $sections = [
         'description' => 'Accountability and inspection reports for equipment and other property, plant, and equipment records.',
         'items' => [
             [
+                'appendix' => 'Appendix 72',
+                'title' => 'Receipt of Returned Property',
+                'description' => 'Receipt of Returned Property for posted equipment returns received back by the supply/property office.',
+                'path' => 'modules/reports/property_return_slip.php',
+                'icon' => 'bi bi-arrow-return-left',
+                'tags' => ['Equipment', 'Returns'],
+            ],
+            [
                 'appendix' => 'Appendix 73',
                 'title' => 'RPCPPE',
                 'description' => 'Report on the Physical Count of Property, Plant and Equipment using both system and beginning-balance assets.',
