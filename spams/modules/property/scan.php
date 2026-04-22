@@ -17,6 +17,7 @@ $errors = [];
 $row = null;
 $inventoryMatch = null;
 $inventoryConflict = false;
+$latestInventoryCheck = null;
 
 function employee_display_name_from_row(array $row): string
 {
@@ -260,6 +261,44 @@ function find_active_inventory_match(mysqli $db, string $propertyNumber, int $of
     return $matches;
 }
 
+function find_latest_inventory_check(mysqli $db, string $propertyNumber): ?array
+{
+    $propertyNumber = trim($propertyNumber);
+    if ($propertyNumber === '') {
+        return null;
+    }
+
+    $stmt = $db->prepare(
+        "SELECT ici.id,
+                ici.status,
+                ici.remarks,
+                ici.checked_at,
+                ici.proof_photo_path,
+                ici.session_id,
+                ics.system_reference AS session_reference,
+                ics.count_type,
+                ics.count_date,
+                o.office_name
+         FROM inventory_count_items ici
+         INNER JOIN inventory_count_sessions ics ON ics.id = ici.session_id
+         LEFT JOIN offices o ON o.id = ics.office_id
+         WHERE ici.property_number = ?
+           AND ici.checked_at IS NOT NULL
+         ORDER BY ici.checked_at DESC, ici.id DESC
+         LIMIT 1"
+    );
+    if (!$stmt) {
+        return null;
+    }
+
+    $stmt->bind_param('s', $propertyNumber);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: null;
+    $stmt->close();
+
+    return $row ?: null;
+}
+
 function load_primary_asset_photo(mysqli $db, string $assetSource, int $assetId): ?array
 {
     if (!in_array($assetSource, ['system', 'legacy'], true) || $assetId <= 0) {
@@ -442,6 +481,7 @@ if ($db) {
         $propertyNumber = trim((string) ($row['property_number'] ?? $row['system_reference'] ?? ''));
         $officeId = (int) ($row['office_id'] ?? 0);
         $matches = find_active_inventory_match($db, $propertyNumber, $officeId);
+        $latestInventoryCheck = find_latest_inventory_check($db, $propertyNumber);
         if (count($matches) === 1) {
             $inventoryMatch = $matches[0];
         } elseif (count($matches) > 1) {
@@ -474,6 +514,7 @@ $descriptionDisplay = trim((string) ($row['item_description'] ?? '')) !== '' ? (
 $brandModel = trim(implode(' / ', array_filter([trim((string) ($row['brand'] ?? '')), trim((string) ($row['model'] ?? ''))])));
 $inventoryUrl = $inventoryMatch ? base_url('modules/property/inventory_counts.php?session_id=' . (int) $inventoryMatch['session_id'] . '&highlight_item_id=' . (int) $inventoryMatch['id']) : '';
 $proofPhotoUrl = $inventoryMatch ? upload_url((string) ($inventoryMatch['proof_photo_path'] ?? '')) : '';
+$latestInventoryProofUrl = $latestInventoryCheck ? upload_url((string) ($latestInventoryCheck['proof_photo_path'] ?? '')) : '';
 $assetPhotoPath = '';
 $assetPhotoCaption = '';
 if ($db) {
@@ -588,6 +629,36 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                         </span>
                     <?php endif; ?>
                 </div>
+
+                <?php if ($latestInventoryCheck): ?>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <div class="value-block h-100">
+                                <div class="kv mb-1">Last Checked</div>
+                                <div class="fw-semibold"><?php echo h(!empty($latestInventoryCheck['checked_at']) ? date('M d, Y g:i A', strtotime((string) $latestInventoryCheck['checked_at'])) : ''); ?></div>
+                                <div class="small text-muted mt-1"><?php echo h(ucfirst((string) ($latestInventoryCheck['status'] ?? 'pending'))); ?></div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="value-block h-100">
+                                <div class="kv mb-1">Last Session</div>
+                                <div class="fw-semibold"><?php echo h((string) ($latestInventoryCheck['session_reference'] ?? '')); ?></div>
+                                <div class="small text-muted mt-1"><?php echo h(ucfirst((string) ($latestInventoryCheck['count_type'] ?? 'annual'))); ?> count<?php echo !empty($latestInventoryCheck['count_date']) ? ' | ' . h(date('M d, Y', strtotime((string) $latestInventoryCheck['count_date']))) : ''; ?></div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="value-block h-100">
+                                <div class="kv mb-1">Last Check Office</div>
+                                <div class="fw-semibold"><?php echo h((string) ($latestInventoryCheck['office_name'] ?? 'Unassigned')); ?></div>
+                                <?php if (!empty($latestInventoryCheck['remarks'])): ?>
+                                    <div class="small text-muted mt-1"><?php echo h((string) $latestInventoryCheck['remarks']); ?></div>
+                                <?php elseif ($latestInventoryProofUrl !== ''): ?>
+                                    <div class="small text-muted mt-1">Proof photo saved</div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
 
                 <?php if ($inventoryConflict): ?>
                     <div class="alert alert-warning mb-0">More than one open inventory session matches this asset. Open the inventory workspace to update it safely.</div>

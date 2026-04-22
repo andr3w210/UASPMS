@@ -863,8 +863,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <button type="button" class="btn btn-outline-secondary d-none" id="stopCameraScan">
                                 <i class="bi bi-stop-circle me-1"></i>Stop Camera
                             </button>
+                            <label for="scanImageFile" class="btn btn-outline-secondary mb-0">
+                                <i class="bi bi-image me-1"></i>Upload QR Image
+                            </label>
+                            <input type="file" id="scanImageFile" class="d-none" accept="image/*">
                             <span class="small text-muted align-self-center" id="cameraScanStatus">
-                                You can paste the property number here, or scan the printed QR tag from your phone camera to open the asset page directly.
+                                You can paste the property number here, scan the printed QR tag from your phone camera, or upload a QR image.
                             </span>
                         </div><div class="inventory-camera-panel d-none mt-3" id="cameraScanPanel">
                             <div class="ratio ratio-16x9 rounded overflow-hidden bg-dark">
@@ -1004,6 +1008,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var scanForm = scanInput ? scanInput.closest('form') : null;
     var startCameraButton = document.getElementById('startCameraScan');
     var stopCameraButton = document.getElementById('stopCameraScan');
+    var scanImageFile = document.getElementById('scanImageFile');
     var cameraPanel = document.getElementById('cameraScanPanel');
     var cameraVideo = document.getElementById('cameraScanVideo');
     var cameraStatus = document.getElementById('cameraScanStatus');
@@ -1028,7 +1033,8 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (tone === 'warning') {
             playTone(440, 0.22);
         }
-    }`r`n
+    }
+
     function playTone(frequency, duration) {
         try {
             var audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -1087,7 +1093,7 @@ document.addEventListener('DOMContentLoaded', function () {
             stopCameraButton.classList.add('d-none');
         }
         if (resetMessage) {
-            setCameraStatus('You can paste the property number here, or scan the printed QR tag from your phone camera to open the asset page directly.');
+            setCameraStatus('You can paste the property number here, scan the printed QR tag from your phone camera, or upload a QR image.');
         }
     }
 
@@ -1206,6 +1212,53 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    async function decodeUploadedQrImage(file) {
+        if (!file) {
+            return;
+        }
+
+        if (!window.Html5Qrcode) {
+            setCameraStatus('QR image upload is not available on this browser.', 'warning');
+            return;
+        }
+
+        stopCameraScanner(false);
+        setCameraStatus('Reading uploaded QR image...');
+
+        var tempReaderId = 'inventoryQrImageReader';
+        var tempReaderNode = document.getElementById(tempReaderId);
+        if (!tempReaderNode) {
+            tempReaderNode = document.createElement('div');
+            tempReaderNode.id = tempReaderId;
+            tempReaderNode.className = 'd-none';
+            document.body.appendChild(tempReaderNode);
+        }
+
+        var imageScanner = new window.Html5Qrcode(tempReaderId);
+
+        try {
+            var decodedText = await imageScanner.scanFile(file, false);
+            if (decodedText) {
+                submitScannedValue(decodedText);
+                return;
+            }
+
+            setCameraStatus('The uploaded image did not contain a readable QR code.', 'warning');
+        } catch (error) {
+            setCameraStatus('The uploaded image could not be decoded. Try a clearer QR image.', 'warning');
+        } finally {
+            try {
+                imageScanner.clear();
+            } catch (error) {
+                // Ignore cleanup failures.
+            }
+
+            if (scanImageFile) {
+                scanImageFile.value = '';
+            }
+        }
+    }
+
     if (scanInput) {
         scanInput.focus();
         scanInput.select();
@@ -1231,6 +1284,13 @@ document.addEventListener('DOMContentLoaded', function () {
     if (stopCameraButton) {
         stopCameraButton.addEventListener('click', function () {
             stopCameraScanner(true);
+        });
+    }
+
+    if (scanImageFile) {
+        scanImageFile.addEventListener('change', function (event) {
+            var file = event.target && event.target.files ? event.target.files[0] : null;
+            decodeUploadedQrImage(file);
         });
     }
 

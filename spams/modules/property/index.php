@@ -7,6 +7,7 @@ $officeId = isset($_GET['office_id']) ? (int) $_GET['office_id'] : 0;
 $search = trim($_GET['q'] ?? '');
 $itemType = trim($_GET['item_type'] ?? '');
 $sourceFilter = trim($_GET['source'] ?? '');
+$rpcppeFilter = trim($_GET['rpcppe'] ?? '');
 $brandModelFilter = trim($_GET['brand_model'] ?? '');
 $serialFilter = trim($_GET['serial_no'] ?? '');
 $amountMinRaw = trim($_GET['amount_min'] ?? '');
@@ -25,6 +26,9 @@ if (!in_array($itemType, ['', 'equipment', 'semi_expendable'], true)) {
 }
 if (!in_array($sourceFilter, ['', 'system', 'legacy'], true)) {
     $sourceFilter = '';
+}
+if (!in_array($rpcppeFilter, ['', 'excluded', 'included_draft', 'submitted_to_accounting', 'reconciled', 'candidate_only'], true)) {
+    $rpcppeFilter = '';
 }
 
 $parseAmountFilter = static function (string $value): ?float {
@@ -51,6 +55,8 @@ $total = 0;
 $totalPages = 0;
 
 if ($db) {
+    ensure_legacy_assets_rpcppe_tracking_columns($db);
+
     $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res instanceof mysqli_result) {
         $offices = $res->fetch_all(MYSQLI_ASSOC);
@@ -83,7 +89,9 @@ if ($db) {
                 d.document_no AS document_no,
                 d.document_type,
                 d.id AS distribution_id,
-                'system' AS source_type
+                'system' AS source_type,
+                0 AS is_rpcppe_candidate,
+                '' AS rpcppe_status
             FROM distribution_item_details did
             INNER JOIN distribution_items di ON di.id = did.distribution_item_id
             INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
@@ -161,6 +169,13 @@ if ($db) {
             $types .= 's';
             $params[] = $dateTo;
         }
+        if ($rpcppeFilter !== '') {
+            if ($rpcppeFilter === 'candidate_only') {
+                $systemSql .= " AND 1 = 0";
+            } else {
+                $systemSql .= " AND 1 = 0";
+            }
+        }
 
         $queries[] = $systemSql;
     }
@@ -188,12 +203,16 @@ if ($db) {
                 'Beginning Balance' AS document_no,
                 'legacy' AS document_type,
                 0 AS distribution_id,
-                'legacy' AS source_type
+                'legacy' AS source_type,
+                COALESCE(la.is_rpcppe_candidate, 0) AS is_rpcppe_candidate,
+                COALESCE(la.rpcppe_status, 'excluded') AS rpcppe_status
             FROM legacy_assets la
             LEFT JOIN classifications c ON c.id = la.classification_id
             LEFT JOIN offices o ON o.id = la.office_id
             LEFT JOIN employees e ON e.id = la.employee_id
             WHERE la.is_active = 1
+              AND la.item_description NOT LIKE 'RPCPPE Reconciliation Adjustment %'
+              AND la.item_description NOT LIKE 'RPCPPE 2025 Reconciliation Adjustment %'
               AND la.item_type IN ('equipment', 'semi_expendable')";
 
         if ($officeId > 0) {
@@ -257,6 +276,15 @@ if ($db) {
             $legacySql .= " AND (la.acquisition_date IS NULL OR la.acquisition_date <= ?)";
             $types .= 's';
             $params[] = $dateTo;
+        }
+        if ($rpcppeFilter !== '') {
+            if ($rpcppeFilter === 'candidate_only') {
+                $legacySql .= " AND COALESCE(la.is_rpcppe_candidate, 0) = 1";
+            } else {
+                $legacySql .= " AND COALESCE(la.rpcppe_status, 'excluded') = ?";
+                $types .= 's';
+                $params[] = $rpcppeFilter;
+            }
         }
 
         $queries[] = $legacySql;
@@ -345,6 +373,7 @@ if ($db) {
                     'Accountable Person',
                     'Reference',
                     'Record Date',
+                    'RPCPPE',
                 ]);
 
                 foreach ($exportRows as $row) {
@@ -364,6 +393,9 @@ if ($db) {
                         employee_display_name_from_row($row),
                         $row['document_no'] ?? '',
                         $row['record_date'] ?? '',
+                        ($row['source_type'] ?? '') === 'legacy'
+                            ? rpcppe_status_label((string) ($row['rpcppe_status'] ?? 'excluded'))
+                            : 'System Asset',
                     ]);
                 }
 
@@ -400,6 +432,7 @@ function build_registry_url(array $overrides = []): string
         'q' => $_GET['q'] ?? '',
         'item_type' => $_GET['item_type'] ?? '',
         'source' => $_GET['source'] ?? '',
+        'rpcppe' => $_GET['rpcppe'] ?? '',
         'brand_model' => $_GET['brand_model'] ?? '',
         'serial_no' => $_GET['serial_no'] ?? '',
         'amount_min' => $_GET['amount_min'] ?? '',
@@ -436,6 +469,7 @@ $activeFilterCount += $amountFilterCount;
 $hasAdvancedFiltersActive = $officeId > 0
     || $itemType !== ''
     || $sourceFilter !== ''
+    || $rpcppeFilter !== ''
     || $brandModelFilter !== ''
     || $serialFilter !== ''
     || $amountMin !== null
@@ -443,7 +477,7 @@ $hasAdvancedFiltersActive = $officeId > 0
     || $dateFrom !== ''
     || $dateTo !== '';
 $advancedFilterCount = 0;
-foreach ([$officeId, $itemType, $sourceFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $advancedValue) {
+foreach ([$officeId, $itemType, $sourceFilter, $rpcppeFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $advancedValue) {
     if ((string) $advancedValue !== '') {
         $advancedFilterCount++;
     }
@@ -483,6 +517,19 @@ if ($sourceFilter !== '') {
     $activeFilters[] = [
         'label' => 'Source: ' . ($sourceFilter === 'legacy' ? 'Beginning Balance' : 'System Transactions'),
         'url' => build_registry_url(['source' => '', 'page' => 1]),
+    ];
+}
+if ($rpcppeFilter !== '') {
+    $rpcppeLabelMap = [
+        'candidate_only' => 'RPCPPE Candidate Only',
+        'excluded' => 'RPCPPE Excluded',
+        'included_draft' => 'RPCPPE Included Draft',
+        'submitted_to_accounting' => 'RPCPPE Submitted',
+        'reconciled' => 'RPCPPE Reconciled',
+    ];
+    $activeFilters[] = [
+        'label' => $rpcppeLabelMap[$rpcppeFilter] ?? ('RPCPPE: ' . $rpcppeFilter),
+        'url' => build_registry_url(['rpcppe' => '', 'page' => 1]),
     ];
 }
 if ($brandModelFilter !== '') {
@@ -628,6 +675,17 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                     </select>
                                 </div>
                                 <div class="col-md-3">
+                                    <label class="form-label">RPCPPE</label>
+                                    <select name="rpcppe" class="form-select" data-autosubmit="true">
+                                        <option value="">All RPCPPE States</option>
+                                        <option value="candidate_only" <?php echo $rpcppeFilter === 'candidate_only' ? 'selected' : ''; ?>>Candidate Only</option>
+                                        <option value="excluded" <?php echo $rpcppeFilter === 'excluded' ? 'selected' : ''; ?>>Excluded</option>
+                                        <option value="included_draft" <?php echo $rpcppeFilter === 'included_draft' ? 'selected' : ''; ?>>Included Draft</option>
+                                        <option value="submitted_to_accounting" <?php echo $rpcppeFilter === 'submitted_to_accounting' ? 'selected' : ''; ?>>Submitted</option>
+                                        <option value="reconciled" <?php echo $rpcppeFilter === 'reconciled' ? 'selected' : ''; ?>>Reconciled</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
                                     <label class="form-label">Serial No.</label>
                                     <input type="text" name="serial_no" class="form-control" value="<?php echo h($serialFilter); ?>" placeholder="Search serial">
                                 </div>
@@ -715,6 +773,12 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                     $amountValue = (float) ($row['amount'] ?? 0);
                                     $dateAcquiredLabel = !empty($row['date_acquired']) ? date('M d, Y', strtotime((string) $row['date_acquired'])) : '-';
                                     $recordDateLabel = !empty($row['record_date']) ? date('M d, Y', strtotime((string) $row['record_date'])) : '';
+                                    $rpcppeLabel = ($row['source_type'] ?? '') === 'legacy'
+                                        ? rpcppe_status_label((string) ($row['rpcppe_status'] ?? 'excluded'))
+                                        : 'System Asset';
+                                    $rpcppeBadge = ($row['source_type'] ?? '') === 'legacy'
+                                        ? rpcppe_status_badge_class((string) ($row['rpcppe_status'] ?? 'excluded'))
+                                        : 'text-bg-light';
                                     ?>
                                     <tr class="asset-registry-row">
                                         <td class="asset-registry-cell-primary asset-col-primary">
@@ -728,6 +792,14 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                         <td class="asset-col-classification">
                                             <div class="asset-registry-classification"><?php echo h($classificationLabel !== '' ? $classificationLabel : 'Unclassified'); ?></div>
                                             <div class="text-muted small asset-registry-description" title="<?php echo h($descriptionFull); ?>"><?php echo h($descriptionShort); ?></div>
+                                            <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
+                                                <?php if (($row['source_type'] ?? '') === 'legacy'): ?>
+                                                    <span class="badge <?php echo h($rpcppeBadge); ?>">RPCPPE: <?php echo h($rpcppeLabel); ?></span>
+                                                    <span class="small text-muted"><?php echo ((int) ($row['is_rpcppe_candidate'] ?? 0) === 1) ? 'Included candidate' : 'Not included'; ?></span>
+                                                <?php else: ?>
+                                                    <span class="badge text-bg-light">RPCPPE: System Asset</span>
+                                                <?php endif; ?>
+                                            </div>
                                             <div class="mt-2 d-flex flex-wrap gap-2 asset-registry-inline-actions">
                                                 <a href="<?php echo base_url('modules/property/view.php?source=' . urlencode((string) ($row['source_type'] ?? 'system')) . '&id=' . $detailId); ?>" class="btn btn-sm btn-outline-primary asset-registry-inline-open">Open Asset Details</a>
                                             </div>
@@ -854,4 +926,3 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-

@@ -50,9 +50,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
         <div class="d-flex gap-2">
             <a href="<?php echo base_url('modules/trip_tickets/index.php'); ?>" class="btn btn-outline-secondary">Back to List</a>
             <?php if ($ticket): ?>
-                <a href="<?php echo base_url('modules/trip_tickets/create.php?id=' . (int) $ticket['id']); ?>" class="btn btn-outline-secondary">Edit</a>
-                <a href="<?php echo base_url('modules/trip_tickets/complete.php?id=' . (int) $ticket['id']); ?>" class="btn btn-outline-success">Complete Trip</a>
-                <a href="<?php echo base_url('modules/trip_tickets/print.php?id=' . (int) $ticket['id']); ?>" class="btn btn-primary" target="_blank">Print Forms</a>
+                <div class="dropdown">
+                    <button class="btn btn-dark dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Actions
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/create.php?id=' . (int) $ticket['id']); ?>">Edit</a></li>
+                        <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/print.php?id=' . (int) $ticket['id']); ?>" target="_blank">Print Forms</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-success" href="<?php echo base_url('modules/trip_tickets/complete.php?id=' . (int) $ticket['id']); ?>">Complete Trip</a></li>
+                    </ul>
+                </div>
             <?php endif; ?>
         </div>
     </div>

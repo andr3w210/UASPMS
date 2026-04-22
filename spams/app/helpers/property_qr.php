@@ -1,5 +1,55 @@
 <?php
 
+function property_qr_normalize_scan_text(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    $value = html_entity_decode($value, ENT_QUOTES, 'UTF-8');
+    $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
+    return trim($value);
+}
+
+function property_qr_extract_labeled_value(string $raw, array $labels): string
+{
+    $raw = trim($raw);
+    if ($raw === '') {
+        return '';
+    }
+
+    foreach ($labels as $label) {
+        $pattern = '/(?:^|[\|\n\r;,])\s*' . preg_quote($label, '/') . '\s*[:=#-]?\s*([A-Z0-9\/._-]+(?:\s+[A-Z0-9\/._-]+)*)/iu';
+        if (preg_match($pattern, $raw, $matches)) {
+            return trim((string) ($matches[1] ?? ''));
+        }
+    }
+
+    return '';
+}
+
+function property_qr_looks_like_property_number(string $value): bool
+{
+    $value = trim($value);
+    if ($value === '') {
+        return false;
+    }
+
+    return (bool) preg_match('/^\d{4}-\d{2}-\d{2}\.\d{3}-\d+$/', $value);
+}
+
+function property_qr_looks_like_serial_number(string $value): bool
+{
+    $value = trim($value);
+    if ($value === '') {
+        return false;
+    }
+
+    return (bool) preg_match('/^[A-Z0-9][A-Z0-9\/._-]{5,}$/i', $value);
+}
+
 function property_qr_ensure_schema(?mysqli $db): void
 {
     static $done = false;
@@ -52,12 +102,14 @@ function property_qr_resolve_tag_code(?mysqli $db, string $sourceType, int $asse
     return $tagCode;
 }
 
-function property_qr_build_payload(string $tagCode, string $propertyNumber = '', string $serialNumber = ''): string
+function property_qr_build_payload(string $tagCode, string $propertyNumber = '', string $serialNumber = '', string $dateAcquired = '', string $itemName = ''): string
 {
     $parts = [];
     $tagCode = trim($tagCode);
     $propertyNumber = trim($propertyNumber);
     $serialNumber = trim($serialNumber);
+    $dateAcquired = trim($dateAcquired);
+    $itemName = trim(preg_replace('/\s+/', ' ', $itemName) ?? '');
 
     if ($tagCode !== '') {
         $parts[] = 'TAG=' . $tagCode;
@@ -68,13 +120,19 @@ function property_qr_build_payload(string $tagCode, string $propertyNumber = '',
     if ($serialNumber !== '') {
         $parts[] = 'SN=' . $serialNumber;
     }
+    if ($dateAcquired !== '') {
+        $parts[] = 'DA=' . $dateAcquired;
+    }
+    if ($itemName !== '') {
+        $parts[] = 'IT=' . $itemName;
+    }
 
     return implode('|', $parts);
 }
 
 function property_qr_parse_payload(string $raw): array
 {
-    $raw = trim($raw);
+    $raw = property_qr_normalize_scan_text($raw);
     $payload = [
         'raw' => $raw,
         'tag_code' => '',
@@ -115,6 +173,54 @@ function property_qr_parse_payload(string $raw): array
             $payload['property_number'] = $value;
         } elseif ($key === 'SN') {
             $payload['serial_number'] = $value;
+        }
+    }
+
+    if ($payload['property_number'] === '') {
+        $payload['property_number'] = property_qr_extract_labeled_value($raw, [
+            'PN',
+            'PROP NO',
+            'PROPERTY NO',
+            'PROPERTY NUMBER',
+            'OLD PROPERTY NO',
+            'OLD PROPERTY NUMBER',
+            'PROPERTY #',
+        ]);
+    }
+
+    if ($payload['serial_number'] === '') {
+        $payload['serial_number'] = property_qr_extract_labeled_value($raw, [
+            'SN',
+            'SERIAL',
+            'SERIAL NO',
+            'SERIAL NUMBER',
+            'SER NO',
+        ]);
+    }
+
+    if ($payload['property_number'] === '' && $payload['serial_number'] === '' && strpos($raw, '|') !== false) {
+        $parts = preg_split('/\|+/', $raw) ?: [];
+        if (count($parts) >= 2) {
+            $first = property_qr_normalize_scan_text((string) ($parts[0] ?? ''));
+            $second = property_qr_normalize_scan_text((string) ($parts[1] ?? ''));
+            if ($first !== '' && $second !== '') {
+                $payload['property_number'] = $first;
+                $payload['serial_number'] = $second;
+            }
+        }
+    }
+
+    if ($payload['property_number'] === '' && strpos($raw, '|') !== false) {
+        $parts = array_map('property_qr_normalize_scan_text', preg_split('/\|/', $raw) ?: []);
+        $legacyProperty = (string) ($parts[0] ?? '');
+        $legacySerial = (string) ($parts[3] ?? '');
+
+        if (property_qr_looks_like_property_number($legacyProperty)) {
+            $payload['property_number'] = $legacyProperty;
+        }
+
+        if ($payload['serial_number'] === '' && property_qr_looks_like_serial_number($legacySerial)) {
+            $payload['serial_number'] = $legacySerial;
         }
     }
 

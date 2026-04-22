@@ -26,7 +26,7 @@ $preselectedLegacyAssetId = (int) ($_GET['legacy_asset_id'] ?? 0);
 $preselectedSourceType = trim((string) ($_GET['source'] ?? ''));
 $form = [
     'source_type' => 'system',
-    'distribution_item_detail_id' => '',
+    'return_id' => '',
     'legacy_asset_id' => '',
     'disposal_date' => date('Y-m-d'),
     'reason' => 'unserviceable',
@@ -59,7 +59,7 @@ if (!$db) {
         }
 
         $form['source_type'] = trim((string) ($_POST['source_type'] ?? 'system'));
-        $form['distribution_item_detail_id'] = trim((string) ($_POST['distribution_item_detail_id'] ?? ''));
+        $form['return_id'] = trim((string) ($_POST['return_id'] ?? ''));
         $form['legacy_asset_id'] = trim((string) ($_POST['legacy_asset_id'] ?? ''));
         $form['disposal_date'] = trim((string) ($_POST['disposal_date'] ?? date('Y-m-d')));
         $form['reason'] = trim((string) ($_POST['reason'] ?? 'unserviceable'));
@@ -71,7 +71,7 @@ if (!$db) {
         }
 
         $sourceType = $form['source_type'];
-        $detailId = (int) ($form['distribution_item_detail_id'] !== '' ? $form['distribution_item_detail_id'] : 0);
+        $returnId = (int) ($form['return_id'] !== '' ? $form['return_id'] : 0);
         $legacyAssetId = (int) ($form['legacy_asset_id'] !== '' ? $form['legacy_asset_id'] : 0);
         $approvedBy = (int) ($form['approved_by'] !== '' ? $form['approved_by'] : 0);
 
@@ -79,8 +79,8 @@ if (!$db) {
             if ($legacyAssetId <= 0) {
                 $errors[] = 'Select a legacy asset to dispose.';
             }
-        } elseif ($detailId <= 0) {
-            $errors[] = 'Select an accountable asset to dispose.';
+        } elseif ($returnId <= 0) {
+            $errors[] = 'Select a returned asset to dispose.';
         }
         if ($form['disposal_date'] === '') {
             $errors[] = 'Disposal date is required.';
@@ -117,33 +117,40 @@ if (!$db) {
             } else {
                 $assetStmt = $db->prepare("
                     SELECT
+                        rt.id AS return_id,
+                        rt.return_date,
                         did.id,
                         did.is_distributed,
                         did.is_disposed,
-                        poi.item_type
-                    FROM distribution_item_details did
+                        COALESCE(poi.item_type, si.item_type) AS item_type
+                    FROM returns rt
+                    INNER JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
                     INNER JOIN distribution_items di ON di.id = did.distribution_item_id
-                    INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
-                    INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
-                    WHERE did.id = ?
+                    LEFT JOIN issuance_items ii ON ii.id = di.issuance_item_id
+                    LEFT JOIN stock_items si ON si.id = ii.stock_item_id
+                    LEFT JOIN receiving_items ri ON ri.id = COALESCE(di.receiving_item_id, si.receiving_item_id)
+                    LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+                    WHERE rt.id = ?
+                      AND rt.status = 'posted'
                     LIMIT 1
                 ");
                 if ($assetStmt) {
-                    $assetStmt->bind_param('i', $detailId);
+                    $assetStmt->bind_param('i', $returnId);
                     $assetStmt->execute();
                     $asset = $assetStmt->get_result()->fetch_assoc() ?: null;
                     $assetStmt->close();
                 }
 
                 if (!$asset) {
-                    $errors[] = 'The selected asset could not be found.';
+                    $errors[] = 'The selected returned asset could not be found.';
                 } elseif ((int) ($asset['is_disposed'] ?? 0) === 1) {
                     $errors[] = 'The selected asset is already marked as disposed.';
-                } elseif ((int) ($asset['is_distributed'] ?? 0) !== 1) {
-                    $errors[] = 'Only currently accountable assets can be disposed.';
+                } elseif ((int) ($asset['is_distributed'] ?? 0) !== 0) {
+                    $errors[] = 'Only returned assets received back in Supply Office can be disposed.';
                 } else {
                     $dupStmt = $db->prepare("SELECT id FROM disposals WHERE source_type = 'system' AND distribution_item_detail_id = ? AND status = 'posted' LIMIT 1");
                     if ($dupStmt) {
+                        $detailId = (int) ($asset['id'] ?? 0);
                         $dupStmt->bind_param('i', $detailId);
                         $dupStmt->execute();
                         $existing = $dupStmt->get_result()->fetch_assoc();
@@ -182,7 +189,7 @@ if (!$db) {
                 }
 
                 $disposalType = ($asset['item_type'] ?? '') === 'semi_expendable' ? 'semi_expendable' : 'equipment';
-                $detailIdToSave = $sourceType === 'system' ? $detailId : null;
+                $detailIdToSave = $sourceType === 'system' ? (int) ($asset['id'] ?? 0) : null;
                 $legacyIdToSave = $sourceType === 'legacy' ? $legacyAssetId : null;
                 $ins->bind_param('sssisssisi', $systemRef, $sourceType, $form['disposal_date'], $detailIdToSave, $legacyIdToSave, $disposalType, $form['reason'], $approvedBy, $form['remarks'], $userId);
                 $ins->execute();
@@ -207,7 +214,7 @@ if (!$db) {
                     if (!$upd) {
                         throw new RuntimeException('Unable to update the asset disposal state.');
                     }
-                    $upd->bind_param('i', $detailId);
+                    $upd->bind_param('i', $detailIdToSave);
                     $upd->execute();
                     $upd->close();
                 }
@@ -245,15 +252,18 @@ if (!$db) {
 
     $availableSql = "
         SELECT
+            rt.id AS return_id,
+            rt.system_reference AS return_reference,
+            rt.return_date,
             did.id,
             did.property_number,
             did.brand,
             did.model,
             did.serial_no,
-            poi.item_type,
-            poi.item_description,
-            c.classification_name,
-            c.classification_family,
+            COALESCE(poi.item_type, si.item_type) AS item_type,
+            COALESCE(poi.item_description, si.item_description) AS item_description,
+            COALESCE(c.classification_name, sc.classification_name) AS classification_name,
+            COALESCE(c.classification_family, sc.classification_family) AS classification_family,
             d.document_no,
             d.document_type,
             o.office_name,
@@ -261,38 +271,44 @@ if (!$db) {
             e.middle_name,
             e.last_name,
             e.suffix_name
-        FROM distribution_item_details did
+        FROM returns rt
+        INNER JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
         INNER JOIN distribution_items di ON di.id = did.distribution_item_id
         INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
-        INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
-        INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+        LEFT JOIN issuance_items ii ON ii.id = di.issuance_item_id
+        LEFT JOIN stock_items si ON si.id = ii.stock_item_id
+        LEFT JOIN receiving_items ri ON ri.id = COALESCE(di.receiving_item_id, si.receiving_item_id)
+        LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
         LEFT JOIN classifications c ON c.id = poi.classification_id
-        LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
-        LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
-        WHERE did.is_distributed = 1
+        LEFT JOIN classifications sc ON sc.id = si.classification_id
+        LEFT JOIN offices o ON o.id = COALESCE(rt.office_id, d.office_id)
+        LEFT JOIN employees e ON e.id = COALESCE(rt.employee_id, d.employee_id)
+        WHERE rt.status = 'posted'
+          AND did.is_distributed = 0
           AND (did.is_disposed IS NULL OR did.is_disposed = 0)
-          AND poi.item_type IN ('semi_expendable', 'equipment')
+          AND COALESCE(poi.item_type, si.item_type) IN ('semi_expendable', 'equipment')
     ";
     $types = '';
     $params = [];
     if ($typeFilter !== 'all') {
-        $availableSql .= " AND poi.item_type = ?";
+        $availableSql .= " AND COALESCE(poi.item_type, si.item_type) = ?";
         $types .= 's';
         $params[] = $typeFilter;
     }
     if ($search !== '') {
         $availableSql .= " AND (
-            did.property_number LIKE CONCAT('%', ?, '%')
+            rt.system_reference LIKE CONCAT('%', ?, '%')
+            OR did.property_number LIKE CONCAT('%', ?, '%')
             OR did.serial_no LIKE CONCAT('%', ?, '%')
-            OR poi.item_description LIKE CONCAT('%', ?, '%')
+            OR COALESCE(poi.item_description, si.item_description) LIKE CONCAT('%', ?, '%')
             OR did.brand LIKE CONCAT('%', ?, '%')
             OR did.model LIKE CONCAT('%', ?, '%')
             OR o.office_name LIKE CONCAT('%', ?, '%')
         )";
-        $types .= 'ssssss';
-        array_push($params, $search, $search, $search, $search, $search, $search);
+        $types .= 'sssssss';
+        array_push($params, $search, $search, $search, $search, $search, $search, $search);
     }
-    $availableSql .= " ORDER BY poi.item_type ASC, poi.item_description ASC, did.property_number ASC, did.serial_no ASC";
+    $availableSql .= " ORDER BY rt.return_date DESC, COALESCE(poi.item_type, si.item_type) ASC, COALESCE(poi.item_description, si.item_description) ASC, did.property_number ASC, did.serial_no ASC";
 
     $availableStmt = $db->prepare($availableSql);
     if ($availableStmt) {
@@ -308,7 +324,7 @@ if (!$db) {
         foreach ($available as $assetRow) {
             if ((int) ($assetRow['id'] ?? 0) === $preselectedDetailId) {
                 $form['source_type'] = 'system';
-                $form['distribution_item_detail_id'] = (string) $preselectedDetailId;
+                $form['return_id'] = (string) ($assetRow['return_id'] ?? '');
                 break;
             }
         }
@@ -398,7 +414,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="report-toolbar">
                         <div>
                             <h5 class="report-toolbar-title mb-0">Disposals</h5>
-                            <p class="report-toolbar-copy">Record the final disposal of semi-expendable or equipment assets, keep the approval trail, and mark the accountable record as no longer active.</p>
+                            <p class="report-toolbar-copy">Select items already returned and received back by the Supply Office, then record which returned assets will proceed to final disposal.</p>
                         </div>
                     </div>
 
@@ -413,17 +429,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="report-summary-card">
                             <div class="report-summary-label">Available Assets</div>
                             <div class="report-summary-value"><?php echo number_format($availableCount); ?></div>
-                            <div class="report-summary-note">Accountable assets still open for disposal posting.</div>
+                            <div class="report-summary-note">Returned items in Supply Office still open for disposal posting.</div>
                         </div>
                         <div class="report-summary-card">
                             <div class="report-summary-label">Semi-Expendable</div>
                             <div class="report-summary-value"><?php echo number_format($semiAvailable); ?></div>
-                            <div class="report-summary-note">Semi assets available for disposal.</div>
+                            <div class="report-summary-note">Returned semi assets available for disposal.</div>
                         </div>
                         <div class="report-summary-card">
                             <div class="report-summary-label">Equipment</div>
                             <div class="report-summary-value"><?php echo number_format($equipmentAvailable); ?></div>
-                            <div class="report-summary-note">Equipment assets available for disposal.</div>
+                            <div class="report-summary-note">Returned equipment assets available for disposal.</div>
                         </div>
                         <div class="report-summary-card">
                             <div class="report-summary-label">Recent Records</div>
@@ -433,19 +449,19 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
 
                     <div class="report-filter-card">
-                        <h6 class="report-filter-title">Find Disposable Assets</h6>
+                        <h6 class="report-filter-title">Find Returned Items For Disposal</h6>
                         <form method="get" class="row g-3 align-items-end">
                             <div class="col-md-3">
                                 <label class="form-label">Inventory Type</label>
                                 <select name="item_type" class="form-select">
-                                    <option value="all" <?php echo $typeFilter === 'all' ? 'selected' : ''; ?>>All accountable assets</option>
+                                    <option value="all" <?php echo $typeFilter === 'all' ? 'selected' : ''; ?>>All returned assets</option>
                                     <option value="semi_expendable" <?php echo $typeFilter === 'semi_expendable' ? 'selected' : ''; ?>>Semi-Expendable</option>
                                     <option value="equipment" <?php echo $typeFilter === 'equipment' ? 'selected' : ''; ?>>Equipment</option>
                                 </select>
                             </div>
                             <div class="col-md-7">
                                 <label class="form-label">Search</label>
-                                <input type="text" name="q" class="form-control" value="<?php echo h($search); ?>" placeholder="Property no., serial no., description, brand, model, or office">
+                                <input type="text" name="q" class="form-control" value="<?php echo h($search); ?>" placeholder="Return ref, property no., serial no., description, brand, model, or office">
                             </div>
                             <div class="col-md-2 d-flex gap-2">
                                 <button type="submit" class="btn btn-primary w-100">Apply</button>
@@ -455,27 +471,29 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
 
                     <div class="report-filter-card">
-                        <h6 class="report-filter-title">Record Disposal</h6>
+                        <h6 class="report-filter-title">Record Disposal From Returned Items</h6>
                         <form method="post" class="row g-3 align-items-end">
                             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                             <input type="hidden" name="source_type" value="<?php echo h($form['source_type']); ?>">
                             <div class="col-md-6">
-                                <label class="form-label">Accountable Asset</label>
+                                <label class="form-label">Returned Asset</label>
                                 <?php if ($form['source_type'] === 'legacy' && $form['legacy_asset_id'] !== ''): ?>
                                     <input type="hidden" name="legacy_asset_id" value="<?php echo h($form['legacy_asset_id']); ?>">
                                     <input type="text" class="form-control" value="Legacy asset #<?php echo h($form['legacy_asset_id']); ?> (from Asset Details)" readonly>
                                 <?php else: ?>
-                                    <select name="distribution_item_detail_id" class="form-select" required>
-                                        <option value="">Select accountable asset</option>
+                                    <select name="return_id" class="form-select" required>
+                                        <option value="">Select returned asset</option>
                                         <?php foreach ($available as $asset): ?>
-                                            <option value="<?php echo (int) $asset['id']; ?>" <?php echo $form['distribution_item_detail_id'] === (string) $asset['id'] ? 'selected' : ''; ?>>
+                                            <option value="<?php echo (int) $asset['return_id']; ?>" <?php echo $form['return_id'] === (string) $asset['return_id'] ? 'selected' : ''; ?>>
                                                 <?php
                                                 echo h(trim(implode(' | ', array_filter([
+                                                    $asset['return_reference'] ?? '',
                                                     strtoupper((string) ($asset['item_type'] ?? '')),
                                                     $asset['property_number'] ?? '',
                                                     $asset['serial_no'] ?? '',
                                                     disposal_asset_label($asset),
                                                     $asset['office_name'] ?? '',
+                                                    !empty($asset['return_date']) ? date('M d, Y', strtotime((string) $asset['return_date'])) : '',
                                                 ]))));
                                                 ?>
                                             </option>
