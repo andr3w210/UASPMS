@@ -89,6 +89,15 @@ if (!empty($_SESSION['user_id']) && function_exists('db') && function_exists('ro
     }
 }
 
+if (!empty($_SESSION['user_id']) && function_exists('db') && function_exists('audit_auto_log_request')) {
+    register_shutdown_function(static function (): void {
+        $auditDb = db();
+        if ($auditDb instanceof mysqli) {
+            audit_auto_log_request($auditDb);
+        }
+    });
+}
+
 ?>
 
 

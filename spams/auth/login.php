@@ -166,42 +166,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $page_title = 'Login';
+$body_class = 'auth-login-page';
 require_once __DIR__ . '/../includes/header.php';
 ?>
-<main class="min-vh-100 d-flex align-items-center justify-content-center px-3 py-5">
-    <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
-        <div class="card-body p-4 p-md-5">
-            <div class="text-center mb-4">
-                <div class="topbar-avatar mx-auto mb-3">S</div>
-                <h1 class="h3 mb-1">SPAMS Login</h1>
-                <p class="text-muted mb-0">Supply and Property Asset Management System</p>
+<main class="auth-login-shell">
+    <section class="auth-login-panel auth-login-panel-brand">
+        <div class="auth-login-brand-mark auth-login-brand-logo">
+            <img src="<?php echo base_url('assets/img/ua-logo.png'); ?>" alt="University of Antique logo">
+        </div>
+        <span class="auth-login-kicker">University of Antique</span>
+        <h1 class="auth-login-title">Supply and Property Asset Management System</h1>
+        <p class="auth-login-copy">A professional workspace for receiving, accountability, registry, and reporting across University of Antique supply and property operations.</p>
+
+        <div class="auth-login-highlights">
+            <div class="auth-login-highlight-card">
+                <span class="auth-login-highlight-label">Operations</span>
+                <strong>Receiving, issuance, returns, transfer, and disposal in one workspace.</strong>
+            </div>
+            <div class="auth-login-highlight-card">
+                <span class="auth-login-highlight-label">Tracking</span>
+                <strong>Asset registry, QR workflows, counts, and RPCPPE support.</strong>
+            </div>
+            <div class="auth-login-highlight-card">
+                <span class="auth-login-highlight-label">Reports</span>
+                <strong>Professional forms and property records ready for day-to-day use.</strong>
+            </div>
+        </div>
+
+        <div class="auth-login-trust">
+            <div class="auth-login-trust-item">
+                <span class="auth-login-trust-value">Secure access</span>
+                <span class="auth-login-trust-text">Failed logins are monitored and temporary account locks are enforced.</span>
+            </div>
+            <div class="auth-login-trust-item">
+                <span class="auth-login-trust-value">Role-based</span>
+                <span class="auth-login-trust-text">Supply, property, transport, and administration workflows stay separated.</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="auth-login-panel auth-login-panel-form">
+        <div class="auth-login-card">
+            <div class="auth-login-card-head">
+                <div class="auth-login-card-badge">
+                    <i class="bi bi-shield-lock"></i>
+                </div>
+                <div>
+                    <h2 class="auth-login-card-title">Sign in to continue</h2>
+                    <p class="auth-login-card-copy">Use your assigned username or email address to access SPAMS.</p>
+                </div>
             </div>
 
             <?php if ($error): ?>
-                <div class="alert alert-danger"><?php echo h($error); ?></div>
+                <div class="alert alert-danger auth-login-alert"><?php echo h($error); ?></div>
             <?php endif; ?>
             <?php if ($flash): ?>
-                <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div>
+                <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?> auth-login-alert"><?php echo h($flash['message']); ?></div>
             <?php endif; ?>
 
-            <form method="post" action="">
-                <div class="mb-3">
+            <form method="post" action="" class="auth-login-form">
+                <div class="auth-login-field">
                     <label for="username" class="form-label">Username or Email</label>
-                    <input type="text" class="form-control" id="username" name="username" value="<?php echo h($username); ?>" required>
+                    <div class="auth-login-input-wrap">
+                        <i class="bi bi-person-circle"></i>
+                        <input type="text" class="form-control" id="username" name="username" value="<?php echo h($username); ?>" required autocomplete="username">
+                    </div>
                 </div>
-                <div class="mb-3">
+                <div class="auth-login-field">
                     <label for="password" class="form-label">Password</label>
-                    <input type="password" class="form-control" id="password" name="password" required>
+                    <div class="auth-login-input-wrap">
+                        <i class="bi bi-key"></i>
+                        <input type="password" class="form-control" id="password" name="password" required autocomplete="current-password">
+                    </div>
                 </div>
                 <div class="d-grid">
-                    <button class="btn btn-primary" type="submit">Sign In</button>
+                    <button class="btn auth-login-submit" type="submit">Sign In</button>
                 </div>
             </form>
-            <div class="text-center mt-3">
-                <a href="<?php echo base_url('auth/forgot_password.php'); ?>" class="small text-decoration-none">Forgot your password?</a>
+
+            <div class="auth-login-actions">
+                <a href="<?php echo base_url('auth/forgot_password.php'); ?>" class="auth-login-link">Forgot your password?</a>
+                <span class="auth-login-helper">Need help? Contact your system administrator.</span>
             </div>
         </div>
-    </div>
+    </section>
 </main>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

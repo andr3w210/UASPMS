@@ -20,6 +20,7 @@ function ensure_rpcppe_batch_tables(mysqli $db): void
 {
     ensure_legacy_assets_fund_column($db);
     ensure_legacy_assets_rpcppe_tracking_columns($db);
+    ensure_distribution_item_rpcppe_tracking_columns($db);
 
     $db->query("CREATE TABLE IF NOT EXISTS rpcppe_batches (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -205,6 +206,7 @@ function rpcppe_fetch_live_rows(mysqli $db, string $asOf): array
 {
     ensure_legacy_assets_fund_column($db);
     ensure_legacy_assets_rpcppe_tracking_columns($db);
+    ensure_distribution_item_rpcppe_tracking_columns($db);
     ensure_rpcppe_batch_tracking_columns($db);
     $rows = [];
 
@@ -241,6 +243,8 @@ function rpcppe_fetch_live_rows(mysqli $db, string $asOf): array
             ac.account_name,
             f.fund_code,
             f.fund_source,
+            did.is_rpcppe_candidate,
+            did.rpcppe_status,
             1 AS qty_property_card,
             1 AS qty_physical_count
         FROM distribution_item_details did
@@ -276,8 +280,9 @@ function rpcppe_fetch_live_rows(mysqli $db, string $asOf): array
         foreach ($systemRows as $row) {
             $row['fund_number'] = fund_number_from_source($row['fund_code'] ?? '', $row['fund_source'] ?? '');
             $row['remarks'] = '';
-            $row['is_included'] = 1;
-            $row['reconciliation_status'] = 'included_draft';
+            $isCandidate = (int) ($row['is_rpcppe_candidate'] ?? 0) === 1;
+            $row['is_included'] = $isCandidate ? 1 : 0;
+            $row['reconciliation_status'] = rpcppe_normalize_status((string) ($row['rpcppe_status'] ?? ''), $isCandidate);
             $rows[] = $row;
         }
     }
@@ -2378,7 +2383,7 @@ if (!$db) {
             $includeValue = isset($_POST['is_included']) && (string) $_POST['is_included'] === '1' ? 1 : 0;
             $requestedStatus = trim((string) ($_POST['reconciliation_status'] ?? ''));
 
-            $itemStmt = $db->prepare("SELECT i.source_type, i.legacy_asset_id, b.status
+            $itemStmt = $db->prepare("SELECT i.source_type, i.legacy_asset_id, i.distribution_item_detail_id, b.status
                 FROM rpcppe_batch_items i
                 INNER JOIN rpcppe_batches b ON b.id = i.batch_id
                 WHERE i.id = ? AND i.batch_id = ? LIMIT 1");
@@ -2434,6 +2439,29 @@ if (!$db) {
                         $legacyStmt->bind_param('isissi', $legacyCandidate, $normalizedStatus, $batchId, $normalizedStatus, $normalizedStatus, $legacyAssetId);
                         $legacyStmt->execute();
                         $legacyStmt->close();
+                    }
+                }
+
+                if (($itemRow['source_type'] ?? '') === 'system' && (int) ($itemRow['distribution_item_detail_id'] ?? 0) > 0) {
+                    $detailId = (int) $itemRow['distribution_item_detail_id'];
+                    $systemCandidate = $normalizedStatus === 'excluded' ? 0 : 1;
+                    $systemStmt = $db->prepare("UPDATE distribution_item_details
+                        SET is_rpcppe_candidate = ?,
+                            rpcppe_status = ?,
+                            rpcppe_batch_id = ?,
+                            rpcppe_submitted_at = CASE
+                                WHEN ? IN ('submitted_to_accounting', 'reconciled') THEN COALESCE(rpcppe_submitted_at, NOW())
+                                ELSE NULL
+                            END,
+                            rpcppe_reconciled_at = CASE
+                                WHEN ? = 'reconciled' THEN COALESCE(rpcppe_reconciled_at, NOW())
+                                ELSE NULL
+                            END
+                        WHERE id = ?");
+                    if ($systemStmt) {
+                        $systemStmt->bind_param('isissi', $systemCandidate, $normalizedStatus, $batchId, $normalizedStatus, $normalizedStatus, $detailId);
+                        $systemStmt->execute();
+                        $systemStmt->close();
                     }
                 }
 

@@ -10,10 +10,13 @@ $pendingDistributionRecords = 0;
 $pendingReceivingCount = 0;
 $deliveryDueSoonCount = 0;
 $deliveryOverdueCount = 0;
+$dueSoonNoReceivingCount = 0;
 $repeatExtensionCount = 0;
 $lowStockItemCount = 0;
 $unreadMessageCount = 0;
 $unclassifiedReceivedItemCount = 0;
+$rejectedReceivingItemCount = 0;
+$inventoryDiscrepancyCount = 0;
 $mustChangePasswordUserCount = 0;
 $nextDayTripCount = 0;
 $pendingTripCompletionCount = 0;
@@ -122,23 +125,11 @@ if ($notificationDb) {
         }
     }
 
-    if ($tableExists($notificationDb, 'purchase_orders')
-        && $tableExists($notificationDb, 'purchase_order_items')
-        && $tableExists($notificationDb, 'receiving_items')
-        && $tableExists($notificationDb, 'receivings')) {
+    if ($tableExists($notificationDb, 'purchase_orders')) {
         $pendingReceivingStmt = $notificationDb->prepare(
             "SELECT COUNT(*) AS total
-             FROM (
-                 SELECT po.id
-                 FROM purchase_orders po
-                 LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
-                 LEFT JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
-                 LEFT JOIN receivings r ON r.id = ri.receiving_id AND r.status != 'cancelled'
-                 WHERE po.status != 'cancelled'
-                 GROUP BY po.id
-                 HAVING COALESCE(SUM(poi.quantity), 0) > COALESCE(SUM(CASE WHEN r.id IS NOT NULL THEN ri.quantity_delivered ELSE 0 END), 0)
-                     OR SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) > 0
-             ) pending_receiving_rows"
+             FROM purchase_orders po
+             WHERE COALESCE(po.status, 'encoded') IN ('encoded', 'partial')"
         );
         if ($pendingReceivingStmt) {
             $pendingReceivingStmt->execute();
@@ -162,6 +153,33 @@ if ($notificationDb) {
             $deliveryOverdueCount = (int) ($dueSoonRow['overdue_count'] ?? 0);
             $deliveryDueSoonCount = (int) ($dueSoonRow['due_soon_count'] ?? 0);
             $dueSoonStmt->close();
+        }
+    }
+
+    if ($tableExists($notificationDb, 'purchase_orders')
+        && $tableExists($notificationDb, 'purchase_order_items')
+        && $tableExists($notificationDb, 'receiving_items')
+        && $tableExists($notificationDb, 'receivings')) {
+        $dueSoonNoReceivingStmt = $notificationDb->prepare(
+            "SELECT COUNT(*) AS total
+             FROM purchase_orders po
+             WHERE COALESCE(po.status, 'encoded') IN ('encoded', 'partial')
+               AND po.expected_delivery_date >= CURDATE()
+               AND po.expected_delivery_date <= DATE_ADD(CURDATE(), INTERVAL 3 DAY)
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM purchase_order_items poi
+                   INNER JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
+                   INNER JOIN receivings r ON r.id = ri.receiving_id
+                   WHERE poi.purchase_order_id = po.id
+                     AND r.status != 'cancelled'
+                     AND COALESCE(ri.quantity_delivered, 0) > 0
+               )"
+        );
+        if ($dueSoonNoReceivingStmt) {
+            $dueSoonNoReceivingStmt->execute();
+            $dueSoonNoReceivingCount = (int) (($dueSoonNoReceivingStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $dueSoonNoReceivingStmt->close();
         }
     }
 
@@ -217,6 +235,36 @@ if ($notificationDb) {
             $unclassifiedReceivedStmt->execute();
             $unclassifiedReceivedItemCount = (int) (($unclassifiedReceivedStmt->get_result()->fetch_assoc()['total'] ?? 0));
             $unclassifiedReceivedStmt->close();
+        }
+    }
+
+    if ($tableExists($notificationDb, 'receiving_items')
+        && $tableExists($notificationDb, 'receivings')) {
+        $rejectedReceivingStmt = $notificationDb->prepare(
+            "SELECT COUNT(*) AS total
+             FROM receiving_items ri
+             INNER JOIN receivings r ON r.id = ri.receiving_id
+             WHERE r.status != 'cancelled'
+               AND COALESCE(ri.quantity_rejected, 0) > 0"
+        );
+        if ($rejectedReceivingStmt) {
+            $rejectedReceivingStmt->execute();
+            $rejectedReceivingItemCount = (int) (($rejectedReceivingStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $rejectedReceivingStmt->close();
+        }
+    }
+
+    if ($tableExists($notificationDb, 'inventory_count_items')) {
+        $inventoryDiscrepancyStmt = $notificationDb->prepare(
+            "SELECT COUNT(*) AS total
+             FROM inventory_count_items
+             WHERE status IN ('missing', 'for_repair', 'for_disposal', 'wrong_office', 'wrong_accountable')
+               AND COALESCE(resolution_status, 'unresolved') = 'unresolved'"
+        );
+        if ($inventoryDiscrepancyStmt) {
+            $inventoryDiscrepancyStmt->execute();
+            $inventoryDiscrepancyCount = (int) (($inventoryDiscrepancyStmt->get_result()->fetch_assoc()['total'] ?? 0));
+            $inventoryDiscrepancyStmt->close();
         }
     }
 
@@ -338,16 +386,13 @@ $notificationBadgeCount =
     $pendingReceivingCount +
     $deliveryDueSoonCount +
     $deliveryOverdueCount +
+    $dueSoonNoReceivingCount +
     $repeatExtensionCount +
     $lowStockItemCount +
     $unclassifiedReceivedItemCount +
-    $mustChangePasswordUserCount +
-    $nextDayTripCount +
-    $pendingTripCompletionCount +
-    $overdueTripCompletionCount +
-    $vehicleConflictCount +
-    $driverConflictCount +
-    $returnTodayTripCount;
+    $rejectedReceivingItemCount +
+    $inventoryDiscrepancyCount +
+    $mustChangePasswordUserCount;
 $hasNotifications = $notificationBadgeCount > 0;
 ?>
 <header id="header" class="header fixed-top d-flex align-items-center">
@@ -379,8 +424,8 @@ $hasNotifications = $notificationBadgeCount > 0;
                     </button>
                     <div class="dropdown-menu dropdown-menu-end p-0" style="min-width: 320px;">
                         <div class="p-3 border-bottom">
-                            <div class="fw-semibold">Notifications</div>
-                            <div class="small text-muted">Action items that need follow-up across purchasing, receiving, and distribution.</div>
+                            <div class="fw-semibold">Supply And Property Notifications</div>
+                            <div class="small text-muted">Action items that need follow-up across purchasing, receiving, stock, and distribution.</div>
                         </div>
                         <div class="p-3">
                             <?php $hasPreviousNotification = false; ?>
@@ -399,6 +444,25 @@ $hasNotifications = $notificationBadgeCount > 0;
                                         </div>
                                         <a class="btn btn-sm btn-outline-danger mt-2" href="<?php echo base_url('modules/purchase_orders/extensions.php'); ?>">
                                             Manage Extensions
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
+                            <?php if ($dueSoonNoReceivingCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-hourglass-split"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Due Soon Without Receiving</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $dueSoonNoReceivingCount); ?> due-soon PO(s) still have no receiving activity recorded.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-warning mt-2" href="<?php echo base_url('modules/receivings/index.php'); ?>">
+                                            Start Receiving
                                         </a>
                                     </div>
                                 </div>
@@ -433,10 +497,29 @@ $hasNotifications = $notificationBadgeCount > 0;
                                     <div class="flex-grow-1">
                                         <div class="fw-semibold">Pending Receivings</div>
                                         <div class="small text-muted">
-                                            <?php echo h((string) $pendingReceivingCount); ?> purchase order(s) are still not fully received or have pending receiving activity.
+                                            <?php echo h((string) $pendingReceivingCount); ?> purchase order(s) are still pending or partially received.
                                         </div>
                                         <a class="btn btn-sm btn-outline-primary mt-2" href="<?php echo base_url('modules/receivings/index.php'); ?>">
                                             Open Receiving
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
+                            <?php if ($rejectedReceivingItemCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-box-arrow-in-down-left"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Rejected Receiving Items</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $rejectedReceivingItemCount); ?> receiving line(s) include rejected quantities that need follow-up.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-danger mt-2" href="<?php echo base_url('modules/receivings/index.php?filter_status=rejected'); ?>">
+                                            Review Rejections
                                         </a>
                                     </div>
                                 </div>
@@ -502,6 +585,25 @@ $hasNotifications = $notificationBadgeCount > 0;
                                 <?php $hasPreviousNotification = true; ?>
                             <?php endif; ?>
 
+                            <?php if ($inventoryDiscrepancyCount > 0): ?>
+                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
+                                <div class="d-flex align-items-start gap-3">
+                                    <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                                        <i class="bi bi-clipboard2-pulse"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">Inventory Discrepancies Awaiting Action</div>
+                                        <div class="small text-muted">
+                                            <?php echo h((string) $inventoryDiscrepancyCount); ?> property count discrepancy item(s) are still unresolved.
+                                        </div>
+                                        <a class="btn btn-sm btn-outline-warning mt-2" href="<?php echo base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'); ?>">
+                                            Open Reconciliation
+                                        </a>
+                                    </div>
+                                </div>
+                                <?php $hasPreviousNotification = true; ?>
+                            <?php endif; ?>
+
                             <?php if ($mustChangePasswordUserCount > 0): ?>
                                 <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
                                 <div class="d-flex align-items-start gap-3">
@@ -521,119 +623,6 @@ $hasNotifications = $notificationBadgeCount > 0;
                                 <?php $hasPreviousNotification = true; ?>
                             <?php endif; ?>
 
-                            <?php if ($nextDayTripCount > 0): ?>
-                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
-                                <div class="d-flex align-items-start gap-3">
-                                    <div class="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
-                                        <i class="bi bi-car-front"></i>
-                                    </div>
-                                    <div class="flex-grow-1">
-                                        <div class="fw-semibold">Trips Scheduled for Tomorrow</div>
-                                        <div class="small text-muted">
-                                            <?php echo h((string) $nextDayTripCount); ?> trip(s) are scheduled to depart tomorrow.
-                                        </div>
-                                        <a class="btn btn-sm btn-outline-success mt-2" href="<?php echo base_url('modules/trip_tickets/schedules.php?month=' . date('Y-m')); ?>">
-                                            Open Schedule Calendar
-                                        </a>
-                                    </div>
-                                </div>
-                                <?php $hasPreviousNotification = true; ?>
-                            <?php endif; ?>
-
-                            <?php if ($overdueTripCompletionCount > 0): ?>
-                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
-                                <div class="d-flex align-items-start gap-3">
-                                    <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
-                                        <i class="bi bi-clock-history"></i>
-                                    </div>
-                                    <div class="flex-grow-1">
-                                        <div class="fw-semibold">Overdue Trip Completion</div>
-                                        <div class="small text-muted">
-                                            <?php echo h((string) $overdueTripCompletionCount); ?> trip(s) are already past the expected return date and still not completed.
-                                        </div>
-                                        <a class="btn btn-sm btn-outline-danger mt-2" href="<?php echo base_url('modules/trip_tickets/index.php'); ?>">
-                                            Review Trip Tickets
-                                        </a>
-                                    </div>
-                                </div>
-                                <?php $hasPreviousNotification = true; ?>
-                            <?php endif; ?>
-
-                            <?php if ($pendingTripCompletionCount > 0): ?>
-                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
-                                <div class="d-flex align-items-start gap-3">
-                                    <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
-                                        <i class="bi bi-clipboard2-check"></i>
-                                    </div>
-                                    <div class="flex-grow-1">
-                                        <div class="fw-semibold">Trips Pending Completion</div>
-                                        <div class="small text-muted">
-                                            <?php echo h((string) $pendingTripCompletionCount); ?> past trip(s) still need odometer or completion details.
-                                        </div>
-                                        <a class="btn btn-sm btn-outline-warning mt-2" href="<?php echo base_url('modules/trip_tickets/index.php'); ?>">
-                                            Review Trip Tickets
-                                        </a>
-                                    </div>
-                                </div>
-                                <?php $hasPreviousNotification = true; ?>
-                            <?php endif; ?>
-
-                            <?php if ($returnTodayTripCount > 0): ?>
-                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
-                                <div class="d-flex align-items-start gap-3">
-                                    <div class="rounded-circle bg-info-subtle text-info d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
-                                        <i class="bi bi-arrow-return-left"></i>
-                                    </div>
-                                    <div class="flex-grow-1">
-                                        <div class="fw-semibold">Trips Due to Return Today</div>
-                                        <div class="small text-muted">
-                                            <?php echo h((string) $returnTodayTripCount); ?> trip(s) are expected to return today and may need completion later.
-                                        </div>
-                                        <a class="btn btn-sm btn-outline-info mt-2" href="<?php echo base_url('modules/trip_tickets/index.php'); ?>">
-                                            Open Trip Tickets
-                                        </a>
-                                    </div>
-                                </div>
-                                <?php $hasPreviousNotification = true; ?>
-                            <?php endif; ?>
-
-                            <?php if ($vehicleConflictCount > 0): ?>
-                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
-                                <div class="d-flex align-items-start gap-3">
-                                    <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
-                                        <i class="bi bi-exclamation-diamond"></i>
-                                    </div>
-                                    <div class="flex-grow-1">
-                                        <div class="fw-semibold">Vehicle Schedule Conflict</div>
-                                        <div class="small text-muted">
-                                            <?php echo h((string) $vehicleConflictCount); ?> vehicle(s) have overlapping active trip schedules.
-                                        </div>
-                                        <a class="btn btn-sm btn-outline-danger mt-2" href="<?php echo base_url('modules/trip_tickets/schedules.php?month=' . date('Y-m')); ?>">
-                                            Review Transport Calendar
-                                        </a>
-                                    </div>
-                                </div>
-                                <?php $hasPreviousNotification = true; ?>
-                            <?php endif; ?>
-
-                            <?php if ($driverConflictCount > 0): ?>
-                                <?php if ($hasPreviousNotification): ?><hr class="my-3"><?php endif; ?>
-                                <div class="d-flex align-items-start gap-3">
-                                    <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
-                                        <i class="bi bi-person-exclamation"></i>
-                                    </div>
-                                    <div class="flex-grow-1">
-                                        <div class="fw-semibold">Driver Schedule Conflict</div>
-                                        <div class="small text-muted">
-                                            <?php echo h((string) $driverConflictCount); ?> driver(s) are assigned to overlapping active trips.
-                                        </div>
-                                        <a class="btn btn-sm btn-outline-danger mt-2" href="<?php echo base_url('modules/trip_tickets/schedules.php?month=' . date('Y-m')); ?>">
-                                            Review Transport Calendar
-                                        </a>
-                                    </div>
-                                </div>
-                                <?php $hasPreviousNotification = true; ?>
-                            <?php endif; ?>
                         </div>
                     </div>
                 </div>

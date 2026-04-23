@@ -6,6 +6,8 @@ $db = db();
 $distributionId = (int) ($_GET['id'] ?? 0);
 $printFormat = ($_GET['print_format'] ?? 'long') === 'short' ? 'short' : 'long';
 $isShort = $printFormat === 'short';
+$copyCount = max(1, min(20, (int) ($_GET['copies'] ?? 1)));
+$extraRows = max(0, min(35, (int) ($_GET['extra_rows'] ?? 0)));
 $viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
 $isGrouped = $viewMode === 'grouped';
 
@@ -247,8 +249,9 @@ if (preg_match('/(?:^|[^0-9])(0[1567])(?:[^0-9]|$)/', $fundCluster, $matches)) {
     $fundCluster = $matches[1];
 }
 
-$targetRows = $isShort ? 10 : 22;
-$blankRows = max(0, $targetRows - count($printItems));
+$targetRows = $isShort ? 10 : 23;
+$blankRows = ($isShort ? max(0, $targetRows - count($printItems)) : 0) + $extraRows;
+$shortSheetCount = (int) ceil($copyCount / 2);
 
 ?><!doctype html>
 <html lang="en">
@@ -258,28 +261,20 @@ $blankRows = max(0, $targetRows - count($printItems));
     <title>PAR <?php echo h($header['document_no'] ?? $header['system_reference']); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        @page { size: 8.5in 13in; margin: 0.5in; }
+        @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0' : '0.5in'; ?>; }
         body { margin: 0; font-size:12px; color:#000; font-family: "Times New Roman", serif; }
-        table { font-size:11px; }
+        table { font-size:12px; }
+        .print-shell { width: 100%; max-width: none !important; margin: 0; padding: 0; }
         .no-print { display:block; font-family: Arial, sans-serif; }
-        .print-shell.short { font-size: 10.5px; }
-        .print-shell.short table { font-size: 10px; }
-        .duplicate-host { display: none; }
-        .print-shell.short {
-            display: flex;
-            flex-direction: column;
-            gap: 0.2in;
-        }
-        .print-shell.short .print-copy,
-        .print-shell.short .duplicate-host {
-            flex: 0 0 calc((13in - 1in - 0.2in) / 2);
-            min-height: calc((13in - 1in - 0.2in) / 2);
-        }
-        .print-shell.short .print-copy {
-            margin-bottom: 0;
-        }
-        .print-shell.short .duplicate-host { display: block; }
-        .print-shell.short .duplicate-host .no-print { display: none !important; }
+        .print-shell.short { font-size: 12px; }
+        .print-shell.short table { font-size: 12px; }
+        .print-shell.short { width: 8.5in; max-width: 8.5in !important; }
+        .short-copies { width: 8.5in; }
+        .short-sheet { width: 8.5in; height: 13in; box-sizing: border-box; display: flex; flex-direction: column; }
+        .short-sheet + .short-sheet { margin-top: 0; }
+        .short-slot { height: 6.5in; box-sizing: border-box; display: flex; flex-direction: column; }
+        .short-slot + .short-slot { border-top: 1px dashed #bbb; }
+        .short-copy { min-height: 6.35in; padding: 0.45in 0.5in; box-sizing: border-box; overflow: visible; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
         .par-form { position: relative; }
         .par-title { text-align:center; font-weight:bold; font-size:16px; text-transform:uppercase; margin:18px 0 22px; }
         .appendix { position:absolute; right:0; top:0; font-size:12px; font-style:italic; }
@@ -297,22 +292,29 @@ $blankRows = max(0, $targetRows - count($printItems));
         .par-sign-table .sign-head { font-weight:bold; text-align:left; }
         .par-sign-table .sign-box { height:74px; text-align:center; vertical-align:top; font-size:10px; padding-top:8px; }
         .par-sign-table .sign-line { display:none; }
-        .par-sign-table .sign-name { font-weight:700; text-transform:uppercase; font-size:12px; letter-spacing:0.2px; line-height:1.1; margin:26px 0 0; }
+        .par-sign-table .sign-name { font-weight:700; text-transform:uppercase; font-size:14px; letter-spacing:0.2px; line-height:1.1; margin:24px 0 0; }
         .par-sign-table .meta-box { height:52px; text-align:center; vertical-align:top; padding-top:6px; }
         .par-sign-table .meta-line { display:none; }
-        .par-sign-table .meta-value { margin: 10px 0 0; font-size:10px; line-height:1.15; }
-        .par-sign-table .meta-caption { text-align:center; font-size:10px; }
+        .par-sign-table .meta-value { margin: 10px 0 0; font-size:12px; line-height:1.15; }
+        .par-sign-table .meta-caption { text-align:center; font-size:11px; }
         .par-sign-table .underlined-value { display:inline-block; border-bottom:1px solid #000; padding:0 8px 1px; min-width:82%; }
         .par-sign-table .meta-box .underlined-value { min-width:68%; }
         .print-shell.short .par-sign-table .sign-box { height:60px; font-size:9px; padding-top:6px; }
-        .print-shell.short .par-sign-table .sign-name { font-size:10px; margin-top:16px; margin-bottom:0; }
+        .print-shell.short .par-sign-table .sign-name { font-size:12px; margin-top:14px; margin-bottom:0; }
         .print-shell.short .par-sign-table .meta-box { height:42px; padding-top:4px; }
-        .print-shell.short .par-sign-table .meta-value { font-size:9px; margin-top:8px; }
-        @media print { .no-print { display:none; } thead { display: table-header-group; } .print-shell.short .print-copy, .print-shell.short .duplicate-host { break-inside: avoid; } }
+        .print-shell.short .par-sign-table .meta-value { font-size:10px; margin-top:8px; }
+        .print-shell.long .par-body td { height: 22px; }
+        @media print {
+            .no-print, .no-print * { display:none !important; }
+            thead { display: table-header-group; }
+            .print-shell.short .short-slot + .short-slot { border-top: none; }
+            .print-shell.short .short-sheet { break-after: page; page-break-after: always; }
+            .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; }
+        }
     </style>
 </head>
 <body>
-    <div class="container print-shell <?php echo $isShort ? 'short' : 'long'; ?>" style="max-width:1000px;">
+    <div class="container print-shell <?php echo $isShort ? 'short' : 'long'; ?>">
         <?php if (isset($_GET['created']) && $_GET['created'] == '1'): ?>
             <div class="alert alert-info no-print">Distribution was just posted — ideal time to print this PAR now.</div>
         <?php endif; ?>
@@ -320,15 +322,49 @@ $blankRows = max(0, $targetRows - count($printItems));
                 <div class="d-flex gap-2 flex-wrap">
                 <a href="<?php echo base_url('modules/distributions/index.php?document_type=par'); ?>" class="btn btn-sm btn-outline-secondary no-print">Back</a>
                 <button onclick="window.print()" class="btn btn-sm btn-primary no-print">Print</button>
-                <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=short')); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Short</a>
-                <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=long')); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Long</a>
-                <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=' . $printFormat . '&view_mode=grouped')); ?>" class="btn btn-sm <?php echo $isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Grouped</a>
-                <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=' . $printFormat . '&view_mode=detailed')); ?>" class="btn btn-sm <?php echo !$isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Detailed</a>
+                <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=short&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . '&copies=' . $copyCount)); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Short</a>
+                <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=long&view_mode=' . $viewMode . '&extra_rows=' . $extraRows)); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Long</a>
+                <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=' . $printFormat . '&view_mode=grouped&extra_rows=' . $extraRows . ($isShort ? '&copies=' . $copyCount : ''))); ?>" class="btn btn-sm <?php echo $isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Grouped</a>
+                <a href="<?php echo h(base_url('modules/distributions/par.php?id=' . (int) $distributionId . '&print_format=' . $printFormat . '&view_mode=detailed&extra_rows=' . $extraRows . ($isShort ? '&copies=' . $copyCount : ''))); ?>" class="btn btn-sm <?php echo !$isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?> no-print">Detailed</a>
                 <a href="<?php echo base_url('modules/property/tags.php?distribution_id=' . (int)$distributionId); ?>" class="btn btn-outline-secondary btn-sm no-print" target="_blank">Print QR Tags</a>
+                <form method="get" class="d-flex align-items-center gap-2 no-print ms-2">
+                    <input type="hidden" name="id" value="<?php echo (int) $distributionId; ?>">
+                    <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
+                    <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
+                    <?php if ($isShort): ?>
+                    <input type="hidden" name="copies" value="<?php echo (int) $copyCount; ?>">
+                    <?php endif; ?>
+                    <label for="extra_rows" class="small text-muted mb-0">Extra rows</label>
+                    <input type="number" min="0" max="35" step="1" id="extra_rows" name="extra_rows" value="<?php echo (int) $extraRows; ?>" class="form-control form-control-sm" style="width:88px;">
+                    <button type="submit" class="btn btn-sm btn-outline-dark">Apply</button>
+                </form>
+                <?php if ($isShort): ?>
+                <form method="get" class="d-flex align-items-center gap-2 no-print ms-2">
+                    <input type="hidden" name="id" value="<?php echo (int) $distributionId; ?>">
+                    <input type="hidden" name="print_format" value="short">
+                    <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
+                    <input type="hidden" name="extra_rows" value="<?php echo (int) $extraRows; ?>">
+                    <label for="copies" class="small text-muted mb-0">Copies on sheet</label>
+                    <input type="number" min="1" max="20" step="1" id="copies" name="copies" value="<?php echo (int) $copyCount; ?>" class="form-control form-control-sm" style="width:88px;">
+                    <button type="submit" class="btn btn-sm btn-outline-dark">Apply</button>
+                </form>
+                <?php endif; ?>
             </div>
             <div class="appendix">Appendix 71</div>
         </div>
-        <div class="print-copy" id="printCopy">
+        <?php if ($isShort): ?><div class="short-copies"><?php endif; ?>
+        <?php if ($isShort): ?>
+        <?php for ($sheetIndex = 0; $sheetIndex < $shortSheetCount; $sheetIndex++): ?>
+        <div class="short-sheet">
+            <?php for ($slotIndex = 0; $slotIndex < 2; $slotIndex++): ?>
+            <?php $copyIndex = ($sheetIndex * 2) + $slotIndex; ?>
+            <div class="short-slot">
+                <?php if ($copyIndex < $copyCount): ?>
+                <div class="print-copy short-copy">
+        <?php else: ?>
+                <div class="print-copy short-copy"></div>
+        <?php endif; ?>
+            <?php if ($copyIndex < $copyCount): ?>
         <div class="par-form">
         <div class="par-title">Property Acknowledgment Receipt</div>
 
@@ -440,30 +476,148 @@ $blankRows = max(0, $targetRows - count($printItems));
             </tr>
             <tr>
                 <td class="meta-box">
-                    <div class="meta-value"><span class="underlined-value"><?php echo h(date('m/d/Y', strtotime($header['distribution_date'] ?? 'now'))); ?></span></div>
+                    <div class="meta-value"><span class="underlined-value">&nbsp;</span></div>
                     <div class="meta-caption">Date</div>
                 </td>
                 <td class="meta-box">
-                    <div class="meta-value"><span class="underlined-value"><?php echo h(date('m/d/Y', strtotime($header['distribution_date'] ?? 'now'))); ?></span></div>
+                    <div class="meta-value"><span class="underlined-value">&nbsp;</span></div>
+                    <div class="meta-caption">Date</div>
+                </td>
+            </tr>
+        </table>
+        </div>
+            <?php endif; ?>
+                </div>
+            </div>
+            <?php endfor; ?>
+        </div>
+        <?php endfor; ?>
+        <?php else: ?>
+        <div class="print-copy">
+        <div class="par-form">
+        <div class="par-title">Property Acknowledgment Receipt</div>
+
+        <table class="par-meta">
+            <tr>
+                <td style="width:14%;" class="label">Entity Name :</td>
+                <td style="width:39%;"><span class="line-value long"><?php echo h(APP_NAME); ?></span></td>
+                <td style="width:14%;" class="label">PAR No. :</td>
+                <td style="width:33%;"><span class="line-value"><?php echo h($header['document_no'] ?? $header['system_reference'] ?? ''); ?></span></td>
+            </tr>
+            <tr>
+                <td class="label">Fund Cluster :</td>
+                <td><span class="line-value long"><?php echo h($fundCluster); ?></span></td>
+                <td></td>
+                <td></td>
+            </tr>
+        </table>
+
+        <table class="par-table">
+            <thead>
+                <tr>
+                    <th style="width:11%">Quantity</th>
+                    <th style="width:10%">Unit</th>
+                    <th style="width:33%">Description</th>
+                    <th style="width:14%">Property Number</th>
+                    <th style="width:14%">Date Acquired</th>
+                    <th style="width:18%">Amount</th>
+                </tr>
+            </thead>
+            <tbody class="par-body">
+                    <?php $total = 0.0; foreach ($printItems as $it):
+                        $qty = (float) ($it['quantity_distributed'] ?? 0);
+                        $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
+                        $amount = (float) ($it['line_total'] ?? 0);
+                        $total += $amount;
+                    ?>
+                    <tr>
+                        <td class="text-end"><?php echo h(format_quantity($qty)); ?></td>
+                        <td><?php echo h($unitLabel); ?></td>
+                        <td>
+                            <?php
+                                $itemClass = trim((string) ($it['classification_name'] ?? ''));
+                                $itemDescription = trim((string) ($it['item_description'] ?? ''));
+                                $parDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                            ?>
+                            <?php echo nl2br(h($parDescription)); ?>
+                        </td>
+                        <td>
+                            <?php if ($isGrouped): ?>
+                                <?php echo h((string) ($it['property_number_range'] ?? '')); ?>
+                                <?php if (!empty($it['property_numbers'])): ?>
+                                    <div class="small text-muted">
+                                        <?php echo h(count($it['property_numbers'])); ?> property no.(s)
+                                    </div>
+                                <?php endif; ?>
+                            <?php elseif (!empty($it['details'])): ?>
+                                <?php foreach ($it['details'] as $d): ?>
+                                    <?php echo h($d['property_number'] ?? ''); ?><br>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <?php echo h($it['property_number'] ?? ''); ?>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo h(!empty($it['date_acquired']) ? date('m/d/Y', strtotime($it['date_acquired'])) : ''); ?></td>
+                        <td class="text-end"><?php echo h(number_format($amount,2)); ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <?php for ($i = 0; $i < $blankRows; $i++): ?>
+                    <tr>
+                        <td>&nbsp;</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                    <?php endfor; ?>
+                </tbody>
+            </table>
+
+        <table class="par-sign-table">
+            <tr>
+                <th class="sign-head" style="width:50%;">Received by:</th>
+                <th class="sign-head" style="width:50%;">Issued by:</th>
+            </tr>
+            <tr>
+                <td class="sign-box">
+                    <?php if ($recipientHeadName !== ''): ?>
+                        <div class="sign-name"><span class="underlined-value"><?php echo h($recipientHeadName); ?></span></div>
+                    <?php endif; ?>
+                    <div>Signature over Printed Name of End User</div>
+                </td>
+                <td class="sign-box">
+                    <?php if ($supplyHeadName !== ''): ?>
+                        <div class="sign-name"><span class="underlined-value"><?php echo h($supplyHeadName); ?></span></div>
+                    <?php endif; ?>
+                    <div>Signature over Printed Name of Supply and/or Property Custodian</div>
+                </td>
+            </tr>
+            <tr>
+                <td class="meta-box">
+                    <div class="meta-value"><span class="underlined-value"><?php echo h(trim($recipientHeadTitle . ($recipientOfficeName !== '' ? ' / ' . $recipientOfficeName : ''))); ?></span></div>
+                    <div class="meta-caption">Designation/Office</div>
+                </td>
+                <td class="meta-box">
+                    <div class="meta-value"><span class="underlined-value"><?php echo h(trim($supplyHeadTitle . ($supplyOfficeName !== '' ? ' / ' . $supplyOfficeName : ''))); ?></span></div>
+                    <div class="meta-caption">Designation/Office</div>
+                </td>
+            </tr>
+            <tr>
+                <td class="meta-box">
+                    <div class="meta-value"><span class="underlined-value">&nbsp;</span></div>
+                    <div class="meta-caption">Date</div>
+                </td>
+                <td class="meta-box">
+                    <div class="meta-value"><span class="underlined-value">&nbsp;</span></div>
                     <div class="meta-caption">Date</div>
                 </td>
             </tr>
         </table>
         </div>
         </div>
-        <div class="duplicate-host" id="duplicateHost"></div>
+        <?php endif; ?>
+        <?php if ($isShort): ?></div><?php endif; ?>
     </div>
-    <?php if ($isShort): ?>
-    <script>
-    (function () {
-        var source = document.getElementById('printCopy');
-        var host = document.getElementById('duplicateHost');
-        if (!source || !host || host.children.length) return;
-        var clone = source.cloneNode(true);
-        clone.removeAttribute('id');
-        host.appendChild(clone);
-    })();
-    </script>
-    <?php endif; ?>
 </body>
 </html>
