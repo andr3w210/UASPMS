@@ -142,8 +142,10 @@ foreach ($rows as $row) {
     $displayName = trim((string) ($row['classification_name'] ?? '')) !== ''
         ? trim((string) ($row['classification_name'] ?? ''))
         : trim((string) ($row['item_description'] ?? ''));
+    $officeName = trim((string) ($row['office_name'] ?? ''));
+    $employeeName = trim((string) ($row['employee_name'] ?? ''));
     $tagCode = property_qr_resolve_tag_code($db, $sourceType, $assetId, (string) ($row['qr_tag_code'] ?? ''));
-    $qrPayload = property_qr_build_payload($tagCode, $propertyNumber, $serialNumber, $dateAcquiredQr, $displayName);
+    $qrPayload = property_qr_build_payload($tagCode, $propertyNumber, $serialNumber, $dateAcquiredQr, $displayName, $officeName, $employeeName);
     $lookupRef = $tagCode !== '' ? $tagCode : ($propertyNumber !== '' ? $propertyNumber : $systemReference);
     $scanUrl = base_url('modules/property/scan.php?ref=' . rawurlencode($lookupRef));
 
@@ -173,8 +175,8 @@ foreach ($rows as $row) {
         'date_acquired' => (string) ($row['date_acquired'] ?? ''),
         'classification_name' => (string) ($row['classification_name'] ?? ''),
         'item_description' => (string) ($row['item_description'] ?? ''),
-        'employee_name' => trim((string) ($row['employee_name'] ?? '')),
-        'office_name' => (string) ($row['office_name'] ?? ''),
+        'employee_name' => $employeeName,
+        'office_name' => $officeName,
         'brand' => (string) ($row['brand'] ?? ''),
         'model' => (string) ($row['model'] ?? ''),
         'serial_no' => $serialNumber,

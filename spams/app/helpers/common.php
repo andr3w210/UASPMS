@@ -514,6 +514,23 @@ function ensure_legacy_assets_rpcppe_tracking_columns(mysqli $db): void
         WHERE rpcppe_status IS NULL OR TRIM(rpcppe_status) = ''");
 }
 
+function ensure_distribution_item_rpcppe_tracking_columns(mysqli $db): void
+{
+    $db->query("ALTER TABLE distribution_item_details
+        ADD COLUMN IF NOT EXISTS is_rpcppe_candidate TINYINT(1) NOT NULL DEFAULT 0 AFTER is_disposed,
+        ADD COLUMN IF NOT EXISTS rpcppe_status VARCHAR(30) NOT NULL DEFAULT 'excluded' AFTER is_rpcppe_candidate,
+        ADD COLUMN IF NOT EXISTS rpcppe_batch_id BIGINT UNSIGNED NULL AFTER rpcppe_status,
+        ADD COLUMN IF NOT EXISTS rpcppe_submitted_at DATETIME NULL AFTER rpcppe_batch_id,
+        ADD COLUMN IF NOT EXISTS rpcppe_reconciled_at DATETIME NULL AFTER rpcppe_submitted_at");
+
+    $db->query("UPDATE distribution_item_details
+        SET rpcppe_status = CASE
+            WHEN COALESCE(is_rpcppe_candidate, 0) = 1 THEN 'included_draft'
+            ELSE 'excluded'
+        END
+        WHERE rpcppe_status IS NULL OR TRIM(rpcppe_status) = ''");
+}
+
 function ensure_rpcppe_batch_tracking_columns(mysqli $db): void
 {
     $db->query("ALTER TABLE rpcppe_batch_items

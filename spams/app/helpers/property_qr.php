@@ -102,7 +102,15 @@ function property_qr_resolve_tag_code(?mysqli $db, string $sourceType, int $asse
     return $tagCode;
 }
 
-function property_qr_build_payload(string $tagCode, string $propertyNumber = '', string $serialNumber = '', string $dateAcquired = '', string $itemName = ''): string
+function property_qr_build_payload(
+    string $tagCode,
+    string $propertyNumber = '',
+    string $serialNumber = '',
+    string $dateAcquired = '',
+    string $itemName = '',
+    string $officeName = '',
+    string $employeeName = ''
+): string
 {
     $parts = [];
     $tagCode = trim($tagCode);
@@ -110,6 +118,8 @@ function property_qr_build_payload(string $tagCode, string $propertyNumber = '',
     $serialNumber = trim($serialNumber);
     $dateAcquired = trim($dateAcquired);
     $itemName = trim(preg_replace('/\s+/', ' ', $itemName) ?? '');
+    $officeName = trim(preg_replace('/\s+/', ' ', $officeName) ?? '');
+    $employeeName = trim(preg_replace('/\s+/', ' ', $employeeName) ?? '');
 
     if ($tagCode !== '') {
         $parts[] = 'TAG=' . $tagCode;
@@ -125,6 +135,12 @@ function property_qr_build_payload(string $tagCode, string $propertyNumber = '',
     }
     if ($itemName !== '') {
         $parts[] = 'IT=' . $itemName;
+    }
+    if ($officeName !== '') {
+        $parts[] = 'OF=' . $officeName;
+    }
+    if ($employeeName !== '') {
+        $parts[] = 'EM=' . $employeeName;
     }
 
     return implode('|', $parts);

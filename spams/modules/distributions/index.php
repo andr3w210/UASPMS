@@ -39,10 +39,19 @@ $form = [
 
 $selectedReceivingId = (int) ($_GET['receiving_id'] ?? 0);
 $distributionPhotoUploads = [];
+$editingDistributionId = (int) ($_POST['edit_id'] ?? ($_GET['edit_id'] ?? 0));
+$editingDistribution = null;
+$editingDistributionItems = [];
+$editForm = [
+    'distribution_date' => date('Y-m-d'),
+    'office_id' => '',
+    'employee_id' => '',
+    'purpose' => '',
+    'remarks' => '',
+];
 
 function preview_distribution_doc_no($db, string $docType, string $date, string $semiType = 'high_value'): string {
     $year  = date('Y', strtotime($date) ?: time());
-    $month = date('m', strtotime($date) ?: time());
     if ($docType === 'par') {
         $prefix = 'PAR';
     } elseif ($semiType === 'low_value') {
@@ -50,7 +59,9 @@ function preview_distribution_doc_no($db, string $docType, string $date, string 
     } else {
         $prefix = 'SPHV';
     }
-    $like = $prefix . '-' . $year . '-' . $month . '-%';
+
+    // Keep one running sequence per year, while still recognizing older month-based entries.
+    $like = $prefix . '-' . $year . '-%';
     $nextSeq = 1;
     $stmt = $db->prepare("SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(document_no, '-', -1) AS UNSIGNED)), 0) + 1 AS next_seq FROM distributions WHERE document_no LIKE ?");
     if ($stmt) {
@@ -60,7 +71,7 @@ function preview_distribution_doc_no($db, string $docType, string $date, string 
         $nextSeq = (int)($row['next_seq'] ?? 1);
         $stmt->close();
     }
-    return $prefix . '-' . $year . '-' . $month . '-' . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT);
+    return $prefix . '-' . $year . '-' . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT);
 }
 
 function distribution_extract_uploaded_file(string $fieldName, int $itemId): array
@@ -108,6 +119,126 @@ function distribution_extract_uploaded_file(string $fieldName, int $itemId): arr
     ];
 }
 
+function distribution_fetch_editable_header(mysqli $db, int $distributionId): ?array
+{
+    if ($distributionId <= 0) {
+        return null;
+    }
+
+    $stmt = $db->prepare("
+        SELECT d.id, d.system_reference, d.document_type, d.semi_expendable_type, d.document_no, d.distribution_date,
+               d.office_id, d.employee_id, d.purpose, d.remarks, d.status,
+               o.office_name, o.office_code,
+               e.employee_no, e.first_name, e.middle_name, e.last_name, e.suffix_name
+        FROM distributions d
+        INNER JOIN offices o ON o.id = d.office_id
+        LEFT JOIN employees e ON e.id = d.employee_id
+        WHERE d.id = ?
+        LIMIT 1
+    ");
+    if (!$stmt) {
+        return null;
+    }
+
+    $stmt->bind_param('i', $distributionId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: null;
+    $stmt->close();
+
+    return $row;
+}
+
+function distribution_replace_office_suffix(string $propertyNumber, string $fromOfficeCode, string $toOfficeCode): string
+{
+    $propertyNumber = trim($propertyNumber);
+    $fromOfficeCode = trim($fromOfficeCode);
+    $toOfficeCode = trim($toOfficeCode);
+    if ($propertyNumber === '' || $fromOfficeCode === '' || $toOfficeCode === '') {
+        return $propertyNumber;
+    }
+
+    $pattern = '/-' . preg_quote($fromOfficeCode, '/') . '$/i';
+    if (!preg_match($pattern, $propertyNumber)) {
+        return $propertyNumber;
+    }
+
+    return (string) preg_replace($pattern, '-' . strtoupper($toOfficeCode), $propertyNumber, 1);
+}
+
+function distribution_force_office_suffix(string $propertyNumber, string $toOfficeCode): string
+{
+    $propertyNumber = trim($propertyNumber);
+    $toOfficeCode = trim($toOfficeCode);
+    if ($propertyNumber === '' || $toOfficeCode === '') {
+        return $propertyNumber;
+    }
+
+    if (preg_match('/-([A-Z0-9]{2,12})$/i', $propertyNumber)) {
+        return (string) preg_replace('/-([A-Z0-9]{2,12})$/i', '-' . strtoupper($toOfficeCode), $propertyNumber, 1);
+    }
+
+    return $propertyNumber;
+}
+
+function distribution_fetch_editable_items(mysqli $db, int $distributionId): array
+{
+    if ($distributionId <= 0) {
+        return [];
+    }
+
+    $stmt = $db->prepare("
+        SELECT di.id,
+               di.quantity_distributed,
+               di.unit_cost,
+               di.line_total,
+               di.remarks,
+               poi.item_description,
+               poi.line_no,
+               c.classification_name,
+               c.classification_family
+        FROM distribution_items di
+        LEFT JOIN receiving_items ri ON ri.id = di.receiving_item_id
+        LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+        LEFT JOIN classifications c ON c.id = poi.classification_id
+        WHERE di.distribution_id = ?
+        ORDER BY COALESCE(poi.line_no, 999999) ASC, di.id ASC
+    ");
+    if (!$stmt) {
+        return [];
+    }
+
+    $stmt->bind_param('i', $distributionId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $items = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+    $stmt->close();
+
+    $detailStmt = $db->prepare("
+        SELECT id, brand, model, serial_no, property_number, remarks
+        FROM distribution_item_details
+        WHERE distribution_item_id = ?
+        ORDER BY id ASC
+    ");
+
+    foreach ($items as &$item) {
+        $item['details'] = [];
+        if ($detailStmt) {
+            $distributionItemId = (int) ($item['id'] ?? 0);
+            $detailStmt->bind_param('i', $distributionItemId);
+            $detailStmt->execute();
+            $detailResult = $detailStmt->get_result();
+            $item['details'] = $detailResult ? $detailResult->fetch_all(MYSQLI_ASSOC) : [];
+        }
+    }
+    unset($item);
+
+    if ($detailStmt) {
+        $detailStmt->close();
+    }
+
+    return $items;
+}
+
 if ($db) {
     $threshold    = get_active_threshold($db);
     $equipmentMin = (float)$threshold['equipment_min'];
@@ -124,7 +255,7 @@ if ($db) {
 
     // Load offices
     $officeResult = $db->query(
-        "SELECT id, office_name FROM offices
+        "SELECT id, office_name, office_code FROM offices
          WHERE is_active = 1 ORDER BY office_name ASC"
     );
     if ($officeResult) $offices = $officeResult->fetch_all(MYSQLI_ASSOC);
@@ -137,6 +268,20 @@ if ($db) {
          ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC"
     );
     if ($empResult) $employees = $empResult->fetch_all(MYSQLI_ASSOC);
+
+    if ($editingDistributionId > 0) {
+        $editingDistribution = distribution_fetch_editable_header($db, $editingDistributionId);
+        if ($editingDistribution) {
+            $editForm = [
+                'distribution_date' => (string) ($editingDistribution['distribution_date'] ?? date('Y-m-d')),
+                'office_id' => (string) ($editingDistribution['office_id'] ?? ''),
+                'employee_id' => (string) ($editingDistribution['employee_id'] ?? ''),
+                'purpose' => (string) ($editingDistribution['purpose'] ?? ''),
+                'remarks' => (string) ($editingDistribution['remarks'] ?? ''),
+            ];
+            $editingDistributionItems = distribution_fetch_editable_items($db, $editingDistributionId);
+        }
+    }
 
     // Load IAR list for split panel
     $iarSql = "SELECT r.id, r.system_reference, r.received_date, po.po_number, s.supplier_name,
@@ -285,9 +430,193 @@ function distribution_doc_label(string $type): string
 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        if (!csrf_verify()) {
-            $errors[] = 'Invalid CSRF token.';
+    if (!csrf_verify()) {
+        $errors[] = 'Invalid CSRF token.';
+    }
+    $action = trim((string) ($_POST['action'] ?? 'post_distribution'));
+
+    if ($action === 'update_distribution') {
+        $editingDistributionId = (int) ($_POST['edit_id'] ?? 0);
+        $editingDistribution = $editingDistributionId > 0 ? distribution_fetch_editable_header($db, $editingDistributionId) : null;
+        if (!$editingDistribution || (string) ($editingDistribution['status'] ?? '') !== 'posted') {
+            $errors[] = 'The selected distribution cannot be edited.';
         }
+
+        $editForm['distribution_date'] = old($_POST, 'distribution_date', $editForm['distribution_date']);
+        $editForm['office_id'] = old($_POST, 'office_id', $editForm['office_id']);
+        $editForm['employee_id'] = old($_POST, 'employee_id', $editForm['employee_id']);
+        $editForm['purpose'] = old($_POST, 'purpose', $editForm['purpose']);
+        $editForm['remarks'] = old($_POST, 'remarks', $editForm['remarks']);
+        $postedLineRemarks = $_POST['line_remarks'] ?? [];
+        $postedDetailBrand = $_POST['detail_brand'] ?? [];
+        $postedDetailModel = $_POST['detail_model'] ?? [];
+        $postedDetailSerial = $_POST['detail_serial_no'] ?? [];
+        $postedDetailRemarks = $_POST['detail_remarks'] ?? [];
+        $postedDetailPropertyNumber = $_POST['detail_property_number'] ?? [];
+
+        if ($editForm['distribution_date'] === '') {
+            $errors[] = 'Distribution date is required.';
+        }
+        if ($editForm['office_id'] === '') {
+            $errors[] = 'Office is required.';
+        }
+
+        $officeId = (int) ($editForm['office_id'] !== '' ? $editForm['office_id'] : 0);
+        $employeeId = (int) ($editForm['employee_id'] !== '' ? $editForm['employee_id'] : 0);
+        $oldOfficeId = (int) ($editingDistribution['office_id'] ?? 0);
+        $oldEmployeeId = (int) ($editingDistribution['employee_id'] ?? 0);
+        $oldOfficeCode = '';
+        $newOfficeCode = '';
+        foreach ($offices as $officeRow) {
+            $rowOfficeId = (int) ($officeRow['id'] ?? 0);
+            if ($rowOfficeId === $oldOfficeId) {
+                $oldOfficeCode = trim((string) ($officeRow['office_code'] ?? ''));
+            }
+            if ($rowOfficeId === $officeId) {
+                $newOfficeCode = trim((string) ($officeRow['office_code'] ?? ''));
+            }
+        }
+        if ($employeeId > 0) {
+            $employeeValid = false;
+            foreach ($employees as $employee) {
+                if ((int) $employee['id'] === $employeeId) {
+                    $employeeValid = (int) ($employee['office_id'] ?? 0) === $officeId;
+                    break;
+                }
+            }
+            if (!$employeeValid) {
+                $errors[] = 'Selected employee does not belong to the chosen office.';
+            }
+        }
+
+        if (!$errors && $editingDistribution) {
+            $editingDistributionItems = distribution_fetch_editable_items($db, $editingDistributionId);
+            $db->begin_transaction();
+            try {
+                $stmt = $db->prepare("UPDATE distributions SET distribution_date = ?, office_id = ?, employee_id = NULLIF(?, 0), purpose = ?, remarks = ? WHERE id = ? AND status = 'posted' LIMIT 1");
+                if (!$stmt) {
+                    throw new RuntimeException('Unable to prepare the distribution update.');
+                }
+                $stmt->bind_param(
+                    'siissi',
+                    $editForm['distribution_date'],
+                    $officeId,
+                    $employeeId,
+                    $editForm['purpose'],
+                    $editForm['remarks'],
+                    $editingDistributionId
+                );
+                if (!$stmt->execute()) {
+                    throw new RuntimeException('Unable to update the distribution header.');
+                }
+                $stmt->close();
+
+                // Keep current assignment in sync for assets still on the original header assignment.
+                $assignmentStmt = $db->prepare("
+                    UPDATE distribution_item_details did
+                    INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+                    SET did.current_office_id = ?, did.current_employee_id = NULLIF(?, 0)
+                    WHERE di.distribution_id = ?
+                      AND (did.current_office_id IS NULL OR did.current_office_id = ?)
+                      AND (did.current_employee_id IS NULL OR did.current_employee_id = ?)
+                ");
+                if (!$assignmentStmt) {
+                    throw new RuntimeException('Unable to prepare accountability sync update.');
+                }
+                $assignmentStmt->bind_param('iiiii', $officeId, $employeeId, $editingDistributionId, $oldOfficeId, $oldEmployeeId);
+                if (!$assignmentStmt->execute()) {
+                    throw new RuntimeException('Unable to sync accountability on distributed assets.');
+                }
+                $assignmentStmt->close();
+
+                $lineStmt = $db->prepare("UPDATE distribution_items SET remarks = ? WHERE id = ? AND distribution_id = ?");
+                $detailStmt = $db->prepare("UPDATE distribution_item_details SET brand = ?, model = ?, serial_no = ?, property_number = ?, remarks = ? WHERE id = ? AND distribution_item_id = ?");
+                $dupPropertyStmt = $db->prepare("SELECT id FROM distribution_item_details WHERE property_number = ? AND id <> ? LIMIT 1");
+                if (!$lineStmt || !$detailStmt || !$dupPropertyStmt) {
+                    throw new RuntimeException('Unable to prepare distribution item updates.');
+                }
+
+                foreach ($editingDistributionItems as $itemRow) {
+                    $distributionItemId = (int) ($itemRow['id'] ?? 0);
+                    $lineRemarks = trim((string) ($postedLineRemarks[$distributionItemId] ?? ($itemRow['remarks'] ?? '')));
+                    $lineStmt->bind_param('sii', $lineRemarks, $distributionItemId, $editingDistributionId);
+                    if (!$lineStmt->execute()) {
+                        throw new RuntimeException('Unable to update a distribution line.');
+                    }
+
+                    foreach (($itemRow['details'] ?? []) as $detailRow) {
+                        $detailId = (int) ($detailRow['id'] ?? 0);
+                        $brand = trim((string) ($postedDetailBrand[$detailId] ?? ($detailRow['brand'] ?? '')));
+                        $model = trim((string) ($postedDetailModel[$detailId] ?? ($detailRow['model'] ?? '')));
+                        $serial = trim((string) ($postedDetailSerial[$detailId] ?? ($detailRow['serial_no'] ?? '')));
+                        $existingPropertyNumber = trim((string) ($detailRow['property_number'] ?? ''));
+                        $propertyNumber = trim((string) ($postedDetailPropertyNumber[$detailId] ?? $existingPropertyNumber));
+                        if ($propertyNumber === $existingPropertyNumber) {
+                            if ($oldOfficeId !== $officeId) {
+                                $propertyNumber = distribution_replace_office_suffix($propertyNumber, $oldOfficeCode, $newOfficeCode);
+                            }
+                            $propertyNumber = distribution_force_office_suffix($propertyNumber, $newOfficeCode);
+                        }
+                        $detailRemarks = trim((string) ($postedDetailRemarks[$detailId] ?? ($detailRow['remarks'] ?? '')));
+                        if ($propertyNumber !== '') {
+                            $dupPropertyStmt->bind_param('si', $propertyNumber, $detailId);
+                            if (!$dupPropertyStmt->execute()) {
+                                throw new RuntimeException('Unable to validate property number updates.');
+                            }
+                            $dupRow = $dupPropertyStmt->get_result()->fetch_assoc();
+                            if ($dupRow) {
+                                throw new RuntimeException('Property number already exists: ' . $propertyNumber);
+                            }
+                        }
+                        $detailStmt->bind_param('sssssii', $brand, $model, $serial, $propertyNumber, $detailRemarks, $detailId, $distributionItemId);
+                        if (!$detailStmt->execute()) {
+                            throw new RuntimeException('Unable to update distributed unit details.');
+                        }
+                    }
+                }
+
+                $lineStmt->close();
+                $detailStmt->close();
+                $dupPropertyStmt->close();
+
+                write_audit_log($db, [
+                    'action' => 'update',
+                    'table_name' => 'distributions',
+                    'record_id' => $editingDistributionId,
+                    'module_name' => 'distributions',
+                    'record_type' => 'distribution',
+                    'action_name' => 'update_distribution_header',
+                    'old_values' => [
+                        'distribution_date' => $editingDistribution['distribution_date'] ?? '',
+                        'office_id' => $editingDistribution['office_id'] ?? '',
+                        'employee_id' => $editingDistribution['employee_id'] ?? '',
+                        'purpose' => $editingDistribution['purpose'] ?? '',
+                        'remarks' => $editingDistribution['remarks'] ?? '',
+                    ],
+                    'new_values' => [
+                        'distribution_date' => $editForm['distribution_date'],
+                        'office_id' => $officeId,
+                        'employee_id' => $employeeId,
+                        'purpose' => $editForm['purpose'],
+                        'remarks' => $editForm['remarks'],
+                        'line_count' => count($editingDistributionItems),
+                    ],
+                    'description' => 'Updated posted distribution header details.',
+                ]);
+
+                $db->commit();
+                if ($editingDistributionId > 0) {
+                    $editingDistribution = distribution_fetch_editable_header($db, $editingDistributionId);
+                    $editingDistributionItems = distribution_fetch_editable_items($db, $editingDistributionId);
+                }
+                set_flash('success', 'Distribution details updated successfully.');
+                redirect('modules/distributions/index.php?document_type=' . urlencode($distributionType));
+            } catch (Throwable $e) {
+                $db->rollback();
+                $errors[] = $e->getMessage();
+            }
+        }
+    } else {
     $selectedReceivingId = (int) ($_POST['receiving_id'] ?? 0);
         $form['document_type'] = $_POST['document_type'] ?? 'ics';
         if (!in_array($form['document_type'], ['ics', 'par'], true)) {
@@ -298,7 +627,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $semiHvMin    = (float)$threshold['semi_hv_min'];
         $form['system_reference'] = preview_module_code($db, 'distributions');
         $form['distribution_date'] = old($_POST, 'distribution_date', date('Y-m-d'));
-        $form['document_no'] = preview_distribution_doc_no($db, $form['document_type'], $form['distribution_date']);
+        $postedSemiType = $_POST['semi_type'] ?? $distributionSemiType;
+        if (!in_array($postedSemiType, ['high_value', 'low_value'], true)) {
+            $postedSemiType = 'high_value';
+        }
+        $form['document_no'] = preview_distribution_doc_no($db, $form['document_type'], $form['distribution_date'], $postedSemiType);
         $form['office_id'] = old($_POST, 'office_id');
         $form['employee_id'] = old($_POST, 'employee_id');
         $form['purpose'] = old($_POST, 'purpose');
@@ -594,6 +927,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Unable to save the distribution.';
             }
         }
+    }
     }
 
     // Posted distributions list with optional filtering
@@ -925,6 +1259,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <div class="workspace-header mb-3">
                     <div class="workspace-header-copy">
                         <h5 class="card-title mb-0">Posted Distributions</h5>
+                        <p class="text-muted mb-0">Review posted accountability documents and correct the header details when the assigned office, employee, or notes were entered incorrectly.</p>
                     </div>
                     <div class="workspace-actions">
                         <a href="<?php echo base_url('modules/distributions/par_office.php'); ?>" class="btn btn-sm btn-outline-primary" target="_blank">PAR by Office</a>
@@ -932,6 +1267,157 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <span class="badge text-bg-light"><?php echo count($distributions); ?> record(s)</span>
                     </div>
                 </div>
+
+                <?php if ($editingDistribution): ?>
+                    <div class="card mb-3 workspace-editor-shell border-primary-subtle" id="distribution-edit-panel">
+                        <div class="card-body p-3">
+                            <div class="workspace-header mb-3">
+                                <div class="workspace-header-copy">
+                                    <div class="small fw-semibold text-muted mb-1">Edit posted distribution</div>
+                                    <div class="small text-muted">
+                                        You can correct posted details for
+                                        <strong><?php echo h((string) ($editingDistribution['document_no'] ?? '')); ?></strong>.
+                                        If office changes and property numbers still end with the old office code, the suffix is updated automatically (for example, <code>-PLAN</code> to <code>-PMU</code>).
+                                    </div>
+                                </div>
+                                <div class="workspace-actions">
+                                    <span class="badge text-bg-light"><?php echo h(strtoupper((string) ($editingDistribution['document_type'] ?? ''))); ?></span>
+                                    <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType)); ?>" class="btn btn-sm btn-outline-secondary">Close</a>
+                                </div>
+                            </div>
+                            <form method="post" class="row g-3 workspace-filter-panel">
+                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                <input type="hidden" name="action" value="update_distribution">
+                                <input type="hidden" name="edit_id" value="<?php echo (int) ($editingDistribution['id'] ?? 0); ?>">
+                                <div class="col-md-4">
+                                    <label class="form-label">Document Number</label>
+                                    <input type="text" class="form-control" value="<?php echo h((string) ($editingDistribution['document_no'] ?? '')); ?>" readonly>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">System Reference</label>
+                                    <input type="text" class="form-control" value="<?php echo h((string) ($editingDistribution['system_reference'] ?? '')); ?>" readonly>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Distribution Date *</label>
+                                    <input type="date" class="form-control" name="distribution_date" value="<?php echo h((string) ($editForm['distribution_date'] ?? '')); ?>" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Office *</label>
+                                    <select class="form-select" name="office_id" id="edit_office_id" required data-placeholder="Select office">
+                                        <option value="">Select office</option>
+                                        <?php foreach ($offices as $office): ?>
+                                            <option value="<?php echo (int) $office['id']; ?>" <?php echo (string) ($editForm['office_id'] ?? '') === (string) ($office['id'] ?? '') ? 'selected' : ''; ?>>
+                                                <?php echo h((string) ($office['office_name'] ?? '')); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Accountable Employee</label>
+                                    <select class="form-select" name="employee_id" id="edit_employee_id" data-placeholder="Select employee">
+                                        <option value="">Select employee</option>
+                                        <?php foreach ($employees as $emp): ?>
+                                            <option value="<?php echo (int) $emp['id']; ?>"
+                                                data-office-id="<?php echo (int) ($emp['office_id'] ?? 0); ?>"
+                                                <?php echo (string) ($editForm['employee_id'] ?? '') === (string) ($emp['id'] ?? '') ? 'selected' : ''; ?>>
+                                                <?php echo h(employee_display_name($emp) . ' - ' . ($emp['employee_no'] ?? '') . (!empty($emp['position_title']) ? ' (' . $emp['position_title'] . ')' : '')); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Purpose</label>
+                                    <textarea class="form-control" name="purpose" rows="2"><?php echo h((string) ($editForm['purpose'] ?? '')); ?></textarea>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Remarks</label>
+                                    <textarea class="form-control" name="remarks" rows="2"><?php echo h((string) ($editForm['remarks'] ?? '')); ?></textarea>
+                                </div>
+                                <div class="col-12">
+                                    <div class="card border-0 bg-light-subtle">
+                                        <div class="card-body p-3">
+                                            <div class="small fw-semibold text-muted mb-2">Posted items and unit details</div>
+                                            <?php if ($editingDistributionItems): ?>
+                                                <?php foreach ($editingDistributionItems as $idx => $itemRow): ?>
+                                                    <?php
+                                                        $lineNo = (int) ($itemRow['line_no'] ?? 0);
+                                                        $labelParts = [];
+                                                        if (!empty($itemRow['classification_name'])) {
+                                                            $labelParts[] = (string) $itemRow['classification_name'];
+                                                        }
+                                                        if (!empty($itemRow['item_description'])) {
+                                                            $labelParts[] = (string) $itemRow['item_description'];
+                                                        }
+                                                        $itemLabel = trim(implode(' - ', $labelParts));
+                                                        if ($itemLabel === '') {
+                                                            $itemLabel = 'Item line #' . ((int) $idx + 1);
+                                                        }
+                                                        $distributionItemId = (int) ($itemRow['id'] ?? 0);
+                                                    ?>
+                                                    <div class="border rounded-3 p-3 mb-3 bg-white">
+                                                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                                                            <div>
+                                                                <div class="fw-semibold"><?php echo h($itemLabel); ?></div>
+                                                                <div class="small text-muted">
+                                                                    <?php echo $lineNo > 0 ? 'Line ' . h((string) $lineNo) . ' | ' : ''; ?>
+                                                                    Qty: <?php echo h(format_quantity((float) ($itemRow['quantity_distributed'] ?? 0))); ?> |
+                                                                    Unit Cost: <?php echo h(number_format((float) ($itemRow['unit_cost'] ?? 0), 2)); ?> |
+                                                                    Amount: <?php echo h(number_format((float) ($itemRow['line_total'] ?? 0), 2)); ?>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="row g-2 mb-2">
+                                                            <div class="col-12">
+                                                                <label class="form-label small mb-1">Line Remarks</label>
+                                                                <textarea class="form-control form-control-sm" name="line_remarks[<?php echo $distributionItemId; ?>]" rows="2"><?php echo h((string) ($itemRow['remarks'] ?? '')); ?></textarea>
+                                                            </div>
+                                                        </div>
+
+                                                        <?php if (!empty($itemRow['details'])): ?>
+                                                            <div class="table-responsive">
+                                                                <table class="table table-sm align-middle mb-0">
+                                                                    <thead>
+                                                                        <tr>
+                                                                            <th>Property No.</th>
+                                                                            <th>Brand</th>
+                                                                            <th>Model</th>
+                                                                            <th>Serial No.</th>
+                                                                            <th>Unit Remarks</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        <?php foreach ($itemRow['details'] as $detailRow): ?>
+                                                                            <?php $detailId = (int) ($detailRow['id'] ?? 0); ?>
+                                                                            <tr>
+                                                                                <td><input type="text" class="form-control form-control-sm fw-semibold" name="detail_property_number[<?php echo $detailId; ?>]" value="<?php echo h((string) ($detailRow['property_number'] ?? '')); ?>"></td>
+                                                                                <td><input type="text" class="form-control form-control-sm" name="detail_brand[<?php echo $detailId; ?>]" value="<?php echo h((string) ($detailRow['brand'] ?? '')); ?>"></td>
+                                                                                <td><input type="text" class="form-control form-control-sm" name="detail_model[<?php echo $detailId; ?>]" value="<?php echo h((string) ($detailRow['model'] ?? '')); ?>"></td>
+                                                                                <td><input type="text" class="form-control form-control-sm" name="detail_serial_no[<?php echo $detailId; ?>]" value="<?php echo h((string) ($detailRow['serial_no'] ?? '')); ?>"></td>
+                                                                                <td><input type="text" class="form-control form-control-sm" name="detail_remarks[<?php echo $detailId; ?>]" value="<?php echo h((string) ($detailRow['remarks'] ?? '')); ?>"></td>
+                                                                            </tr>
+                                                                        <?php endforeach; ?>
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        <?php else: ?>
+                                                            <div class="small text-muted">No unit-level rows were saved for this line.</div>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            <?php else: ?>
+                                                <div class="text-muted small">No item rows found for this distribution record.</div>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-12 d-flex flex-wrap gap-2 justify-content-end">
+                                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                                    <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType)); ?>" class="btn btn-outline-secondary">Cancel</a>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                <?php endif; ?>
 
                 <form method="get" class="row g-2 align-items-center mb-3 workspace-filter-panel">
                     <input type="hidden" name="document_type" value="<?php echo h($distributionType); ?>">
@@ -999,6 +1485,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td><?php echo $distribution['employee_no'] ? h(employee_display_name($distribution)) . ' - ' . h($distribution['employee_no']) : '<span class="text-muted">Not specified</span>'; ?></td>
                                         <td><span class="badge text-bg-light text-uppercase"><?php echo h($distribution['status']); ?></span></td>
                                         <td class="text-end">
+                                            <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType) . '&edit_id=' . (int) $distribution['id'] . '#distribution-edit-panel'); ?>" class="btn btn-sm btn-outline-secondary me-1">Edit</a>
                                             <a href="<?php echo base_url('modules/messages/index.php?related_table=distributions&related_id=' . (int)$distribution['id']); ?>" class="btn btn-sm btn-outline-info me-1">Discussion</a>
                                             <?php if (($distribution['document_type'] ?? '') === 'par'): ?>
                                                 <a href="<?php echo base_url('modules/distributions/par.php?id=' . (int)$distribution['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print PAR</a>
@@ -1025,11 +1512,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
 document.addEventListener('DOMContentLoaded', function () {
     var officeSelect = document.getElementById('office_id');
     var employeeSelect = document.getElementById('employee_id');
+    var editOfficeSelect = document.getElementById('edit_office_id');
+    var editEmployeeSelect = document.getElementById('edit_employee_id');
 
-    function filterEmployees() {
-        if (!officeSelect || !employeeSelect) return;
-        var selectedOffice = officeSelect.value;
-        Array.prototype.forEach.call(employeeSelect.options, function (option) {
+    function filterEmployeesFor(officeField, employeeField) {
+        if (!officeField || !employeeField) return;
+        var selectedOffice = officeField.value;
+        Array.prototype.forEach.call(employeeField.options, function (option) {
             if (!option.value) {
                 option.hidden = false;
                 return;
@@ -1037,20 +1526,36 @@ document.addEventListener('DOMContentLoaded', function () {
             var matches = !selectedOffice || option.getAttribute('data-office-id') === selectedOffice;
             option.hidden = !matches;
             if (!matches && option.selected) {
-                employeeSelect.value = '';
+                employeeField.value = '';
             }
         });
         if (window.SPAMS && window.SPAMS.refreshSelect2) {
-            window.SPAMS.refreshSelect2(employeeSelect);
+            window.SPAMS.refreshSelect2(employeeField);
         }
     }
 
     if (officeSelect) {
-        officeSelect.addEventListener('change', filterEmployees);
+        officeSelect.addEventListener('change', function () {
+            filterEmployeesFor(officeSelect, employeeSelect);
+        });
         if (window.jQuery) {
-            window.jQuery(officeSelect).on('select2:select select2:clear', filterEmployees);
+            window.jQuery(officeSelect).on('select2:select select2:clear', function () {
+                filterEmployeesFor(officeSelect, employeeSelect);
+            });
         }
-        filterEmployees();
+        filterEmployeesFor(officeSelect, employeeSelect);
+    }
+
+    if (editOfficeSelect) {
+        editOfficeSelect.addEventListener('change', function () {
+            filterEmployeesFor(editOfficeSelect, editEmployeeSelect);
+        });
+        if (window.jQuery) {
+            window.jQuery(editOfficeSelect).on('select2:select select2:clear', function () {
+                filterEmployeesFor(editOfficeSelect, editEmployeeSelect);
+            });
+        }
+        filterEmployeesFor(editOfficeSelect, editEmployeeSelect);
     }
 
     // Select-All Units checkbox for distributions unit rows
@@ -1076,6 +1581,15 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     });
+
+    if (window.location.hash === '#distribution-edit-panel') {
+        var editPanel = document.getElementById('distribution-edit-panel');
+        if (editPanel) {
+            setTimeout(function () {
+                editPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 120);
+        }
+    }
 });
 // SPA: bind IAR list and AJAX unit loading
 document.addEventListener('DOMContentLoaded', function () {

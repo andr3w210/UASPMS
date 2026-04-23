@@ -69,16 +69,80 @@ function nav_visible_group_items(array $items, string $role): array
     return $visible;
 }
 
+function nav_group_visible(array $group, string $role): bool
+{
+    if (isset($group['roles']) && !in_array($role, $group['roles'], true)) {
+        return false;
+    }
+
+    return (bool) nav_visible_group_items($group['items'], $role);
+}
+
 $menuGroups = [
     [
-        'id' => 'master-data-menu',
-        'label' => 'Master Data',
-        'icon' => 'bi bi-database',
+        'id' => 'operations-menu',
+        'label' => 'Operations',
+        'icon' => 'bi bi-grid-1x2',
+        'items' => [
+            ['label' => 'Purchase Orders', 'path' => 'modules/purchase_orders/index.php', 'needle' => '/purchase_orders/', 'icon' => 'bi bi-journal-text', 'roles' => ['Administrator', 'Supply Officer']],
+            ['label' => 'Delivery Extensions', 'path' => 'modules/purchase_orders/extensions.php', 'needle' => '/purchase_orders/extensions', 'icon' => 'bi bi-calendar2-plus', 'roles' => ['Administrator', 'Supply Officer']],
+            ['label' => 'Receiving', 'path' => 'modules/receivings/index.php', 'needle' => '/receivings/', 'icon' => 'bi bi-box-seam', 'roles' => ['Administrator', 'Supply Officer']],
+            ['label' => 'Issuances', 'path' => 'modules/issuances/index.php', 'needle' => '/issuances/', 'icon' => 'bi bi-box-arrow-up-right', 'roles' => ['Administrator', 'Supply Officer']],
+            ['label' => 'Distribution', 'path' => 'modules/distributions/index.php', 'needle' => '/distributions/', 'icon' => 'bi bi-diagram-3', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
+            ['label' => 'Transfer of Accountability', 'path' => 'modules/transfers/index.php', 'needle' => '/transfers/', 'icon' => 'bi bi-arrow-left-right', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
+            ['label' => 'Returns', 'path' => 'modules/returns/index.php', 'needle' => '/returns/', 'icon' => 'bi bi-arrow-counterclockwise', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
+            ['label' => 'Maintenance Log', 'path' => 'modules/maintenance/index.php', 'needle' => '/maintenance/', 'icon' => 'bi bi-wrench-adjustable-circle', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
+            ['label' => 'Disposals', 'path' => 'modules/disposals/index.php', 'needle' => '/disposals/', 'icon' => 'bi bi-trash3', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
+        ],
+    ],
+    [
+        'id' => 'registry-menu',
+        'label' => 'Registry & Counts',
+        'icon' => 'bi bi-journal-bookmark',
+        'items' => [
+            ['label' => 'Asset Registry', 'path' => 'modules/property/index.php', 'needle' => '/property/index.php', 'icon' => 'bi bi-journal-bookmark', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer', 'Property Custodian']],
+            ['label' => 'RPCPPE Inclusion', 'path' => 'modules/property/rpcppe_selection.php', 'needle' => '/property/rpcppe_selection', 'icon' => 'bi bi-ui-checks-grid', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
+            ['label' => 'Beginning Balance Encoding', 'path' => 'modules/property/legacy_assets.php', 'needle' => '/property/legacy_assets', 'icon' => 'bi bi-box2-heart', 'roles' => ['Administrator', 'Property Officer']],
+            ['label' => 'Import Legacy Assets', 'path' => 'modules/property/legacy_import.php', 'needle' => '/property/legacy_import', 'icon' => 'bi bi-file-earmark-arrow-up', 'roles' => ['Administrator', 'Property Officer']],
+            ['label' => 'Inventory Count Workspace', 'path' => 'modules/property/inventory_counts.php', 'needle' => '/property/inventory_counts', 'icon' => 'bi bi-clipboard-check', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
+            ['label' => 'Count Reconciliation', 'path' => 'modules/property/inventory_reconciliation.php', 'needle' => '/property/inventory_reconciliation', 'icon' => 'bi bi-clipboard2-pulse', 'roles' => ['Administrator', 'Property Officer']],
+            ['label' => 'Unserviceable Review', 'path' => 'modules/property/unserviceable_review.php', 'needle' => '/property/unserviceable_review', 'icon' => 'bi bi-exclamation-diamond', 'roles' => ['Administrator', 'Property Officer']],
+            ['label' => 'Stock Cards', 'path' => 'modules/property/stock_card.php', 'needle' => '/property/stock_card', 'icon' => 'bi bi-stack', 'roles' => ['Administrator', 'Supply Officer']],
+            ['label' => 'Supply Count Workspace', 'path' => 'modules/property/supply_counts.php', 'needle' => '/property/supply_counts', 'icon' => 'bi bi-boxes', 'roles' => ['Administrator', 'Supply Officer']],
+            ['label' => 'Stock Adjustments', 'path' => 'modules/property/stock_adjustments.php', 'needle' => '/property/stock_adjustments', 'icon' => 'bi bi-sliders2-vertical', 'roles' => ['Administrator', 'Supply Officer']],
+        ],
+    ],
+    [
+        'id' => 'print-reports-menu',
+        'label' => 'Print & Reports',
+        'icon' => 'bi bi-printer',
+        'items' => [
+            ['label' => 'Property Card Print', 'path' => 'modules/property/property_card_print.php', 'needle' => '/property/property_card_print', 'icon' => 'bi bi-printer', 'roles' => ['Administrator', 'Property Officer']],
+            ['label' => 'Ledger Card Print', 'path' => 'modules/property/ledger_card_print.php', 'needle' => '/property/ledger_card_print', 'icon' => 'bi bi-journal-text', 'roles' => ['Administrator', 'Property Officer']],
+            ['label' => 'QR Printing', 'path' => 'modules/reports/qr_printing.php', 'needle' => '/reports/qr_printing', 'icon' => 'bi bi-qr-code', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
+            ['label' => 'Reports', 'path' => 'modules/reports/index.php', 'needle' => '/reports/', 'icon' => 'bi bi-bar-chart', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer', 'Viewer']],
+        ],
+    ],
+    [
+        'id' => 'administration-menu',
+        'label' => 'Administration',
+        'icon' => 'bi bi-sliders',
+        'items' => [
+            ['label' => 'Users', 'path' => 'modules/users/index.php', 'needle' => '/users/', 'icon' => 'bi bi-people', 'roles' => ['Administrator']],
+            ['label' => 'Employees', 'path' => 'modules/employees/index.php', 'needle' => '/employees/', 'icon' => 'bi bi-person-badge', 'roles' => ['Administrator', 'Transport Officer']],
+            ['label' => 'Audit Log', 'path' => 'modules/audit_log/index.php', 'needle' => '/audit_log/', 'icon' => 'bi bi-file-earmark-text', 'roles' => ['Administrator']],
+            ['label' => 'Settings', 'path' => 'modules/settings/index.php', 'needle' => '/settings/', 'icon' => 'bi bi-gear', 'roles' => ['Administrator']],
+            ['label' => 'Database Tools', 'path' => 'modules/settings/database_tools.php', 'needle' => '/settings/database_tools', 'icon' => 'bi bi-hdd-stack', 'roles' => ['Administrator']],
+        ],
+    ],
+    [
+        'id' => 'system-setup-menu',
+        'label' => 'System Setup',
+        'icon' => 'bi bi-tools',
+        'roles' => ['Administrator'],
         'items' => [
             ['label' => 'Offices', 'path' => 'modules/offices/index.php', 'needle' => '/offices/', 'icon' => 'bi bi-building', 'roles' => ['Administrator']],
             ['label' => 'Responsibility Codes', 'path' => 'modules/responsibility_codes/index.php', 'needle' => '/responsibility_codes/', 'icon' => 'bi bi-upc-scan', 'roles' => ['Administrator']],
-            ['label' => 'Employees', 'path' => 'modules/employees/index.php', 'needle' => '/employees/', 'icon' => 'bi bi-person-badge', 'roles' => ['Administrator', 'Transport Officer']],
-            ['label' => 'Users', 'path' => 'modules/users/index.php', 'needle' => '/users/', 'icon' => 'bi bi-people', 'roles' => ['Administrator']],
             ['label' => 'Suppliers', 'path' => 'modules/suppliers/index.php', 'needle' => '/suppliers/', 'icon' => 'bi bi-truck', 'roles' => ['Administrator']],
             ['label' => 'Funds', 'path' => 'modules/funds/index.php', 'needle' => '/funds/', 'icon' => 'bi bi-wallet2', 'roles' => ['Administrator']],
             ['label' => 'Account Codes', 'path' => 'modules/account_codes/index.php', 'needle' => '/account_codes/', 'icon' => 'bi bi-journal-code', 'roles' => ['Administrator']],
@@ -91,78 +155,24 @@ $menuGroups = [
         ],
     ],
     [
-        'id' => 'supply-operations-menu',
-        'label' => 'Supply Operations',
-        'icon' => 'bi bi-box-seam',
+        'id' => 'communications-menu',
+        'label' => 'Communications',
+        'icon' => 'bi bi-chat-dots',
         'items' => [
-            ['heading' => 'Procurement'],
-            ['label' => 'Purchase Orders', 'path' => 'modules/purchase_orders/index.php', 'needle' => '/purchase_orders/', 'icon' => 'bi bi-journal-text', 'roles' => ['Administrator', 'Supply Officer']],
-            ['label' => 'Delivery Extensions', 'path' => 'modules/purchase_orders/extensions.php', 'needle' => '/purchase_orders/extensions', 'icon' => 'bi bi-calendar2-plus', 'roles' => ['Administrator', 'Supply Officer']],
-            ['label' => 'Receiving', 'path' => 'modules/receivings/index.php', 'needle' => '/receivings/', 'icon' => 'bi bi-box-seam', 'roles' => ['Administrator', 'Supply Officer']],
-            ['heading' => 'Supply Issuance'],
-            ['label' => 'Issuances', 'path' => 'modules/issuances/index.php', 'needle' => '/issuances/', 'icon' => 'bi bi-box-arrow-up-right', 'roles' => ['Administrator', 'Supply Officer']],
-            ['label' => 'Stock Cards', 'path' => 'modules/property/stock_card.php', 'needle' => '/property/stock_card', 'icon' => 'bi bi-stack', 'roles' => ['Administrator', 'Supply Officer']],
-            ['label' => 'Supply Count Workspace', 'path' => 'modules/property/supply_counts.php', 'needle' => '/property/supply_counts', 'icon' => 'bi bi-boxes', 'roles' => ['Administrator', 'Supply Officer']],
-            ['label' => 'Stock Adjustments', 'path' => 'modules/property/stock_adjustments.php', 'needle' => '/property/stock_adjustments', 'icon' => 'bi bi-sliders2-vertical', 'roles' => ['Administrator', 'Supply Officer']],
+            ['label' => 'Messages', 'path' => 'modules/messages/index.php', 'needle' => '/messages/', 'icon' => 'bi bi-chat-dots'],
         ],
     ],
     [
         'id' => 'transport-operations-menu',
         'label' => 'Transport Operations',
         'icon' => 'bi bi-car-front',
+        'roles' => ['Administrator', 'Transport Officer'],
         'items' => [
-            ['heading' => 'Trip Management'],
             ['label' => 'Trip Tickets', 'path' => 'modules/trip_tickets/index.php', 'needle' => '/trip_tickets/', 'icon' => 'bi bi-journal-text', 'roles' => ['Administrator', 'Transport Officer']],
             ['label' => 'Schedule Calendar', 'path' => 'modules/trip_tickets/schedules.php', 'needle' => '/trip_tickets/schedules', 'icon' => 'bi bi-calendar3', 'roles' => ['Administrator', 'Transport Officer']],
             ['label' => 'Trip Vehicles', 'path' => 'modules/trip_tickets/vehicles.php', 'needle' => '/trip_tickets/vehicles', 'icon' => 'bi bi-truck-front', 'roles' => ['Administrator', 'Transport Officer']],
-            ['heading' => 'Reports'],
             ['label' => 'Monthly Official Travel', 'path' => 'modules/trip_tickets/monthly_report.php', 'needle' => '/trip_tickets/monthly_report', 'icon' => 'bi bi-file-earmark-bar-graph', 'roles' => ['Administrator', 'Transport Officer']],
             ['label' => 'Fuel Consumption Report', 'path' => 'modules/trip_tickets/fuel_consumption_report.php', 'needle' => '/trip_tickets/fuel_consumption_report', 'icon' => 'bi bi-fuel-pump', 'roles' => ['Administrator', 'Transport Officer']],
-        ],
-    ],
-    [
-        'id' => 'property-operations-menu',
-        'label' => 'Property Operations',
-        'icon' => 'bi bi-tags',
-        'items' => [
-            ['heading' => 'Accountability'],
-            ['label' => 'Distribution', 'path' => 'modules/distributions/index.php', 'needle' => '/distributions/', 'icon' => 'bi bi-diagram-3', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
-            ['label' => 'Transfer of Accountability', 'path' => 'modules/transfers/index.php', 'needle' => '/transfers/', 'icon' => 'bi bi-arrow-left-right', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
-            ['label' => 'Returns', 'path' => 'modules/returns/index.php', 'needle' => '/returns/', 'icon' => 'bi bi-arrow-counterclockwise', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
-            ['label' => 'Maintenance Log', 'path' => 'modules/maintenance/index.php', 'needle' => '/maintenance/', 'icon' => 'bi bi-wrench-adjustable-circle', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
-            ['label' => 'Disposals', 'path' => 'modules/disposals/index.php', 'needle' => '/disposals/', 'icon' => 'bi bi-trash3', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
-            ['heading' => 'Registry & Counts'],
-            ['label' => 'Asset Registry', 'path' => 'modules/property/index.php', 'needle' => '/property/', 'icon' => 'bi bi-journal-bookmark', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer', 'Property Custodian']],
-            ['label' => 'Beginning Balance Encoding', 'path' => 'modules/property/legacy_assets.php', 'needle' => '/property/legacy_assets', 'icon' => 'bi bi-box2-heart', 'roles' => ['Administrator', 'Property Officer']],
-            ['label' => 'Import Legacy Assets', 'path' => 'modules/property/legacy_import.php', 'needle' => '/property/legacy_import', 'icon' => 'bi bi-file-earmark-arrow-up', 'roles' => ['Administrator', 'Property Officer']],
-            ['label' => 'Inventory Count Workspace', 'path' => 'modules/property/inventory_counts.php', 'needle' => '/property/inventory_counts', 'icon' => 'bi bi-clipboard-check', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
-            ['label' => 'Count Reconciliation', 'path' => 'modules/property/inventory_reconciliation.php', 'needle' => '/property/inventory_reconciliation', 'icon' => 'bi bi-clipboard2-pulse', 'roles' => ['Administrator', 'Property Officer']],
-            ['label' => 'Unserviceable Review', 'path' => 'modules/property/unserviceable_review.php', 'needle' => '/property/unserviceable_review', 'icon' => 'bi bi-exclamation-diamond', 'roles' => ['Administrator', 'Property Officer']],
-            ['heading' => 'Print & Tagging'],
-            ['label' => 'Property Card Print', 'path' => 'modules/property/property_card_print.php', 'needle' => '/property/property_card_print', 'icon' => 'bi bi-printer', 'roles' => ['Administrator', 'Property Officer']],
-            ['label' => 'Ledger Card Print', 'path' => 'modules/property/ledger_card_print.php', 'needle' => '/property/ledger_card_print', 'icon' => 'bi bi-journal-text', 'roles' => ['Administrator', 'Property Officer']],
-            ['label' => 'QR Printing', 'path' => 'modules/reports/qr_printing.php', 'needle' => '/reports/qr_printing', 'icon' => 'bi bi-qr-code', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
-        ],
-    ],
-    [
-        'id' => 'communications-menu',
-        'label' => 'Communications',
-        'icon' => 'bi bi-chat-dots',
-        'items' => [
-            ['label' => 'Messages', 'path' => 'modules/messages/index.php', 'needle' => '/messages/', 'icon' => 'bi bi-chat-dots', 'roles' => ['Administrator', 'Transport Officer']],
-        ],
-    ],
-    [
-        'id' => 'administration-menu',
-        'label' => 'Administration',
-        'icon' => 'bi bi-sliders',
-        'items' => [
-            ['heading' => 'Reporting'],
-            ['label' => 'Reports', 'path' => 'modules/reports/index.php', 'needle' => '/reports/', 'icon' => 'bi bi-bar-chart', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer', 'Viewer']],
-            ['heading' => 'System Control'],
-            ['label' => 'Settings', 'path' => 'modules/settings/index.php', 'needle' => '/settings/', 'icon' => 'bi bi-gear', 'roles' => ['Administrator']],
-            ['label' => 'Database Tools', 'path' => 'modules/settings/database_tools.php', 'needle' => '/settings/database_tools', 'icon' => 'bi bi-hdd-stack', 'roles' => ['Administrator']],
-            ['label' => 'Audit Log', 'path' => 'modules/audit_log/index.php', 'needle' => '/audit_log/', 'icon' => 'bi bi-file-earmark-text', 'roles' => ['Administrator']],
         ],
     ],
 ];
@@ -179,10 +189,10 @@ $menuGroups = [
 
         <?php foreach ($menuGroups as $group): ?>
             <?php
-            $visibleItems = nav_visible_group_items($group['items'], $currentRole);
-            if (!$visibleItems) {
+            if (!nav_group_visible($group, $currentRole)) {
                 continue;
             }
+            $visibleItems = nav_visible_group_items($group['items'], $currentRole);
             $needles = nav_group_needles($visibleItems);
             $isOpen = nav_group_open($needles, $path);
             ?>

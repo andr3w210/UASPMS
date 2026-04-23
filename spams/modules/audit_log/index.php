@@ -19,15 +19,42 @@ $summary = [
     'users' => 0,
     'modules' => 0,
 ];
+$categorySummary = [
+    'data_change' => 0,
+    'access' => 0,
+    'request' => 0,
+    'auth' => 0,
+    'other' => 0,
+];
 
 $startDate = trim((string) ($_GET['start_date'] ?? ''));
 $endDate = trim((string) ($_GET['end_date'] ?? ''));
+$datePreset = trim((string) ($_GET['date_preset'] ?? ''));
 $filterUser = (int) ($_GET['user_id'] ?? 0);
 $filterTable = trim((string) ($_GET['table_name'] ?? ''));
 $filterModule = trim((string) ($_GET['module_name'] ?? ''));
 $filterAction = trim((string) ($_GET['action'] ?? ''));
+$filterCategory = array_key_exists('category', $_GET)
+    ? trim((string) ($_GET['category'] ?? ''))
+    : 'data_change';
 $search = trim((string) ($_GET['q'] ?? ''));
 $page = max(1, (int) ($_GET['page'] ?? 1));
+
+if ($datePreset !== '') {
+    $today = date('Y-m-d');
+    if ($datePreset === 'today') {
+        $startDate = $today;
+        $endDate = $today;
+    } elseif ($datePreset === 'last_7_days') {
+        $startDate = date('Y-m-d', strtotime('-6 days'));
+        $endDate = $today;
+    } elseif ($datePreset === 'this_month') {
+        $startDate = date('Y-m-01');
+        $endDate = $today;
+    } else {
+        $datePreset = '';
+    }
+}
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
@@ -98,6 +125,21 @@ if (!$db) {
         $params[] = $filterAction;
     }
 
+    $summaryWhere = $where;
+    $summaryParams = $params;
+    $summaryTypes = $types;
+
+    if ($filterCategory !== '') {
+        [$categorySql, $categoryTypes, $categoryParams] = audit_log_category_filter_sql($filterCategory);
+        if ($categorySql !== '') {
+            $where[] = $categorySql;
+            $types .= $categoryTypes;
+            foreach ($categoryParams as $categoryParam) {
+                $params[] = $categoryParam;
+            }
+        }
+    }
+
     if ($search !== '') {
         $where[] = "(al.record_id LIKE ? OR al.table_name LIKE ? OR COALESCE(al.module_name, '') LIKE ? OR COALESCE(al.action_name, '') LIKE ? OR COALESCE(al.description, '') LIKE ? OR COALESCE(u.username, '') LIKE ? OR COALESCE(u.full_name, '') LIKE ?)";
         $types .= 'sssssss';
@@ -133,22 +175,45 @@ if (!$db) {
         ORDER BY al.created_at DESC, al.id DESC
     ";
 
-    $summaryRes = $db->query("
+    $summaryWhereSql = $summaryWhere ? (' WHERE ' . implode(' AND ', $summaryWhere)) : '';
+    $summarySql = "
         SELECT
             COUNT(*) AS total_count,
-            SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) AS today_count,
-            COUNT(DISTINCT COALESCE(user_id, 0)) AS user_count,
-            COUNT(DISTINCT COALESCE(NULLIF(module_name, ''), table_name)) AS module_count
-        FROM audit_logs
-    ");
-    if ($summaryRes) {
-        $summaryRow = $summaryRes->fetch_assoc();
-        $summary = [
-            'total' => (int) ($summaryRow['total_count'] ?? 0),
-            'today' => (int) ($summaryRow['today_count'] ?? 0),
-            'users' => (int) ($summaryRow['user_count'] ?? 0),
-            'modules' => (int) ($summaryRow['module_count'] ?? 0),
-        ];
+            SUM(CASE WHEN DATE(al.created_at) = CURDATE() THEN 1 ELSE 0 END) AS today_count,
+            COUNT(DISTINCT COALESCE(al.user_id, 0)) AS user_count,
+            COUNT(DISTINCT COALESCE(NULLIF(al.module_name, ''), al.table_name)) AS module_count,
+            SUM(CASE WHEN al.action IN ('insert', 'update', 'delete') THEN 1 ELSE 0 END) AS data_change_count,
+            SUM(CASE WHEN al.action = 'access' THEN 1 ELSE 0 END) AS access_count,
+            SUM(CASE WHEN al.action = 'request' THEN 1 ELSE 0 END) AS request_count,
+            SUM(CASE WHEN al.action IN ('login', 'logout', 'login_failed') THEN 1 ELSE 0 END) AS auth_count,
+            SUM(CASE WHEN al.action NOT IN ('insert', 'update', 'delete', 'access', 'request', 'login', 'logout', 'login_failed') THEN 1 ELSE 0 END) AS other_count
+        FROM audit_logs al
+        LEFT JOIN users u ON u.id = al.user_id
+        $summaryWhereSql
+    ";
+    $summaryStmt = $db->prepare($summarySql);
+    if ($summaryStmt) {
+        if ($summaryTypes !== '') {
+            $summaryStmt->bind_param($summaryTypes, ...$summaryParams);
+        }
+        $summaryStmt->execute();
+        $summaryRow = $summaryStmt->get_result()->fetch_assoc();
+        $summaryStmt->close();
+        if ($summaryRow) {
+            $summary = [
+                'total' => (int) ($summaryRow['total_count'] ?? 0),
+                'today' => (int) ($summaryRow['today_count'] ?? 0),
+                'users' => (int) ($summaryRow['user_count'] ?? 0),
+                'modules' => (int) ($summaryRow['module_count'] ?? 0),
+            ];
+            $categorySummary = [
+                'data_change' => (int) ($summaryRow['data_change_count'] ?? 0),
+                'access' => (int) ($summaryRow['access_count'] ?? 0),
+                'request' => (int) ($summaryRow['request_count'] ?? 0),
+                'auth' => (int) ($summaryRow['auth_count'] ?? 0),
+                'other' => (int) ($summaryRow['other_count'] ?? 0),
+            ];
+        }
     }
 
     if (isset($_GET['export']) && $_GET['export'] === 'csv') {
@@ -170,9 +235,10 @@ if (!$db) {
             $bindToStmt($exportStmt, $types, $params);
             $exportStmt->execute();
             $res = $exportStmt->get_result();
+            $exportFilename = audit_log_export_filename($filterCategory, $datePreset, $startDate, $endDate);
 
             header('Content-Type: text/csv; charset=utf-8');
-            header('Content-Disposition: attachment; filename="audit_log_export.csv"');
+            header('Content-Disposition: attachment; filename="' . $exportFilename . '"');
             $out = fopen('php://output', 'w');
             fputcsv($out, ['When', 'User', 'Module', 'Action', 'Action Name', 'Table', 'Record ID', 'Description', 'Changes']);
             while ($row = $res->fetch_assoc()) {
@@ -252,12 +318,29 @@ function audit_log_change_text(?string $oldJson, ?string $newJson): string
     return implode('; ', $parts);
 }
 
+function audit_log_pretty_json(?string $json): string
+{
+    if ($json === null || trim($json) === '') {
+        return '';
+    }
+
+    $decoded = json_decode($json, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return trim($json);
+    }
+
+    $pretty = json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    return is_string($pretty) ? $pretty : trim($json);
+}
+
 function audit_log_action_badge(string $action): string
 {
     $map = [
         'insert' => 'text-bg-success',
         'update' => 'text-bg-primary',
         'delete' => 'text-bg-danger',
+        'access' => 'text-bg-info',
+        'request' => 'text-bg-warning',
         'login' => 'text-bg-success',
         'logout' => 'text-bg-secondary',
         'login_failed' => 'text-bg-danger',
@@ -265,15 +348,103 @@ function audit_log_action_badge(string $action): string
     return $map[$action] ?? 'text-bg-dark';
 }
 
+function audit_log_category_map(): array
+{
+    return [
+        'data_change' => [
+            'label' => 'Data Changes',
+            'actions' => ['insert', 'update', 'delete'],
+            'badge' => 'text-bg-primary',
+        ],
+        'access' => [
+            'label' => 'Page Access',
+            'actions' => ['access'],
+            'badge' => 'text-bg-info',
+        ],
+        'request' => [
+            'label' => 'Requests',
+            'actions' => ['request'],
+            'badge' => 'text-bg-warning',
+        ],
+        'auth' => [
+            'label' => 'Authentication',
+            'actions' => ['login', 'logout', 'login_failed'],
+            'badge' => 'text-bg-success',
+        ],
+    ];
+}
+
+function audit_log_category_for_action(string $action): array
+{
+    foreach (audit_log_category_map() as $key => $category) {
+        if (in_array($action, $category['actions'], true)) {
+            return [
+                'key' => $key,
+                'label' => $category['label'],
+                'badge' => $category['badge'],
+            ];
+        }
+    }
+
+    return [
+        'key' => 'other',
+        'label' => 'Other',
+        'badge' => 'text-bg-dark',
+    ];
+}
+
+function audit_log_category_filter_sql(string $category): array
+{
+    $map = audit_log_category_map();
+    if (!isset($map[$category])) {
+        return ['', '', []];
+    }
+
+    $actions = $map[$category]['actions'];
+    if (!$actions) {
+        return ['', '', []];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($actions), '?'));
+    return ["al.action IN ($placeholders)", str_repeat('s', count($actions)), $actions];
+}
+
+function audit_log_export_filename(
+    string $category,
+    string $datePreset,
+    string $startDate,
+    string $endDate
+): string {
+    $parts = ['audit_log'];
+    $parts[] = $category !== ''
+        ? (preg_replace('/[^a-z0-9_-]+/i', '_', strtolower($category)) ?: 'category')
+        : 'all_activity';
+
+    if ($datePreset !== '') {
+        $parts[] = preg_replace('/[^a-z0-9_-]+/i', '_', strtolower($datePreset)) ?: 'date_preset';
+    } elseif ($startDate !== '' || $endDate !== '') {
+        $parts[] = 'from_' . ($startDate !== '' ? $startDate : 'start');
+        $parts[] = 'to_' . ($endDate !== '' ? $endDate : 'today');
+    } else {
+        $parts[] = 'all_dates';
+    }
+
+    $parts[] = date('Y-m-d_H-i-s');
+
+    return implode('_', array_filter($parts)) . '.csv';
+}
+
 function build_page_url(array $overrides = []): string
 {
     $params = [
+        'date_preset' => $_GET['date_preset'] ?? '',
         'start_date' => $_GET['start_date'] ?? '',
         'end_date' => $_GET['end_date'] ?? '',
         'user_id' => $_GET['user_id'] ?? '',
         'table_name' => $_GET['table_name'] ?? '',
         'module_name' => $_GET['module_name'] ?? '',
         'action' => $_GET['action'] ?? '',
+        'category' => $_GET['category'] ?? '',
         'q' => $_GET['q'] ?? '',
     ];
     foreach ($overrides as $key => $value) {
@@ -342,7 +513,29 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                 </div>
 
+                <div class="row g-3 mb-4">
+                    <?php foreach (audit_log_category_map() as $categoryKey => $category): ?>
+                        <div class="col-md-6 col-xl-3">
+                            <a href="<?php echo h(build_page_url(['category' => $categoryKey, 'page' => 1])); ?>" class="text-decoration-none text-reset">
+                                <div class="border rounded-3 p-3 h-100 <?php echo $filterCategory === $categoryKey ? 'bg-light border-primary' : 'bg-white'; ?>">
+                                    <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                        <div class="text-muted small"><?php echo h($category['label']); ?></div>
+                                        <span class="badge <?php echo h($category['badge']); ?>"><?php echo h($category['label']); ?></span>
+                                    </div>
+                                    <div class="fs-4 fw-semibold"><?php echo number_format((int) ($categorySummary[$categoryKey] ?? 0)); ?></div>
+                                </div>
+                            </a>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+
                 <form method="get" class="workspace-filter-panel mb-4">
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <a href="<?php echo h(build_page_url(['date_preset' => 'today', 'start_date' => '', 'end_date' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $datePreset === 'today' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Today</a>
+                        <a href="<?php echo h(build_page_url(['date_preset' => 'last_7_days', 'start_date' => '', 'end_date' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $datePreset === 'last_7_days' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Last 7 Days</a>
+                        <a href="<?php echo h(build_page_url(['date_preset' => 'this_month', 'start_date' => '', 'end_date' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $datePreset === 'this_month' ? 'btn-primary' : 'btn-outline-secondary'; ?>">This Month</a>
+                        <a href="<?php echo h(build_page_url(['date_preset' => '', 'start_date' => '', 'end_date' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $datePreset === '' && $startDate === '' && $endDate === '' ? 'btn-dark' : 'btn-outline-dark'; ?>">All Dates</a>
+                    </div>
                     <div class="row g-3 align-items-end">
                         <div class="col-md-4 col-xl-3">
                             <label class="form-label">Search</label>
@@ -358,6 +551,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </select>
                         </div>
                         <div class="col-md-4 col-xl-2">
+                            <label class="form-label">Category</label>
+                            <select class="form-select" name="category">
+                                <option value="">All categories</option>
+                                <?php foreach (audit_log_category_map() as $categoryKey => $category): ?>
+                                    <option value="<?php echo h($categoryKey); ?>" <?php echo $filterCategory === $categoryKey ? 'selected' : ''; ?>><?php echo h($category['label']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4 col-xl-2">
                             <label class="form-label">Module</label>
                             <select class="form-select" name="module_name">
                                 <option value="">All modules</option>
@@ -366,7 +568,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-4 col-xl-2">
+                        <div class="col-md-4 col-xl-1">
                             <label class="form-label">Table</label>
                             <select class="form-select" name="table_name">
                                 <option value="">All tables</option>
@@ -375,7 +577,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-4 col-xl-3">
+                        <div class="col-md-4 col-xl-2">
                             <label class="form-label">User</label>
                             <select class="form-select" name="user_id">
                                 <option value="">All users</option>
@@ -389,6 +591,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="col-md-3 col-xl-2">
                             <label class="form-label">Start Date</label>
+                            <input type="hidden" name="date_preset" value="">
                             <input type="date" class="form-control" name="start_date" value="<?php echo h($startDate); ?>">
                         </div>
                         <div class="col-md-3 col-xl-2">
@@ -429,6 +632,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <?php if ($rows): ?>
                                 <?php foreach ($rows as $row): ?>
                                     <?php $changes = audit_log_change_pairs($row['old_values'] ?? null, $row['new_values'] ?? null); ?>
+                                    <?php $category = audit_log_category_for_action((string) $row['action']); ?>
                                     <?php $displayUser = trim((string) (($row['full_name'] ?? '') !== '' ? $row['full_name'] : ($row['username'] ?? 'System'))); ?>
                                     <tr>
                                         <td class="align-top">
@@ -446,6 +650,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div class="text-muted small"><?php echo h((string) $row['table_name']); ?></div>
                                         </td>
                                         <td class="align-top">
+                                            <div class="mb-1">
+                                                <span class="badge <?php echo h($category['badge']); ?>">
+                                                    <?php echo h($category['label']); ?>
+                                                </span>
+                                            </div>
                                             <span class="badge <?php echo audit_log_action_badge((string) $row['action']); ?>">
                                                 <?php echo h(ucfirst(str_replace('_', ' ', (string) $row['action']))); ?>
                                             </span>
@@ -458,27 +667,72 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div class="text-muted small">ID: <?php echo h((string) ($row['record_id'] ?? '')); ?></div>
                                         </td>
                                         <td class="align-top">
+                                            <?php
+                                                $oldPayload = audit_log_pretty_json($row['old_values'] ?? null);
+                                                $newPayload = audit_log_pretty_json($row['new_values'] ?? null);
+                                            ?>
                                             <?php if (!empty($row['description'])): ?>
                                                 <div class="mb-2"><?php echo h((string) $row['description']); ?></div>
                                             <?php endif; ?>
-                                            <?php if ($changes): ?>
-                                                <details>
-                                                    <summary class="small fw-semibold" style="cursor:pointer;">
-                                                        View changes (<?php echo count($changes); ?>)
-                                                    </summary>
-                                                    <div class="mt-2 border rounded-2 p-2 bg-light">
-                                                        <?php foreach ($changes as $change): ?>
-                                                            <div class="mb-2">
-                                                                <div class="fw-semibold small"><?php echo h($change['field']); ?></div>
-                                                                <div class="small text-muted">From: <?php echo h($change['before']); ?></div>
-                                                                <div class="small">To: <?php echo h($change['after']); ?></div>
-                                                            </div>
-                                                        <?php endforeach; ?>
+                                            <details>
+                                                <summary class="small fw-semibold" style="cursor:pointer;">
+                                                    <?php if ($changes): ?>
+                                                        View details (<?php echo count($changes); ?> field change<?php echo count($changes) === 1 ? '' : 's'; ?>)
+                                                    <?php elseif ($oldPayload !== '' || $newPayload !== ''): ?>
+                                                        View payload
+                                                    <?php else: ?>
+                                                        View entry details
+                                                    <?php endif; ?>
+                                                </summary>
+                                                <div class="mt-2 border rounded-2 p-3 bg-light">
+                                                    <div class="row g-2 mb-3">
+                                                        <div class="col-md-4">
+                                                            <div class="small text-muted">Category</div>
+                                                            <div class="fw-semibold small"><?php echo h($category['label']); ?></div>
+                                                        </div>
+                                                        <div class="col-md-4">
+                                                            <div class="small text-muted">Action Name</div>
+                                                            <div class="small"><?php echo h((string) ($row['action_name'] ?? '')); ?></div>
+                                                        </div>
+                                                        <div class="col-md-4">
+                                                            <div class="small text-muted">IP Address</div>
+                                                            <div class="small"><?php echo h((string) ($row['ip_address'] ?? '')); ?></div>
+                                                        </div>
                                                     </div>
-                                                </details>
-                                            <?php else: ?>
-                                                <span class="text-muted small">No field diff captured.</span>
-                                            <?php endif; ?>
+
+                                                    <?php if ($changes): ?>
+                                                        <div class="mb-3">
+                                                            <div class="fw-semibold small mb-2">Field Changes</div>
+                                                            <?php foreach ($changes as $change): ?>
+                                                                <div class="border rounded-2 bg-white p-2 mb-2">
+                                                                    <div class="fw-semibold small mb-1"><?php echo h($change['field']); ?></div>
+                                                                    <div class="small text-muted">Before: <?php echo h($change['before']); ?></div>
+                                                                    <div class="small">After: <?php echo h($change['after']); ?></div>
+                                                                </div>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    <?php endif; ?>
+
+                                                    <?php if ($oldPayload !== '' || $newPayload !== ''): ?>
+                                                        <div class="row g-3">
+                                                            <?php if ($oldPayload !== ''): ?>
+                                                                <div class="col-lg-6">
+                                                                    <div class="fw-semibold small mb-1">Before Payload</div>
+                                                                    <pre class="small bg-white border rounded-2 p-2 mb-0" style="white-space:pre-wrap; word-break:break-word;"><?php echo h($oldPayload); ?></pre>
+                                                                </div>
+                                                            <?php endif; ?>
+                                                            <?php if ($newPayload !== ''): ?>
+                                                                <div class="col-lg-6">
+                                                                    <div class="fw-semibold small mb-1">After Payload</div>
+                                                                    <pre class="small bg-white border rounded-2 p-2 mb-0" style="white-space:pre-wrap; word-break:break-word;"><?php echo h($newPayload); ?></pre>
+                                                                </div>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    <?php elseif (!$changes): ?>
+                                                        <span class="text-muted small">No field diff or payload captured for this entry.</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </details>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>

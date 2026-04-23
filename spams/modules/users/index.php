@@ -3,19 +3,6 @@ require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_role('Administrator');
 
-function users_has_reference(mysqli $db, int $recordId): bool
-{
-    $stmt = $db->prepare("SELECT 1 FROM audit_logs WHERE user_id = ? LIMIT 1");
-    if (!$stmt) {
-        return false;
-    }
-    $stmt->bind_param('i', $recordId);
-    $stmt->execute();
-    $hasRow = (bool) $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    return $hasRow;
-}
-
 function users_password_validation_errors(string $password): array
 {
     $errors = [];
@@ -300,8 +287,12 @@ if (!$db) {
                 redirect('modules/users/index.php');
             }
             $recordId=(int)($_POST['id']??0);
-            if(users_has_reference($db,$recordId)){
-                set_flash('error','Cannot delete: record is used in existing transactions.');
+            if($recordId <= 0){
+                set_flash('error','Invalid user record.');
+                redirect('modules/users/index.php');
+            }
+            if((int) (current_user_id() ?? 0) === $recordId){
+                set_flash('error','You cannot permanently delete the account you are currently using.');
                 redirect('modules/users/index.php');
             }
             $auditSnapshot = ['id' => $recordId];
@@ -315,27 +306,47 @@ if (!$db) {
                     $auditSnapshot = $auditRow;
                 }
             }
-            $stmt=$db->prepare("DELETE FROM users WHERE id = ? LIMIT 1");
-            if($stmt){
+            $db->begin_transaction();
+            try {
+                $auditDetachStmt = $db->prepare("UPDATE audit_logs SET user_id = NULL WHERE user_id = ?");
+                if ($auditDetachStmt) {
+                    $auditDetachStmt->bind_param('i', $recordId);
+                    $auditDetachStmt->execute();
+                    $auditDetachStmt->close();
+                }
+
+                $stmt=$db->prepare("DELETE FROM users WHERE id = ? LIMIT 1");
+                if(!$stmt){
+                    throw new RuntimeException('Unable to prepare user delete.');
+                }
                 $stmt->bind_param('i',$recordId);
                 $saved = $stmt->execute();
+                $deleteError = $stmt->error;
                 $stmt->close();
-                if ($saved) {
-                    write_audit_log($db, [
-                        'action' => 'delete',
-                        'table_name' => 'users',
-                        'record_id' => $recordId,
-                        'module_name' => 'users',
-                        'record_type' => 'user',
-                        'action_name' => 'hard_delete_user',
-                        'description' => 'Permanently deleted user account.',
-                        'old_values' => $auditSnapshot,
-                    ]);
-                    set_flash('success','Record permanently deleted.');
-                    redirect('modules/users/index.php');
+
+                if (!$saved) {
+                    throw new RuntimeException($deleteError !== '' ? $deleteError : 'Unable to permanently delete the user.');
                 }
+
+                write_audit_log($db, [
+                    'action' => 'delete',
+                    'table_name' => 'users',
+                    'record_id' => $recordId,
+                    'module_name' => 'users',
+                    'record_type' => 'user',
+                    'action_name' => 'hard_delete_user',
+                    'description' => 'Permanently deleted user account.',
+                    'old_values' => $auditSnapshot,
+                ]);
+
+                $db->commit();
+                set_flash('success','Record permanently deleted.');
+                redirect('modules/users/index.php');
+            } catch (Throwable $e) {
+                $db->rollback();
+                $errors[] = 'Unable to permanently delete the user.';
+                $errors[] = $e->getMessage();
             }
-            $errors[]='Unable to permanently delete the user.';
         }
     }
 

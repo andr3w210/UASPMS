@@ -55,6 +55,7 @@ $total = 0;
 $totalPages = 0;
 
 if ($db) {
+    ensure_distribution_item_rpcppe_tracking_columns($db);
     ensure_legacy_assets_rpcppe_tracking_columns($db);
 
     $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
@@ -90,8 +91,8 @@ if ($db) {
                 d.document_type,
                 d.id AS distribution_id,
                 'system' AS source_type,
-                0 AS is_rpcppe_candidate,
-                '' AS rpcppe_status
+                COALESCE(did.is_rpcppe_candidate, 0) AS is_rpcppe_candidate,
+                COALESCE(did.rpcppe_status, 'excluded') AS rpcppe_status
             FROM distribution_item_details did
             INNER JOIN distribution_items di ON di.id = did.distribution_item_id
             INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
@@ -171,9 +172,11 @@ if ($db) {
         }
         if ($rpcppeFilter !== '') {
             if ($rpcppeFilter === 'candidate_only') {
-                $systemSql .= " AND 1 = 0";
+                $systemSql .= " AND COALESCE(did.is_rpcppe_candidate, 0) = 1";
             } else {
-                $systemSql .= " AND 1 = 0";
+                $systemSql .= " AND COALESCE(did.rpcppe_status, 'excluded') = ?";
+                $types .= 's';
+                $params[] = $rpcppeFilter;
             }
         }
 

@@ -737,9 +737,18 @@ if (!$db) {
     $recParams = [];
     $recTypes = '';
     if ($filterStatus !== '') {
-        $recWhere[] = 'r.status = ?';
-        $recParams[] = $filterStatus;
-        $recTypes .= 's';
+        if ($filterStatus === 'rejected') {
+            $recWhere[] = 'EXISTS (
+                SELECT 1
+                FROM receiving_items fri
+                WHERE fri.receiving_id = r.id
+                  AND COALESCE(fri.quantity_rejected, 0) > 0
+            )';
+        } else {
+            $recWhere[] = 'r.status = ?';
+            $recParams[] = $filterStatus;
+            $recTypes .= 's';
+        }
     }
     if ($filterPoNumber !== '') {
         $recWhere[] = '(po.po_number LIKE ? OR s.supplier_name LIKE ? OR r.system_reference LIKE ?)';
@@ -1627,6 +1636,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <option value="">All statuses</option>
                             <option value="partial"   <?php echo $filterStatus==='partial'   ?'selected':'' ?>>Partial</option>
                             <option value="completed" <?php echo $filterStatus==='completed' ?'selected':'' ?>>Completed</option>
+                            <option value="rejected"  <?php echo $filterStatus==='rejected'  ?'selected':'' ?>>With Rejected Items</option>
                             <option value="cancelled" <?php echo $filterStatus==='cancelled' ?'selected':'' ?>>Cancelled</option>
                         </select>
                     </div>

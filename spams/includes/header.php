@@ -25,7 +25,14 @@ foreach ($masterDataNeedles as $needle) {
         break;
     }
 }
-$bodyClass = $isMasterDataPage ? 'module-master-data' : '';
+$bodyClasses = [];
+if (!empty($body_class)) {
+    $bodyClasses[] = trim((string) $body_class);
+}
+if ($isMasterDataPage) {
+    $bodyClasses[] = 'module-master-data';
+}
+$bodyClass = trim(implode(' ', array_filter($bodyClasses)));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -48,4 +55,3 @@ if (typeof window.initDataTable !== 'function') {
     };
 }
 </script>
-
