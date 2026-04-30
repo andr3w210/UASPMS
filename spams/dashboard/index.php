@@ -23,6 +23,17 @@ $summary = [
 $recentPurchaseOrders = [];
 $recentDistributions = [];
 $lowStockItems = [];
+$procurementStatusMix = [];
+$movementMonthlyTrend = [];
+$assetLifecycleMix = [];
+$topAccountableOffices = [];
+$inventoryExceptionMix = [];
+$stockRiskSummary = [
+    'total_supply_items' => 0,
+    'low_stock_items' => 0,
+    'zero_stock_items' => 0,
+    'supply_on_hand' => 0,
+];
 $lowStockThreshold = defined('LOW_STOCK_THRESHOLD') ? max(0, (int) LOW_STOCK_THRESHOLD) : 5;
 
 if ($db) {
@@ -37,6 +48,34 @@ if ($db) {
         }
 
         return false;
+    };
+    $fetchRows = static function (mysqli $connection, string $sql, string $types = '', array $params = []): array {
+        try {
+            $stmt = $connection->prepare($sql);
+        } catch (mysqli_sql_exception $exception) {
+            $stmt = false;
+        }
+
+        if (!$stmt) {
+            return [];
+        }
+
+        if ($types !== '' && $params) {
+            $bindValues = [$types];
+            foreach ($params as $index => $value) {
+                $bindValues[] = &$params[$index];
+            }
+            $stmt->bind_param(...$bindValues);
+        }
+
+        try {
+            $stmt->execute();
+            return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        } catch (mysqli_sql_exception $exception) {
+            return [];
+        } finally {
+            $stmt->close();
+        }
     };
     $receivingDetailHasDisposedFlag = false;
     $receivingDetailDisposedCondition = '1 = 1';
@@ -66,12 +105,19 @@ if ($db) {
                     SELECT po.id
                     FROM purchase_orders po
                     LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
-                    LEFT JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
-                    LEFT JOIN receivings r ON r.id = ri.receiving_id AND r.status != 'cancelled'
+                    LEFT JOIN (
+                        SELECT
+                            poi2.purchase_order_id,
+                            SUM(COALESCE(ri2.quantity_accepted, 0)) AS total_received_qty
+                        FROM receiving_items ri2
+                        INNER JOIN receivings r2 ON r2.id = ri2.receiving_id
+                        INNER JOIN purchase_order_items poi2 ON poi2.id = ri2.purchase_order_item_id
+                        WHERE r2.status != 'cancelled'
+                        GROUP BY poi2.purchase_order_id
+                    ) received_totals ON received_totals.purchase_order_id = po.id
                     WHERE po.status != 'cancelled'
                     GROUP BY po.id
-                    HAVING COALESCE(SUM(poi.quantity), 0) > COALESCE(SUM(CASE WHEN r.id IS NOT NULL THEN ri.quantity_delivered ELSE 0 END), 0)
-                        OR SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) > 0
+                    HAVING COALESCE(SUM(poi.quantity), 0) > COALESCE(MAX(received_totals.total_received_qty), 0)
                 ) pending_receiving_rows
             ",
         ],
@@ -259,13 +305,126 @@ if ($db) {
             }
         }
     }
+
+    if ($tableExists($db, 'purchase_orders')) {
+        $procurementStatusMix = $fetchRows($db, "
+            SELECT status AS label, COUNT(*) AS total
+            FROM purchase_orders
+            GROUP BY status
+            ORDER BY total DESC, status ASC
+        ");
+    }
+
+    if ($tableExists($db, 'distributions') && $tableExists($db, 'returns') && $tableExists($db, 'disposals')) {
+        $movementMonthlyTrend = $fetchRows($db, "
+            SELECT month_key, month_label, SUM(distributed) AS distributed, SUM(returned) AS returned, SUM(disposed) AS disposed
+            FROM (
+                SELECT DATE_FORMAT(distribution_date, '%Y-%m') AS month_key,
+                       DATE_FORMAT(distribution_date, '%b %Y') AS month_label,
+                       COUNT(*) AS distributed,
+                       0 AS returned,
+                       0 AS disposed
+                FROM distributions
+                WHERE distribution_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 5 MONTH), '%Y-%m-01')
+                  AND status != 'cancelled'
+                GROUP BY DATE_FORMAT(distribution_date, '%Y-%m'), DATE_FORMAT(distribution_date, '%b %Y')
+                UNION ALL
+                SELECT DATE_FORMAT(return_date, '%Y-%m') AS month_key,
+                       DATE_FORMAT(return_date, '%b %Y') AS month_label,
+                       0 AS distributed,
+                       COUNT(*) AS returned,
+                       0 AS disposed
+                FROM returns
+                WHERE return_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 5 MONTH), '%Y-%m-01')
+                  AND status != 'cancelled'
+                GROUP BY DATE_FORMAT(return_date, '%Y-%m'), DATE_FORMAT(return_date, '%b %Y')
+                UNION ALL
+                SELECT DATE_FORMAT(disposal_date, '%Y-%m') AS month_key,
+                       DATE_FORMAT(disposal_date, '%b %Y') AS month_label,
+                       0 AS distributed,
+                       0 AS returned,
+                       COUNT(*) AS disposed
+                FROM disposals
+                WHERE disposal_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 5 MONTH), '%Y-%m-01')
+                  AND status != 'cancelled'
+                GROUP BY DATE_FORMAT(disposal_date, '%Y-%m'), DATE_FORMAT(disposal_date, '%b %Y')
+            ) movement
+            GROUP BY month_key, month_label
+            ORDER BY month_key ASC
+        ");
+    }
+
+    if ($tableExists($db, 'distribution_item_details')) {
+        $assetLifecycleMix = $fetchRows($db, "
+            SELECT lifecycle_status AS label, COUNT(*) AS total
+            FROM (
+                SELECT
+                    CASE
+                        WHEN COALESCE(is_disposed, 0) = 1 THEN 'Disposed or Returned'
+                        WHEN COALESCE(is_distributed, 0) = 1 THEN 'In Accountability'
+                        ELSE 'Available'
+                    END AS lifecycle_status
+                FROM distribution_item_details
+            ) lifecycle_rows
+            GROUP BY lifecycle_status
+            ORDER BY FIELD(lifecycle_status, 'In Accountability', 'Available', 'Disposed or Returned'), lifecycle_status
+        ");
+    }
+
+    if ($tableExists($db, 'distribution_item_details') && $tableExists($db, 'distribution_items') && $tableExists($db, 'distributions') && $tableExists($db, 'offices')) {
+        $topAccountableOffices = $fetchRows($db, "
+            SELECT COALESCE(o.office_name, 'Unassigned') AS office_name,
+                   COUNT(did.id) AS total_assets,
+                   COALESCE(SUM(di.unit_cost), 0) AS total_value
+            FROM distribution_item_details did
+            INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+            INNER JOIN distributions d ON d.id = di.distribution_id
+            LEFT JOIN offices o ON o.id = d.office_id
+            WHERE COALESCE(did.is_distributed, 0) = 1
+              AND COALESCE(did.is_disposed, 0) = 0
+              AND d.status != 'cancelled'
+            GROUP BY o.id, o.office_name
+            ORDER BY total_assets DESC, total_value DESC, office_name ASC
+            LIMIT 5
+        ");
+    }
+
+    if ($tableExists($db, 'inventory_count_items')) {
+        $inventoryExceptionMix = $fetchRows($db, "
+            SELECT status AS label, COUNT(*) AS total
+            FROM inventory_count_items
+            WHERE status != 'found'
+            GROUP BY status
+            ORDER BY total DESC, status ASC
+        ");
+    }
+
+    if ($tableExists($db, 'stock_items')) {
+        $stockRows = $fetchRows($db, "
+            SELECT
+                COUNT(*) AS total_supply_items,
+                SUM(CASE WHEN quantity_on_hand <= ? THEN 1 ELSE 0 END) AS low_stock_items,
+                SUM(CASE WHEN quantity_on_hand <= 0 THEN 1 ELSE 0 END) AS zero_stock_items,
+                SUM(quantity_on_hand) AS supply_on_hand
+            FROM stock_items
+            WHERE item_type = 'supply'
+        ", 'i', [$lowStockThreshold]);
+        if ($stockRows) {
+            $stockRiskSummary = [
+                'total_supply_items' => (int) ($stockRows[0]['total_supply_items'] ?? 0),
+                'low_stock_items' => (int) ($stockRows[0]['low_stock_items'] ?? 0),
+                'zero_stock_items' => (int) ($stockRows[0]['zero_stock_items'] ?? 0),
+                'supply_on_hand' => (float) ($stockRows[0]['supply_on_hand'] ?? 0),
+            ];
+        }
+    }
 }
 
 $focusItems = [
     [
         'label' => 'Pending Distribution',
         'value' => $summary['pending_distribution_units'],
-        'note' => 'Units waiting for ICS/PAR posting',
+        'note' => 'Units waiting for ICS and PAR posting',
         'icon' => 'bi-hourglass-split',
         'tone' => 'warning',
         'href' => base_url('modules/distributions/index.php'),
@@ -355,271 +514,715 @@ $snapshotItems = [
     [
         'label' => 'Unserviceable Review',
         'value' => $summary['unserviceable_review_items'],
-        'note' => 'Assets flagged for repair/disposal',
+        'note' => 'Assets flagged for repair or disposal',
         'icon' => 'bi-tools',
         'tone' => 'dark',
     ],
 ];
 
+$urgentWorkload = $summary['pending_receivings']
+    + $summary['pending_distribution_units']
+    + $summary['unresolved_property_discrepancies']
+    + $summary['pending_stock_adjustments'];
+$activityThisYear = $summary['distributed_items'] + $summary['disposed_this_year'] + $summary['returned_this_year'];
+$stockRiskRate = $stockRiskSummary['total_supply_items'] > 0
+    ? round(($stockRiskSummary['low_stock_items'] / $stockRiskSummary['total_supply_items']) * 100)
+    : 0;
+$controlExceptionTotal = array_sum(array_map(static fn ($row): int => (int) ($row['total'] ?? 0), $inventoryExceptionMix));
+$movementTrendPeak = 0;
+foreach ($movementMonthlyTrend as $row) {
+    $movementTrendPeak = max($movementTrendPeak, (int) ($row['distributed'] ?? 0) + (int) ($row['returned'] ?? 0) + (int) ($row['disposed'] ?? 0));
+}
+$procurementStatusTotal = array_sum(array_map(static fn ($row): int => (int) ($row['total'] ?? 0), $procurementStatusMix));
+$assetLifecycleTotal = array_sum(array_map(static fn ($row): int => (int) ($row['total'] ?? 0), $assetLifecycleMix));
+$topOfficePeak = 0;
+foreach ($topAccountableOffices as $row) {
+    $topOfficePeak = max($topOfficePeak, (int) ($row['total_assets'] ?? 0));
+}
+$commandStatus = $urgentWorkload > 0 ? 'Priority Focus' : 'Steady State';
+$commandTone = $urgentWorkload > 0 ? 'warning' : 'success';
+$heroMetrics = [
+    [
+        'label' => 'Urgent workload',
+        'value' => $urgentWorkload,
+        'note' => 'Receiving, distribution, and control items waiting',
+        'icon' => 'bi-lightning-charge',
+        'tone' => 'warning',
+    ],
+    [
+        'label' => 'Active procurement',
+        'value' => $summary['active_pos'],
+        'note' => 'Purchase orders currently in the pipeline',
+        'icon' => 'bi-journal-richtext',
+        'tone' => 'primary',
+    ],
+    [
+        'label' => 'Movement this year',
+        'value' => $activityThisYear,
+        'note' => 'Distributed, returned, and disposed records posted',
+        'icon' => 'bi-arrow-left-right',
+        'tone' => 'success',
+    ],
+];
+$operationsCards = [
+    $focusItems[0],
+    $focusItems[1],
+    [
+        'label' => 'Low Stock Items',
+        'value' => count($lowStockItems),
+        'note' => 'Supply items at or below the threshold',
+        'icon' => 'bi-thermometer-low',
+        'tone' => 'danger',
+        'href' => base_url('modules/stock_catalog/index.php'),
+        'cta' => 'Open Stock Catalog',
+    ],
+];
+$inventoryCards = [
+    $focusItems[3],
+    $focusItems[4],
+    [
+        'label' => 'Property Discrepancies',
+        'value' => $summary['unresolved_property_discrepancies'],
+        'note' => 'Count exceptions still unresolved',
+        'icon' => 'bi-exclamation-octagon',
+        'tone' => 'warning',
+        'href' => base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'),
+        'cta' => 'Resolve Items',
+    ],
+];
+$movementCards = [
+    [
+        'label' => 'Distributed Assets',
+        'value' => $summary['distributed_items'],
+        'note' => 'Units already assigned and in circulation',
+        'icon' => 'bi-diagram-3',
+        'tone' => 'success',
+        'href' => base_url('modules/property/index.php'),
+        'cta' => 'Open Registry',
+    ],
+    [
+        'label' => 'Disposed This Year',
+        'value' => $summary['disposed_this_year'],
+        'note' => 'Posted disposal transactions for ' . date('Y'),
+        'icon' => 'bi-trash3',
+        'tone' => 'danger',
+        'href' => base_url('modules/disposals/index.php'),
+        'cta' => 'Review Disposals',
+    ],
+    [
+        'label' => 'Returned This Year',
+        'value' => $summary['returned_this_year'],
+        'note' => 'Posted return transactions for ' . date('Y'),
+        'icon' => 'bi-arrow-counterclockwise',
+        'tone' => 'info',
+        'href' => base_url('modules/returns/index.php'),
+        'cta' => 'Review Returns',
+    ],
+];
+$analyticsCards = [
+    [
+        'label' => 'Low Stock Rate',
+        'value' => $stockRiskRate . '%',
+        'note' => number_format($stockRiskSummary['low_stock_items']) . ' of ' . number_format($stockRiskSummary['total_supply_items']) . ' supply items at or below threshold',
+        'icon' => 'bi-activity',
+        'tone' => $stockRiskRate > 0 ? 'warning' : 'success',
+        'href' => base_url('modules/stock_catalog/index.php'),
+        'cta' => 'Open Catalog',
+    ],
+    [
+        'label' => 'Control Exceptions',
+        'value' => $controlExceptionTotal,
+        'note' => 'Inventory count lines that are not marked found',
+        'icon' => 'bi-clipboard-pulse',
+        'tone' => $controlExceptionTotal > 0 ? 'danger' : 'success',
+        'href' => base_url('modules/property/inventory_reconciliation.php'),
+        'cta' => 'Open Reconciliation',
+    ],
+    [
+        'label' => 'Supply On Hand',
+        'value' => format_quantity($stockRiskSummary['supply_on_hand']),
+        'note' => 'Combined quantity on hand across supply stock items',
+        'icon' => 'bi-boxes',
+        'tone' => 'info',
+        'href' => base_url('modules/stock_catalog/index.php'),
+        'cta' => 'Review Stock',
+    ],
+];
+$quickLinks = [
+    ['label' => 'Distribution', 'href' => base_url('modules/distributions/index.php'), 'icon' => 'bi-send-check'],
+    ['label' => 'Receiving', 'href' => base_url('modules/receivings/index.php'), 'icon' => 'bi-box-seam'],
+    ['label' => 'Registry', 'href' => base_url('modules/property/index.php'), 'icon' => 'bi-grid-1x2'],
+    ['label' => 'Counts', 'href' => base_url('modules/property/inventory_counts.php'), 'icon' => 'bi-clipboard-check'],
+];
+if ($isAdministrator) {
+    $quickLinks[] = ['label' => 'Audit Log', 'href' => base_url('modules/audit_log/index.php'), 'icon' => 'bi-shield-check'];
+}
+
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar.php';
 require_once __DIR__ . '/../includes/topbar.php';
 ?>
-<section class="row g-4">
-    <div class="col-12 col-xl-7">
-        <div class="dashboard-command card h-100">
-            <div class="card-body p-4">
-                <div class="dashboard-command-eyebrow"><?php echo h($displayName . ' · ' . $roleName); ?></div>
-                <h2 class="dashboard-command-title">Operations Dashboard</h2>
-                <p class="dashboard-command-text">
-                    Use this page as your working control center for procurement, receiving, accountability, and asset movement.
-                </p>
-                <div class="dashboard-command-actions workspace-actions">
-                    <a class="btn btn-primary" href="<?php echo base_url('modules/distributions/index.php'); ?>">Open Distribution</a>
-                    <a class="btn btn-outline-primary" href="<?php echo base_url('modules/receivings/index.php'); ?>">Open Receiving</a>
-                    <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/property/index.php'); ?>">Asset Registry</a>
-                    <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/property/inventory_counts.php'); ?>">Inventory Counts</a>
-                    <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/property/stock_adjustments.php'); ?>">Stock Adjustments</a>
-                    <?php if ($isAdministrator): ?>
-                        <a class="btn btn-outline-secondary" href="<?php echo base_url('modules/audit_log/index.php'); ?>">Audit Log</a>
+<section class="dashboard-hub" data-dashboard-hub>
+    <div class="dashboard-hub-hero">
+        <div class="dashboard-hub-hero-main">
+            <div class="dashboard-hub-kicker">
+                <span><?php echo h($roleName); ?></span>
+                <span class="dashboard-hub-dot"></span>
+                <span><?php echo h($commandStatus); ?></span>
+            </div>
+            <h1 class="dashboard-hub-title">Supply and property command center</h1>
+            <p class="dashboard-hub-copy">
+                Track procurement, receiving, accountability, and inventory controls from one responsive workspace built for both desktop and mobile.
+            </p>
+            <div class="dashboard-hub-actions">
+                <?php foreach ($quickLinks as $link): ?>
+                    <a class="dashboard-hub-action" href="<?php echo h($link['href']); ?>">
+                        <i class="bi <?php echo h($link['icon']); ?>"></i>
+                        <span><?php echo h($link['label']); ?></span>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+            <div class="dashboard-hub-metrics">
+                <?php foreach ($heroMetrics as $metric): ?>
+                    <div class="dashboard-hub-metric">
+                        <span class="dashboard-hub-metric-icon tone-<?php echo h($metric['tone']); ?>">
+                            <i class="bi <?php echo h($metric['icon']); ?>"></i>
+                        </span>
+                        <div>
+                            <div class="dashboard-hub-metric-label"><?php echo h($metric['label']); ?></div>
+                            <div class="dashboard-hub-metric-value"><?php echo h((string) $metric['value']); ?></div>
+                            <div class="dashboard-hub-metric-note"><?php echo h($metric['note']); ?></div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+
+        <div class="dashboard-hub-hero-side">
+            <div class="dashboard-hub-status-card tone-<?php echo h($commandTone); ?>">
+                <div class="dashboard-hub-status-label">Welcome back</div>
+                <div class="dashboard-hub-status-name"><?php echo h($displayName); ?></div>
+                <div class="dashboard-hub-status-copy">
+                    <?php if ($urgentWorkload > 0): ?>
+                        You have <?php echo h((string) $urgentWorkload); ?> items that still need active follow-up across receiving, distribution, and controls.
+                    <?php else: ?>
+                        Your queues are stable right now. This is a good time to review movement history and control quality.
                     <?php endif; ?>
                 </div>
-                <div class="dashboard-command-points">
-                    <div class="dashboard-command-point">
-                        <span class="dashboard-command-point-label">Main goal</span>
-                        <strong>Clear the pending queues first</strong>
-                    </div>
-                    <div class="dashboard-command-point">
-                        <span class="dashboard-command-point-label">Best next check</span>
-                        <strong>Review counts, discrepancies, and pending approvals</strong>
-                    </div>
+                <div class="dashboard-hub-status-pills">
+                    <span class="dashboard-hub-pill">Receivings <?php echo number_format($summary['pending_receivings']); ?></span>
+                    <span class="dashboard-hub-pill">Distribution <?php echo number_format($summary['pending_distribution_units']); ?></span>
+                    <span class="dashboard-hub-pill">Controls <?php echo number_format($summary['unresolved_property_discrepancies'] + $summary['pending_stock_adjustments']); ?></span>
                 </div>
+            </div>
+
+            <div class="dashboard-hub-spotlight-grid">
+                <?php foreach (array_slice($snapshotItems, 0, 4) as $item): ?>
+                    <div class="dashboard-hub-spotlight">
+                        <div class="dashboard-hub-spotlight-label"><?php echo h($item['label']); ?></div>
+                        <div class="dashboard-hub-spotlight-value"><?php echo h((string) $item['value']); ?></div>
+                        <div class="dashboard-hub-spotlight-note"><?php echo h($item['note']); ?></div>
+                    </div>
+                <?php endforeach; ?>
             </div>
         </div>
     </div>
 
-    <div class="col-12 col-xl-5">
-        <div class="dashboard-queue card h-100">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-                    <div>
-                        <div class="dashboard-queue-title">Urgent Queue</div>
-                        <div class="dashboard-queue-copy">Open the items that need attention now.</div>
-                    </div>
-                    <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/property/inventory_reconciliation.php'); ?>">Open Control Queue</a>
+    <div class="dashboard-hub-band">
+        <?php foreach ($snapshotItems as $item): ?>
+            <div class="dashboard-hub-band-card">
+                <div class="dashboard-hub-band-icon tone-<?php echo h($item['tone']); ?>">
+                    <i class="bi <?php echo h($item['icon']); ?>"></i>
                 </div>
-                <div class="dashboard-focus-list">
-                    <?php foreach ($focusItems as $item): ?>
-                        <a class="dashboard-focus-row tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
-                            <span class="dashboard-focus-row-icon">
-                                <i class="bi <?php echo h($item['icon']); ?>"></i>
-                            </span>
-                            <span class="dashboard-focus-row-body">
-                                <span class="dashboard-focus-row-label"><?php echo h($item['label']); ?></span>
-                                <span class="dashboard-focus-row-note"><?php echo h($item['note']); ?></span>
-                            </span>
-                            <span class="dashboard-focus-row-value"><?php echo h((string) $item['value']); ?></span>
-                        </a>
-                    <?php endforeach; ?>
+                <div class="dashboard-hub-band-body">
+                    <div class="dashboard-hub-band-label"><?php echo h($item['label']); ?></div>
+                    <div class="dashboard-hub-band-value"><?php echo h((string) $item['value']); ?></div>
+                    <div class="dashboard-hub-band-note"><?php echo h($item['note']); ?></div>
                 </div>
             </div>
-        </div>
+        <?php endforeach; ?>
     </div>
 
-    <div class="col-12">
-        <div class="row g-3">
-            <?php foreach ($snapshotItems as $item): ?>
-                <div class="col-sm-6 col-xl-3">
-                    <div class="dashboard-snapshot-card h-100">
-                        <div class="dashboard-snapshot-icon bg-<?php echo h($item['tone']); ?>-subtle text-<?php echo h($item['tone']); ?>">
-                            <i class="bi <?php echo h($item['icon']); ?>"></i>
-                        </div>
-                        <div class="dashboard-snapshot-content">
-                            <div class="dashboard-snapshot-label"><?php echo h($item['label']); ?></div>
-                            <div class="dashboard-snapshot-value"><?php echo h((string) $item['value']); ?></div>
-                            <div class="dashboard-snapshot-note"><?php echo h($item['note']); ?></div>
-                        </div>
-                    </div>
-                </div>
-            <?php endforeach; ?>
-        </div>
+    <div class="dashboard-hub-switcher">
+        <button type="button" class="dashboard-hub-switch is-active" data-dashboard-view="operations">
+            <i class="bi bi-kanban"></i>
+            <span>Operations</span>
+        </button>
+        <button type="button" class="dashboard-hub-switch" data-dashboard-view="inventory">
+            <i class="bi bi-clipboard-data"></i>
+            <span>Inventory</span>
+        </button>
+        <button type="button" class="dashboard-hub-switch" data-dashboard-view="movement">
+            <i class="bi bi-arrow-left-right"></i>
+            <span>Movement</span>
+        </button>
+        <button type="button" class="dashboard-hub-switch" data-dashboard-view="analytics">
+            <i class="bi bi-bar-chart"></i>
+            <span>Analytics</span>
+        </button>
     </div>
 
-    <?php if ($lowStockItems): ?>
-        <div class="col-12">
-            <div class="card border-warning shadow-sm">
-                <div class="card-body p-4">
-                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+    <div class="dashboard-hub-panel is-active" data-dashboard-panel="operations">
+        <div class="dashboard-hub-grid">
+            <div class="dashboard-hub-stack">
+                <article class="dashboard-hub-surface dashboard-hub-surface-strong">
+                    <div class="dashboard-hub-section-head">
                         <div>
-                            <div class="text-uppercase small fw-semibold text-warning-emphasis">Stock Alert</div>
-                            <h5 class="card-title mb-1">Low Stock Supplies</h5>
-                            <div class="text-muted">
-                                The following supply items are at or below the low stock threshold of <?php echo h((string) $lowStockThreshold); ?>.
-                            </div>
+                            <div class="dashboard-hub-section-kicker">Action Queue</div>
+                            <h2 class="dashboard-hub-section-title">Clear the high-friction work first</h2>
                         </div>
-                        <a class="btn btn-sm btn-outline-warning" href="<?php echo base_url('modules/stock_catalog/index.php'); ?>">
-                            Open Stock Catalog
-                        </a>
+                        <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/distributions/index.php'); ?>">Open Queue</a>
                     </div>
-
-                    <div class="row g-3">
-                        <?php foreach ($lowStockItems as $item): ?>
-                            <div class="col-md-6 col-xl-4">
-                                <div class="border rounded-3 p-3 bg-warning-subtle h-100">
-                                    <div class="d-flex justify-content-between align-items-start gap-3">
-                                        <div>
-                                            <div class="fw-semibold"><?php echo h((string) ($item['item_name'] ?? 'Supply Item')); ?></div>
-                                            <div class="small text-muted">
-                                                <?php echo h((string) ($item['stock_no'] ?? '')); ?>
-                                                <?php if (!empty($item['classification_name'])): ?>
-                                                    · <?php echo h((string) $item['classification_name']); ?>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                        <div class="text-end">
-                                            <div class="small text-muted">On Hand</div>
-                                            <div class="fs-5 fw-semibold text-warning-emphasis">
-                                                <?php echo h(format_quantity($item['quantity_on_hand'] ?? 0)); ?>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                    <div class="dashboard-hub-card-list">
+                        <?php foreach ($operationsCards as $item): ?>
+                            <a class="dashboard-hub-task-card tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
+                                <span class="dashboard-hub-task-icon">
+                                    <i class="bi <?php echo h($item['icon']); ?>"></i>
+                                </span>
+                                <span class="dashboard-hub-task-body">
+                                    <span class="dashboard-hub-task-label"><?php echo h($item['label']); ?></span>
+                                    <span class="dashboard-hub-task-note"><?php echo h($item['note']); ?></span>
+                                    <span class="dashboard-hub-task-cta"><?php echo h($item['cta']); ?></span>
+                                </span>
+                                <span class="dashboard-hub-task-value"><?php echo h((string) $item['value']); ?></span>
+                            </a>
                         <?php endforeach; ?>
                     </div>
-                </div>
-            </div>
-        </div>
-    <?php endif; ?>
+                </article>
 
-    <?php if ($summary['unresolved_property_discrepancies'] > 0 || $summary['pending_stock_adjustments'] > 0 || $summary['unserviceable_review_items'] > 0): ?>
-        <div class="col-12">
-            <div class="card border-danger-subtle shadow-sm">
-                <div class="card-body p-4">
-                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+                <article class="dashboard-hub-surface">
+                    <div class="dashboard-hub-section-head">
                         <div>
-                            <div class="text-uppercase small fw-semibold text-danger-emphasis">Control Alerts</div>
-                            <h5 class="card-title mb-1">Inventory Follow-up Needs Action</h5>
-                            <div class="text-muted">
-                                These control items need review so counts, discrepancies, and adjustments are fully closed.
-                            </div>
+                            <div class="dashboard-hub-section-kicker">Recent Procurement</div>
+                            <h2 class="dashboard-hub-section-title">Latest purchase orders</h2>
                         </div>
-                        <a class="btn btn-sm btn-outline-danger" href="<?php echo base_url('modules/property/inventory_reconciliation.php'); ?>">
-                            Open Reconciliation
+                        <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/purchase_orders/index.php'); ?>">View All</a>
+                    </div>
+                    <div class="dashboard-hub-feed">
+                        <?php if ($recentPurchaseOrders): ?>
+                            <?php foreach ($recentPurchaseOrders as $po): ?>
+                                <?php $poStatus = (string) ($po['status'] ?? ''); ?>
+                                <div class="dashboard-hub-feed-item">
+                                    <div class="dashboard-hub-feed-main">
+                                        <div class="dashboard-hub-feed-title"><?php echo h((string) ($po['po_number'] ?? 'No PO Number')); ?></div>
+                                        <div class="dashboard-hub-feed-meta">
+                                            <span><?php echo h((string) ($po['supplier_name'] ?? 'No supplier')); ?></span>
+                                            <span class="dashboard-hub-dot"></span>
+                                            <span><?php echo !empty($po['po_date']) ? h(date('M d, Y', strtotime($po['po_date']))) : 'No date'; ?></span>
+                                        </div>
+                                    </div>
+                                    <span class="badge <?php echo $poStatus === 'cancelled' ? 'text-bg-secondary' : ($poStatus === 'completed' ? 'text-bg-success' : 'text-bg-warning'); ?>">
+                                        <?php echo h(ucfirst($poStatus !== '' ? $poStatus : 'pending')); ?>
+                                    </span>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="dashboard-hub-empty">No purchase orders found.</div>
+                        <?php endif; ?>
+                    </div>
+                </article>
+            </div>
+
+            <div class="dashboard-hub-stack">
+                <article class="dashboard-hub-surface dashboard-hub-surface-accent">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Supply Watch</div>
+                            <h2 class="dashboard-hub-section-title">Low stock radar</h2>
+                        </div>
+                        <span class="dashboard-hub-badge">Threshold <?php echo h((string) $lowStockThreshold); ?></span>
+                    </div>
+                    <div class="dashboard-hub-feed">
+                        <?php if ($lowStockItems): ?>
+                            <?php foreach ($lowStockItems as $item): ?>
+                                <div class="dashboard-hub-feed-item">
+                                    <div class="dashboard-hub-feed-main">
+                                        <div class="dashboard-hub-feed-title"><?php echo h((string) ($item['item_name'] ?? 'Supply Item')); ?></div>
+                                        <div class="dashboard-hub-feed-meta">
+                                            <span><?php echo h((string) ($item['stock_no'] ?? '')); ?></span>
+                                            <?php if (!empty($item['classification_name'])): ?>
+                                                <span class="dashboard-hub-dot"></span>
+                                                <span><?php echo h((string) $item['classification_name']); ?></span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                    <div class="dashboard-hub-feed-aside">
+                                        <span class="dashboard-hub-feed-metric"><?php echo h(format_quantity($item['quantity_on_hand'] ?? 0)); ?></span>
+                                        <span class="dashboard-hub-feed-caption">On hand</span>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="dashboard-hub-empty">No low stock items right now.</div>
+                        <?php endif; ?>
+                    </div>
+                </article>
+
+                <article class="dashboard-hub-surface">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Control Quality</div>
+                            <h2 class="dashboard-hub-section-title">Follow-up requiring attention</h2>
+                        </div>
+                        <a class="btn btn-sm btn-outline-danger" href="<?php echo base_url('modules/property/inventory_reconciliation.php'); ?>">Open Reconciliation</a>
+                    </div>
+                    <div class="dashboard-hub-mini-grid">
+                        <a class="dashboard-hub-mini-card tone-danger" href="<?php echo base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'); ?>">
+                            <span class="dashboard-hub-mini-label">Discrepancies</span>
+                            <strong><?php echo number_format($summary['unresolved_property_discrepancies']); ?></strong>
+                            <span class="dashboard-hub-mini-note">Unresolved property count exceptions</span>
+                        </a>
+                        <a class="dashboard-hub-mini-card tone-warning" href="<?php echo base_url('modules/property/stock_adjustments.php'); ?>">
+                            <span class="dashboard-hub-mini-label">Adjustments</span>
+                            <strong><?php echo number_format($summary['pending_stock_adjustments']); ?></strong>
+                            <span class="dashboard-hub-mini-note">Pending stock adjustment approvals</span>
+                        </a>
+                        <a class="dashboard-hub-mini-card tone-secondary" href="<?php echo base_url('modules/property/unserviceable_review.php'); ?>">
+                            <span class="dashboard-hub-mini-label">Review</span>
+                            <strong><?php echo number_format($summary['unserviceable_review_items']); ?></strong>
+                            <span class="dashboard-hub-mini-note">Assets tagged for repair or disposal</span>
                         </a>
                     </div>
-
-                    <div class="row g-3">
-                        <div class="col-md-4">
-                            <a class="text-decoration-none" href="<?php echo base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'); ?>">
-                                <div class="border rounded-3 p-3 bg-danger-subtle h-100">
-                                    <div class="small text-muted">Unresolved Property Discrepancies</div>
-                                    <div class="fs-4 fw-semibold text-danger-emphasis"><?php echo number_format($summary['unresolved_property_discrepancies']); ?></div>
-                                </div>
-                            </a>
-                        </div>
-                        <div class="col-md-4">
-                            <a class="text-decoration-none" href="<?php echo base_url('modules/property/stock_adjustments.php'); ?>">
-                                <div class="border rounded-3 p-3 bg-warning-subtle h-100">
-                                    <div class="small text-muted">Pending Stock Adjustments</div>
-                                    <div class="fs-4 fw-semibold text-warning-emphasis"><?php echo number_format($summary['pending_stock_adjustments']); ?></div>
-                                </div>
-                            </a>
-                        </div>
-                        <div class="col-md-4">
-                            <a class="text-decoration-none" href="<?php echo base_url('modules/property/unserviceable_review.php'); ?>">
-                                <div class="border rounded-3 p-3 bg-secondary-subtle h-100">
-                                    <div class="small text-muted">Repair / Disposal Review Items</div>
-                                    <div class="fs-4 fw-semibold text-dark"><?php echo number_format($summary['unserviceable_review_items']); ?></div>
-                                </div>
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <div class="col-12 col-xl-6">
-        <div class="card dashboard-panel overflow-auto">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <h5 class="card-title mb-0">Recent Purchase Orders</h5>
-                    <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/purchase_orders/index.php'); ?>">View All</a>
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-borderless align-middle dashboard-table">
-                        <thead>
-                            <tr>
-                                <th>PO Number</th>
-                                <th>Supplier</th>
-                                <th>Date</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if ($recentPurchaseOrders): ?>
-                                <?php foreach ($recentPurchaseOrders as $po): ?>
-                                    <tr>
-                                        <td class="fw-semibold"><?php echo h($po['po_number'] ?? ''); ?></td>
-                                        <td><?php echo h($po['supplier_name'] ?? ''); ?></td>
-                                        <td><?php echo !empty($po['po_date']) ? h(date('M d, Y', strtotime($po['po_date']))) : ''; ?></td>
-                                        <td>
-                                            <span class="badge <?php echo ($po['status'] ?? '') === 'cancelled' ? 'text-bg-secondary' : (($po['status'] ?? '') === 'completed' ? 'text-bg-success' : 'text-bg-warning'); ?>">
-                                                <?php echo h(ucfirst((string) ($po['status'] ?? ''))); ?>
-                                            </span>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <tr><td colspan="4" class="text-center text-muted py-4">No purchase orders found.</td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                </article>
             </div>
         </div>
     </div>
 
-    <div class="col-12 col-xl-6">
-        <div class="card dashboard-panel overflow-auto">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <h5 class="card-title mb-0">Recent Distributions</h5>
-                    <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/distributions/index.php'); ?>">View All</a>
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-borderless align-middle dashboard-table">
-                        <thead>
-                            <tr>
-                                <th>Doc No</th>
-                                <th>Type</th>
-                                <th>Office</th>
-                                <th>Employee</th>
-                                <th>Date</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if ($recentDistributions): ?>
-                                <?php foreach ($recentDistributions as $distribution): ?>
-                                    <tr>
-                                        <td class="fw-semibold"><?php echo h($distribution['document_no'] ?? ''); ?></td>
-                                        <td><span class="badge text-bg-light text-uppercase"><?php echo h((string) ($distribution['document_type'] ?? '')); ?></span></td>
-                                        <td><?php echo h($distribution['office_name'] ?? ''); ?></td>
-                                        <td>
-                                            <?php echo !empty($distribution['employee_no']) ? h(employee_display_name($distribution) . ' - ' . $distribution['employee_no']) : '<span class="text-muted">Not specified</span>'; ?>
-                                        </td>
-                                        <td><?php echo !empty($distribution['distribution_date']) ? h(date('M d, Y', strtotime($distribution['distribution_date']))) : ''; ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <tr><td colspan="5" class="text-center text-muted py-4">No distributions found.</td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+    <div class="dashboard-hub-panel" data-dashboard-panel="inventory">
+        <div class="dashboard-hub-grid dashboard-hub-grid-wide">
+            <div class="dashboard-hub-stack">
+                <article class="dashboard-hub-surface dashboard-hub-surface-strong">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Inventory Control</div>
+                            <h2 class="dashboard-hub-section-title">Counts, adjustments, and reconciliation</h2>
+                        </div>
+                        <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/property/inventory_counts.php'); ?>">Open Inventory Counts</a>
+                    </div>
+                    <div class="dashboard-hub-card-list">
+                        <?php foreach ($inventoryCards as $item): ?>
+                            <a class="dashboard-hub-task-card tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
+                                <span class="dashboard-hub-task-icon">
+                                    <i class="bi <?php echo h($item['icon']); ?>"></i>
+                                </span>
+                                <span class="dashboard-hub-task-body">
+                                    <span class="dashboard-hub-task-label"><?php echo h($item['label']); ?></span>
+                                    <span class="dashboard-hub-task-note"><?php echo h($item['note']); ?></span>
+                                    <span class="dashboard-hub-task-cta"><?php echo h($item['cta']); ?></span>
+                                </span>
+                                <span class="dashboard-hub-task-value"><?php echo h((string) $item['value']); ?></span>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </article>
+            </div>
+
+            <div class="dashboard-hub-stack">
+                <article class="dashboard-hub-surface">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Control Snapshot</div>
+                            <h2 class="dashboard-hub-section-title">Current inventory posture</h2>
+                        </div>
+                    </div>
+                    <div class="dashboard-hub-mini-grid">
+                        <div class="dashboard-hub-mini-card tone-info">
+                            <span class="dashboard-hub-mini-label">Open Property Counts</span>
+                            <strong><?php echo number_format($summary['open_inventory_counts']); ?></strong>
+                            <span class="dashboard-hub-mini-note">Sessions still active and not yet closed</span>
+                        </div>
+                        <div class="dashboard-hub-mini-card tone-secondary">
+                            <span class="dashboard-hub-mini-label">Open Supply Counts</span>
+                            <strong><?php echo number_format($summary['open_supply_counts']); ?></strong>
+                            <span class="dashboard-hub-mini-note">Supply workspaces still in progress</span>
+                        </div>
+                        <div class="dashboard-hub-mini-card tone-dark">
+                            <span class="dashboard-hub-mini-label">Unserviceable Review</span>
+                            <strong><?php echo number_format($summary['unserviceable_review_items']); ?></strong>
+                            <span class="dashboard-hub-mini-note">Items flagged for repair or disposal</span>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-hub-panel" data-dashboard-panel="movement">
+        <div class="dashboard-hub-grid">
+            <div class="dashboard-hub-stack">
+                <article class="dashboard-hub-surface dashboard-hub-surface-strong">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Asset Movement</div>
+                            <h2 class="dashboard-hub-section-title">Registry and posted movement</h2>
+                        </div>
+                        <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/property/index.php'); ?>">Open Asset Registry</a>
+                    </div>
+                    <div class="dashboard-hub-card-list">
+                        <?php foreach ($movementCards as $item): ?>
+                            <a class="dashboard-hub-task-card tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
+                                <span class="dashboard-hub-task-icon">
+                                    <i class="bi <?php echo h($item['icon']); ?>"></i>
+                                </span>
+                                <span class="dashboard-hub-task-body">
+                                    <span class="dashboard-hub-task-label"><?php echo h($item['label']); ?></span>
+                                    <span class="dashboard-hub-task-note"><?php echo h($item['note']); ?></span>
+                                    <span class="dashboard-hub-task-cta"><?php echo h($item['cta']); ?></span>
+                                </span>
+                                <span class="dashboard-hub-task-value"><?php echo h((string) $item['value']); ?></span>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </article>
+            </div>
+
+            <div class="dashboard-hub-stack">
+                <article class="dashboard-hub-surface">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Recent Activity</div>
+                            <h2 class="dashboard-hub-section-title">Latest distributions</h2>
+                        </div>
+                        <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/distributions/index.php'); ?>">View All</a>
+                    </div>
+                    <div class="dashboard-hub-feed">
+                        <?php if ($recentDistributions): ?>
+                            <?php foreach ($recentDistributions as $distribution): ?>
+                                <div class="dashboard-hub-feed-item">
+                                    <div class="dashboard-hub-feed-main">
+                                        <div class="dashboard-hub-feed-title"><?php echo h((string) ($distribution['document_no'] ?? 'No Document Number')); ?></div>
+                                        <div class="dashboard-hub-feed-meta">
+                                            <span><?php echo h(strtoupper((string) ($distribution['document_type'] ?? ''))); ?></span>
+                                            <span class="dashboard-hub-dot"></span>
+                                            <span><?php echo h((string) ($distribution['office_name'] ?? 'No office')); ?></span>
+                                        </div>
+                                        <div class="dashboard-hub-feed-note">
+                                            <?php if (!empty($distribution['employee_no'])): ?>
+                                                <?php echo h(employee_display_name($distribution) . ' - ' . $distribution['employee_no']); ?>
+                                            <?php else: ?>
+                                                Not specified
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                    <div class="dashboard-hub-feed-aside">
+                                        <span class="dashboard-hub-feed-metric"><?php echo !empty($distribution['distribution_date']) ? h(date('M d', strtotime($distribution['distribution_date']))) : '--'; ?></span>
+                                        <span class="dashboard-hub-feed-caption"><?php echo !empty($distribution['distribution_date']) ? h(date('Y', strtotime($distribution['distribution_date']))) : 'No date'; ?></span>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="dashboard-hub-empty">No distributions found.</div>
+                        <?php endif; ?>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-hub-panel" data-dashboard-panel="analytics">
+        <div class="dashboard-hub-grid dashboard-hub-grid-wide">
+            <div class="dashboard-hub-stack">
+                <article class="dashboard-hub-surface dashboard-hub-surface-strong">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Analytics Overview</div>
+                            <h2 class="dashboard-hub-section-title">Risk, control, and supply pressure</h2>
+                        </div>
+                        <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/reports/index.php'); ?>">Open Reports</a>
+                    </div>
+                    <div class="dashboard-hub-card-list">
+                        <?php foreach ($analyticsCards as $item): ?>
+                            <a class="dashboard-hub-task-card tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
+                                <span class="dashboard-hub-task-icon">
+                                    <i class="bi <?php echo h($item['icon']); ?>"></i>
+                                </span>
+                                <span class="dashboard-hub-task-body">
+                                    <span class="dashboard-hub-task-label"><?php echo h($item['label']); ?></span>
+                                    <span class="dashboard-hub-task-note"><?php echo h($item['note']); ?></span>
+                                    <span class="dashboard-hub-task-cta"><?php echo h($item['cta']); ?></span>
+                                </span>
+                                <span class="dashboard-hub-task-value"><?php echo h((string) $item['value']); ?></span>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </article>
+
+                <article class="dashboard-hub-surface">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Six-Month Movement</div>
+                            <h2 class="dashboard-hub-section-title">Posted activity trend</h2>
+                        </div>
+                    </div>
+                    <?php if ($movementMonthlyTrend): ?>
+                        <div class="dashboard-hub-chart-list">
+                            <?php foreach ($movementMonthlyTrend as $row): ?>
+                                <?php
+                                    $distributed = (int) ($row['distributed'] ?? 0);
+                                    $returned = (int) ($row['returned'] ?? 0);
+                                    $disposed = (int) ($row['disposed'] ?? 0);
+                                    $rowTotal = $distributed + $returned + $disposed;
+                                    $barWidth = $movementTrendPeak > 0 ? max(4, (int) round(($rowTotal / $movementTrendPeak) * 100)) : 0;
+                                ?>
+                                <div class="dashboard-hub-chart-row">
+                                    <div class="dashboard-hub-chart-label"><?php echo h((string) ($row['month_label'] ?? '')); ?></div>
+                                    <div class="dashboard-hub-chart-track">
+                                        <span class="dashboard-hub-chart-bar tone-primary" style="width: <?php echo $barWidth; ?>%;"></span>
+                                    </div>
+                                    <div class="dashboard-hub-chart-value"><?php echo number_format($rowTotal); ?></div>
+                                    <div class="dashboard-hub-chart-meta">
+                                        Distributed <?php echo number_format($distributed); ?> - Returned <?php echo number_format($returned); ?> - Disposed <?php echo number_format($disposed); ?>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="dashboard-hub-empty">No posted movement found for the last six months.</div>
+                    <?php endif; ?>
+                </article>
+            </div>
+
+            <div class="dashboard-hub-stack">
+                <article class="dashboard-hub-surface">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Procurement Mix</div>
+                            <h2 class="dashboard-hub-section-title">Purchase order status</h2>
+                        </div>
+                    </div>
+                    <?php if ($procurementStatusMix): ?>
+                        <div class="dashboard-hub-chart-list">
+                            <?php foreach ($procurementStatusMix as $row): ?>
+                                <?php
+                                    $total = (int) ($row['total'] ?? 0);
+                                    $percent = $procurementStatusTotal > 0 ? (int) round(($total / $procurementStatusTotal) * 100) : 0;
+                                ?>
+                                <div class="dashboard-hub-chart-row dashboard-hub-chart-row-compact">
+                                    <div class="dashboard-hub-chart-label"><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['label'] ?? 'Unknown')))); ?></div>
+                                    <div class="dashboard-hub-chart-track">
+                                        <span class="dashboard-hub-chart-bar tone-success" style="width: <?php echo max(4, $percent); ?>%;"></span>
+                                    </div>
+                                    <div class="dashboard-hub-chart-value"><?php echo number_format($total); ?></div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="dashboard-hub-empty">No purchase order status data available.</div>
+                    <?php endif; ?>
+                </article>
+
+                <article class="dashboard-hub-surface">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Asset Lifecycle</div>
+                            <h2 class="dashboard-hub-section-title">Accountability status mix</h2>
+                        </div>
+                    </div>
+                    <?php if ($assetLifecycleMix): ?>
+                        <div class="dashboard-hub-chart-list">
+                            <?php foreach ($assetLifecycleMix as $row): ?>
+                                <?php
+                                    $total = (int) ($row['total'] ?? 0);
+                                    $percent = $assetLifecycleTotal > 0 ? (int) round(($total / $assetLifecycleTotal) * 100) : 0;
+                                ?>
+                                <div class="dashboard-hub-chart-row dashboard-hub-chart-row-compact">
+                                    <div class="dashboard-hub-chart-label"><?php echo h((string) ($row['label'] ?? 'Unknown')); ?></div>
+                                    <div class="dashboard-hub-chart-track">
+                                        <span class="dashboard-hub-chart-bar tone-info" style="width: <?php echo max(4, $percent); ?>%;"></span>
+                                    </div>
+                                    <div class="dashboard-hub-chart-value"><?php echo number_format($total); ?></div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="dashboard-hub-empty">No asset lifecycle data available.</div>
+                    <?php endif; ?>
+                </article>
+
+                <article class="dashboard-hub-surface dashboard-hub-surface-accent">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Accountability Leaders</div>
+                            <h2 class="dashboard-hub-section-title">Top offices by active assets</h2>
+                        </div>
+                    </div>
+                    <?php if ($topAccountableOffices): ?>
+                        <div class="dashboard-hub-chart-list">
+                            <?php foreach ($topAccountableOffices as $row): ?>
+                                <?php
+                                    $totalAssets = (int) ($row['total_assets'] ?? 0);
+                                    $percent = $topOfficePeak > 0 ? (int) round(($totalAssets / $topOfficePeak) * 100) : 0;
+                                ?>
+                                <div class="dashboard-hub-chart-row">
+                                    <div class="dashboard-hub-chart-label"><?php echo h((string) ($row['office_name'] ?? 'Unassigned')); ?></div>
+                                    <div class="dashboard-hub-chart-track">
+                                        <span class="dashboard-hub-chart-bar tone-warning" style="width: <?php echo max(4, $percent); ?>%;"></span>
+                                    </div>
+                                    <div class="dashboard-hub-chart-value"><?php echo number_format($totalAssets); ?></div>
+                                    <div class="dashboard-hub-chart-meta">Value <?php echo h(number_format((float) ($row['total_value'] ?? 0), 2)); ?></div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="dashboard-hub-empty">No active accountability data available.</div>
+                    <?php endif; ?>
+                </article>
+
+                <article class="dashboard-hub-surface">
+                    <div class="dashboard-hub-section-head">
+                        <div>
+                            <div class="dashboard-hub-section-kicker">Exception Mix</div>
+                            <h2 class="dashboard-hub-section-title">Inventory count findings</h2>
+                        </div>
+                    </div>
+                    <?php if ($inventoryExceptionMix): ?>
+                        <div class="dashboard-hub-mini-grid">
+                            <?php foreach ($inventoryExceptionMix as $row): ?>
+                                <div class="dashboard-hub-mini-card tone-warning">
+                                    <span class="dashboard-hub-mini-label"><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['label'] ?? 'Unknown')))); ?></span>
+                                    <strong><?php echo number_format((int) ($row['total'] ?? 0)); ?></strong>
+                                    <span class="dashboard-hub-mini-note">Count lines requiring verification or resolution</span>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="dashboard-hub-empty">No inventory count exceptions found.</div>
+                    <?php endif; ?>
+                </article>
             </div>
         </div>
     </div>
 </section>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var dashboardRoot = document.querySelector('[data-dashboard-hub]');
+    if (!dashboardRoot) {
+        return;
+    }
+
+    var switches = Array.prototype.slice.call(dashboardRoot.querySelectorAll('[data-dashboard-view]'));
+    var panels = Array.prototype.slice.call(dashboardRoot.querySelectorAll('[data-dashboard-panel]'));
+
+    function activateDashboardView(viewName) {
+        switches.forEach(function (button) {
+            button.classList.toggle('is-active', button.getAttribute('data-dashboard-view') === viewName);
+        });
+
+        panels.forEach(function (panel) {
+            panel.classList.toggle('is-active', panel.getAttribute('data-dashboard-panel') === viewName);
+        });
+    }
+
+    switches.forEach(function (button) {
+        button.addEventListener('click', function () {
+            activateDashboardView(button.getAttribute('data-dashboard-view'));
+        });
+    });
+
+    var initialButton = dashboardRoot.querySelector('[data-dashboard-view].is-active') || switches[0];
+    if (initialButton) {
+        activateDashboardView(initialButton.getAttribute('data-dashboard-view'));
+    }
+});
+</script>
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

@@ -24,9 +24,19 @@ function app_url(string $path = ''): string
         if (function_exists('db')) {
             $db = db();
             if ($db) {
-                $savedUrl = trim(get_system_setting($db, 'app_url', APP_URL));
-                if ($savedUrl !== '') {
-                    $configuredBase = $savedUrl;
+                $savedUrls = [
+                    get_system_setting($db, 'tailscale_serve_url', ''),
+                    get_system_setting($db, 'tailscale_ip_url', ''),
+                    get_system_setting($db, 'local_access_url', ''),
+                    get_system_setting($db, 'app_url', APP_URL),
+                ];
+
+                foreach ($savedUrls as $savedUrl) {
+                    $savedUrl = trim((string) $savedUrl);
+                    if ($savedUrl !== '') {
+                        $configuredBase = $savedUrl;
+                        break;
+                    }
                 }
             }
         }

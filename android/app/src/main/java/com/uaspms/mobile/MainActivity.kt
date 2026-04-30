@@ -7,8 +7,11 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.view.Menu
 import android.view.MenuItem
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -17,16 +20,22 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import java.io.File
 import java.io.IOException
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
+    private lateinit var swipeRefreshLayout: SwipeRefreshLayout
     private lateinit var scanFab: FloatingActionButton
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var cameraImageUri: Uri? = null
+    private var currentBaseUrlIndex = 0
 
     private lateinit var fileChooserLauncher: ActivityResultLauncher<Intent>
 
@@ -35,10 +44,13 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         webView = findViewById(R.id.webView)
+        swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout)
         scanFab = findViewById(R.id.scanFab)
+        clearLegacyServerSettings()
         scanFab.setOnClickListener {
             launchQrScanner()
         }
+        configureMovableScanFab()
 
         fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val callback = filePathCallback
@@ -63,13 +75,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         configureWebView()
+        configurePullToRefresh()
 
         if (savedInstanceState == null) {
             val scanUrl = intent.getStringExtra("SCAN_URL")
             if (scanUrl != null) {
                 webView.loadUrl(scanUrl)
             } else {
-                webView.loadUrl(BuildConfig.BASE_URL)
+                loadHome()
             }
         }
     }
@@ -87,6 +100,26 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 return false
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                swipeRefreshLayout.isRefreshing = false
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?
+            ) {
+                super.onReceivedError(view, request, error)
+                val failingUrl = request?.url?.toString() ?: return
+                if (request.isForMainFrame && tryFallbackUrl(failingUrl)) {
+                    return
+                }
+                if (request.isForMainFrame) {
+                    swipeRefreshLayout.isRefreshing = false
+                }
             }
         }
 
@@ -131,6 +164,99 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
         }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun configureMovableScanFab() {
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        var downRawX = 0f
+        var downRawY = 0f
+        var startX = 0f
+        var startY = 0f
+        var dragged = false
+
+        scanFab.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startX = view.x
+                    startY = view.y
+                    dragged = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = event.rawX - downRawX
+                    val deltaY = event.rawY - downRawY
+                    if (!dragged && (abs(deltaX) > touchSlop || abs(deltaY) > touchSlop)) {
+                        dragged = true
+                    }
+
+                    val parentView = view.parent as? android.view.View ?: return@setOnTouchListener true
+                    val maxX = max(0f, (parentView.width - view.width).toFloat())
+                    val maxY = max(0f, (parentView.height - view.height).toFloat())
+                    view.x = min(max(0f, startX + deltaX), maxX)
+                    view.y = min(max(0f, startY + deltaY), maxY)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!dragged) {
+                        view.performClick()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> true
+                else -> false
+            }
+        }
+    }
+
+    private fun configurePullToRefresh() {
+        swipeRefreshLayout.setOnRefreshListener {
+            webView.reload()
+        }
+        swipeRefreshLayout.setOnChildScrollUpCallback { _, _ ->
+            webView.scrollY > 0
+        }
+    }
+
+    private fun loadHome() {
+        val urls = availableBaseUrls()
+        currentBaseUrlIndex = 0
+        webView.loadUrl(urls[currentBaseUrlIndex])
+    }
+
+    private fun tryFallbackUrl(failingUrl: String): Boolean {
+        val urls = availableBaseUrls()
+        val failingBaseUrl = urls.getOrNull(currentBaseUrlIndex)
+        if (failingBaseUrl == null || !failingUrl.startsWith(failingBaseUrl)) {
+            return false
+        }
+
+        val nextBaseUrl = urls.getOrNull(currentBaseUrlIndex + 1) ?: return false
+        currentBaseUrlIndex += 1
+        webView.loadUrl(failingUrl.replaceFirst(failingBaseUrl, nextBaseUrl))
+        return true
+    }
+
+    private fun currentBaseUrl(): String {
+        val urls = availableBaseUrls()
+        val currentUrl = webView.url.orEmpty()
+        return urls.firstOrNull { currentUrl.startsWith(it) }
+            ?: urls.getOrElse(currentBaseUrlIndex) { BuildConfig.BASE_URL }
+    }
+
+    private fun availableBaseUrls(): List<String> {
+        return listOf(
+            BuildConfig.BASE_URL,
+            BuildConfig.TAILSCALE_IP_BASE_URL,
+            BuildConfig.LAN_BASE_URL,
+            BuildConfig.LOCAL_BASE_URL
+        ).distinct()
+    }
+
+    private fun clearLegacyServerSettings() {
+        deleteSharedPreferences("server_settings")
     }
 
     private fun createImageUri(): Uri? {
@@ -185,6 +311,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun launchQrScanner() {
-        startActivity(Intent(this, QRScannerActivity::class.java))
+        startActivity(Intent(this, QRScannerActivity::class.java).apply {
+            putExtra("BASE_URL", currentBaseUrl())
+        })
     }
+
 }

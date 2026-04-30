@@ -902,7 +902,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (debounceTimer) {
                     window.clearTimeout(debounceTimer);
                 }
-                debounceTimer = window.setTimeout(submitWithPageReset, 400);
+                debounceTimer = window.setTimeout(submitWithPageReset, 1000);
             });
         }
 

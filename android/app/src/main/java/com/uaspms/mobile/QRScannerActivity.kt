@@ -24,6 +24,8 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.max
+import kotlin.math.min
 
 class QRScannerActivity : AppCompatActivity() {
 
@@ -34,15 +36,18 @@ class QRScannerActivity : AppCompatActivity() {
     private var scanLineAnimator: ValueAnimator? = null
     private var lastScannedValue = ""
     private var lastScannedTime = 0L
+    private var baseUrl = BuildConfig.BASE_URL
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_qr_scanner)
+        baseUrl = intent.getStringExtra("BASE_URL") ?: BuildConfig.BASE_URL
 
         previewView = findViewById(R.id.previewView)
         scannerFrame = findViewById(R.id.scannerFrame)
         scannerLine = findViewById(R.id.scannerLine)
         cameraExecutor = Executors.newSingleThreadExecutor()
+        configureScannerFrameSize()
         scannerFrame.post {
             startScanLineAnimation()
         }
@@ -104,7 +109,7 @@ class QRScannerActivity : AppCompatActivity() {
     }
 
     private fun navigateToScan(ref: String) {
-        val scanUrl = "${BuildConfig.BASE_URL}modules/property/scan.php?ref=${Uri.encode(ref)}"
+        val scanUrl = "${baseUrl}modules/property/scan.php?ref=${Uri.encode(ref)}"
         val intent = Intent(this, MainActivity::class.java)
         intent.putExtra("SCAN_URL", scanUrl)
         intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -161,6 +166,20 @@ class QRScannerActivity : AppCompatActivity() {
                 scannerLine.translationY = animation.animatedValue as Float
             }
             start()
+        }
+    }
+
+    private fun configureScannerFrameSize() {
+        val density = resources.displayMetrics.density
+        val availableWidth = max(0, resources.displayMetrics.widthPixels - (48 * density).toInt())
+        val availableHeight = max(0, (resources.displayMetrics.heightPixels * 0.42f).toInt())
+        val maxFrame = (280 * density).toInt()
+        val minFrame = min((220 * density).toInt(), availableWidth)
+        val frameSize = min(maxFrame, min(availableWidth, availableHeight)).coerceAtLeast(minFrame)
+
+        scannerFrame.layoutParams = scannerFrame.layoutParams.apply {
+            width = frameSize
+            height = frameSize
         }
     }
 

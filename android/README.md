@@ -10,21 +10,38 @@ No backend rewrite is required.
 
 ## Default URL
 Configured in:
-- `app/build.gradle.kts` via `BuildConfig.BASE_URL`
+- SPAMS web settings page for system/QR access URLs
+- `app/build.gradle.kts` for Android startup fallback defaults
 
-Current default:
+Primary:
+- `http://spmu-andrew.tail985047.ts.net/UASPMS/spams/`
+
+Tailscale IP fallback:
+- `http://100.84.75.22/UASPMS/spams/`
+
+LAN fallback:
 - `http://172.16.1.42/UASPMS/spams/`
 
-If needed, you can still use `http://10.0.2.2/UASPMS/spams/` for emulator-to-localhost mapping.
+Local emulator fallback:
+- `http://10.0.2.2/UASPMS/spams/`
+
+Update Tailscale Serve URL, Tailscale IP, and Local URL from the SPAMS web page: Administration > Settings > System Access URL. The Android app only uses its bundled fallback list to reach SPAMS.
 
 ## Real phone setup
 For a physical device, replace `BASE_URL` with your PC LAN IP, for example:
 - `http://192.168.1.10/UASPMS/spams/`
 
+For Tailscale access, use the PC's Tailscale IP:
+- `http://100.84.75.22/UASPMS/spams/`
+
+With Tailscale Serve enabled, use the MagicDNS URL:
+- `http://spmu-andrew.tail985047.ts.net/UASPMS/spams/`
+
 Requirements:
-1. Phone and PC must be on same network.
-2. XAMPP Apache must be running.
-3. Firewall must allow inbound HTTP to Apache.
+1. For Tailscale access, both devices must be connected to the same Tailscale account/network.
+2. For LAN access, phone and PC must be on same local network.
+3. XAMPP Apache must be running.
+4. Firewall must allow inbound HTTP to Apache.
 
 ## Build and run
 1. Open the android folder in Android Studio.

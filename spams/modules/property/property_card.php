@@ -10,6 +10,25 @@ function property_card_single_fund_number(?string $fundCode, ?string $fundSource
     return fund_number_from_source($fundCode, $fundSource);
 }
 
+function property_card_single_normalize_value($value): string
+{
+    return strtolower(trim((string) $value));
+}
+
+function property_card_single_append_unique(array &$target, string $field, $value): void
+{
+    $text = trim((string) $value);
+    if ($text === '') {
+        return;
+    }
+    if (!isset($target[$field]) || !is_array($target[$field])) {
+        $target[$field] = [];
+    }
+    if (!in_array($text, $target[$field], true)) {
+        $target[$field][] = $text;
+    }
+}
+
 if (!$db || $receivingId <= 0) {
     http_response_code(404);
     echo 'Record not found.';
@@ -59,17 +78,27 @@ if ($stmt) {
     $stmt->close();
 }
 
-// Group by stock item (one physical unit)
+// Group same items into one card.
 $cards = [];
 foreach ($rows as $r) {
-    $sid = (int) ($r['id'] ?? 0);
-    if ($sid <= 0) continue;
-    if (!isset($cards[$sid])) {
-        $cards[$sid] = [
+    $groupKey = implode('|', [
+        property_card_single_normalize_value($r['item_description'] ?? ''),
+        property_card_single_normalize_value($r['brand'] ?? ''),
+        property_card_single_normalize_value($r['model'] ?? ''),
+        property_card_single_normalize_value($r['unit_cost'] ?? 0),
+        property_card_single_normalize_value($r['account_name'] ?? ''),
+        property_card_single_normalize_value($r['par_no'] ?? ''),
+        property_card_single_normalize_value($r['office_name'] ?? ''),
+        property_card_single_normalize_value(trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''))),
+        property_card_single_normalize_value($r['fund_code'] ?? ''),
+        property_card_single_normalize_value($r['fund_source'] ?? ''),
+    ]);
+    if (!isset($cards[$groupKey])) {
+        $cards[$groupKey] = [
             'stk_ref' => $r['stk_ref'] ?? '',
             'brand' => $r['brand'] ?? '',
             'model' => $r['model'] ?? '',
-            'serial_no' => $r['serial_no'] ?? '',
+            'serial_no' => '',
             'item_description' => $r['item_description'] ?? '',
             'unit_cost' => $r['unit_cost'] ?? 0,
             'received_date' => $r['received_date'] ?? null,
@@ -82,34 +111,63 @@ foreach ($rows as $r) {
             'accountable_person' => trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? '')),
             'position_title' => $r['position_title'] ?? '',
             'rc_code' => $r['rc_code'] ?? '',
-            'property_number' => $r['property_number'] ?? '',
+            'property_number' => '',
+            'property_numbers' => [],
+            'serial_numbers' => [],
             'fund_number' => property_card_single_fund_number($r['fund_code'] ?? '', $r['fund_source'] ?? ''),
             'ledger' => [],
         ];
     }
-    // IAR row (only once)
-    if (empty($cards[$sid]['ledger'])) {
-        $cards[$sid]['ledger'][] = [
+
+    property_card_single_append_unique($cards[$groupKey], 'property_numbers', $r['property_number'] ?? '');
+    property_card_single_append_unique($cards[$groupKey], 'serial_numbers', $r['serial_no'] ?? '');
+
+    if (empty($cards[$groupKey]['ledger'])) {
+        $cards[$groupKey]['ledger'][] = [
             'date' => $r['received_date'] ?? null,
             'reference' => $r['iar_ref'] ?? '',
-            'receipt_qty' => 1,
+            'receipt_qty' => 0,
             'receipt_cost' => (float) ($r['unit_cost'] ?? 0),
             'issue_qty' => 0,
             'remarks' => 'IAR Number',
         ];
     }
-    // If there is a PAR linked, add issue row
+
+    $cards[$groupKey]['ledger'][0]['receipt_qty'] = (float) ($cards[$groupKey]['ledger'][0]['receipt_qty'] ?? 0) + 1;
+    $cards[$groupKey]['ledger'][0]['receipt_cost'] = (float) ($cards[$groupKey]['ledger'][0]['receipt_cost'] ?? 0) + (float) ($r['unit_cost'] ?? 0);
+
     if (!empty($r['par_no'])) {
-        $cards[$sid]['ledger'][] = [
-            'date' => $r['distribution_date'] ?? null,
-            'reference' => $r['par_no'],
-            'receipt_qty' => 0,
-            'receipt_cost' => 0,
-            'issue_qty' => 1,
-            'remarks' => 'Issued (PAR)',
-        ];
+        $issueRowFound = false;
+        foreach ($cards[$groupKey]['ledger'] as &$ledgerRow) {
+            if (($ledgerRow['reference'] ?? '') !== ($r['par_no'] ?? '')
+                || ($ledgerRow['remarks'] ?? '') !== 'Issued (PAR)'
+                || ($ledgerRow['date'] ?? '') !== ($r['distribution_date'] ?? null)) {
+                continue;
+            }
+            $ledgerRow['issue_qty'] = (float) ($ledgerRow['issue_qty'] ?? 0) + 1;
+            $issueRowFound = true;
+            break;
+        }
+        unset($ledgerRow);
+
+        if (!$issueRowFound) {
+            $cards[$groupKey]['ledger'][] = [
+                'date' => $r['distribution_date'] ?? null,
+                'reference' => $r['par_no'],
+                'receipt_qty' => 0,
+                'receipt_cost' => 0,
+                'issue_qty' => 1,
+                'remarks' => 'Issued (PAR)',
+            ];
+        }
     }
 }
+
+foreach ($cards as &$card) {
+    $card['property_number'] = implode(', ', array_values(array_filter((array) ($card['property_numbers'] ?? []))));
+    $card['serial_no'] = implode(', ', array_values(array_filter((array) ($card['serial_numbers'] ?? []))));
+}
+unset($card);
 
 ?><!doctype html>
 <html lang="en">
