@@ -21,13 +21,16 @@ android {
         applicationId = "com.uaspms.mobile"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Default to current host LAN IP for emulator and real-device testing.
-        buildConfigField("String", "BASE_URL", "\"http://172.16.1.42/UASPMS/spams/\"")
+        // Try Tailscale first, then LAN, then emulator-to-localhost.
+        buildConfigField("String", "BASE_URL", "\"http://spmu-andrew.tail985047.ts.net/UASPMS/spams/\"")
+        buildConfigField("String", "TAILSCALE_IP_BASE_URL", "\"http://100.84.75.22/UASPMS/spams/\"")
+        buildConfigField("String", "LAN_BASE_URL", "\"http://172.16.1.42/UASPMS/spams/\"")
+        buildConfigField("String", "LOCAL_BASE_URL", "\"http://10.0.2.2/UASPMS/spams/\"")
     }
 
     signingConfigs {
@@ -73,6 +76,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.activity:activity-ktx:1.9.1")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.webkit:webkit:1.11.0")
     implementation("androidx.camera:camera-core:1.3.1")
     implementation("androidx.camera:camera-camera2:1.3.1")

@@ -24,7 +24,21 @@ $overdueTripCompletionCount = 0;
 $vehicleConflictCount = 0;
 $driverConflictCount = 0;
 $returnTodayTripCount = 0;
-if ($notificationDb) {
+$currentTopbarUserIdForCache = function_exists('current_user_id') ? (int) current_user_id() : 0;
+$topbarNotificationCacheKey = 'spams_topbar_notifications_' . $currentTopbarUserIdForCache . '_' . preg_replace('/[^a-z0-9_]+/i', '_', $transportNotificationRole);
+$topbarNotificationCacheHit = false;
+$topbarNotificationCache = $_SESSION[$topbarNotificationCacheKey] ?? null;
+if (is_array($topbarNotificationCache) && (int) ($topbarNotificationCache['expires_at'] ?? 0) >= time()) {
+    foreach (($topbarNotificationCache['values'] ?? []) as $topbarNotificationName => $topbarNotificationValue) {
+        if (isset($$topbarNotificationName)) {
+            $$topbarNotificationName = is_int($$topbarNotificationName)
+                ? (int) $topbarNotificationValue
+                : (string) $topbarNotificationValue;
+        }
+    }
+    $topbarNotificationCacheHit = true;
+}
+if (!$topbarNotificationCacheHit && $notificationDb) {
     $tableExists = static function (mysqli $connection, string $tableName): bool {
         $escapedTable = $connection->real_escape_string($tableName);
         $result = $connection->query("SHOW TABLES LIKE '{$escapedTable}'");
@@ -125,11 +139,30 @@ if ($notificationDb) {
         }
     }
 
-    if ($tableExists($notificationDb, 'purchase_orders')) {
+    if ($tableExists($notificationDb, 'purchase_orders')
+        && $tableExists($notificationDb, 'purchase_order_items')
+        && $tableExists($notificationDb, 'receiving_items')
+        && $tableExists($notificationDb, 'receivings')) {
         $pendingReceivingStmt = $notificationDb->prepare(
             "SELECT COUNT(*) AS total
-             FROM purchase_orders po
-             WHERE COALESCE(po.status, 'encoded') IN ('encoded', 'partial')"
+             FROM (
+                 SELECT po.id
+                 FROM purchase_orders po
+                 LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
+                 LEFT JOIN (
+                     SELECT
+                         poi2.purchase_order_id,
+                         SUM(COALESCE(ri2.quantity_accepted, 0)) AS total_received_qty
+                     FROM receiving_items ri2
+                     INNER JOIN receivings r2 ON r2.id = ri2.receiving_id
+                     INNER JOIN purchase_order_items poi2 ON poi2.id = ri2.purchase_order_item_id
+                     WHERE r2.status != 'cancelled'
+                     GROUP BY poi2.purchase_order_id
+                 ) received_totals ON received_totals.purchase_order_id = po.id
+                 WHERE COALESCE(po.status, 'encoded') != 'cancelled'
+                 GROUP BY po.id
+                 HAVING COALESCE(SUM(poi.quantity), 0) > COALESCE(MAX(received_totals.total_received_qty), 0)
+             ) pending_receiving_rows"
         );
         if ($pendingReceivingStmt) {
             $pendingReceivingStmt->execute();
@@ -283,7 +316,7 @@ if ($notificationDb) {
     }
 }
 $tripNotificationDb = function_exists('trip_db') ? trip_db() : null;
-if ($tripNotificationDb && in_array($transportNotificationRole, ['Administrator', 'Transport Officer'], true)) {
+if (!$topbarNotificationCacheHit && $tripNotificationDb && in_array($transportNotificationRole, ['Administrator', 'Transport Officer'], true)) {
     $tripTableExists = static function (mysqli $connection, string $tableName): bool {
         $escapedTable = $connection->real_escape_string($tableName);
         $result = $connection->query("SHOW TABLES LIKE '{$escapedTable}'");
@@ -380,6 +413,33 @@ if ($tripNotificationDb && in_array($transportNotificationRole, ['Administrator'
         }
     }
 }
+if (!$topbarNotificationCacheHit) {
+    $_SESSION[$topbarNotificationCacheKey] = [
+        'expires_at' => time() + 45,
+        'values' => [
+            'userPhotoPath' => $userPhotoPath,
+            'pendingDistributionUnits' => $pendingDistributionUnits,
+            'pendingDistributionRecords' => $pendingDistributionRecords,
+            'pendingReceivingCount' => $pendingReceivingCount,
+            'deliveryDueSoonCount' => $deliveryDueSoonCount,
+            'deliveryOverdueCount' => $deliveryOverdueCount,
+            'dueSoonNoReceivingCount' => $dueSoonNoReceivingCount,
+            'repeatExtensionCount' => $repeatExtensionCount,
+            'lowStockItemCount' => $lowStockItemCount,
+            'unreadMessageCount' => $unreadMessageCount,
+            'unclassifiedReceivedItemCount' => $unclassifiedReceivedItemCount,
+            'rejectedReceivingItemCount' => $rejectedReceivingItemCount,
+            'inventoryDiscrepancyCount' => $inventoryDiscrepancyCount,
+            'mustChangePasswordUserCount' => $mustChangePasswordUserCount,
+            'nextDayTripCount' => $nextDayTripCount,
+            'pendingTripCompletionCount' => $pendingTripCompletionCount,
+            'overdueTripCompletionCount' => $overdueTripCompletionCount,
+            'vehicleConflictCount' => $vehicleConflictCount,
+            'driverConflictCount' => $driverConflictCount,
+            'returnTodayTripCount' => $returnTodayTripCount,
+        ],
+    ];
+}
 $userPhotoUrl = upload_url($userPhotoPath);
 $notificationBadgeCount =
     $pendingDistributionUnits +
@@ -397,7 +457,7 @@ $hasNotifications = $notificationBadgeCount > 0;
 ?>
 <header id="header" class="header fixed-top d-flex align-items-center">
     <div class="d-flex align-items-center justify-content-between w-100">
-        <div class="d-flex align-items-center gap-3">
+        <div class="topbar-brand-group d-flex align-items-center gap-3">
             <button class="btn btn-link text-decoration-none p-0 toggle-sidebar-btn" type="button" id="sidebarToggle" aria-label="Toggle sidebar">
                 <i class="bi bi-list fs-3"></i>
             </button>
@@ -407,7 +467,7 @@ $hasNotifications = $notificationBadgeCount > 0;
             </a>
         </div>
 
-        <div class="d-flex align-items-center gap-3">
+        <div class="topbar-actions d-flex align-items-center gap-3">
             <a class="btn btn-outline-secondary btn-sm position-relative" href="<?php echo base_url('modules/messages/index.php'); ?>" title="Messages" id="topbarMessageLink">
                 <i class="bi bi-chat-dots"></i>
                 <span id="topbarMessageBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill text-bg-primary <?php echo $unreadMessageCount > 0 ? '' : 'd-none'; ?>">

@@ -62,6 +62,116 @@ function property_card_fund_number(?string $fundCode, ?string $fundSource = null
     return fund_number_from_source($fundCode, $fundSource);
 }
 
+function property_card_normalize_value($value): string
+{
+    return strtolower(trim((string) $value));
+}
+
+function property_card_append_unique(array &$target, string $field, $value): void
+{
+    $text = trim((string) $value);
+    if ($text === '') {
+        return;
+    }
+    if (!isset($target[$field]) || !is_array($target[$field])) {
+        $target[$field] = [];
+    }
+    if (!in_array($text, $target[$field], true)) {
+        $target[$field][] = $text;
+    }
+}
+
+function property_card_compose_group_key(array $card): string
+{
+    $parts = [
+        $card['source_type'] ?? '',
+        $card['po_number'] ?? '',
+        $card['item_type'] ?? '',
+        $card['classification_name'] ?? '',
+        $card['account_name'] ?? '',
+        $card['item_description'] ?? '',
+        $card['brand'] ?? '',
+        $card['model'] ?? '',
+        $card['unit_cost'] ?? 0,
+        $card['fund_number'] ?? '',
+        $card['office_name'] ?? '',
+        $card['accountable_person'] ?? '',
+        $card['position_title'] ?? '',
+        $card['rc_code'] ?? '',
+        $card['accountability_no'] ?? '',
+        $card['document_type'] ?? '',
+    ];
+
+    return implode('|', array_map('property_card_normalize_value', $parts));
+}
+
+function property_card_merge_cards(array $cards): array
+{
+    $grouped = [];
+
+    foreach ($cards as $card) {
+        $groupKey = property_card_compose_group_key($card);
+        if (!isset($grouped[$groupKey])) {
+            $card['property_numbers'] = array_values(array_filter([trim((string) ($card['property_number'] ?? ''))]));
+            $card['serial_numbers'] = array_values(array_filter([trim((string) ($card['serial_no'] ?? ''))]));
+            $grouped[$groupKey] = $card;
+            continue;
+        }
+
+        property_card_append_unique($grouped[$groupKey], 'property_numbers', $card['property_number'] ?? '');
+        property_card_append_unique($grouped[$groupKey], 'serial_numbers', $card['serial_no'] ?? '');
+        $grouped[$groupKey]['card_key'] = (string) ($grouped[$groupKey]['card_key'] ?? $groupKey);
+
+        foreach ((array) ($card['ledger'] ?? []) as $entry) {
+            $ledgerKey = implode('|', [
+                property_card_normalize_value($entry['date'] ?? ''),
+                property_card_normalize_value($entry['reference'] ?? ''),
+                property_card_normalize_value($entry['issue_reference'] ?? ''),
+                property_card_normalize_value($entry['issue_party'] ?? ''),
+                property_card_normalize_value($entry['remarks'] ?? ''),
+                property_card_normalize_value($entry['receipt_unit_cost'] ?? 0),
+            ]);
+
+            $matched = false;
+            foreach ($grouped[$groupKey]['ledger'] as &$existingEntry) {
+                $existingKey = implode('|', [
+                    property_card_normalize_value($existingEntry['date'] ?? ''),
+                    property_card_normalize_value($existingEntry['reference'] ?? ''),
+                    property_card_normalize_value($existingEntry['issue_reference'] ?? ''),
+                    property_card_normalize_value($existingEntry['issue_party'] ?? ''),
+                    property_card_normalize_value($existingEntry['remarks'] ?? ''),
+                    property_card_normalize_value($existingEntry['receipt_unit_cost'] ?? 0),
+                ]);
+
+                if ($existingKey !== $ledgerKey) {
+                    continue;
+                }
+
+                $existingEntry['receipt_qty'] = (float) ($existingEntry['receipt_qty'] ?? 0) + (float) ($entry['receipt_qty'] ?? 0);
+                $existingEntry['receipt_cost'] = (float) ($existingEntry['receipt_cost'] ?? 0) + (float) ($entry['receipt_cost'] ?? 0);
+                $existingEntry['issue_qty'] = (float) ($existingEntry['issue_qty'] ?? 0) + (float) ($entry['issue_qty'] ?? 0);
+                $matched = true;
+                break;
+            }
+            unset($existingEntry);
+
+            if (!$matched) {
+                $grouped[$groupKey]['ledger'][] = $entry;
+            }
+        }
+    }
+
+    foreach ($grouped as &$card) {
+        $card['property_numbers'] = array_values(array_filter((array) ($card['property_numbers'] ?? [])));
+        $card['serial_numbers'] = array_values(array_filter((array) ($card['serial_numbers'] ?? [])));
+        $card['property_number'] = implode(', ', $card['property_numbers']);
+        $card['serial_no'] = implode(', ', $card['serial_numbers']);
+    }
+    unset($card);
+
+    return array_values($grouped);
+}
+
 if ($db) {
     $poRes = $db->query("SELECT id, po_number FROM purchase_orders ORDER BY po_date DESC, id DESC");
     if ($poRes) {
@@ -353,6 +463,10 @@ if ($db) {
             }
             $legacyStmt->close();
         }
+    }
+
+    if ($cards) {
+        $cards = property_card_merge_cards($cards);
     }
 }
 ?><!doctype html>

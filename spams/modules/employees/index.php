@@ -925,7 +925,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                     <div class="col-sm-6 col-lg-3">
                         <label class="form-label">Status</label>
-                        <select id="statusFilter" class="form-select">
+                        <select id="statusFilter" class="form-select" data-no-select2>
                             <option value="">All statuses</option>
                             <option value="active">Active</option>
                             <option value="inactive">Inactive</option>
@@ -933,7 +933,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                     <div class="col-sm-6 col-lg-3">
                         <label class="form-label">Rows Per Page</label>
-                        <select id="perPageSelect" class="form-select">
+                        <select id="perPageSelect" class="form-select" data-no-select2>
                             <option value="25" selected>25 rows</option>
                             <option value="50">50 rows</option>
                             <option value="100">100 rows</option>
@@ -1237,102 +1237,32 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function initEmployeeTable() {
-        var table = document.getElementById('dataTable');
-        var tbody = table ? table.querySelector('tbody') : null;
-        if (!table || !tbody) return;
+        if (typeof window.initDataTable !== 'function') {
+            return;
+        }
 
-        var rows = Array.from(tbody.querySelectorAll('tr')).filter(function (row) {
-            return row.cells.length > 1;
+        window.initDataTable('dataTable', {
+            searchInputId: 'tableSearch',
+            statusFilterId: 'statusFilter',
+            prevButtonId: 'prevPage',
+            nextButtonId: 'nextPage',
+            pageInfoId: 'pageInfo',
+            perPageSelectId: 'perPageSelect',
+            recordCountId: 'recordCount',
+            recordCountFormatter: function (state) {
+                var summary = state.totalVisible === 0
+                    ? 'Showing 0 of ' + state.totalOverall + ' records'
+                    : 'Showing ' + state.rangeStart + ' to ' + state.rangeEnd + ' of ' + state.totalVisible + ' matching records';
+                var recordCountMobile = document.getElementById('recordCountMobile');
+                if (recordCountMobile) {
+                    recordCountMobile.textContent = summary;
+                }
+                return summary;
+            },
+            pageInfoFormatter: function (state) {
+                return 'Page ' + state.currentPage + ' of ' + state.totalPages + ' (' + state.totalVisible + ' matches)';
+            }
         });
-        var searchInput = document.getElementById('tableSearch');
-        var statusFilter = document.getElementById('statusFilter');
-        var prevButton = document.getElementById('prevPage');
-        var nextButton = document.getElementById('nextPage');
-        var pageInfo = document.getElementById('pageInfo');
-        var perPageSelect = document.getElementById('perPageSelect');
-        var recordCount = document.getElementById('recordCount');
-        var currentPage = 1;
-        var perPage = parseInt(perPageSelect && perPageSelect.value, 10) || 25;
-
-        function getVisibleRows() {
-            var term = ((searchInput && searchInput.value) || '').toLowerCase().trim();
-            var status = (statusFilter && statusFilter.value) || '';
-
-            return rows.filter(function (row) {
-                var matchesTerm = !term || row.textContent.toLowerCase().indexOf(term) !== -1;
-                var matchesStatus = !status || row.getAttribute('data-status') === status;
-                return matchesTerm && matchesStatus;
-            });
-        }
-
-        function render() {
-            var visibleRows = getVisibleRows();
-            var totalVisible = visibleRows.length;
-            var totalOverall = rows.length;
-            var totalPages = Math.max(1, Math.ceil(totalVisible / perPage));
-
-            currentPage = Math.min(Math.max(currentPage, 1), totalPages);
-
-            var start = totalVisible > 0 ? (currentPage - 1) * perPage : 0;
-            var end = Math.min(start + perPage, totalVisible);
-
-            rows.forEach(function (row) {
-                row.style.display = 'none';
-            });
-            visibleRows.slice(start, end).forEach(function (row) {
-                row.style.display = '';
-            });
-
-            if (recordCount) {
-                recordCount.textContent = 'Showing ' + totalVisible + ' of ' + totalOverall + ' records';
-            }
-            var recordCountMobile = document.getElementById('recordCountMobile');
-            if (recordCountMobile) {
-                recordCountMobile.textContent = 'Showing ' + totalVisible + ' of ' + totalOverall + ' records';
-            }
-            if (pageInfo) {
-                pageInfo.textContent = 'Page ' + currentPage + ' of ' + totalPages + ' (' + totalVisible + ' matches)';
-            }
-            if (prevButton) {
-                prevButton.disabled = currentPage <= 1;
-            }
-            if (nextButton) {
-                nextButton.disabled = currentPage >= totalPages;
-            }
-        }
-
-        function applyFilters() {
-            currentPage = 1;
-            render();
-        }
-
-        if (searchInput) {
-            searchInput.addEventListener('input', applyFilters);
-        }
-        if (statusFilter) {
-            statusFilter.addEventListener('change', applyFilters);
-        }
-        if (perPageSelect) {
-            perPageSelect.addEventListener('change', function () {
-                perPage = parseInt(this.value, 10) || 25;
-                currentPage = 1;
-                render();
-            });
-        }
-        if (prevButton) {
-            prevButton.addEventListener('click', function () {
-                currentPage -= 1;
-                render();
-            });
-        }
-        if (nextButton) {
-            nextButton.addEventListener('click', function () {
-                currentPage += 1;
-                render();
-            });
-        }
-
-        render();
     }
 
     document.getElementById('office_id')?.addEventListener('change', filterResponsibilityCodes);

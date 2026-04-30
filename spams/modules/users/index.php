@@ -66,6 +66,8 @@ function users_generate_initial_password(int $length = 12): string
 $db = db();
 $page_title = 'Users';
 $flash = get_flash();
+$resetPasswordModal = $_SESSION['user_reset_password_modal'] ?? null;
+unset($_SESSION['user_reset_password_modal']);
 $errors = [];
 $users = [];
 $roles = [];
@@ -76,6 +78,9 @@ $form = ['id'=>0,'username'=>'','email'=>'','full_name'=>'','role_id'=>'','emplo
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    $userHasForcePasswordColumn = function_exists('schema_has_column')
+        ? schema_has_column($db, 'users', 'must_change_password')
+        : false;
     $roleNameColumn = roles_name_column($db);
     $roleNameExpr = roles_name_expression($db, 'r');
     $roleActiveClause = roles_active_clause($db);
@@ -347,6 +352,46 @@ if (!$db) {
                 $errors[] = 'Unable to permanently delete the user.';
                 $errors[] = $e->getMessage();
             }
+        } elseif($action==='reset_password'){
+            $recordId = (int) ($_POST['id'] ?? 0);
+            if (!$userHasForcePasswordColumn) {
+                $errors[] = 'Password reset is not available in this database.';
+            } elseif ($recordId <= 0) {
+                $errors[] = 'Invalid user record.';
+            } else {
+                $temporaryPassword = users_generate_initial_password();
+                $passwordHash = password_hash($temporaryPassword, PASSWORD_DEFAULT);
+                $stmt = $db->prepare("UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = NOW() WHERE id = ?");
+                if ($stmt) {
+                    $stmt->bind_param('si', $passwordHash, $recordId);
+                    $saved = $stmt->execute();
+                    $stmt->close();
+                    if ($saved) {
+                        write_audit_log($db, [
+                            'action' => 'update',
+                            'table_name' => 'users',
+                            'record_id' => $recordId,
+                            'module_name' => 'users',
+                            'record_type' => 'user',
+                            'action_name' => 'reset_password',
+                            'description' => 'Reset the user password and required change on next login.',
+                            'new_values' => [
+                                'must_change_password' => 1,
+                                'password_changed' => true,
+                            ],
+                        ]);
+                        $_SESSION['user_reset_password_modal'] = [
+                            'password' => $temporaryPassword,
+                            'record_id' => $recordId,
+                            'username' => $auditSnapshot['username'] ?? '',
+                            'full_name' => $auditSnapshot['full_name'] ?? '',
+                        ];
+                        set_flash('success', 'Temporary password generated. Give it to the user and they will be required to change it on next login.');
+                        redirect('modules/users/index.php');
+                    }
+                }
+                $errors[] = 'Unable to reset the user password.';
+            }
         }
     }
 
@@ -364,7 +409,7 @@ if (!$db) {
         }
     }
 
-    $listResult=$db->query("SELECT u.id, u.username, u.email, u.full_name, u.is_active, u.created_at, {$roleNameExpr} AS role_name, o.office_name, e.employee_no, e.first_name, e.middle_name, e.last_name, e.suffix_name FROM users u LEFT JOIN roles r ON r.id = u.role_id LEFT JOIN offices o ON o.id = u.office_id LEFT JOIN employees e ON e.id = u.employee_id ORDER BY u.full_name ASC");
+    $listResult=$db->query("SELECT u.id, u.username, u.email, u.full_name, u.is_active, u.created_at, " . ($userHasForcePasswordColumn ? "COALESCE(u.must_change_password, 0)" : "0") . " AS must_change_password, {$roleNameExpr} AS role_name, o.office_name, e.employee_no, e.first_name, e.middle_name, e.last_name, e.suffix_name FROM users u LEFT JOIN roles r ON r.id = u.role_id LEFT JOIN offices o ON o.id = u.office_id LEFT JOIN employees e ON e.id = u.employee_id ORDER BY u.full_name ASC");
     if($listResult){
         $users=$listResult->fetch_all(MYSQLI_ASSOC);
     }
@@ -555,9 +600,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <td><?php echo h($user['role_name'] ?? ''); ?></td>
                                 <td><?php echo h(!empty($user['employee_no']) ? employee_display_name($user) . ' - ' . $user['employee_no'] : ''); ?></td>
                                 <td><?php echo h($user['office_name'] ?? ''); ?></td>
-                                <td><span class="badge <?php echo (int) $user['is_active'] === 1 ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo (int) $user['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span></td>
+                                <td>
+                                    <span class="badge <?php echo (int) $user['is_active'] === 1 ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo (int) $user['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span>
+                                    <?php if (!empty($userHasForcePasswordColumn) && (int) ($user['must_change_password'] ?? 0) === 1): ?>
+                                        <div class="mt-1"><span class="badge text-bg-warning">Password Change Required</span></div>
+                                    <?php endif; ?>
+                                </td>
                                 <td><?php echo h(date('M d, Y', strtotime($user['created_at']))); ?></td>
-                                <td class="text-end"><div class="d-inline-flex flex-wrap justify-content-end gap-2"><a href="<?php echo base_url('modules/users/index.php?edit=' . (int) $user['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a><?php if ((int) $user['is_active'] === 1): ?><form method="post" onsubmit="return confirm('Deactivate this user?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button></form><?php endif; ?><form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="hard_delete"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button></form></div></td>
+                                <td class="text-end"><div class="d-inline-flex flex-wrap justify-content-end gap-2"><a href="<?php echo base_url('modules/users/index.php?edit=' . (int) $user['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a><?php if (!empty($userHasForcePasswordColumn) && (int) $user['is_active'] === 1): ?><form method="post" onsubmit="return confirm('Reset this user password and generate a temporary one-time password?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="reset_password"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-key"></i> Reset Password</button></form><?php endif; ?><?php if ((int) $user['is_active'] === 1): ?><form method="post" onsubmit="return confirm('Deactivate this user?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button></form><?php endif; ?><form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="hard_delete"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button></form></div></td>
                             </tr>
                         <?php endforeach; else: ?>
                             <tr data-status="inactive"><td colspan="7" class="text-center text-muted py-4">No users found yet.</td></tr>
@@ -838,6 +888,85 @@ document.addEventListener('DOMContentLoaded', function () {
     updatePasswordStrength();
 });
 </script>
+<?php if (is_array($resetPasswordModal) && !empty($resetPasswordModal['password'])): ?>
+<div class="modal fade" id="resetPasswordResultModal" tabindex="-1" aria-labelledby="resetPasswordResultLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="resetPasswordResultLabel">Temporary Password Ready</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">
+                    Give this temporary password to
+                    <strong><?php echo h(trim((string) (($resetPasswordModal['full_name'] ?? '') !== '' ? $resetPasswordModal['full_name'] : ($resetPasswordModal['username'] ?? 'the user')))); ?></strong>.
+                </p>
+                <p class="text-muted small mb-3">It is shown once only. The user will be required to change it on next login.</p>
+                <div class="input-group">
+                    <input type="text" class="form-control" id="resetPasswordValue" value="<?php echo h((string) $resetPasswordModal['password']); ?>" readonly>
+                    <button type="button" class="btn btn-outline-secondary" id="copyResetPasswordBtn">Copy</button>
+                </div>
+                <div class="small text-muted mt-2" id="copyResetPasswordFeedback">Copy this now before closing.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var modalElement = document.getElementById('resetPasswordResultModal');
+    var passwordInput = document.getElementById('resetPasswordValue');
+    var copyButton = document.getElementById('copyResetPasswordBtn');
+    var feedback = document.getElementById('copyResetPasswordFeedback');
+
+    if (modalElement && window.bootstrap) {
+        new bootstrap.Modal(modalElement).show();
+    }
+
+    if (!copyButton || !passwordInput) {
+        return;
+    }
+
+    copyButton.addEventListener('click', function () {
+        var onSuccess = function () {
+            if (feedback) {
+                feedback.textContent = 'Temporary password copied.';
+                feedback.className = 'small text-success mt-2';
+            }
+        };
+        var onFailure = function () {
+            if (feedback) {
+                feedback.textContent = 'Copy failed. Select the password manually and copy it.';
+                feedback.className = 'small text-danger mt-2';
+            }
+        };
+
+        passwordInput.removeAttribute('readonly');
+        passwordInput.focus();
+        passwordInput.select();
+        passwordInput.setSelectionRange(0, passwordInput.value.length);
+        passwordInput.setAttribute('readonly', 'readonly');
+
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(passwordInput.value).then(onSuccess).catch(onFailure);
+            return;
+        }
+
+        try {
+            if (document.execCommand('copy')) {
+                onSuccess();
+            } else {
+                onFailure();
+            }
+        } catch (error) {
+            onFailure();
+        }
+    });
+});
+</script>
+<?php endif; ?>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
 
 
