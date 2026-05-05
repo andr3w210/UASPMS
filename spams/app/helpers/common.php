@@ -88,6 +88,58 @@ function old(array $source, string $key, string $default = ''): string
     return isset($source[$key]) ? trim((string) $source[$key]) : $default;
 }
 
+function has_foreign_key_reference(mysqli $db, string $referencedTable, int $recordId, array $fallbackChecks = []): bool
+{
+    $targets = [];
+    $fkStmt = $db->prepare(
+        "SELECT TABLE_NAME, COLUMN_NAME
+         FROM information_schema.KEY_COLUMN_USAGE
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND REFERENCED_TABLE_NAME = ?"
+    );
+    if ($fkStmt) {
+        $fkStmt->bind_param('s', $referencedTable);
+        $fkStmt->execute();
+        $fkResult = $fkStmt->get_result();
+        if ($fkResult) {
+            $targets = $fkResult->fetch_all(MYSQLI_ASSOC);
+        }
+        $fkStmt->close();
+    }
+
+    $checks = [];
+    foreach ($targets as $target) {
+        $table = (string) ($target['TABLE_NAME'] ?? '');
+        $column = (string) ($target['COLUMN_NAME'] ?? '');
+        if ($table === '' || $column === '') {
+            continue;
+        }
+        $safeTable = str_replace('`', '``', $table);
+        $safeColumn = str_replace('`', '``', $column);
+        $checks[] = "SELECT 1 FROM `{$safeTable}` WHERE `{$safeColumn}` = ? LIMIT 1";
+    }
+
+    if (!$checks) {
+        $checks = $fallbackChecks;
+    }
+
+    foreach ($checks as $sql) {
+        $stmt = $db->prepare($sql);
+        if (!$stmt) {
+            continue;
+        }
+        $stmt->bind_param('i', $recordId);
+        $stmt->execute();
+        $hasRow = (bool) $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($hasRow) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function format_date(?string $value, string $format = 'M d, Y'): string
 {
     $clean = trim((string) $value);

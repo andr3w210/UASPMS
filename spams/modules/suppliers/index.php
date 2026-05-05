@@ -5,15 +5,9 @@ require_login();
 
 function suppliers_has_reference(mysqli $db, int $recordId): bool
 {
-    $stmt = $db->prepare("SELECT 1 FROM purchase_orders WHERE supplier_id = ? LIMIT 1");
-    if (!$stmt) {
-        return false;
-    }
-    $stmt->bind_param('i', $recordId);
-    $stmt->execute();
-    $hasRow = (bool) $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    return $hasRow;
+    return has_foreign_key_reference($db, 'suppliers', $recordId, [
+        "SELECT 1 FROM purchase_orders WHERE supplier_id = ? LIMIT 1",
+    ]);
 }
 
 $db = db();

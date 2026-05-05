@@ -359,6 +359,21 @@ if (!$db) {
             } elseif ($recordId <= 0) {
                 $errors[] = 'Invalid user record.';
             } else {
+                $resetSnapshot = [
+                    'username' => '',
+                    'full_name' => '',
+                ];
+                $snapshotStmt = $db->prepare("SELECT username, full_name FROM users WHERE id = ? LIMIT 1");
+                if ($snapshotStmt) {
+                    $snapshotStmt->bind_param('i', $recordId);
+                    $snapshotStmt->execute();
+                    $snapshotRow = $snapshotStmt->get_result()->fetch_assoc();
+                    $snapshotStmt->close();
+                    if ($snapshotRow) {
+                        $resetSnapshot = $snapshotRow;
+                    }
+                }
+
                 $temporaryPassword = users_generate_initial_password();
                 $passwordHash = password_hash($temporaryPassword, PASSWORD_DEFAULT);
                 $stmt = $db->prepare("UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = NOW() WHERE id = ?");
@@ -383,8 +398,8 @@ if (!$db) {
                         $_SESSION['user_reset_password_modal'] = [
                             'password' => $temporaryPassword,
                             'record_id' => $recordId,
-                            'username' => $auditSnapshot['username'] ?? '',
-                            'full_name' => $auditSnapshot['full_name'] ?? '',
+                            'username' => $resetSnapshot['username'] ?? '',
+                            'full_name' => $resetSnapshot['full_name'] ?? '',
                         ];
                         set_flash('success', 'Temporary password generated. Give it to the user and they will be required to change it on next login.');
                         redirect('modules/users/index.php');

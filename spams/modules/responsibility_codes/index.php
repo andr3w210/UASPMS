@@ -15,25 +15,23 @@ function responsibility_codes_has_reference(mysqli $db, int $recordId): bool
         $code = (string) ($row['code'] ?? '');
     }
 
-    $checks = [];
     if ($code !== '') {
-        $checks[] = ["SELECT 1 FROM distribution_item_details WHERE property_number LIKE CONCAT(?, '%') LIMIT 1", 's', $code];
+        $patternStmt = $db->prepare("SELECT 1 FROM distribution_item_details WHERE property_number LIKE CONCAT(?, '%') LIMIT 1");
+        if ($patternStmt) {
+            $patternStmt->bind_param('s', $code);
+            $patternStmt->execute();
+            $hasPatternMatch = (bool) $patternStmt->get_result()->fetch_assoc();
+            $patternStmt->close();
+            if ($hasPatternMatch) {
+                return true;
+            }
+        }
     }
-    $checks[] = ["SELECT 1 FROM employees WHERE responsibility_code_id = ? LIMIT 1", 'i', $recordId];
 
-    foreach ($checks as $check) {
-        [$sql, $type, $value] = $check;
-        $stmt = $db->prepare($sql);
-        if (!$stmt) {
-            continue;
-        }
-        $stmt->bind_param($type, $value);
-        $stmt->execute();
-        $hasRow = (bool) $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        if ($hasRow) {
+    if (has_foreign_key_reference($db, 'responsibility_codes', $recordId, [
+        "SELECT 1 FROM employees WHERE responsibility_code_id = ? LIMIT 1",
+    ])) {
             return true;
-        }
     }
 
     return false;

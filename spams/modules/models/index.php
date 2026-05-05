@@ -5,26 +5,10 @@ require_login();
 
 function models_has_reference(mysqli $db, int $recordId): bool
 {
-    $checks = [
+    return has_foreign_key_reference($db, 'models', $recordId, [
         "SELECT 1 FROM stock_items WHERE model_id = ? LIMIT 1",
         "SELECT 1 FROM receiving_item_details WHERE model_id = ? LIMIT 1",
-    ];
-
-    foreach ($checks as $sql) {
-        $stmt = $db->prepare($sql);
-        if (!$stmt) {
-            continue;
-        }
-        $stmt->bind_param('i', $recordId);
-        $stmt->execute();
-        $hasRow = (bool) $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        if ($hasRow) {
-            return true;
-        }
-    }
-
-    return false;
+    ]);
 }
 
 $db = db();
