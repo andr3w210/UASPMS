@@ -619,6 +619,15 @@ if ($dateFrom !== '' || $dateTo !== '') {
                         </div>
                     </div>
 
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                        <span class="small text-muted fw-semibold">Quick filters:</span>
+                        <a href="<?php echo h(build_registry_url(['item_type' => 'equipment', 'source' => '', 'rpcppe' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $itemType === 'equipment' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Equipment</a>
+                        <a href="<?php echo h(build_registry_url(['item_type' => 'semi_expendable', 'source' => '', 'rpcppe' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $itemType === 'semi_expendable' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Semi-Expendable</a>
+                        <a href="<?php echo h(build_registry_url(['source' => 'system', 'item_type' => '', 'rpcppe' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $sourceFilter === 'system' ? 'btn-primary' : 'btn-outline-secondary'; ?>">System Transactions</a>
+                        <a href="<?php echo h(build_registry_url(['source' => 'legacy', 'item_type' => '', 'rpcppe' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $sourceFilter === 'legacy' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Beginning Balance</a>
+                        <a href="<?php echo h(build_registry_url(['rpcppe' => 'candidate_only', 'item_type' => '', 'source' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $rpcppeFilter === 'candidate_only' ? 'btn-primary' : 'btn-outline-secondary'; ?>">RPCPPE Candidates</a>
+                    </div>
+
                     <form method="get" id="registryFiltersForm" class="asset-registry-filters border rounded-3 p-3 mb-3 bg-body-tertiary">
                         <input type="hidden" name="page" value="1" id="registryPageReset">
                         <div class="row g-3 align-items-end">

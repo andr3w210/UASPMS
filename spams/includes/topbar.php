@@ -468,6 +468,15 @@ $hasNotifications = $notificationBadgeCount > 0;
         </div>
 
         <div class="topbar-actions d-flex align-items-center gap-3">
+            <form class="d-none d-lg-flex align-items-center" method="get" action="<?php echo base_url('modules/search/index.php'); ?>" role="search">
+                <div class="input-group input-group-sm" style="width: min(360px, 28vw);">
+                    <span class="input-group-text bg-body"><i class="bi bi-search"></i></span>
+                    <input type="search" class="form-control" name="q" value="<?php echo h((string) ($_GET['q'] ?? '')); ?>" placeholder="Search records...">
+                </div>
+            </form>
+            <a class="btn btn-outline-secondary btn-sm d-lg-none" href="<?php echo base_url('modules/search/index.php'); ?>" title="Search">
+                <i class="bi bi-search"></i>
+            </a>
             <a class="btn btn-outline-secondary btn-sm position-relative" href="<?php echo base_url('modules/messages/index.php'); ?>" title="Messages" id="topbarMessageLink">
                 <i class="bi bi-chat-dots"></i>
                 <span id="topbarMessageBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill text-bg-primary <?php echo $unreadMessageCount > 0 ? '' : 'd-none'; ?>">

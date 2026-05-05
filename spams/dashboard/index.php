@@ -19,6 +19,7 @@ $summary = [
     'open_supply_counts' => 0,
     'pending_stock_adjustments' => 0,
     'unserviceable_review_items' => 0,
+    'missing_qr_tags' => 0,
 ];
 $recentPurchaseOrders = [];
 $recentDistributions = [];
@@ -41,6 +42,18 @@ if ($db) {
     $tableExists = static function (mysqli $connection, string $tableName): bool {
         $escapedTable = $connection->real_escape_string($tableName);
         $result = $connection->query("SHOW TABLES LIKE '{$escapedTable}'");
+        if ($result instanceof mysqli_result) {
+            $exists = $result->num_rows > 0;
+            $result->close();
+            return $exists;
+        }
+
+        return false;
+    };
+    $columnExists = static function (mysqli $connection, string $tableName, string $columnName): bool {
+        $escapedTable = $connection->real_escape_string($tableName);
+        $escapedColumn = $connection->real_escape_string($columnName);
+        $result = $connection->query("SHOW COLUMNS FROM `{$escapedTable}` LIKE '{$escapedColumn}'");
         if ($result instanceof mysqli_result) {
             $exists = $result->num_rows > 0;
             $result->close();
@@ -418,6 +431,19 @@ if ($db) {
             ];
         }
     }
+
+    if ($tableExists($db, 'distribution_item_details') && $columnExists($db, 'distribution_item_details', 'qr_tag_code')) {
+        $missingQrRows = $fetchRows($db, "
+            SELECT COUNT(*) AS total
+            FROM distribution_item_details
+            WHERE COALESCE(is_distributed, 0) = 1
+              AND COALESCE(is_disposed, 0) = 0
+              AND (qr_tag_code IS NULL OR TRIM(qr_tag_code) = '')
+        ");
+        if ($missingQrRows) {
+            $summary['missing_qr_tags'] = (int) ($missingQrRows[0]['total'] ?? 0);
+        }
+    }
 }
 
 $focusItems = [
@@ -577,6 +603,62 @@ $operationsCards = [
         'cta' => 'Open Stock Catalog',
     ],
 ];
+$workQueueCards = [
+    [
+        'label' => 'POs Awaiting Receiving',
+        'value' => $summary['pending_receivings'],
+        'note' => 'Purchase orders with remaining quantities to receive',
+        'icon' => 'bi-inbox',
+        'tone' => 'warning',
+        'href' => base_url('modules/receivings/index.php'),
+        'cta' => 'Receive Items',
+    ],
+    [
+        'label' => 'Received Units For Distribution',
+        'value' => $summary['pending_distribution_units'],
+        'note' => 'Equipment and semi-expendable units not yet issued',
+        'icon' => 'bi-send-check',
+        'tone' => 'primary',
+        'href' => base_url('modules/distributions/index.php'),
+        'cta' => 'Open Distribution',
+    ],
+    [
+        'label' => 'QR Tags Needed',
+        'value' => $summary['missing_qr_tags'],
+        'note' => 'Active accountable assets without generated QR tag codes',
+        'icon' => 'bi-qr-code',
+        'tone' => 'info',
+        'href' => base_url('modules/reports/qr_printing.php'),
+        'cta' => 'Print Tags',
+    ],
+    [
+        'label' => 'Inventory Discrepancies',
+        'value' => $summary['unresolved_property_discrepancies'],
+        'note' => 'Missing, wrong office, repair, or disposal findings',
+        'icon' => 'bi-exclamation-triangle',
+        'tone' => 'danger',
+        'href' => base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'),
+        'cta' => 'Reconcile',
+    ],
+    [
+        'label' => 'Low Stock Supplies',
+        'value' => $stockRiskSummary['low_stock_items'],
+        'note' => 'Supply stock items at or below threshold',
+        'icon' => 'bi-thermometer-low',
+        'tone' => 'warning',
+        'href' => base_url('modules/stock_catalog/index.php'),
+        'cta' => 'Review Stock',
+    ],
+    [
+        'label' => 'Unserviceable Items',
+        'value' => $summary['unserviceable_review_items'],
+        'note' => 'Assets flagged for repair or disposal follow-up',
+        'icon' => 'bi-tools',
+        'tone' => 'dark',
+        'href' => base_url('modules/property/unserviceable_review.php'),
+        'cta' => 'Review Items',
+    ],
+];
 $inventoryCards = [
     $focusItems[3],
     $focusItems[4],
@@ -657,6 +739,46 @@ $quickLinks = [
 if ($isAdministrator) {
     $quickLinks[] = ['label' => 'Audit Log', 'href' => base_url('modules/audit_log/index.php'), 'icon' => 'bi-shield-check'];
 }
+
+$cardVisibleForRole = static function (array $item) use ($roleName): bool {
+    $href = (string) ($item['href'] ?? '');
+    if ($href === '') {
+        return true;
+    }
+
+    $rules = [
+        '/modules/receivings/' => ['Administrator', 'Supply Officer'],
+        '/modules/issuances/' => ['Administrator', 'Supply Officer'],
+        '/modules/distributions/' => ['Administrator', 'Supply Officer', 'Property Officer'],
+        '/modules/transfers/' => ['Administrator', 'Supply Officer', 'Property Officer'],
+        '/modules/returns/' => ['Administrator', 'Supply Officer', 'Property Officer'],
+        '/modules/disposals/' => ['Administrator', 'Supply Officer', 'Property Officer'],
+        '/modules/reports/qr_printing.php' => ['Administrator', 'Supply Officer', 'Property Officer'],
+        '/modules/property/inventory_counts.php' => ['Administrator', 'Supply Officer', 'Property Officer'],
+        '/modules/property/inventory_reconciliation.php' => ['Administrator', 'Property Officer'],
+        '/modules/property/unserviceable_review.php' => ['Administrator', 'Property Officer'],
+        '/modules/property/stock_card.php' => ['Administrator', 'Supply Officer'],
+        '/modules/property/supply_counts.php' => ['Administrator', 'Supply Officer'],
+        '/modules/property/stock_adjustments.php' => ['Administrator', 'Supply Officer'],
+        '/modules/stock_catalog/' => ['Administrator'],
+        '/modules/audit_log/' => ['Administrator'],
+    ];
+
+    foreach ($rules as $needle => $roles) {
+        if (str_contains($href, $needle)) {
+            return in_array($roleName, $roles, true);
+        }
+    }
+
+    return true;
+};
+
+$operationsCards = array_values(array_filter($operationsCards, $cardVisibleForRole));
+$workQueueCards = array_values(array_filter($workQueueCards, $cardVisibleForRole));
+$inventoryCards = array_values(array_filter($inventoryCards, $cardVisibleForRole));
+$movementCards = array_values(array_filter($movementCards, $cardVisibleForRole));
+$analyticsCards = array_values(array_filter($analyticsCards, $cardVisibleForRole));
+$quickLinks = array_values(array_filter($quickLinks, $cardVisibleForRole));
 
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar.php';
@@ -763,6 +885,31 @@ require_once __DIR__ . '/../includes/topbar.php';
     </div>
 
     <div class="dashboard-hub-panel is-active" data-dashboard-panel="operations">
+        <article class="dashboard-hub-surface dashboard-hub-surface-strong mb-4">
+            <div class="dashboard-hub-section-head">
+                <div>
+                    <div class="dashboard-hub-section-kicker">Work Queues</div>
+                    <h2 class="dashboard-hub-section-title">Next actions that need attention</h2>
+                </div>
+                <span class="dashboard-hub-badge">Phase 1</span>
+            </div>
+            <div class="dashboard-hub-card-list">
+                <?php foreach ($workQueueCards as $item): ?>
+                    <a class="dashboard-hub-task-card tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
+                        <span class="dashboard-hub-task-icon">
+                            <i class="bi <?php echo h($item['icon']); ?>"></i>
+                        </span>
+                        <span class="dashboard-hub-task-body">
+                            <span class="dashboard-hub-task-label"><?php echo h($item['label']); ?></span>
+                            <span class="dashboard-hub-task-note"><?php echo h($item['note']); ?></span>
+                            <span class="dashboard-hub-task-cta"><?php echo h($item['cta']); ?></span>
+                        </span>
+                        <span class="dashboard-hub-task-value"><?php echo h((string) $item['value']); ?></span>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        </article>
+
         <div class="dashboard-hub-grid">
             <div class="dashboard-hub-stack">
                 <article class="dashboard-hub-surface dashboard-hub-surface-strong">

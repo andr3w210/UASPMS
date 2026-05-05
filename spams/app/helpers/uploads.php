@@ -1,5 +1,88 @@
 <?php
 
+function normalize_uploads_root_path(?string $value): string
+{
+    $clean = trim((string) $value);
+    if ($clean === '') {
+        return 'uploads';
+    }
+
+    $clean = str_replace('\\', '/', $clean);
+    $clean = str_replace('..', '', $clean);
+    $clean = preg_replace('#/+#', '/', $clean) ?? $clean;
+    $clean = trim($clean, '/');
+
+    if ($clean === '' || !preg_match('/^[A-Za-z0-9_\/-]+$/', $clean)) {
+        return 'uploads';
+    }
+
+    return $clean;
+}
+
+function normalize_uploads_absolute_path(?string $value): string
+{
+    $clean = trim((string) $value, " \t\n\r\0\x0B\"'");
+    if ($clean === '') {
+        return '';
+    }
+
+    $clean = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $clean);
+    if (!preg_match('/^(?:[A-Za-z]:[\\\\\/]|[\\\\\/]{2}|\/)/', $clean)) {
+        return '';
+    }
+
+    return rtrim($clean, "\\/");
+}
+
+function uploads_root_configuration(): array
+{
+    static $cachedConfig = null;
+    if ($cachedConfig !== null) {
+        return $cachedConfig;
+    }
+
+    $config = [
+        'mode' => 'relative',
+        'relative' => 'uploads',
+        'absolute' => '',
+        'public_url' => '',
+    ];
+
+    if (function_exists('db')) {
+        $db = db();
+        if ($db && function_exists('get_system_setting')) {
+            $savedMode = trim((string) get_system_setting($db, 'uploads_root_mode', 'relative'));
+            $config['mode'] = $savedMode === 'absolute' ? 'absolute' : 'relative';
+            $config['relative'] = normalize_uploads_root_path(get_system_setting($db, 'uploads_root', 'uploads'));
+            $config['absolute'] = normalize_uploads_absolute_path(get_system_setting($db, 'uploads_root_absolute', ''));
+            $config['public_url'] = rtrim(trim((string) get_system_setting($db, 'uploads_root_public_url', '')), '/');
+        }
+    }
+
+    if ($config['mode'] === 'absolute' && $config['absolute'] === '') {
+        $config['mode'] = 'relative';
+    }
+
+    $cachedConfig = $config;
+    return $cachedConfig;
+}
+
+function uploads_root_relative_path(): string
+{
+    return uploads_root_configuration()['relative'];
+}
+
+function uploads_base_directory(): string
+{
+    $config = uploads_root_configuration();
+    if ($config['mode'] === 'absolute' && $config['absolute'] !== '') {
+        return rtrim($config['absolute'], "\\/") . DIRECTORY_SEPARATOR;
+    }
+
+    $relativeRoot = str_replace('/', DIRECTORY_SEPARATOR, $config['relative']);
+    return APP_ROOT . $relativeRoot . DIRECTORY_SEPARATOR;
+}
+
 function upload_url(?string $relativePath): string
 {
     $clean = trim((string) $relativePath);
@@ -7,7 +90,27 @@ function upload_url(?string $relativePath): string
         return '';
     }
 
-    return base_url('uploads/' . ltrim(str_replace('\\', '/', $clean), '/'));
+    $clean = ltrim(str_replace('\\', '/', $clean), '/');
+    $config = uploads_root_configuration();
+
+    if ($config['mode'] === 'relative') {
+        return base_url($config['relative'] . '/' . $clean);
+    }
+
+    if ($config['public_url'] !== '') {
+        return rtrim($config['public_url'], '/') . '/' . $clean;
+    }
+
+    $baseReal = realpath(uploads_base_directory());
+    $appReal = realpath(APP_ROOT);
+    if ($baseReal !== false && $appReal !== false && strpos($baseReal, $appReal) === 0) {
+        $suffix = trim(str_replace('\\', '/', substr($baseReal, strlen($appReal))), '/');
+        $prefix = $suffix === '' ? '' : $suffix . '/';
+        return base_url($prefix . $clean);
+    }
+
+    // Fallback keeps legacy behavior when absolute directory cannot be URL-mapped.
+    return base_url('uploads/' . $clean);
 }
 
 function upload_absolute_path(?string $relativePath): string
@@ -20,7 +123,7 @@ function upload_absolute_path(?string $relativePath): string
     $clean = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $clean);
     $clean = ltrim($clean, DIRECTORY_SEPARATOR);
 
-    return UPLOADS_DIR . $clean;
+    return uploads_base_directory() . $clean;
 }
 
 function ensure_upload_directory(string $relativeDirectory): ?string
@@ -30,7 +133,12 @@ function ensure_upload_directory(string $relativeDirectory): ?string
         return null;
     }
 
-    $absoluteDirectory = UPLOADS_DIR . $relativeDirectory;
+    $baseDirectory = uploads_base_directory();
+    if (!is_dir($baseDirectory) && !mkdir($baseDirectory, 0775, true) && !is_dir($baseDirectory)) {
+        return null;
+    }
+
+    $absoluteDirectory = $baseDirectory . $relativeDirectory;
     if (!is_dir($absoluteDirectory) && !mkdir($absoluteDirectory, 0775, true) && !is_dir($absoluteDirectory)) {
         return null;
     }
@@ -103,7 +211,7 @@ function delete_uploaded_file(?string $relativePath): void
         return;
     }
 
-    $uploadsRoot = realpath(UPLOADS_DIR);
+    $uploadsRoot = realpath(uploads_base_directory());
     $realPath = realpath($absolutePath);
     if ($uploadsRoot === false || $realPath === false) {
         return;

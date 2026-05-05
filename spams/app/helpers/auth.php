@@ -35,3 +35,8 @@ function current_user_id(): ?int
 {
     return isset($_SESSION['user_id']) ? (int) $_SESSION['user_id'] : null;
 }
+
+function user_has_any_role(string ...$roles): bool
+{
+    return in_array(current_user_role(), $roles, true);
+}

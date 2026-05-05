@@ -16,24 +16,12 @@ $sessionStats = [
     'found' => 0,
     'exceptions' => 0,
 ];
-$statusLabels = [
-    'pending' => 'Pending',
-    'found' => 'Found',
-    'missing' => 'Missing',
-    'for_repair' => 'For Repair',
-    'for_disposal' => 'For Disposal',
-    'wrong_office' => 'Wrong Office',
-    'wrong_accountable' => 'Wrong Accountable',
-];
-$statusBadgeClasses = [
-    'pending' => 'text-bg-secondary',
-    'found' => 'text-bg-success',
-    'missing' => 'text-bg-danger',
-    'for_repair' => 'text-bg-warning',
-    'for_disposal' => 'text-bg-dark',
-    'wrong_office' => 'text-bg-info',
-    'wrong_accountable' => 'text-bg-primary',
-];
+$statusLabels = [];
+$statusBadgeClasses = [];
+foreach (['pending', 'found', 'missing', 'for_repair', 'for_disposal', 'wrong_office', 'wrong_accountable'] as $statusKey) {
+    $statusLabels[$statusKey] = operational_status_label('inventory_count', $statusKey);
+    $statusBadgeClasses[$statusKey] = operational_status_badge_class('inventory_count', $statusKey);
+}
 $countTypes = [
     'annual' => 'Annual Inventory',
     'surprise' => 'Surprise Check',

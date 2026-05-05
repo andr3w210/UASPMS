@@ -33,6 +33,7 @@ $form = [
     'approved_by' => '',
     'remarks' => '',
 ];
+$reasonOptions = coa_disposal_reason_options();
 
 if (!in_array($typeFilter, ['all', 'semi_expendable', 'equipment'], true)) {
     $typeFilter = 'all';
@@ -62,7 +63,7 @@ if (!$db) {
         $form['return_id'] = trim((string) ($_POST['return_id'] ?? ''));
         $form['legacy_asset_id'] = trim((string) ($_POST['legacy_asset_id'] ?? ''));
         $form['disposal_date'] = trim((string) ($_POST['disposal_date'] ?? date('Y-m-d')));
-        $form['reason'] = trim((string) ($_POST['reason'] ?? 'unserviceable'));
+        $form['reason'] = normalize_disposal_reason((string) ($_POST['reason'] ?? 'unserviceable'));
         $form['approved_by'] = trim((string) ($_POST['approved_by'] ?? ''));
         $form['remarks'] = trim((string) ($_POST['remarks'] ?? ''));
 
@@ -87,6 +88,8 @@ if (!$db) {
         }
         if ($form['reason'] === '') {
             $errors[] = 'Disposal reason is required.';
+        } elseif (!array_key_exists($form['reason'], $reasonOptions)) {
+            $errors[] = 'Select a valid disposal reason based on COA disposal rules.';
         }
 
         $asset = null;
@@ -508,11 +511,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="col-md-2">
                                 <label class="form-label">Reason</label>
                                 <select name="reason" class="form-select">
-                                    <option value="unserviceable" <?php echo $form['reason'] === 'unserviceable' ? 'selected' : ''; ?>>Unserviceable</option>
-                                    <option value="obsolete" <?php echo $form['reason'] === 'obsolete' ? 'selected' : ''; ?>>Obsolete</option>
-                                    <option value="lost" <?php echo $form['reason'] === 'lost' ? 'selected' : ''; ?>>Lost</option>
-                                    <option value="beyond_repair" <?php echo $form['reason'] === 'beyond_repair' ? 'selected' : ''; ?>>Beyond Repair</option>
-                                    <option value="other" <?php echo $form['reason'] === 'other' ? 'selected' : ''; ?>>Other</option>
+                                    <?php foreach ($reasonOptions as $reasonValue => $reasonLabel): ?>
+                                        <option value="<?php echo h($reasonValue); ?>" <?php echo $form['reason'] === $reasonValue ? 'selected' : ''; ?>><?php echo h($reasonLabel); ?></option>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>
                             <div class="col-md-2">
@@ -567,7 +568,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <?php if (!empty($row['serial_no'])): ?><div class="small text-muted"><?php echo h($row['serial_no']); ?></div><?php endif; ?>
                                             </td>
                                             <td><?php echo h(trim(implode(' / ', array_filter([$row['document_type'] ?? '', $row['document_no'] ?? ''])))); ?></td>
-                                            <td><?php echo h(trim(implode(' | ', array_filter([$row['disposal_type'] ?? '', $row['reason'] ?? '', $row['remarks'] ?? ''])))); ?></td>
+                                            <td><?php echo h(trim(implode(' | ', array_filter([$row['disposal_type'] ?? '', disposal_reason_label($row['reason'] ?? ''), $row['remarks'] ?? ''])))); ?></td>
                                             <td><?php echo h(employee_display_name([
                                                 'first_name' => $row['approved_first_name'] ?? '',
                                                 'middle_name' => $row['approved_middle_name'] ?? '',

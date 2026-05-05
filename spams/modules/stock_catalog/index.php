@@ -491,7 +491,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <input type="search" class="form-control" name="q" placeholder="Search stock no. or item name" value="<?php echo h($search); ?>">
                         <button type="submit" class="btn btn-outline-secondary">Search</button>
                     </div>
-                    <div class="d-flex gap-2 flex-wrap">
+                    <div class="d-flex gap-2 flex-wrap align-items-center">
+                        <span class="small text-muted fw-semibold">Quick filters:</span>
                         <?php foreach (['all' => 'All', 'supply' => 'Supply', 'semi_expendable' => 'Semi-Expendable', 'equipment' => 'Equipment'] as $typeKey => $typeLabel): ?>
                             <a href="<?php echo base_url('modules/stock_catalog/index.php?type=' . urlencode($typeKey) . ($search !== '' ? '&q=' . urlencode($search) : '')); ?>" class="btn btn-sm <?php echo $filterType === $typeKey ? 'btn-primary' : 'btn-outline-secondary'; ?>"><?php echo h($typeLabel); ?></a>
                         <?php endforeach; ?>

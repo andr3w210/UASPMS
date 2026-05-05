@@ -125,16 +125,7 @@ function po_item_type_label(string $itemType): string
 
 function receiving_status_badge(string $status): string
 {
-    if ($status === 'completed') {
-        return '<span class="badge text-bg-success">Completed</span>';
-    }
-    if ($status === 'partial') {
-        return '<span class="badge text-bg-warning text-dark">Partial</span>';
-    }
-    if ($status === 'cancelled') {
-        return '<span class="badge text-bg-danger">Cancelled</span>';
-    }
-    return '<span class="badge text-bg-secondary">' . h(ucfirst($status)) . '</span>';
+    return operational_status_badge('receiving', $status);
 }
 
 function po_print_unit_label(array $item): string
@@ -238,6 +229,24 @@ foreach ($poItems as $poi) {
         $hasSupplyOrSemi = true;
     }
 }
+$poWorkflowStep = 'Receive Delivery';
+$poWorkflowNote = 'This PO still has quantities that can be received.';
+$poWorkflowHref = base_url('modules/receivings/index.php?po_id=' . (int) $purchaseOrder['id']);
+$poWorkflowTone = 'warning';
+if (($purchaseOrder['status'] ?? '') === 'completed') {
+    $poWorkflowStep = $hasEquipment ? 'Review Property Cards And Distribution' : 'Review RIS And Stock Cards';
+    $poWorkflowNote = 'Receiving is complete. Continue with cards, tags, distribution, and official reports.';
+    $poWorkflowHref = $hasEquipment ? base_url('modules/distributions/index.php') : base_url('modules/receivings/ris.php?po_id=' . (int) $purchaseOrder['id']);
+    $poWorkflowTone = 'success';
+} elseif (($purchaseOrder['status'] ?? '') === 'cancelled') {
+    $poWorkflowStep = 'No Next Action';
+    $poWorkflowNote = 'This purchase order is cancelled and should remain available for record review only.';
+    $poWorkflowHref = base_url('modules/purchase_orders/index.php?status=cancelled');
+    $poWorkflowTone = 'secondary';
+} elseif (($purchaseOrder['status'] ?? '') === 'partial' || $receivingsForPo) {
+    $poWorkflowStep = 'Continue Receiving';
+    $poWorkflowNote = 'Partial receiving exists. Continue receiving until all accepted quantities are recorded.';
+}
 
 $totalAmountInWords = po_amount_in_words((float) $purchaseOrder['total_amount']);
 $fundClusterLabel = trim((string) ($purchaseOrder['fund_source'] ?? ''));
@@ -272,9 +281,6 @@ if ($fundClusterLabel === '') {
                 <?php if (!empty($purchaseOrder['is_partial_entry']) && ($purchaseOrder['status'] ?? '') !== 'cancelled'): ?>
                     <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $purchaseOrder['id']); ?>" class="btn btn-outline-secondary">Edit / Add Items</a>
                 <?php endif; ?>
-                <a href="<?php echo base_url('modules/messages/index.php?related_table=purchase_orders&related_id=' . (int) $purchaseOrder['id']); ?>" class="btn btn-outline-info">
-                    Discussion
-                </a>
                 <button type="button" class="btn btn-primary" onclick="window.print()">Print</button>
                 <?php if ($purchaseOrder['status'] !== 'completed' && $purchaseOrder['status'] !== 'cancelled'): ?>
                     <a href="<?php echo base_url('modules/receivings/index.php?po_id=' . (int) $purchaseOrder['id']); ?>" class="btn btn-success">Receive Delivery</a>
@@ -298,6 +304,16 @@ if ($fundClusterLabel === '') {
     </div>
 
     <main class="po-document-wrapper">
+        <section class="alert alert-<?php echo h($poWorkflowTone); ?> d-print-none">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
+                <div>
+                    <div class="fw-semibold">Next step: <?php echo h($poWorkflowStep); ?></div>
+                    <div class="small"><?php echo h($poWorkflowNote); ?></div>
+                </div>
+                <a class="btn btn-sm btn-outline-dark" href="<?php echo h($poWorkflowHref); ?>">Open Next Step</a>
+            </div>
+        </section>
+
         <section class="po-document coa-po-document">
             <header class="po-document-header">
                 <div class="po-document-form-meta">
