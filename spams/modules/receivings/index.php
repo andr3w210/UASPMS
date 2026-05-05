@@ -247,10 +247,26 @@ if (!$db) {
         $totalReceivedAmount = 0.00;
 
         if ($form['purchase_order_id'] === '') {
-            $errors[] = 'Purchase order is required.';
+            add_validation_error($errors, 'Purchase order is required.');
         }
         if ($form['received_date'] === '') {
-            $errors[] = 'Received date is required.';
+            add_validation_error($errors, 'Received date is required.');
+        } elseif (!is_valid_date_string($form['received_date'])) {
+            add_validation_error($errors, 'Received date format is invalid.');
+        }
+
+        if ($form['purchase_order_id'] !== '') {
+            $selectedPoExists = false;
+            $postedPoId = (int) $form['purchase_order_id'];
+            foreach ($purchaseOrders as $poRow) {
+                if ((int) ($poRow['id'] ?? 0) === $postedPoId) {
+                    $selectedPoExists = true;
+                    break;
+                }
+            }
+            if (!$selectedPoExists) {
+                add_validation_error($errors, 'Selected purchase order is invalid or unavailable for receiving.');
+            }
         }
 
         foreach ($receivingItems as &$item) {
