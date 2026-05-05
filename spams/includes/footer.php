@@ -11,5 +11,45 @@
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script src="<?php echo base_url('assets/js/app.js'); ?>"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var dangerAlert = document.querySelector('.alert.alert-danger');
+    if (!dangerAlert || !window.bootstrap || !bootstrap.Toast) {
+        return;
+    }
+
+    var messageLines = Array.from(dangerAlert.querySelectorAll('div')).map(function (el) {
+        return (el.textContent || '').trim();
+    }).filter(function (line) {
+        return line !== '';
+    });
+
+    var summary = messageLines[0] || (dangerAlert.textContent || '').trim() || 'Please review the highlighted validation errors.';
+
+    var container = document.getElementById('globalValidationToastContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'globalValidationToastContainer';
+        container.className = 'toast-container position-fixed top-0 end-0 p-3';
+        container.style.zIndex = '1080';
+        document.body.appendChild(container);
+    }
+
+    var toastEl = document.createElement('div');
+    toastEl.className = 'toast text-bg-danger border-0';
+    toastEl.setAttribute('role', 'alert');
+    toastEl.setAttribute('aria-live', 'assertive');
+    toastEl.setAttribute('aria-atomic', 'true');
+    toastEl.innerHTML =
+        '<div class="d-flex">' +
+            '<div class="toast-body">' + summary + '</div>' +
+            '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>' +
+        '</div>';
+
+    container.appendChild(toastEl);
+    var toast = new bootstrap.Toast(toastEl, { delay: 5000 });
+    toast.show();
+});
+</script>
 </body>
 </html>

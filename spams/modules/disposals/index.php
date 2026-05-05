@@ -85,11 +85,25 @@ if (!$db) {
         }
         if ($form['disposal_date'] === '') {
             $errors[] = 'Disposal date is required.';
+        } elseif (!is_valid_date_string($form['disposal_date'])) {
+            $errors[] = 'Disposal date format is invalid.';
         }
         if ($form['reason'] === '') {
             $errors[] = 'Disposal reason is required.';
         } elseif (!array_key_exists($form['reason'], $reasonOptions)) {
             $errors[] = 'Select a valid disposal reason based on COA disposal rules.';
+        }
+        if ($approvedBy > 0) {
+            $approverExists = false;
+            foreach ($employees as $employeeRow) {
+                if ((int) ($employeeRow['id'] ?? 0) === $approvedBy) {
+                    $approverExists = true;
+                    break;
+                }
+            }
+            if (!$approverExists) {
+                $errors[] = 'Selected approver is invalid.';
+            }
         }
 
         $asset = null;

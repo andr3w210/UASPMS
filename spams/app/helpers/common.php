@@ -88,6 +88,29 @@ function old(array $source, string $key, string $default = ''): string
     return isset($source[$key]) ? trim((string) $source[$key]) : $default;
 }
 
+function add_validation_error(array &$errors, string $message): void
+{
+    if (!in_array($message, $errors, true)) {
+        $errors[] = $message;
+    }
+}
+
+function is_valid_date_string(string $value, string $format = 'Y-m-d'): bool
+{
+    $value = trim($value);
+    if ($value === '') {
+        return false;
+    }
+
+    $date = DateTime::createFromFormat($format, $value);
+    return $date instanceof DateTime && $date->format($format) === $value;
+}
+
+function is_allowed_value(string $value, array $allowed): bool
+{
+    return in_array($value, $allowed, true);
+}
+
 function has_foreign_key_reference(mysqli $db, string $referencedTable, int $recordId, array $fallbackChecks = []): bool
 {
     $targets = [];
