@@ -1043,6 +1043,28 @@ $distributionType = $distributionType ?? ($_GET['document_type'] ?? 'ics');
 $distributionSemiType = $distributionSemiType ?? ($_GET['semi_type'] ?? null);
 $form = $form ?? ['system_reference' => '', 'document_no' => '', 'distribution_date' => date('Y-m-d'), 'office_id' => '', 'employee_id' => '', 'purpose' => '', 'remarks' => ''];
 
+if (($_GET['export'] ?? '') === 'csv') {
+    stream_csv_download(
+        'posted_distributions_' . date('Ymd_His') . '.csv',
+        ['Reference', 'Document No.', 'Distribution Date', 'Type', 'Items', 'Office', 'Employee', 'Employee No.', 'Status', 'Total Amount'],
+        $distributions,
+        static function (array $distribution): array {
+            return [
+                $distribution['system_reference'] ?? '',
+                $distribution['document_no'] ?? '',
+                $distribution['distribution_date'] ?? '',
+                strtoupper((string) ($distribution['document_type'] ?? '')),
+                str_replace(' || ', '; ', (string) ($distribution['distributed_items'] ?? '')),
+                $distribution['office_name'] ?? '',
+                trim(employee_display_name($distribution)),
+                $distribution['employee_no'] ?? '',
+                operational_status_label('posted_transaction', (string) ($distribution['status'] ?? 'posted')),
+                number_format((float) ($distribution['total_amount'] ?? 0), 2, '.', ''),
+            ];
+        }
+    );
+}
+
 require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
@@ -1057,6 +1079,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <h5 class="page-title mb-1">Distribution Workspace</h5>
                                         <p class="text-muted mb-0">Choose the correct accountability document, assign units, and post distributions from one responsive workspace.</p>
                                     </div>
+                                </div>
+                                <div class="alert alert-info mb-3">
+                                    <div class="fw-semibold">Workflow cue</div>
+                                    <div class="small">Start from completed receiving records, choose the right accountability document, assign the accountable office and employee, then print PAR/ICS and QR tags after posting.</div>
                                 </div>
                                 <!-- SPA: Step 1 + Split panel editor -->
                                 <div class="card mb-3 workspace-form-section">
@@ -1262,6 +1288,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <p class="text-muted mb-0">Review posted accountability documents and correct the header details when the assigned office, employee, or notes were entered incorrectly.</p>
                     </div>
                     <div class="workspace-actions">
+                        <a href="<?php echo h(base_url('modules/distributions/index.php?' . http_build_query(array_merge($_GET, ['export' => 'csv'])))); ?>" class="btn btn-sm btn-outline-success">Export CSV</a>
                         <a href="<?php echo base_url('modules/distributions/par_office.php'); ?>" class="btn btn-sm btn-outline-primary" target="_blank">PAR by Office</a>
                         <a href="<?php echo base_url('modules/distributions/ics_office.php'); ?>" class="btn btn-sm btn-outline-success" target="_blank">ICS by Office</a>
                         <span class="badge text-bg-light"><?php echo count($distributions); ?> record(s)</span>
@@ -1419,6 +1446,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                 <?php endif; ?>
 
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                    <span class="small text-muted fw-semibold">Quick filters:</span>
+                    <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType)); ?>" class="btn btn-sm <?php echo empty($filterDistType) ? 'btn-primary' : 'btn-outline-secondary'; ?>">All Posted</a>
+                    <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType) . '&filter_type=ics'); ?>" class="btn btn-sm <?php echo ($filterDistType ?? '') === 'ics' ? 'btn-primary' : 'btn-outline-secondary'; ?>">ICS</a>
+                    <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType) . '&filter_type=par'); ?>" class="btn btn-sm <?php echo ($filterDistType ?? '') === 'par' ? 'btn-primary' : 'btn-outline-secondary'; ?>">PAR</a>
+                </div>
+
                 <form method="get" class="row g-2 align-items-center mb-3 workspace-filter-panel">
                     <input type="hidden" name="document_type" value="<?php echo h($distributionType); ?>">
                     <div class="col-auto">
@@ -1434,7 +1468,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-12 col-md-auto">
                         <div class="d-grid gap-2 d-sm-flex">
                             <button type="submit" class="btn btn-sm btn-primary">Search</button>
-                            <a href="modules/distributions/index.php?document_type=<?php echo h($distributionType); ?>" class="btn btn-sm btn-link">Clear</a>
+                            <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType)); ?>" class="btn btn-sm btn-link">Clear</a>
                         </div>
                     </div>
                 </form>
@@ -1483,10 +1517,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </td>
                                         <td><?php echo h($distribution['office_name']); ?></td>
                                         <td><?php echo $distribution['employee_no'] ? h(employee_display_name($distribution)) . ' - ' . h($distribution['employee_no']) : '<span class="text-muted">Not specified</span>'; ?></td>
-                                        <td><span class="badge text-bg-light text-uppercase"><?php echo h($distribution['status']); ?></span></td>
+                                        <td><?php echo operational_status_badge('posted_transaction', (string) ($distribution['status'] ?? 'posted')); ?></td>
                                         <td class="text-end">
                                             <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType) . '&edit_id=' . (int) $distribution['id'] . '#distribution-edit-panel'); ?>" class="btn btn-sm btn-outline-secondary me-1">Edit</a>
-                                            <a href="<?php echo base_url('modules/messages/index.php?related_table=distributions&related_id=' . (int)$distribution['id']); ?>" class="btn btn-sm btn-outline-info me-1">Discussion</a>
                                             <?php if (($distribution['document_type'] ?? '') === 'par'): ?>
                                                 <a href="<?php echo base_url('modules/distributions/par.php?id=' . (int)$distribution['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print PAR</a>
                                             <?php else: ?>

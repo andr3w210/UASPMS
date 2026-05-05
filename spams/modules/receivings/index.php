@@ -4,13 +4,7 @@ require_role('Administrator', 'Supply Officer');
 
 function receiving_status_badge(string $status): string
 {
-    $map = [
-        'completed' => ['text-bg-success',   'Completed'],
-        'partial'   => ['text-bg-warning',   'Partial'],
-        'cancelled' => ['text-bg-danger',    'Cancelled'],
-    ];
-    [$class, $label] = $map[$status] ?? ['text-bg-secondary', ucfirst($status)];
-    return '<span class="badge ' . $class . '">' . h($label) . '</span>';
+    return operational_status_badge('receiving', $status);
 }
 
 function receiving_type_label(string $type): string
@@ -249,6 +243,7 @@ if (!$db) {
         $postedItems = $_POST['items'] ?? [];
         $validatedItems = [];
         $remainingAfterSave = [];
+        $postedSerialNumbers = [];
         $totalReceivedAmount = 0.00;
 
         if ($form['purchase_order_id'] === '') {
@@ -439,6 +434,40 @@ if (!$db) {
                             'no_serial_no' => !empty($detailTemplate['no_serial_no']) ? '1' : '0',
                             'no_remarks' => !empty($detailTemplate['no_remarks']) ? '1' : '0',
                         ];
+                    }
+                }
+            }
+
+            foreach ($detailRows as $detailRow) {
+                $serialNo = trim((string) ($detailRow['serial_no'] ?? ''));
+                if ($serialNo === '') {
+                    continue;
+                }
+                $serialKey = strtoupper($serialNo);
+                if (isset($postedSerialNumbers[$serialKey])) {
+                    $errors[] = 'Duplicate serial number in this receiving: ' . $serialNo . '.';
+                    continue 2;
+                }
+                $postedSerialNumbers[$serialKey] = true;
+
+                $serialStmt = $db->prepare("
+                    SELECT source_name FROM (
+                        SELECT 'receiving detail' AS source_name FROM receiving_item_details WHERE serial_no = ?
+                        UNION ALL
+                        SELECT 'distributed asset' AS source_name FROM distribution_item_details WHERE serial_no = ?
+                        UNION ALL
+                        SELECT 'beginning balance asset' AS source_name FROM legacy_assets WHERE serial_no = ?
+                    ) matches
+                    LIMIT 1
+                ");
+                if ($serialStmt) {
+                    $serialStmt->bind_param('sss', $serialNo, $serialNo, $serialNo);
+                    $serialStmt->execute();
+                    $serialExists = $serialStmt->get_result()->fetch_assoc();
+                    $serialStmt->close();
+                    if ($serialExists) {
+                        $errors[] = 'Serial number already exists in ' . $serialExists['source_name'] . ' records: ' . $serialNo . '.';
+                        continue 2;
                     }
                 }
             }
@@ -784,6 +813,26 @@ if (!$db) {
             $receivings = $receivingResult->fetch_all(MYSQLI_ASSOC);
         }
     }
+}
+
+if (($_GET['export'] ?? '') === 'csv') {
+    stream_csv_download(
+        'receiving_records_' . date('Ymd_His') . '.csv',
+        ['Reference', 'RIS No.', 'Received Date', 'PO Number', 'Supplier', 'Delivery Receipt No.', 'Status', 'Total Received Amount'],
+        $receivings,
+        static function (array $receiving): array {
+            return [
+                $receiving['system_reference'] ?? '',
+                $receiving['ris_no'] ?? '',
+                $receiving['received_date'] ?? '',
+                $receiving['po_number'] ?? '',
+                $receiving['supplier_name'] ?? '',
+                $receiving['delivery_receipt_no'] ?? '',
+                operational_status_label('receiving', (string) ($receiving['status'] ?? '')),
+                number_format((float) ($receiving['total_received_amount'] ?? 0), 2, '.', ''),
+            ];
+        }
+    );
 }
 
 require_once __DIR__ . '/../../includes/header.php';
@@ -1302,8 +1351,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </div>
                                             <div class="workspace-actions">
                                                 <a href="<?php echo base_url('modules/receivings/index.php'); ?>" class="btn btn-sm btn-outline-secondary">← Change PO</a>
-                                                <a href="<?php echo base_url('modules/messages/index.php?related_table=purchase_orders&related_id=' . (int) $selectedPurchaseOrder['id']); ?>" class="btn btn-sm btn-outline-info">PO Discussion</a>
                                             </div>
+                                        </div>
+                                        <div class="alert alert-info mb-4">
+                                            <div class="fw-semibold">Workflow cue</div>
+                                            <div class="small">After saving this receiving, print the IAR. If equipment or semi-expendable units were accepted, continue to Distribution for PAR or ICS posting. If supplies were accepted, review RIS and stock cards.</div>
                                         </div>
                                 <?php endif; ?>
 
@@ -1623,8 +1675,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <h5 class="card-title mb-0">Receiving Records</h5>
                     </div>
                     <div class="workspace-actions">
+                        <a href="<?php echo h(base_url('modules/receivings/index.php?' . http_build_query(array_merge($_GET, ['export' => 'csv'])))); ?>" class="btn btn-outline-success btn-sm">Export CSV</a>
                         <span class="badge text-bg-light"><?php echo count($receivings); ?> record(s)</span>
                     </div>
+                </div>
+
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                    <span class="small text-muted fw-semibold">Quick filters:</span>
+                    <a href="<?php echo base_url('modules/receivings/index.php?filter_status=partial'); ?>" class="btn btn-sm <?php echo $filterStatus === 'partial' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Partial</a>
+                    <a href="<?php echo base_url('modules/receivings/index.php?filter_status=completed'); ?>" class="btn btn-sm <?php echo $filterStatus === 'completed' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Completed</a>
+                    <a href="<?php echo base_url('modules/receivings/index.php?filter_status=rejected'); ?>" class="btn btn-sm <?php echo $filterStatus === 'rejected' ? 'btn-primary' : 'btn-outline-secondary'; ?>">With Rejected Items</a>
+                    <a href="<?php echo base_url('modules/receivings/index.php?filter_status=cancelled'); ?>" class="btn btn-sm <?php echo $filterStatus === 'cancelled' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Cancelled</a>
                 </div>
 
                 <form method="get" class="row g-2 align-items-end mb-3 workspace-filter-panel">
@@ -1662,7 +1723,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo h($receiving['delivery_receipt_no'] ?? ''); ?></td>
                                     <td><?php echo receiving_status_badge($receiving['status']); ?></td>
                                     <td class="text-end"><?php echo h(number_format((float) $receiving['total_received_amount'], 2)); ?></td>
-                                    <td class="text-end"><a href="<?php echo base_url('modules/messages/index.php?related_table=receivings&related_id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-info me-1">Discussion</a><?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print IAR</a><a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Final IAR by PO</a><?php else: ?><span class="text-muted small">No items received yet</span><?php endif; ?></td>
+                                    <td class="text-end"><?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print IAR</a><a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Final IAR by PO</a><?php else: ?><span class="text-muted small">No items received yet</span><?php endif; ?></td>
                                 </tr>
                             <?php endforeach; else: ?>
                                 <tr><td colspan="9" class="text-center text-muted py-4">No receiving records yet.</td></tr>

@@ -112,6 +112,52 @@ function format_quantity($value): string
     return number_format((float) $value, 0);
 }
 
+function operational_status_label(string $domain, string $status): string
+{
+    $status = trim($status);
+    if ($status === '') {
+        $status = 'pending';
+    }
+
+    $labels = [
+        'purchase_order' => ['encoded' => 'Encoded', 'partial' => 'Partial', 'completed' => 'Completed', 'cancelled' => 'Cancelled'],
+        'receiving' => ['draft' => 'Draft', 'partial' => 'Partial', 'completed' => 'Completed', 'cancelled' => 'Cancelled', 'rejected' => 'With Rejected Items'],
+        'posted_transaction' => ['posted' => 'Posted', 'cancelled' => 'Cancelled'],
+        'stock_adjustment' => ['pending' => 'Pending', 'approved' => 'Approved', 'cancelled' => 'Cancelled'],
+        'count_session' => ['open' => 'Open', 'closed' => 'Closed'],
+        'inventory_count' => ['pending' => 'Pending', 'found' => 'Found', 'missing' => 'Missing', 'for_repair' => 'For Repair', 'for_disposal' => 'For Disposal', 'wrong_office' => 'Wrong Office', 'wrong_accountable' => 'Wrong Accountable'],
+        'supply_count' => ['pending' => 'Pending', 'match' => 'Match', 'shortage' => 'Shortage', 'overage' => 'Overage', 'not_counted' => 'Not Counted'],
+    ];
+
+    return $labels[$domain][$status] ?? ucwords(str_replace('_', ' ', $status));
+}
+
+function operational_status_badge_class(string $domain, string $status): string
+{
+    $status = trim($status);
+    if ($status === '') {
+        $status = 'pending';
+    }
+
+    $classes = [
+        'purchase_order' => ['encoded' => 'text-bg-secondary', 'partial' => 'text-bg-warning', 'completed' => 'text-bg-success', 'cancelled' => 'text-bg-danger'],
+        'receiving' => ['draft' => 'text-bg-secondary', 'partial' => 'text-bg-warning', 'completed' => 'text-bg-success', 'cancelled' => 'text-bg-danger', 'rejected' => 'text-bg-danger'],
+        'posted_transaction' => ['posted' => 'text-bg-success', 'cancelled' => 'text-bg-danger'],
+        'stock_adjustment' => ['pending' => 'text-bg-warning', 'approved' => 'text-bg-success', 'cancelled' => 'text-bg-danger'],
+        'count_session' => ['open' => 'text-bg-success', 'closed' => 'text-bg-secondary'],
+        'inventory_count' => ['pending' => 'text-bg-secondary', 'found' => 'text-bg-success', 'missing' => 'text-bg-danger', 'for_repair' => 'text-bg-warning', 'for_disposal' => 'text-bg-danger', 'wrong_office' => 'text-bg-info', 'wrong_accountable' => 'text-bg-info'],
+        'supply_count' => ['pending' => 'text-bg-secondary', 'match' => 'text-bg-success', 'shortage' => 'text-bg-warning', 'overage' => 'text-bg-danger', 'not_counted' => 'text-bg-dark'],
+    ];
+
+    return $classes[$domain][$status] ?? 'text-bg-secondary';
+}
+
+function operational_status_badge(string $domain, string $status, string $extraClass = ''): string
+{
+    $class = trim('badge ' . operational_status_badge_class($domain, $status) . ' ' . $extraClass);
+    return '<span class="' . h($class) . '">' . h(operational_status_label($domain, $status)) . '</span>';
+}
+
 function employee_display_name(array $employee): string
 {
     $prefix = trim((string) ($employee['name_prefix'] ?? ''));
@@ -413,6 +459,65 @@ function fund_number_from_source(?string $fundCode, ?string $fundSource = null):
     return '';
 }
 
+function coa_disposal_reason_options(): array
+{
+    return [
+        'unserviceable' => 'Unserviceable',
+        'damaged' => 'Damaged',
+        'beyond_repair' => 'Beyond Repair',
+        'destroyed' => 'Destroyed',
+        'obsolete' => 'Obsolete',
+        'lost' => 'Lost',
+        'stolen' => 'Stolen',
+    ];
+}
+
+function normalize_disposal_reason(?string $reason): string
+{
+    $raw = strtolower(trim((string) $reason));
+    if ($raw === '') {
+        return 'unserviceable';
+    }
+
+    $normalized = str_replace(['-', ' '], '_', $raw);
+    $aliases = [
+        'for_disposal' => 'unserviceable',
+        'for_condemnation' => 'destroyed',
+        'condemned' => 'destroyed',
+        'broken' => 'damaged',
+    ];
+    if (isset($aliases[$normalized])) {
+        $normalized = $aliases[$normalized];
+    }
+
+    return array_key_exists($normalized, coa_disposal_reason_options()) ? $normalized : 'unserviceable';
+}
+
+function disposal_reason_label(?string $reason): string
+{
+    $normalized = normalize_disposal_reason($reason);
+    $options = coa_disposal_reason_options();
+
+    return $options[$normalized] ?? 'Unserviceable';
+}
+
+function disposal_rlsddp_status_flags(?string $reason): array
+{
+    $normalized = normalize_disposal_reason($reason);
+
+    return [
+        'lost' => $normalized === 'lost',
+        'damaged' => in_array($normalized, ['damaged', 'unserviceable', 'beyond_repair'], true),
+        'stolen' => $normalized === 'stolen',
+        'destroyed' => in_array($normalized, ['destroyed', 'obsolete'], true),
+    ];
+}
+
+function disposal_unserviceable_reason_filters(): array
+{
+    return ['unserviceable', 'damaged', 'beyond_repair', 'obsolete', 'destroyed'];
+}
+
 function collect_non_empty_column_values(array $rows, string $key): array
 {
     $values = [];
@@ -461,6 +566,28 @@ function render_print_action_bar(): void
         <button class="btn btn-primary btn-sm" onclick="window.print()">Print</button>
     </div>
     <?php
+}
+
+function stream_csv_download(string $filename, array $headers, array $rows, callable $rowMapper): void
+{
+    $safeFilename = preg_replace('/[^A-Za-z0-9._-]/', '_', $filename);
+    if ($safeFilename === '' || $safeFilename === null) {
+        $safeFilename = 'export.csv';
+    }
+    if (!str_ends_with(strtolower($safeFilename), '.csv')) {
+        $safeFilename .= '.csv';
+    }
+
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $safeFilename . '"');
+
+    $output = fopen('php://output', 'w');
+    fputcsv($output, $headers);
+    foreach ($rows as $row) {
+        fputcsv($output, $rowMapper($row));
+    }
+    fclose($output);
+    exit;
 }
 
 function render_simple_report_header(string $appendix, string $title, string $asOf, string $fundCluster, string $entityName = APP_NAME): void

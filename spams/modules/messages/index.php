@@ -19,6 +19,10 @@ $selectedRelatedId = (int) ($_GET['related_id'] ?? 0);
 if ($selectedChannelKey !== 'general') { $selectedChannelKey = ''; }
 if (!in_array($selectedRelatedTable, $allowedRelatedTables, true)) { $selectedRelatedTable = ''; $selectedRelatedId = 0; }
 $relatedContextLabel = '';
+$relatedContextHref = '';
+$threadTitle = 'Select a conversation';
+$threadSubtitle = 'Conversation thread';
+$relatedContextTone = 'secondary';
 
 if ($db && $currentUserId > 0) {
     $usersStmt = $db->prepare("SELECT id, username, full_name FROM users WHERE is_active = 1 AND id != ? ORDER BY full_name ASC, username ASC");
@@ -30,6 +34,11 @@ if ($db && $currentUserId > 0) {
     }
 
     if ($selectedRelatedTable !== '' && $selectedRelatedId > 0) {
+        $relatedRoutes = [
+            'purchase_orders' => 'modules/purchase_orders/view.php?id=',
+            'receivings' => 'modules/receivings/iar.php?id=',
+            'distributions' => 'modules/distributions/view.php?id=',
+        ];
         $map = [
             'purchase_orders' => "SELECT CONCAT('Purchase Order: ', COALESCE(po_number, system_reference)) AS label FROM purchase_orders WHERE id = ? LIMIT 1",
             'receivings' => "SELECT CONCAT('Receiving: ', COALESCE(system_reference, ris_no)) AS label FROM receivings WHERE id = ? LIMIT 1",
@@ -41,6 +50,9 @@ if ($db && $currentUserId > 0) {
             $ctx->execute();
             $relatedContextLabel = (string) (($ctx->get_result()->fetch_assoc()['label'] ?? ''));
             $ctx->close();
+        }
+        if ($relatedContextLabel !== '' && isset($relatedRoutes[$selectedRelatedTable])) {
+            $relatedContextHref = base_url($relatedRoutes[$selectedRelatedTable] . $selectedRelatedId);
         }
     }
 
@@ -104,6 +116,8 @@ if ($db && $currentUserId > 0) {
     if ($selectedConversationUserId <= 0 && $selectedChannelKey === '') { $selectedChannelKey = 'general'; }
 
     if ($selectedChannelKey === 'general') {
+        $threadTitle = 'General Group Chat';
+        $threadSubtitle = 'Shared channel for all active users.';
         message_mark_channel_read($db, 'general', $currentUserId);
         $conversations[0]['unread_count'] = 0;
         $threadStmt = $db->prepare("
@@ -133,6 +147,10 @@ if ($db && $currentUserId > 0) {
             $selectedUserStmt->execute();
             $selectedConversationUser = $selectedUserStmt->get_result()->fetch_assoc();
             $selectedUserStmt->close();
+            if ($selectedConversationUser) {
+                $threadTitle = (string) (($selectedConversationUser['full_name'] ?? '') ?: ($selectedConversationUser['username'] ?? 'Conversation'));
+                $threadSubtitle = 'Direct conversation';
+            }
         }
         foreach ($conversations as &$conversation) {
             if (($conversation['type'] ?? '') === 'direct' && (int) ($conversation['other_user_id'] ?? 0) === $selectedConversationUserId) {
@@ -162,6 +180,11 @@ if ($db && $currentUserId > 0) {
     $errors[] = 'Unable to load messages right now.';
 }
 
+if ($relatedContextLabel !== '') {
+    $threadSubtitle = 'Linked discussion for ' . $relatedContextLabel;
+    $relatedContextTone = 'primary';
+}
+
 require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
@@ -176,12 +199,38 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
                 <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#composeCollapse"><i class="bi bi-chat-dots me-1"></i>New Message</button>
             </div>
+            <div class="card-body border-top border-bottom bg-body-tertiary py-3">
+                <div class="row g-3 align-items-stretch">
+                    <div class="col-lg-7">
+                        <div class="alert alert-light border mb-0 h-100">
+                            <div class="fw-semibold mb-1">Messaging Guidance</div>
+                            <div class="small text-muted mb-2">Use Messages for coordination and follow-up. Keep approvals, final decisions, and official transaction outcomes in the actual transaction records, audit trail, and printed forms.</div>
+                            <div class="small">Available mentions: <span class="badge text-bg-warning text-dark">@everyone</span> <span class="badge text-bg-warning text-dark">@Administrator</span> <span class="badge text-bg-warning text-dark">@Supply Officer</span> <span class="badge text-bg-warning text-dark">@Property Officer</span></div>
+                        </div>
+                    </div>
+                    <div class="col-lg-5">
+                        <div class="alert alert-<?php echo h($relatedContextTone); ?> mb-0 h-100">
+                            <div class="fw-semibold mb-1">Thread Context</div>
+                            <?php if ($relatedContextLabel !== ''): ?>
+                                <div class="small mb-2">This thread is filtered to one linked record.</div>
+                                <div><strong><?php echo h($relatedContextLabel); ?></strong></div>
+                                <?php if ($relatedContextHref !== ''): ?>
+                                    <div class="mt-2">
+                                        <a href="<?php echo h($relatedContextHref); ?>" class="btn btn-sm btn-outline-primary">Open Source Record</a>
+                                    </div>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <div class="small mb-0">No linked record filter is active. Messages shown here cover the full conversation or the General channel.</div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="collapse" id="composeCollapse">
                 <div class="card-body border-top">
                     <?php if ($relatedContextLabel !== ''): ?><div class="alert alert-primary py-2"><strong>Linked Discussion:</strong> <?php echo h($relatedContextLabel); ?></div><?php endif; ?>
                     <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?>
                     <?php if ($errors): ?><div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
-                    <div class="alert alert-light border py-2 small">Mentions: <span class="badge text-bg-warning text-dark">@everyone</span> <span class="badge text-bg-warning text-dark">@Administrator</span> <span class="badge text-bg-warning text-dark">@Supply Officer</span> <span class="badge text-bg-warning text-dark">@Property Officer</span></div>
                     <form method="post" id="messageComposeForm" action="<?php echo base_url('modules/messages/send.php'); ?>">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="send">
@@ -235,8 +284,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <div class="col-lg-8">
         <div class="card h-100">
             <div class="card-header">
-                <h6 class="mb-0" id="messagesThreadTitle"><?php echo $selectedChannelKey === 'general' ? 'General Group Chat' : h($selectedConversationUser['full_name'] ?? $selectedConversationUser['username'] ?? 'Select a conversation'); ?></h6>
-                <div class="small text-muted" id="messagesThreadSubtitle"><?php echo $selectedChannelKey === 'general' ? 'Shared channel for all active users.' : 'Conversation thread'; ?></div>
+                <h6 class="mb-0" id="messagesThreadTitle"><?php echo h($threadTitle); ?></h6>
+                <div class="small text-muted" id="messagesThreadSubtitle"><?php echo h($threadSubtitle); ?></div>
             </div>
             <div class="card-body overflow-auto" id="messagesThreadBody">
                 <?php if ($threadMessages): ?><div class="d-flex flex-column gap-3"><?php foreach ($threadMessages as $message): $isMine = (int) $message['sender_user_id'] === $currentUserId; ?>

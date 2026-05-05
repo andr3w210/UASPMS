@@ -69,7 +69,8 @@ if ($db) {
         if ($form['item_description'] === '') { $errors[] = 'Description is required.'; }
         if (!in_array($form['item_type'], ['semi_expendable', 'equipment'], true)) { $errors[] = 'Inventory type must be semi-expendable or equipment.'; }
         if ($form['quantity'] === '' || !ctype_digit($form['quantity']) || (int) $form['quantity'] <= 0) { $errors[] = 'Quantity is required.'; }
-        if ($form['unit_cost'] === '' || !is_numeric($form['unit_cost'])) { $errors[] = 'Unit cost is required.'; }
+        if ($form['unit_cost'] === '' || !is_numeric($form['unit_cost']) || (float) $form['unit_cost'] <= 0) { $errors[] = 'Unit cost must be greater than zero.'; }
+        if ($form['acquisition_date'] === '') { $errors[] = 'Acquisition date is required.'; }
         if ($form['fund_id'] === '') { $errors[] = 'Fund is required to generate the property number.'; }
         if ($form['account_code_id'] === '') { $errors[] = 'Account code is required to generate the property number.'; }
 
@@ -96,6 +97,21 @@ if ($db) {
         }
         if ($form['account_code_id'] !== '' && $accountCodeValue === '') {
             $errors[] = 'Selected account code is invalid.';
+        }
+
+        if ($form['classification_id'] !== '' && $form['account_code_id'] !== '') {
+            $classStmt = $db->prepare("SELECT account_code_id FROM classifications WHERE id = ? LIMIT 1");
+            if ($classStmt) {
+                $classificationCheckId = (int) $form['classification_id'];
+                $classStmt->bind_param('i', $classificationCheckId);
+                $classStmt->execute();
+                $classRow = $classStmt->get_result()->fetch_assoc();
+                $classStmt->close();
+                $classAccountId = (int) ($classRow['account_code_id'] ?? 0);
+                if ($classAccountId > 0 && $classAccountId !== (int) $form['account_code_id']) {
+                    $errors[] = 'Classification does not match the selected account code.';
+                }
+            }
         }
 
         $officeCodeValue = '';
@@ -127,6 +143,28 @@ if ($db) {
                 $checkStmt->close();
                 if ($exists) {
                     $errors[] = 'Property number already exists in beginning balance assets.';
+                }
+            }
+        }
+
+        if (!$errors && $form['serial_no'] !== '') {
+            $serialStmt = $db->prepare("
+                SELECT source_name FROM (
+                    SELECT 'beginning balance' AS source_name FROM legacy_assets WHERE serial_no = ?
+                    UNION ALL
+                    SELECT 'system asset' AS source_name FROM distribution_item_details WHERE serial_no = ?
+                    UNION ALL
+                    SELECT 'receiving detail' AS source_name FROM receiving_item_details WHERE serial_no = ?
+                ) matches
+                LIMIT 1
+            ");
+            if ($serialStmt) {
+                $serialStmt->bind_param('sss', $form['serial_no'], $form['serial_no'], $form['serial_no']);
+                $serialStmt->execute();
+                $serialExists = $serialStmt->get_result()->fetch_assoc();
+                $serialStmt->close();
+                if ($serialExists) {
+                    $errors[] = 'Serial number already exists in ' . $serialExists['source_name'] . ' records.';
                 }
             }
         }

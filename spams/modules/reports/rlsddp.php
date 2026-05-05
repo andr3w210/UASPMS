@@ -93,11 +93,11 @@ function rlsddp_fund_number(?string $fundCode, ?string $fundSource = null): stri
     return fund_number_from_source($fundCode, $fundSource);
 }
 
-$status = strtolower((string) ($record['reason'] ?? ''));
-$isLost = $status === 'lost';
-$isDamaged = $status === 'beyond_repair' || $status === 'unserviceable';
-$isStolen = false;
-$isDestroyed = $status === 'obsolete';
+$statusFlags = disposal_rlsddp_status_flags($record['reason'] ?? '');
+$isLost = $statusFlags['lost'];
+$isDamaged = $statusFlags['damaged'];
+$isStolen = $statusFlags['stolen'];
+$isDestroyed = $statusFlags['destroyed'];
 
 if ($isExport && $record) {
     export_excel_rows('rlsddp_' . ($record['system_reference'] ?? date('Ymd')) . '.xls', ['RLSDDP No.', 'Date', 'Department/Office', 'Accountable Officer', 'PAR No.', 'Property No.', 'Description', 'Acquisition Cost', 'Reason', 'Remarks'], [[
@@ -109,7 +109,7 @@ if ($isExport && $record) {
         $record['property_number'] ?? '',
         rlsddp_label($record),
         number_format((float) ($record['unit_cost'] ?? 0), 2),
-        $record['reason'] ?? '',
+        disposal_reason_label($record['reason'] ?? ''),
         $record['remarks'] ?? '',
     ]]);
 }
@@ -133,7 +133,7 @@ if ($isPrint && $record) {
         </div>
         <div class="mb-3"><strong>Status of Property:</strong> [<?php echo $isLost ? '/' : ' '; ?>] Lost [<?php echo $isDamaged ? '/' : ' '; ?>] Damaged [<?php echo $isStolen ? '/' : ' '; ?>] Stolen [<?php echo $isDestroyed ? '/' : ' '; ?>] Destroyed</div>
         <table class="table table-bordered align-middle"><thead><tr><th>Property No.</th><th>Description</th><th class="text-end">Acquisition Cost</th></tr></thead><tbody><tr><td><?php echo h($record['property_number'] ?? ''); ?></td><td><?php echo h(rlsddp_label($record)); ?></td><td class="text-end"><?php echo h(number_format((float) ($record['unit_cost'] ?? 0), 2)); ?></td></tr></tbody></table>
-        <div class="mt-3"><strong>Circumstances:</strong><div class="border p-3" style="min-height:110px;"><?php echo nl2br(h(trim(implode("\n", array_filter([$record['reason'] ?? '', $record['remarks'] ?? '']))))); ?></div></div>
+        <div class="mt-3"><strong>Circumstances:</strong><div class="border p-3" style="min-height:110px;"><?php echo nl2br(h(trim(implode("\n", array_filter([disposal_reason_label($record['reason'] ?? ''), $record['remarks'] ?? '']))))); ?></div></div>
     </div></body></html>
     <?php exit; }
 

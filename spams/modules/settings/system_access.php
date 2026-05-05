@@ -11,7 +11,6 @@ $tailscaleServeUrl = $db ? get_system_setting($db, 'tailscale_serve_url', 'http:
 $tailscaleIpUrl = $db ? get_system_setting($db, 'tailscale_ip_url', 'http://100.84.75.22') : 'http://100.84.75.22';
 $localUrl = $db ? get_system_setting($db, 'local_access_url', 'http://172.16.1.42') : 'http://172.16.1.42';
 $sessionTimeoutMinutes = $db ? get_system_setting($db, 'session_timeout_minutes', '30') : '30';
-$inventoryPhotoRoot = $db ? get_system_setting($db, 'inventory_photo_root', 'inventory_counts') : 'inventory_counts';
 $caCertificatePath = 'C:\xampp\apache\conf\ssl.crt\uaspms-lan-ca.crt';
 $caCertificateExists = is_file($caCertificatePath);
 
@@ -63,8 +62,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tailscaleIpUrl = normalize_access_url((string) ($_POST['tailscale_ip_url'] ?? ''));
         $localUrl = normalize_access_url((string) ($_POST['local_access_url'] ?? ''));
         $sessionTimeoutMinutes = trim((string) ($_POST['session_timeout_minutes'] ?? '30'));
-        $inventoryPhotoRoot = trim((string) ($_POST['inventory_photo_root'] ?? 'inventory_counts'));
-        $inventoryPhotoRoot = trim(str_replace(['..', '\\'], ['', '/'], $inventoryPhotoRoot), " /\t\n\r\0\x0B");
 
         $appUrl = first_available_access_url($tailscaleServeUrl, $tailscaleIpUrl, $localUrl, $appUrl);
 
@@ -94,12 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Session timeout must be between 5 and 480 minutes.';
         }
 
-        if ($inventoryPhotoRoot === '') {
-            $errors[] = 'Inventory photo folder cannot be blank.';
-        } elseif (!preg_match('/^[A-Za-z0-9_\/-]+$/', $inventoryPhotoRoot)) {
-            $errors[] = 'Inventory photo folder may only use letters, numbers, slash, dash, and underscore.';
-        }
-
         if ($db && empty($errors)) {
             $userId = current_user_id();
             $stmt = $db->prepare(
@@ -116,7 +107,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'tailscale_ip_url' => $tailscaleIpUrl,
                     'local_access_url' => $localUrl,
                     'session_timeout_minutes' => (string) ((int) $sessionTimeoutMinutes),
-                    'inventory_photo_root' => $inventoryPhotoRoot,
                 ];
 
                 foreach ($settingsToSave as $settingKey => $settingValue) {
@@ -143,7 +133,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 'tailscale_ip_url' => $tailscaleIpUrl,
                                 'local_access_url' => $localUrl,
                                 'session_timeout_minutes' => (int) $sessionTimeoutMinutes,
-                                'inventory_photo_root' => $inventoryPhotoRoot,
                             ],
                         ]);
                     }
@@ -186,7 +175,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="mb-4">
                         <div class="text-uppercase small text-muted fw-semibold">System Settings</div>
                         <h4 class="mb-2">System Access & Session</h4>
-                        <p class="text-muted mb-0">Set the network address used by QR links, control how long idle users stay signed in, and choose where inventory proof photos are stored.</p>
+                        <p class="text-muted mb-0">Set the network address used by QR links and control how long idle users stay signed in.</p>
                     </div>
 
                     <form method="post">
@@ -234,10 +223,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <input type="number" id="session_timeout_minutes" name="session_timeout_minutes" class="form-control" min="5" max="480" value="<?php echo h($sessionTimeoutMinutes); ?>">
                             <div class="form-text">Users are signed out after this many minutes of inactivity. Allowed range: 5 to 480 minutes.</div>
                         </div>
-                        <div class="mb-3">
-                            <label for="inventory_photo_root" class="form-label">Inventory Photo Folder</label>
-                            <input type="text" id="inventory_photo_root" name="inventory_photo_root" class="form-control" value="<?php echo h($inventoryPhotoRoot); ?>" placeholder="inventory_counts">
-                            <div class="form-text">Relative to <code>spams/uploads</code>. The system still adds the year and session folder under this root.</div>
+                        <div class="alert alert-light border small">
+                            Upload path and file migration options are managed in Upload Storage settings.
+                            <a href="<?php echo base_url('modules/settings/upload_storage.php'); ?>" class="ms-1">Open Upload Storage</a>
                         </div>
                         <div class="alert alert-light border small">
                             After saving this, regenerate or reprint QR tags so new tags use the updated network address.

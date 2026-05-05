@@ -18,6 +18,9 @@ $row = null;
 $inventoryMatch = null;
 $inventoryConflict = false;
 $latestInventoryCheck = null;
+$canManageAssetUpdates = user_has_any_role('Administrator', 'Supply Officer', 'Property Officer');
+$officeOptions = [];
+$employeeOptions = [];
 
 function employee_display_name_from_row(array $row): string
 {
@@ -51,6 +54,7 @@ function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $
                     o.office_name,
                     COALESCE(did.current_employee_id, d.employee_id) AS employee_id,
                     e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
+                    '' AS condition_status,
                     did.id AS distribution_item_detail_id,
                     0 AS legacy_asset_id,
                     'system' AS source_type
@@ -90,6 +94,7 @@ function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $
                     la.acquisition_date AS distribution_date, la.office_id,
                     o.office_name, la.employee_id,
                     e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
+                    la.condition_status,
                     0 AS distribution_item_detail_id,
                     la.id AS legacy_asset_id,
                     'legacy' AS source_type
@@ -135,6 +140,7 @@ function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
                 o.office_name,
                 COALESCE(did.current_employee_id, d.employee_id) AS employee_id,
                 e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
+                '' AS condition_status,
                 did.id AS distribution_item_detail_id,
                 0 AS legacy_asset_id,
                 'system' AS source_type
@@ -175,6 +181,7 @@ function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
                 la.acquisition_date AS distribution_date, la.office_id,
                 o.office_name, la.employee_id,
                 e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
+                la.condition_status,
                 0 AS distribution_item_detail_id,
                 la.id AS legacy_asset_id,
                 'legacy' AS source_type
@@ -327,6 +334,134 @@ function load_primary_asset_photo(mysqli $db, string $assetSource, int $assetId)
 if ($db) {
     $row = load_property_lookup_row($db, $ref);
 
+    if ($row && $_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') === 'update_asset_profile') {
+        if (!csrf_verify()) {
+            $errors[] = 'Invalid CSRF token.';
+        } elseif (!$canManageAssetUpdates) {
+            $errors[] = 'You are not allowed to update asset assignment from this page.';
+        } else {
+            $sourceType = (string) ($row['source_type'] ?? 'system');
+            $newOfficeId = (int) ($_POST['office_id'] ?? 0);
+            $newEmployeeId = (int) ($_POST['employee_id'] ?? 0);
+            $newConditionStatus = strtolower(trim((string) ($_POST['condition_status'] ?? '')));
+            $mobileNote = trim((string) ($_POST['mobile_note'] ?? ''));
+
+            if ($newOfficeId <= 0) {
+                $errors[] = 'Select an office assignment.';
+            }
+
+            $allowedConditions = ['good', 'fair', 'needs_repair', 'unserviceable', 'disposed'];
+            if (!in_array($newConditionStatus, $allowedConditions, true)) {
+                $newConditionStatus = 'good';
+            }
+
+            if (empty($errors)) {
+                $db->begin_transaction();
+                try {
+                    $userId = (int) (current_user_id() ?? 0);
+                    $assetRef = trim((string) ($row['property_number'] ?? $row['system_reference'] ?? ''));
+
+                    if ($sourceType === 'legacy') {
+                        $legacyId = (int) ($row['legacy_asset_id'] ?? 0);
+                        $stmt = $db->prepare(
+                            "UPDATE legacy_assets
+                             SET office_id = ?,
+                                 employee_id = NULLIF(?, 0),
+                                 condition_status = ?,
+                                 remarks = CASE
+                                     WHEN ? = '' THEN remarks
+                                     WHEN remarks IS NULL OR remarks = '' THEN ?
+                                     ELSE CONCAT(remarks, '\\n', ?)
+                                 END
+                             WHERE id = ?
+                             LIMIT 1"
+                        );
+                        if (!$stmt) {
+                            throw new RuntimeException('Unable to prepare legacy asset update.');
+                        }
+                        $noteLine = $mobileNote !== '' ? 'Mobile update: ' . $mobileNote : '';
+                        $stmt->bind_param('iissssi', $newOfficeId, $newEmployeeId, $newConditionStatus, $noteLine, $noteLine, $noteLine, $legacyId);
+                        $stmt->execute();
+                        $stmt->close();
+                    } else {
+                        $detailId = (int) ($row['distribution_item_detail_id'] ?? 0);
+                        $noteLine = $mobileNote !== '' ? 'Mobile update: ' . $mobileNote : '';
+
+                        if (schema_has_column($db, 'distribution_item_details', 'condition_status')) {
+                            $stmt = $db->prepare(
+                                "UPDATE distribution_item_details
+                                 SET current_office_id = ?,
+                                     current_employee_id = NULLIF(?, 0),
+                                     condition_status = ?,
+                                     remarks = CASE
+                                         WHEN ? = '' THEN remarks
+                                         WHEN remarks IS NULL OR remarks = '' THEN ?
+                                         ELSE CONCAT(remarks, '\\n', ?)
+                                     END
+                                 WHERE id = ?
+                                 LIMIT 1"
+                            );
+                            if (!$stmt) {
+                                throw new RuntimeException('Unable to prepare system asset update.');
+                            }
+                            $stmt->bind_param('iissssi', $newOfficeId, $newEmployeeId, $newConditionStatus, $noteLine, $noteLine, $noteLine, $detailId);
+                        } else {
+                            $stmt = $db->prepare(
+                                "UPDATE distribution_item_details
+                                 SET current_office_id = ?,
+                                     current_employee_id = NULLIF(?, 0),
+                                     remarks = CASE
+                                         WHEN ? = '' THEN remarks
+                                         WHEN remarks IS NULL OR remarks = '' THEN ?
+                                         ELSE CONCAT(remarks, '\\n', ?)
+                                     END
+                                 WHERE id = ?
+                                 LIMIT 1"
+                            );
+                            if (!$stmt) {
+                                throw new RuntimeException('Unable to prepare system asset update.');
+                            }
+                            $stmt->bind_param('iisssi', $newOfficeId, $newEmployeeId, $noteLine, $noteLine, $noteLine, $detailId);
+                        }
+                        $stmt->execute();
+                        $stmt->close();
+                    }
+
+                    if (function_exists('write_audit_log')) {
+                        write_audit_log($db, [
+                            'action' => 'update',
+                            'table_name' => $sourceType === 'legacy' ? 'legacy_assets' : 'distribution_item_details',
+                            'record_id' => $sourceType === 'legacy' ? (int) ($row['legacy_asset_id'] ?? 0) : (int) ($row['distribution_item_detail_id'] ?? 0),
+                            'module_name' => 'property_scan',
+                            'record_type' => 'asset',
+                            'action_name' => 'mobile_assignment_condition_update',
+                            'old_values' => [
+                                'office_id' => (int) ($row['office_id'] ?? 0),
+                                'employee_id' => (int) ($row['employee_id'] ?? 0),
+                                'condition_status' => (string) ($row['condition_status'] ?? ''),
+                            ],
+                            'new_values' => [
+                                'office_id' => $newOfficeId,
+                                'employee_id' => $newEmployeeId,
+                                'condition_status' => $newConditionStatus,
+                                'mobile_note' => $mobileNote,
+                                'property_reference' => $assetRef,
+                            ],
+                            'description' => 'Updated assignment/condition from mobile QR asset page.',
+                        ]);
+                    }
+
+                    $db->commit();
+                    set_flash('success', 'Asset assignment updated from mobile page.');
+                    redirect('modules/property/scan.php?ref=' . urlencode($ref));
+                } catch (Throwable $e) {
+                    $db->rollback();
+                    $errors[] = 'Unable to update asset assignment.';
+                }
+            }
+        }
+    }
+
     if ($row && $_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') === 'mark_found') {
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
@@ -478,6 +613,18 @@ if ($db) {
     }
 
     if ($row) {
+        if ($canManageAssetUpdates) {
+            $officeRes = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
+            if ($officeRes) {
+                $officeOptions = $officeRes->fetch_all(MYSQLI_ASSOC);
+            }
+
+            $employeeRes = $db->query("SELECT id, first_name, middle_name, last_name, suffix_name FROM employees WHERE is_active = 1 ORDER BY last_name ASC, first_name ASC");
+            if ($employeeRes) {
+                $employeeOptions = $employeeRes->fetch_all(MYSQLI_ASSOC);
+            }
+        }
+
         $propertyNumber = trim((string) ($row['property_number'] ?? $row['system_reference'] ?? ''));
         $officeId = (int) ($row['office_id'] ?? 0);
         $matches = find_active_inventory_match($db, $propertyNumber, $officeId);
@@ -612,9 +759,74 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Date Acquired</div><div><?php echo h(!empty($row['received_date']) ? date('M d, Y', strtotime((string) $row['received_date'])) : ''); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Supplier</div><div><?php echo h((string) ($row['supplier_name'] ?? '') !== '' ? (string) $row['supplier_name'] : 'Not recorded'); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">PO Number</div><div><?php echo h((string) ($row['po_number'] ?? '') !== '' ? (string) $row['po_number'] : 'Not recorded'); ?></div></div></div>
+                    <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Condition Status</div><div><?php echo h($row['condition_status'] !== '' ? ucwords(str_replace('_', ' ', (string) $row['condition_status'])) : 'Not recorded'); ?></div></div></div>
                 </div>
             </div>
         </div>
+
+        <?php if ($canManageAssetUpdates): ?>
+            <div class="card property-card mb-4">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+                        <div>
+                            <h5 class="mb-1">Mobile Quick Update</h5>
+                            <div class="text-muted small">Update assignment and condition while onsite after scanning the asset QR tag.</div>
+                        </div>
+                        <span class="badge text-bg-info">Field Update</span>
+                    </div>
+                    <form method="post" class="row g-3 align-items-end">
+                        <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="update_asset_profile">
+                        <div class="col-md-4">
+                            <label class="form-label">Office</label>
+                            <select class="form-select" name="office_id" required>
+                                <option value="">Select office</option>
+                                <?php foreach ($officeOptions as $officeOption): ?>
+                                    <option value="<?php echo (int) $officeOption['id']; ?>" <?php echo (int) ($row['office_id'] ?? 0) === (int) $officeOption['id'] ? 'selected' : ''; ?>><?php echo h((string) $officeOption['office_name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Accountable Employee</label>
+                            <select class="form-select" name="employee_id">
+                                <option value="0">Unassigned</option>
+                                <?php foreach ($employeeOptions as $employeeOption): ?>
+                                    <option value="<?php echo (int) $employeeOption['id']; ?>" <?php echo (int) ($row['employee_id'] ?? 0) === (int) $employeeOption['id'] ? 'selected' : ''; ?>><?php echo h(employee_display_name($employeeOption)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Condition</label>
+                            <select class="form-select" name="condition_status">
+                                <?php
+                                $conditionOptions = [
+                                    'good' => 'Good',
+                                    'fair' => 'Fair',
+                                    'needs_repair' => 'Needs Repair',
+                                    'unserviceable' => 'Unserviceable',
+                                    'disposed' => 'Disposed',
+                                ];
+                                $selectedCondition = strtolower(trim((string) ($row['condition_status'] ?? '')));
+                                if (!isset($conditionOptions[$selectedCondition])) {
+                                    $selectedCondition = 'good';
+                                }
+                                ?>
+                                <?php foreach ($conditionOptions as $conditionValue => $conditionLabel): ?>
+                                    <option value="<?php echo h($conditionValue); ?>" <?php echo $selectedCondition === $conditionValue ? 'selected' : ''; ?>><?php echo h($conditionLabel); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Field Note (optional)</label>
+                            <input type="text" class="form-control" name="mobile_note" maxlength="255" placeholder="Location update, condition observation, or accountability note">
+                        </div>
+                        <div class="col-12 d-grid d-md-flex gap-2 justify-content-md-end">
+                            <button type="submit" class="btn btn-primary">Save Mobile Update</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        <?php endif; ?>
 
         <div class="card property-card">
             <div class="card-body p-4">

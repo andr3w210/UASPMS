@@ -4,16 +4,8 @@ require_once __DIR__ . '/../../app/config/init.php';
 require_role('Administrator', 'Supply Officer');
 
 function po_status_badge(string $status): string {
-    // Normalize missing or empty status to 'encoded'
     $status = ($status ?? '') === '' ? 'encoded' : $status;
-    $map = [
-        'encoded'   => ['text-bg-secondary', 'Encoded'],
-        'partial'   => ['text-bg-warning',   'Partial'],
-        'completed' => ['text-bg-success',   'Completed'],
-        'cancelled' => ['text-bg-danger',    'Cancelled'],
-    ];
-    [$class, $label] = $map[$status] ?? ['text-bg-secondary', ucfirst($status)];
-    return '<span class="badge ' . $class . '">' . h($label) . '</span>';
+    return operational_status_badge('purchase_order', $status);
 }
 
 $db = db();
@@ -119,6 +111,7 @@ if (!$db) {
 
         if ($action === 'cancel_po') {
             $cancelId = (int)($_POST['cancel_id'] ?? 0);
+            $cancelReason = trim((string) ($_POST['cancel_reason'] ?? ''));
             if ($cancelId > 0) {
                 $checkStmt = $db->prepare("\n        SELECT id, status FROM purchase_orders\n        WHERE id = ? AND status = 'encoded'\n        LIMIT 1\n      ");
                 if ($checkStmt) {
@@ -127,7 +120,9 @@ if (!$db) {
                     $poToCancel = $checkStmt->get_result()->fetch_assoc();
                     $checkStmt->close();
 
-                    if (!$poToCancel) {
+                    if ($cancelReason === '') {
+                        set_flash('error', 'Cancellation reason is required.');
+                    } elseif (!$poToCancel) {
                         set_flash('error', 'PO cannot be cancelled. It may already be received or cancelled.');
                     } else {
                         $recvStmt = $db->prepare("\n            SELECT COUNT(*) AS cnt FROM receivings\n            WHERE purchase_order_id = ? AND status != 'cancelled'\n          ");
@@ -140,10 +135,11 @@ if (!$db) {
                             if ((int)($recvRow['cnt'] ?? 0) > 0) {
                                 set_flash('error', 'Cannot cancel this PO — it already has receiving records.');
                             } else {
-                                $cancelStmt = $db->prepare("\n              UPDATE purchase_orders\n              SET status = 'cancelled', updated_by = ?, updated_at = NOW()\n              WHERE id = ? AND status = 'encoded'\n            ");
+                                $cancelStmt = $db->prepare("\n              UPDATE purchase_orders\n              SET status = 'cancelled', remarks = TRIM(CONCAT(COALESCE(NULLIF(remarks, ''), ''), CASE WHEN COALESCE(NULLIF(remarks, ''), '') = '' THEN '' ELSE '\n' END, ?)), updated_by = ?, updated_at = NOW()\n              WHERE id = ? AND status = 'encoded'\n            ");
                                 if ($cancelStmt) {
                                     $userId = current_user_id();
-                                    $cancelStmt->bind_param('ii', $userId, $cancelId);
+                                    $cancelNote = 'Cancellation reason: ' . $cancelReason;
+                                    $cancelStmt->bind_param('sii', $cancelNote, $userId, $cancelId);
                                     $cancelStmt->execute();
                                     $cancelStmt->close();
                                     write_audit_log($db, [
@@ -154,8 +150,8 @@ if (!$db) {
                                         'record_type' => 'purchase_order',
                                         'action_name' => 'cancel_purchase_order',
                                         'old_values' => ['status' => 'encoded'],
-                                        'new_values' => ['status' => 'cancelled'],
-                                        'description' => 'Cancelled purchase order.',
+                                        'new_values' => ['status' => 'cancelled', 'reason' => $cancelReason],
+                                        'description' => 'Cancelled purchase order. Reason: ' . $cancelReason,
                                     ]);
                                     set_flash('success', 'Purchase order cancelled successfully.');
                                 } else {
@@ -321,7 +317,10 @@ if (!$db) {
                     }
 
                     if ($matchedClassification) {
-                        // Inventory class is optional; skip classification_group validation in this environment.
+                        $classificationAccountId = (int) ($matchedClassification['account_code_id'] ?? 0);
+                        if ($classificationAccountId > 0 && $accountCodeValue && $classificationAccountId !== $accountCodeValue) {
+                            $lineErrors[] = 'Classification does not match the selected account code on line ' . $lineNo . '.';
+                        }
                     } else {
                         $classificationId = '';
                     }
@@ -498,6 +497,33 @@ if (!$db) {
     }
 }
 
+if (($_GET['export'] ?? '') === 'csv') {
+    stream_csv_download(
+        'purchase_orders_' . date('Ymd_His') . '.csv',
+        ['System Ref', 'PO Number', 'PO Date', 'Supplier', 'Fund', 'Mode', 'Receiving Percent', 'Expected Delivery Date', 'Place of Delivery', 'Status', 'Total Amount'],
+        $purchaseOrders,
+        static function (array $po): array {
+            $totalQty = (float) ($po['total_qty'] ?? 0);
+            $receivedQty = (float) ($po['total_received_qty'] ?? 0);
+            $receivedPercent = $totalQty > 0 ? min(100, round(($receivedQty / $totalQty) * 100, 2)) : 0;
+
+            return [
+                $po['system_reference'] ?? '',
+                $po['po_number'] ?? '',
+                $po['po_date'] ?? '',
+                $po['supplier_name'] ?? '',
+                $po['fund_name'] ?? '',
+                $po['mode_of_procurement_name'] ?? '',
+                $receivedPercent,
+                $po['expected_delivery_date'] ?? '',
+                $po['place_of_delivery'] ?? '',
+                operational_status_label('purchase_order', (string) ($po['status'] ?? 'encoded')),
+                number_format((float) ($po['total_amount'] ?? 0), 2, '.', ''),
+            ];
+        }
+    );
+}
+
 require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
@@ -511,6 +537,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <p class="text-muted mb-0">Review encoded, partial, completed, and cancelled purchase orders from a workspace that adapts cleanly on phone and tablet.</p>
             </div>
             <div class="workspace-actions">
+                <a href="<?php echo h(base_url('modules/purchase_orders/index.php?' . http_build_query(array_merge($_GET, ['export' => 'csv'])))); ?>" class="btn btn-outline-success btn-sm">Export CSV</a>
                 <a href="<?php echo base_url('modules/purchase_orders/create.php'); ?>" class="btn btn-primary btn-sm">Encode New PO</a>
             </div>
         </div>
@@ -518,6 +545,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
         <div class="card">
             <div class="card-body p-3 p-lg-4">
                 <div class="mb-4">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                        <span class="small text-muted fw-semibold">Quick filters:</span>
+                        <a href="<?php echo base_url('modules/purchase_orders/index.php?status=encoded'); ?>" class="btn btn-sm <?php echo ($_GET['status'] ?? '') === 'encoded' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Awaiting Receiving</a>
+                        <a href="<?php echo base_url('modules/purchase_orders/index.php?status=partial'); ?>" class="btn btn-sm <?php echo ($_GET['status'] ?? '') === 'partial' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Partially Received</a>
+                        <a href="<?php echo base_url('modules/purchase_orders/index.php?status=completed'); ?>" class="btn btn-sm <?php echo ($_GET['status'] ?? '') === 'completed' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Completed</a>
+                        <a href="<?php echo base_url('modules/purchase_orders/index.php?status=cancelled'); ?>" class="btn btn-sm <?php echo ($_GET['status'] ?? '') === 'cancelled' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Cancelled</a>
+                    </div>
                     <form method="get" class="row g-3 align-items-end workspace-filter-panel">
                         <div class="col-12 col-md-6 col-lg-2">
                             <label class="form-label small mb-1">Status</label>
@@ -671,6 +705,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <form id="cancelPoForm" method="post" style="display:none;">
         <input type="hidden" name="action" value="cancel_po">
         <input type="hidden" name="cancel_id" id="cancelPoId" value="">
+        <input type="hidden" name="cancel_reason" id="cancelPoReason" value="">
     </form>
 
     <script>
@@ -680,7 +715,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
             'This cannot be undone. The PO will be marked as Cancelled ' +
             'and can no longer be received or edited.'
         )) return;
+        var reason = prompt('Enter the reason for cancelling PO No. ' + poNumber + ':');
+        if (reason === null) return;
+        reason = reason.trim();
+        if (reason === '') {
+            alert('Cancellation reason is required.');
+            return;
+        }
         document.getElementById('cancelPoId').value = id;
+        document.getElementById('cancelPoReason').value = reason;
         document.getElementById('cancelPoForm').submit();
     }
     </script>

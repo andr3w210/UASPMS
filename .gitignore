@@ -20,9 +20,13 @@ android/keystore/*.keystore
 android/local.properties
 android/.idea/
 android/.gradle/
+android/.gradle-user-home/
+android/.kotlin/
 android/.tools/
 android/build/
 android/app/build/
+*.zip.part
+*.zip.lck
 
 # OS/editor noise
 .DS_Store

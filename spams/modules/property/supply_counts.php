@@ -21,20 +21,12 @@ $countTypes = [
     'annual' => 'Annual Count',
     'surprise' => 'Surprise Check',
 ];
-$statusLabels = [
-    'pending' => 'Pending',
-    'match' => 'Match',
-    'shortage' => 'Shortage',
-    'overage' => 'Overage',
-    'not_counted' => 'Not Counted',
-];
-$statusBadgeClasses = [
-    'pending' => 'text-bg-secondary',
-    'match' => 'text-bg-success',
-    'shortage' => 'text-bg-warning',
-    'overage' => 'text-bg-danger',
-    'not_counted' => 'text-bg-dark',
-];
+$statusLabels = [];
+$statusBadgeClasses = [];
+foreach (['pending', 'match', 'shortage', 'overage', 'not_counted'] as $statusKey) {
+    $statusLabels[$statusKey] = operational_status_label('supply_count', $statusKey);
+    $statusBadgeClasses[$statusKey] = operational_status_badge_class('supply_count', $statusKey);
+}
 $selectedSessionId = (int) ($_GET['session_id'] ?? 0);
 $highlightItemId = (int) ($_GET['highlight_item_id'] ?? 0);
 $scanFeedback = trim((string) ($_GET['scan_feedback'] ?? ''));

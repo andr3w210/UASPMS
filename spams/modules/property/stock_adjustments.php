@@ -276,10 +276,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($errors) && $action === 'cancel_adjustment') {
         $adjustmentId = (int) ($_POST['adjustment_id'] ?? 0);
-        if ($adjustmentId > 0) {
-            $cancelStmt = $db->prepare("UPDATE stock_adjustments SET status = 'cancelled' WHERE id = ? AND status = 'pending'");
+        $cancelReason = trim((string) ($_POST['cancel_reason'] ?? ''));
+        if ($adjustmentId <= 0) {
+            $errors[] = 'Invalid stock adjustment.';
+        } elseif ($cancelReason === '') {
+            $errors[] = 'Cancellation reason is required.';
+        } else {
+            $headerStmt = $db->prepare("SELECT status, remarks, supply_count_session_id FROM stock_adjustments WHERE id = ? AND status = 'pending' LIMIT 1");
+            $header = null;
+            if ($headerStmt) {
+                $headerStmt->bind_param('i', $adjustmentId);
+                $headerStmt->execute();
+                $header = $headerStmt->get_result()->fetch_assoc();
+                $headerStmt->close();
+            }
+
+            if (!$header) {
+                $errors[] = 'Pending stock adjustment not found.';
+            }
+        }
+
+        if (empty($errors) && $adjustmentId > 0) {
+            $cancelStmt = $db->prepare("UPDATE stock_adjustments SET status = 'cancelled', remarks = TRIM(CONCAT(COALESCE(NULLIF(remarks, ''), ''), CASE WHEN COALESCE(NULLIF(remarks, ''), '') = '' THEN '' ELSE '\n' END, ?)) WHERE id = ? AND status = 'pending'");
             if ($cancelStmt) {
-                $cancelStmt->bind_param('i', $adjustmentId);
+                $cancelNote = 'Cancellation reason: ' . $cancelReason;
+                $cancelStmt->bind_param('si', $cancelNote, $adjustmentId);
                 $ok = $cancelStmt->execute();
                 $cancelStmt->close();
                 if ($ok) {
@@ -290,11 +311,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'module_name' => 'stock_adjustments',
                         'record_type' => 'stock_adjustment',
                         'action_name' => 'cancel_stock_adjustment',
-                        'new_values' => ['status' => 'cancelled'],
-                        'description' => 'Cancelled pending stock adjustment.',
+                        'old_values' => ['status' => $header['status'] ?? 'pending', 'remarks' => $header['remarks'] ?? null],
+                        'new_values' => ['status' => 'cancelled', 'reason' => $cancelReason],
+                        'description' => 'Cancelled pending stock adjustment. Reason: ' . $cancelReason,
                     ]);
                     set_flash('success', 'Pending stock adjustment cancelled.');
-                    redirect('modules/property/stock_adjustments.php?session_id=' . $selectedSessionId);
+                    redirect('modules/property/stock_adjustments.php?session_id=' . (int) ($header['supply_count_session_id'] ?? $selectedSessionId));
                 }
             }
             $errors[] = 'Unable to cancel the stock adjustment.';
@@ -554,22 +576,21 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <?php endif; ?>
                                             </div>
                                         </div>
-                                        <span class="badge <?php echo ($adjustment['status'] ?? '') === 'approved' ? 'text-bg-success' : (($adjustment['status'] ?? '') === 'cancelled' ? 'text-bg-dark' : 'text-bg-warning'); ?>">
-                                            <?php echo h(ucfirst((string) $adjustment['status'])); ?>
-                                        </span>
+                                        <?php echo operational_status_badge('stock_adjustment', (string) ($adjustment['status'] ?? 'pending')); ?>
                                     </div>
                                     <?php if (($adjustment['status'] ?? '') === 'pending' && in_array($_SESSION['user_role'] ?? '', ['Administrator', 'admin'], true)): ?>
-                                        <div class="d-flex gap-2 mt-2">
+                                        <div class="d-flex flex-wrap gap-2 mt-2">
                                             <form method="post">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="approve_adjustment">
                                                 <input type="hidden" name="adjustment_id" value="<?php echo (int) $adjustment['id']; ?>">
                                                 <button class="btn btn-sm btn-success">Approve</button>
                                             </form>
-                                            <form method="post">
+                                            <form method="post" class="d-flex flex-wrap gap-2">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="cancel_adjustment">
                                                 <input type="hidden" name="adjustment_id" value="<?php echo (int) $adjustment['id']; ?>">
+                                                <input type="text" name="cancel_reason" class="form-control form-control-sm" placeholder="Cancellation reason" required style="max-width: 220px;">
                                                 <button class="btn btn-sm btn-outline-danger">Cancel</button>
                                             </form>
                                         </div>
