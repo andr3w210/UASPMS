@@ -109,6 +109,10 @@ if (!$db) {
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!csrf_verify()) {
+            add_validation_error($errors, 'Invalid CSRF token.');
+        }
+
         $form['system_reference'] = preview_module_code($db, 'issuances');
         $form['issuance_date'] = old($_POST, 'issuance_date', date('Y-m-d'));
         $form['office_id'] = old($_POST, 'office_id');
@@ -117,14 +121,29 @@ if (!$db) {
         $form['remarks'] = old($_POST, 'remarks');
 
         if ($form['issuance_date'] === '') {
-            $errors[] = 'Issuance date is required.';
+            add_validation_error($errors, 'Issuance date is required.');
+        } elseif (!is_valid_date_string($form['issuance_date'])) {
+            add_validation_error($errors, 'Issuance date format is invalid.');
         }
         if ($form['office_id'] === '') {
-            $errors[] = 'Office is required.';
+            add_validation_error($errors, 'Office is required.');
         }
 
         $officeId = (int) ($form['office_id'] !== '' ? $form['office_id'] : 0);
         $employeeId = (int) ($form['employee_id'] !== '' ? $form['employee_id'] : 0);
+
+        if ($officeId > 0) {
+            $officeValid = false;
+            foreach ($offices as $office) {
+                if ((int) ($office['id'] ?? 0) === $officeId) {
+                    $officeValid = true;
+                    break;
+                }
+            }
+            if (!$officeValid) {
+                add_validation_error($errors, 'Selected office is invalid.');
+            }
+        }
 
         if ($employeeId > 0) {
             $employeeValid = false;
@@ -135,7 +154,7 @@ if (!$db) {
                 }
             }
             if (!$employeeValid) {
-                $errors[] = 'Selected employee does not belong to the chosen office.';
+                add_validation_error($errors, 'Selected employee does not belong to the chosen office.');
             }
         }
 
@@ -174,7 +193,7 @@ if (!$db) {
         }
 
         if (!$validatedItems) {
-            $errors[] = 'Enter at least one quantity to issue.';
+            add_validation_error($errors, 'Enter at least one quantity to issue.');
         }
 
         if (!$errors) {
@@ -275,6 +294,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?>
 
                 <form method="post" id="issuanceForm">
+                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                     <input type="hidden" name="po_id" value="<?php echo (int) $selectedPoId; ?>">
                     <div class="row g-3 mb-4">
                         <div class="col-md-3">

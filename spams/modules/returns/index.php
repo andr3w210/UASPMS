@@ -105,6 +105,8 @@ if (!$db) {
         }
         if ($form['return_date'] === '') {
             $errors[] = 'Return date is required.';
+        } elseif (!is_valid_date_string($form['return_date'])) {
+            $errors[] = 'Return date format is invalid.';
         }
 
         $assets = [];

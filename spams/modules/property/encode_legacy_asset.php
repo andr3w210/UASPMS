@@ -64,15 +64,22 @@ if ($db) {
         }
 
         if (!csrf_verify()) {
-            $errors[] = 'Invalid CSRF token.';
+            add_validation_error($errors, 'Invalid CSRF token.');
         }
-        if ($form['item_description'] === '') { $errors[] = 'Description is required.'; }
-        if (!in_array($form['item_type'], ['semi_expendable', 'equipment'], true)) { $errors[] = 'Inventory type must be semi-expendable or equipment.'; }
-        if ($form['quantity'] === '' || !ctype_digit($form['quantity']) || (int) $form['quantity'] <= 0) { $errors[] = 'Quantity is required.'; }
-        if ($form['unit_cost'] === '' || !is_numeric($form['unit_cost']) || (float) $form['unit_cost'] <= 0) { $errors[] = 'Unit cost must be greater than zero.'; }
-        if ($form['acquisition_date'] === '') { $errors[] = 'Acquisition date is required.'; }
-        if ($form['fund_id'] === '') { $errors[] = 'Fund is required to generate the property number.'; }
-        if ($form['account_code_id'] === '') { $errors[] = 'Account code is required to generate the property number.'; }
+        if ($form['item_description'] === '') { add_validation_error($errors, 'Description is required.'); }
+        if (!is_allowed_value($form['item_type'], ['semi_expendable', 'equipment'])) { add_validation_error($errors, 'Inventory type must be semi-expendable or equipment.'); }
+        if ($form['quantity'] === '' || !ctype_digit($form['quantity']) || (int) $form['quantity'] <= 0) { add_validation_error($errors, 'Quantity is required.'); }
+        if ($form['unit_cost'] === '' || !is_numeric($form['unit_cost']) || (float) $form['unit_cost'] <= 0) { add_validation_error($errors, 'Unit cost must be greater than zero.'); }
+        if ($form['acquisition_date'] === '') {
+            add_validation_error($errors, 'Acquisition date is required.');
+        } elseif (!is_valid_date_string($form['acquisition_date'])) {
+            add_validation_error($errors, 'Acquisition date format is invalid.');
+        }
+        if ($form['fund_id'] === '') { add_validation_error($errors, 'Fund is required to generate the property number.'); }
+        if ($form['account_code_id'] === '') { add_validation_error($errors, 'Account code is required to generate the property number.'); }
+        if (!is_allowed_value($form['condition_status'], ['good', 'serviceable', 'repair_needed', 'unserviceable'])) {
+            add_validation_error($errors, 'Condition status is invalid.');
+        }
 
         $fundCodeValue = '';
         foreach ($funds as $fundRow) {
@@ -85,7 +92,7 @@ if ($db) {
             }
         }
         if ($form['fund_id'] !== '' && $fundCodeValue === '') {
-            $errors[] = 'Selected fund is invalid.';
+            add_validation_error($errors, 'Selected fund is invalid.');
         }
 
         $accountCodeValue = '';
@@ -96,7 +103,54 @@ if ($db) {
             }
         }
         if ($form['account_code_id'] !== '' && $accountCodeValue === '') {
-            $errors[] = 'Selected account code is invalid.';
+            add_validation_error($errors, 'Selected account code is invalid.');
+        }
+
+        $officeIdValue = $form['office_id'] !== '' ? (int) $form['office_id'] : 0;
+        $employeeIdValue = $form['employee_id'] !== '' ? (int) $form['employee_id'] : 0;
+        $responsibilityCodeIdValue = $form['responsibility_code_id'] !== '' ? (int) $form['responsibility_code_id'] : 0;
+
+        if ($officeIdValue > 0) {
+            $officeExists = false;
+            foreach ($offices as $officeRow) {
+                if ((int) ($officeRow['id'] ?? 0) === $officeIdValue) {
+                    $officeExists = true;
+                    break;
+                }
+            }
+            if (!$officeExists) {
+                add_validation_error($errors, 'Selected office is invalid.');
+            }
+        }
+
+        if ($employeeIdValue > 0) {
+            $employeeOfficeId = 0;
+            foreach ($employees as $employeeRow) {
+                if ((int) ($employeeRow['id'] ?? 0) === $employeeIdValue) {
+                    $employeeOfficeId = (int) ($employeeRow['office_id'] ?? 0);
+                    break;
+                }
+            }
+            if ($employeeOfficeId <= 0) {
+                add_validation_error($errors, 'Selected employee is invalid.');
+            } elseif ($officeIdValue > 0 && $employeeOfficeId !== $officeIdValue) {
+                add_validation_error($errors, 'Selected employee does not belong to the selected office.');
+            }
+        }
+
+        if ($responsibilityCodeIdValue > 0) {
+            $rcOfficeId = 0;
+            foreach ($responsibilityCodes as $rcRow) {
+                if ((int) ($rcRow['id'] ?? 0) === $responsibilityCodeIdValue) {
+                    $rcOfficeId = (int) ($rcRow['office_id'] ?? 0);
+                    break;
+                }
+            }
+            if ($rcOfficeId <= 0) {
+                add_validation_error($errors, 'Selected responsibility code is invalid.');
+            } elseif ($officeIdValue > 0 && $rcOfficeId !== $officeIdValue) {
+                add_validation_error($errors, 'Selected responsibility code does not belong to the selected office.');
+            }
         }
 
         if ($form['classification_id'] !== '' && $form['account_code_id'] !== '') {
@@ -109,7 +163,7 @@ if ($db) {
                 $classStmt->close();
                 $classAccountId = (int) ($classRow['account_code_id'] ?? 0);
                 if ($classAccountId > 0 && $classAccountId !== (int) $form['account_code_id']) {
-                    $errors[] = 'Classification does not match the selected account code.';
+                    add_validation_error($errors, 'Classification does not match the selected account code.');
                 }
             }
         }
@@ -142,7 +196,7 @@ if ($db) {
                 $exists = $checkStmt->get_result()->fetch_assoc();
                 $checkStmt->close();
                 if ($exists) {
-                    $errors[] = 'Property number already exists in beginning balance assets.';
+                    add_validation_error($errors, 'Property number already exists in beginning balance assets.');
                 }
             }
         }
@@ -164,7 +218,7 @@ if ($db) {
                 $serialExists = $serialStmt->get_result()->fetch_assoc();
                 $serialStmt->close();
                 if ($serialExists) {
-                    $errors[] = 'Serial number already exists in ' . $serialExists['source_name'] . ' records.';
+                    add_validation_error($errors, 'Serial number already exists in ' . $serialExists['source_name'] . ' records.');
                 }
             }
         }
