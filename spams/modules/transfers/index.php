@@ -324,9 +324,13 @@ if (!$db) {
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
         } elseif ($action === 'direct_transfer') {
-            if ($form['asset_key'] === '') $errors[] = 'Select an asset to transfer.';
-            if ($form['transfer_date'] === '') $errors[] = 'Transfer date is required.';
-            if ($form['to_office_id'] === '') $errors[] = 'Receiving office is required.';
+            if ($form['asset_key'] === '') add_validation_error($errors, 'Select an asset to transfer.');
+            if ($form['transfer_date'] === '') {
+                add_validation_error($errors, 'Transfer date is required.');
+            } elseif (!is_valid_date_string($form['transfer_date'])) {
+                add_validation_error($errors, 'Transfer date format is invalid.');
+            }
+            if ($form['to_office_id'] === '') add_validation_error($errors, 'Receiving office is required.');
 
             $asset = null;
             foreach ($assets as $candidate) {
@@ -337,6 +341,19 @@ if (!$db) {
             $toOfficeId = (int) ($form['to_office_id'] ?: 0);
             $toEmployeeId = (int) ($form['to_employee_id'] ?: 0);
             $toRcId = (int) ($form['to_responsibility_code_id'] ?: 0);
+
+            if ($toOfficeId > 0) {
+                $officeValid = false;
+                foreach ($offices as $office) {
+                    if ((int) ($office['id'] ?? 0) === $toOfficeId) {
+                        $officeValid = true;
+                        break;
+                    }
+                }
+                if (!$officeValid) {
+                    add_validation_error($errors, 'Selected receiving office is invalid.');
+                }
+            }
 
             if ($toEmployeeId > 0) {
                 $ok = false;
@@ -365,9 +382,13 @@ if (!$db) {
                 }
             }
         } elseif ($action === 'bulk_transfer') {
-            if ($bulkForm['source_office_id'] === '') $errors[] = 'Source office is required.';
-            if ($bulkForm['transfer_date'] === '') $errors[] = 'Transfer date is required.';
-            if ($bulkForm['to_office_id'] === '') $errors[] = 'Receiving office is required.';
+            if ($bulkForm['source_office_id'] === '') add_validation_error($errors, 'Source office is required.');
+            if ($bulkForm['transfer_date'] === '') {
+                add_validation_error($errors, 'Transfer date is required.');
+            } elseif (!is_valid_date_string($bulkForm['transfer_date'])) {
+                add_validation_error($errors, 'Transfer date format is invalid.');
+            }
+            if ($bulkForm['to_office_id'] === '') add_validation_error($errors, 'Receiving office is required.');
             $selectedAssetKeys = array_values(array_filter(array_map(static fn($value): string => trim((string) $value), (array) ($_POST['asset_keys'] ?? []))));
 
             $toOfficeId = (int) ($bulkForm['to_office_id'] ?: 0);
@@ -375,6 +396,19 @@ if (!$db) {
             $toRcId = (int) ($bulkForm['to_responsibility_code_id'] ?: 0);
             $sourceOfficeId = (int) ($bulkForm['source_office_id'] ?: 0);
             $sourceEmployeeId = (int) ($bulkForm['source_employee_id'] ?: 0);
+
+            if ($sourceOfficeId > 0 || $toOfficeId > 0) {
+                $officeIds = [];
+                foreach ($offices as $office) {
+                    $officeIds[(int) ($office['id'] ?? 0)] = true;
+                }
+                if ($sourceOfficeId > 0 && !isset($officeIds[$sourceOfficeId])) {
+                    add_validation_error($errors, 'Selected source office is invalid.');
+                }
+                if ($toOfficeId > 0 && !isset($officeIds[$toOfficeId])) {
+                    add_validation_error($errors, 'Selected receiving office is invalid.');
+                }
+            }
 
             if ($toEmployeeId > 0) {
                 $ok = false;

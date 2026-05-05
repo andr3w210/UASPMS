@@ -114,6 +114,9 @@ if ($db) {
 
                         if ($form['po_number'] === '') $errors[] = 'PO number from the hard copy is required.';
                         if ($form['po_date'] === '')   $errors[] = 'PO date is required.';
+                        if ($form['po_date'] !== '' && !is_valid_date_string($form['po_date'])) {
+                            $errors[] = 'PO date format is invalid.';
+                        }
                         if ($form['supplier_id'] === '') $errors[] = 'Supplier is required.';
                         if ($form['fund_id'] === '')   $errors[] = 'Fund is required.';
                         if ($form['supplier_address'] === '') $errors[] = 'Supplier address is required.';
@@ -123,6 +126,48 @@ if ($db) {
                                 (!ctype_digit($form['delivery_term_days']) ||
                                  (int)$form['delivery_term_days'] < 0)) {
                             $errors[] = 'Delivery term must be a non-negative whole number.';
+                        }
+
+                        if ($form['supplier_id'] !== '') {
+                            $supplierValid = false;
+                            $supplierIdCheck = (int) $form['supplier_id'];
+                            foreach ($suppliers as $supplierRow) {
+                                if ((int) ($supplierRow['id'] ?? 0) === $supplierIdCheck) {
+                                    $supplierValid = true;
+                                    break;
+                                }
+                            }
+                            if (!$supplierValid) {
+                                $errors[] = 'Selected supplier is invalid.';
+                            }
+                        }
+
+                        if ($form['fund_id'] !== '') {
+                            $fundValid = false;
+                            $fundIdCheck = (int) $form['fund_id'];
+                            foreach ($funds as $fundRow) {
+                                if ((int) ($fundRow['id'] ?? 0) === $fundIdCheck) {
+                                    $fundValid = true;
+                                    break;
+                                }
+                            }
+                            if (!$fundValid) {
+                                $errors[] = 'Selected fund is invalid.';
+                            }
+                        }
+
+                        if ($form['mode_of_procurement_id'] !== '') {
+                            $modeValid = false;
+                            $modeIdCheck = (int) $form['mode_of_procurement_id'];
+                            foreach ($procurementModes as $modeRow) {
+                                if ((int) ($modeRow['id'] ?? 0) === $modeIdCheck) {
+                                    $modeValid = true;
+                                    break;
+                                }
+                            }
+                            if (!$modeValid) {
+                                $errors[] = 'Selected mode of procurement is invalid.';
+                            }
                         }
 
                         // Check duplicate PO number

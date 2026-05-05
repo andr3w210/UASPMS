@@ -38,6 +38,9 @@ if (!$db) {
         $form['cost'] = old($_POST, 'cost');
         $form['remarks'] = old($_POST, 'remarks');
         $action = trim((string) ($_POST['action'] ?? 'save'));
+        if (!is_allowed_value($action, ['save', 'cancel'])) {
+            $action = 'save';
+        }
 
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
@@ -82,13 +85,15 @@ if (!$db) {
 
         if ($action !== 'cancel') {
             if ($maintenanceDate === '') {
-                $errors[] = 'Maintenance date is required.';
+                add_validation_error($errors, 'Maintenance date is required.');
+            } elseif (!is_valid_date_string($maintenanceDate)) {
+                add_validation_error($errors, 'Maintenance date format is invalid.');
             }
             if ($detailId <= 0) {
-                $errors[] = 'Select a distributed item.';
+                add_validation_error($errors, 'Select a distributed item.');
             }
             if ($workDescription === '') {
-                $errors[] = 'Description of work is required.';
+                add_validation_error($errors, 'Description of work is required.');
             }
         }
 

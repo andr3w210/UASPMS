@@ -455,10 +455,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $postedDetailPropertyNumber = $_POST['detail_property_number'] ?? [];
 
         if ($editForm['distribution_date'] === '') {
-            $errors[] = 'Distribution date is required.';
+            add_validation_error($errors, 'Distribution date is required.');
+        } elseif (!is_valid_date_string($editForm['distribution_date'])) {
+            add_validation_error($errors, 'Distribution date format is invalid.');
         }
         if ($editForm['office_id'] === '') {
-            $errors[] = 'Office is required.';
+            add_validation_error($errors, 'Office is required.');
         }
 
         $officeId = (int) ($editForm['office_id'] !== '' ? $editForm['office_id'] : 0);
@@ -475,6 +477,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($rowOfficeId === $officeId) {
                 $newOfficeCode = trim((string) ($officeRow['office_code'] ?? ''));
             }
+        }
+        if ($officeId > 0 && $newOfficeCode === '') {
+            add_validation_error($errors, 'Selected office is invalid.');
         }
         if ($employeeId > 0) {
             $employeeValid = false;
@@ -638,14 +643,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $form['remarks'] = old($_POST, 'remarks');
 
         if ($form['distribution_date'] === '') {
-            $errors[] = 'Distribution date is required.';
+            add_validation_error($errors, 'Distribution date is required.');
+        } elseif (!is_valid_date_string($form['distribution_date'])) {
+            add_validation_error($errors, 'Distribution date format is invalid.');
         }
         if ($form['office_id'] === '') {
-            $errors[] = 'Office is required.';
+            add_validation_error($errors, 'Office is required.');
         }
 
         $officeId = (int) ($form['office_id'] !== '' ? $form['office_id'] : 0);
         $employeeId = (int) ($form['employee_id'] !== '' ? $form['employee_id'] : 0);
+        if ($officeId > 0) {
+            $officeValid = false;
+            foreach ($offices as $officeRow) {
+                if ((int) ($officeRow['id'] ?? 0) === $officeId) {
+                    $officeValid = true;
+                    break;
+                }
+            }
+            if (!$officeValid) {
+                add_validation_error($errors, 'Selected office is invalid.');
+            }
+        }
         if ($employeeId > 0) {
             $employeeValid = false;
             foreach ($employees as $employee) {
