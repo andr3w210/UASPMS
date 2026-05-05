@@ -6,10 +6,37 @@ require_role('Administrator', 'Transport Officer');
 
 function employees_has_reference(mysqli $db, int $recordId): bool
 {
-    $checks = [
-        "SELECT 1 FROM distributions WHERE employee_id = ? LIMIT 1",
-        "SELECT 1 FROM issuances WHERE employee_id = ? LIMIT 1",
-    ];
+    $fkTargets = [];
+    $fkStmt = $db->prepare("SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME = 'employees'");
+    if ($fkStmt) {
+        $fkStmt->execute();
+        $fkResult = $fkStmt->get_result();
+        if ($fkResult) {
+            $fkTargets = $fkResult->fetch_all(MYSQLI_ASSOC);
+        }
+        $fkStmt->close();
+    }
+
+    $checks = [];
+    foreach ($fkTargets as $target) {
+        $table = (string) ($target['TABLE_NAME'] ?? '');
+        $column = (string) ($target['COLUMN_NAME'] ?? '');
+        if ($table === '' || $column === '') {
+            continue;
+        }
+        $safeTable = str_replace('`', '``', $table);
+        $safeColumn = str_replace('`', '``', $column);
+        $checks[] = "SELECT 1 FROM `{$safeTable}` WHERE `{$safeColumn}` = ? LIMIT 1";
+    }
+
+    // Fallback for older schemas that may not define FK constraints yet.
+    if (!$checks) {
+        $checks = [
+            "SELECT 1 FROM distributions WHERE employee_id = ? LIMIT 1",
+            "SELECT 1 FROM issuances WHERE employee_id = ? LIMIT 1",
+        ];
+    }
+
     foreach ($checks as $sql) {
         $stmt = $db->prepare($sql);
         if (!$stmt) {
@@ -1049,15 +1076,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function refreshSharedSelect(select) {
         if (window.jQuery && jQuery.fn.select2) {
-            jQuery(select).trigger('change.select2');
+            jQuery(select).trigger('change');
         }
     }
 
-    function filterResponsibilityCodesForPair(officeSelect, codeSelect) {
+    function filterResponsibilityCodesForPair(officeSelect, codeSelect, forceAutoSelect) {
         if (!officeSelect || !codeSelect) return;
 
         var officeId = officeSelect.value;
         var preferredCodeId = '';
+        var currentMatchesOffice = false;
+
         Array.from(codeSelect.options).forEach(function (option, index) {
             if (index === 0) {
                 option.hidden = false;
@@ -1068,22 +1097,27 @@ document.addEventListener('DOMContentLoaded', function () {
             if (matches && officeId !== '' && !preferredCodeId) {
                 preferredCodeId = option.value;
             }
-            if (!matches && option.selected) {
-                codeSelect.value = '';
+            if (matches && option.value === codeSelect.value) {
+                currentMatchesOffice = true;
             }
         });
 
-        var selectedOption = codeSelect.selectedOptions.length ? codeSelect.selectedOptions[0] : null;
-        if (officeId !== '' && (!codeSelect.value || !selectedOption || selectedOption.hidden) && preferredCodeId !== '') {
+        // Auto-select the office's default RC when:
+        // - Office is selected AND
+        // - Either forced (office just changed), or current RC doesn't belong to this office
+        if (officeId !== '' && preferredCodeId !== '' && (forceAutoSelect || !currentMatchesOffice)) {
             codeSelect.value = preferredCodeId;
+        } else if (officeId === '') {
+            codeSelect.value = '';
         }
+
         refreshSharedSelect(codeSelect);
     }
 
     function filterResponsibilityCodes() {
         var officeSelect = document.getElementById('office_id');
         var codeSelect = document.getElementById('responsibility_code_id');
-        filterResponsibilityCodesForPair(officeSelect, codeSelect);
+        filterResponsibilityCodesForPair(officeSelect, codeSelect, false);
     }
 
     function buildOptions(options, selectedValue, includeOfficeId) {
@@ -1125,9 +1159,9 @@ document.addEventListener('DOMContentLoaded', function () {
         var codeSelect = row.querySelector('.assignment-responsibility-code');
         if (officeSelect && codeSelect) {
             officeSelect.addEventListener('change', function () {
-                filterResponsibilityCodesForPair(officeSelect, codeSelect);
+                filterResponsibilityCodesForPair(officeSelect, codeSelect, true);
             });
-            filterResponsibilityCodesForPair(officeSelect, codeSelect);
+            filterResponsibilityCodesForPair(officeSelect, codeSelect, false);
         }
     }
 
@@ -1265,7 +1299,11 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    document.getElementById('office_id')?.addEventListener('change', filterResponsibilityCodes);
+    document.getElementById('office_id')?.addEventListener('change', function () {
+        var officeSelect = document.getElementById('office_id');
+        var codeSelect = document.getElementById('responsibility_code_id');
+        filterResponsibilityCodesForPair(officeSelect, codeSelect, true);
+    });
     filterResponsibilityCodes();
     initAssignmentEditor();
     initEmployeeTable();

@@ -5,27 +5,11 @@ require_login();
 
 function offices_has_reference(mysqli $db, int $recordId): bool
 {
-    $checks = [
+    return has_foreign_key_reference($db, 'offices', $recordId, [
         "SELECT 1 FROM employee_assignments WHERE office_id = ? LIMIT 1",
         "SELECT 1 FROM employees WHERE office_id = ? LIMIT 1",
         "SELECT 1 FROM distributions WHERE office_id = ? LIMIT 1",
-    ];
-
-    foreach ($checks as $sql) {
-        $stmt = $db->prepare($sql);
-        if (!$stmt) {
-            continue;
-        }
-        $stmt->bind_param('i', $recordId);
-        $stmt->execute();
-        $hasRow = (bool) $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        if ($hasRow) {
-            return true;
-        }
-    }
-
-    return false;
+    ]);
 }
 
 $db = db();
