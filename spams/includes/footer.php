@@ -1,6 +1,6 @@
     <footer id="footer" class="footer">
         <div class="copyright">
-            SPAMS &copy; <?php echo date('Y'); ?>. Supply and Property Asset Management System. &mdash; <span style="font-style:italic;opacity:0.7;">aDDicTus</span> &middot; <span style="opacity:0.6;">v1.0.0</span>
+            SPAMS &copy; <?php echo date('Y'); ?>. Supply and Property Asset Management System. &mdash; <span style="font-style:italic;opacity:0.7;">aDDicTus</span> &middot; <span style="opacity:0.6;"><?php echo APP_VERSION; ?></span>
         </div>
     </footer>
 </main>

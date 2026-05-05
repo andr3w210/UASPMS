@@ -1,6 +1,7 @@
 <?php
 
 // Application constants
+define('APP_VERSION', 'v1.0.0');
 define('BASE_URL', '/UASPMS/spams');
 define('LOGO_PATH', BASE_URL . '/assets/img/ua-logo.png');
 define('APP_ROOT', dirname(__DIR__, 2) . DIRECTORY_SEPARATOR);
