@@ -371,7 +371,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="d-flex flex-column align-items-md-end">
                             <span class="badge text-bg-light">Database: <?php echo h(DB_NAME); ?></span>
-                            <small class="text-muted mt-2">Host: <?php echo h(DB_HOST); ?> | User: <?php echo h(DB_USER); ?></small>
                         </div>
                     </div>
 

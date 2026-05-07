@@ -147,6 +147,30 @@ if (!$db) {
                 }
             }
             $errors[] = 'Unable to deactivate the supplier.';
+        } elseif ($action === 'reactivate') {
+            $recordId = (int) ($_POST['id'] ?? 0);
+            $userId = current_user_id();
+            $stmt = $db->prepare("UPDATE suppliers SET is_active = 1, updated_by = ?, updated_at = NOW() WHERE id = ?");
+            if ($stmt) {
+                $stmt->bind_param('ii', $userId, $recordId);
+                $saved = $stmt->execute();
+                $stmt->close();
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'suppliers',
+                        'record_id' => $recordId,
+                        'module_name' => 'suppliers',
+                        'record_type' => 'supplier',
+                        'action_name' => 'reactivate_supplier',
+                        'description' => 'Reactivated supplier record.',
+                        'new_values' => ['is_active' => 1],
+                    ]);
+                    set_flash('success', 'Supplier reactivated successfully.');
+                    redirect('modules/suppliers/index.php');
+                }
+            }
+            $errors[] = 'Unable to reactivate the supplier.';
         } elseif ($action === 'hard_delete') {
             if (($_SESSION['user_role'] ?? '') !== 'Administrator') {
                 set_flash('error', 'Only administrators can permanently delete records.');
@@ -384,6 +408,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <a href="<?php echo base_url('modules/suppliers/index.php?edit=' . (int) $supplier['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a>
                                         <?php if ((int) $supplier['is_active'] === 1): ?>
                                             <form method="post" onsubmit="return confirm('Deactivate this supplier?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int) $supplier['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button></form>
+                                        <?php else: ?>
+                                            <form method="post" onsubmit="return confirm('Reactivate this supplier?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="reactivate"><input type="hidden" name="id" value="<?php echo (int) $supplier['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-arrow-counterclockwise"></i> Reactivate</button></form>
                                         <?php endif; ?>
                                         <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
                                             <form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="hard_delete"><input type="hidden" name="id" value="<?php echo (int) $supplier['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button></form>

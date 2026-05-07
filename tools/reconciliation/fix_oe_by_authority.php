@@ -1,11 +1,12 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Set Office Equipment (1.06.05.020.00) based on the authoritative list provided
 - Move all items from the expected list to OE
 - Remove all items not on the list from OE
 */
 
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$mysqli = tools_db();
 
 // AUTHORITATIVE LIST - serial numbers that MUST be in Office Equipment
 $authoritySerialNumbers = [

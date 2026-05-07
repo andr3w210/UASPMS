@@ -213,12 +213,7 @@ function distribution_fetch_editable_items(mysqli $db, int $distributionId): arr
     $items = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
     $stmt->close();
 
-    $detailStmt = $db->prepare("
-        SELECT id, brand, model, serial_no, property_number, remarks
-        FROM distribution_item_details
-        WHERE distribution_item_id = ?
-        ORDER BY id ASC
-    ");
+    $detailStmt = $db->prepare("SELECT id, receiving_item_detail_id, brand, model, serial_no, property_number, remarks, is_distributed FROM distribution_item_details WHERE distribution_item_id = ? ORDER BY id ASC");
 
     foreach ($items as &$item) {
         $item['details'] = [];
@@ -370,6 +365,7 @@ if ($db) {
                 LEFT JOIN receiving_items ri2 ON ri2.id = di2.receiving_item_id
                 LEFT JOIN purchase_order_items poi ON poi.id = ri2.purchase_order_item_id
                 LEFT JOIN classifications c ON c.id = poi.classification_id
+                WHERE COALESCE(di2.quantity_distributed, 0) > 0
 
                 UNION
 
@@ -386,6 +382,8 @@ if ($db) {
                 INNER JOIN distribution_item_details did3 ON did3.distribution_item_id = di3.id
                 INNER JOIN legacy_assets la ON la.property_number = did3.property_number
                 LEFT JOIN classifications lc ON lc.id = la.classification_id
+                                WHERE COALESCE(di3.quantity_distributed, 0) > 0
+                                    AND did3.is_distributed = 1
             ) item_names
             GROUP BY item_names.distribution_id
         ) item_summary ON item_summary.distribution_id = d.id";
@@ -447,6 +445,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $editForm['employee_id'] = old($_POST, 'employee_id', $editForm['employee_id']);
         $editForm['purpose'] = old($_POST, 'purpose', $editForm['purpose']);
         $editForm['remarks'] = old($_POST, 'remarks', $editForm['remarks']);
+        $postedQuantityDistributed = $_POST['quantity_distributed'] ?? [];
         $postedLineRemarks = $_POST['line_remarks'] ?? [];
         $postedDetailBrand = $_POST['detail_brand'] ?? [];
         $postedDetailModel = $_POST['detail_model'] ?? [];
@@ -534,23 +533,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $assignmentStmt->close();
 
-                $lineStmt = $db->prepare("UPDATE distribution_items SET remarks = ? WHERE id = ? AND distribution_id = ?");
+                $lineStmt = $db->prepare("UPDATE distribution_items SET quantity_distributed = ?, remarks = ? WHERE id = ? AND distribution_id = ?");
                 $detailStmt = $db->prepare("UPDATE distribution_item_details SET brand = ?, model = ?, serial_no = ?, property_number = ?, remarks = ? WHERE id = ? AND distribution_item_id = ?");
                 $dupPropertyStmt = $db->prepare("SELECT id FROM distribution_item_details WHERE property_number = ? AND id <> ? LIMIT 1");
-                if (!$lineStmt || !$detailStmt || !$dupPropertyStmt) {
+                $releaseReceivingDetailStmt = $db->prepare("UPDATE receiving_item_details SET is_distributed = 0 WHERE id = ?");
+                $claimReceivingDetailStmt = $db->prepare("UPDATE receiving_item_details SET is_distributed = 1 WHERE id = ?");
+                $releaseDistributionDetailStmt = $db->prepare("UPDATE distribution_item_details SET is_distributed = 0, current_office_id = NULL, current_employee_id = NULL WHERE id = ? AND distribution_item_id = ?");
+                $claimDistributionDetailStmt = $db->prepare("UPDATE distribution_item_details SET is_distributed = 1, current_office_id = ?, current_employee_id = NULLIF(?, 0) WHERE id = ? AND distribution_item_id = ?");
+                if (!$lineStmt || !$detailStmt || !$dupPropertyStmt || !$releaseReceivingDetailStmt || !$claimReceivingDetailStmt || !$releaseDistributionDetailStmt || !$claimDistributionDetailStmt) {
                     throw new RuntimeException('Unable to prepare distribution item updates.');
                 }
 
                 foreach ($editingDistributionItems as $itemRow) {
                     $distributionItemId = (int) ($itemRow['id'] ?? 0);
+                    $quantityDistributed = (float) (trim((string) ($postedQuantityDistributed[$distributionItemId] ?? ($itemRow['quantity_distributed'] ?? 0))));
+                    if ($quantityDistributed < 0) {
+                        $quantityDistributed = 0;
+                    }
                     $lineRemarks = trim((string) ($postedLineRemarks[$distributionItemId] ?? ($itemRow['remarks'] ?? '')));
-                    $lineStmt->bind_param('sii', $lineRemarks, $distributionItemId, $editingDistributionId);
+                    $lineStmt->bind_param('dsii', $quantityDistributed, $lineRemarks, $distributionItemId, $editingDistributionId);
                     if (!$lineStmt->execute()) {
                         throw new RuntimeException('Unable to update a distribution line.');
                     }
 
                     foreach (($itemRow['details'] ?? []) as $detailRow) {
                         $detailId = (int) ($detailRow['id'] ?? 0);
+                        $receivingItemDetailId = (int) ($detailRow['receiving_item_detail_id'] ?? 0);
                         $brand = trim((string) ($postedDetailBrand[$detailId] ?? ($detailRow['brand'] ?? '')));
                         $model = trim((string) ($postedDetailModel[$detailId] ?? ($detailRow['model'] ?? '')));
                         $serial = trim((string) ($postedDetailSerial[$detailId] ?? ($detailRow['serial_no'] ?? '')));
@@ -577,12 +585,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (!$detailStmt->execute()) {
                             throw new RuntimeException('Unable to update distributed unit details.');
                         }
+
+                        if ($quantityDistributed <= 0) {
+                            $releaseDistributionDetailStmt->bind_param('ii', $detailId, $distributionItemId);
+                            if (!$releaseDistributionDetailStmt->execute()) {
+                                throw new RuntimeException('Unable to release the distributed unit.');
+                            }
+                            if ($receivingItemDetailId > 0) {
+                                $releaseReceivingDetailStmt->bind_param('i', $receivingItemDetailId);
+                                if (!$releaseReceivingDetailStmt->execute()) {
+                                    throw new RuntimeException('Unable to return the receiving unit to the available pool.');
+                                }
+                            }
+                        } else {
+                            $claimDistributionDetailStmt->bind_param('iiii', $officeId, $employeeId, $detailId, $distributionItemId);
+                            if (!$claimDistributionDetailStmt->execute()) {
+                                throw new RuntimeException('Unable to keep the distributed unit assigned.');
+                            }
+                            if ($receivingItemDetailId > 0) {
+                                $claimReceivingDetailStmt->bind_param('i', $receivingItemDetailId);
+                                if (!$claimReceivingDetailStmt->execute()) {
+                                    throw new RuntimeException('Unable to keep the receiving unit reserved.');
+                                }
+                            }
+                        }
                     }
                 }
 
                 $lineStmt->close();
                 $detailStmt->close();
                 $dupPropertyStmt->close();
+                $releaseReceivingDetailStmt->close();
+                $claimReceivingDetailStmt->close();
+                $releaseDistributionDetailStmt->close();
+                $claimDistributionDetailStmt->close();
+
+                // Track quantity changes for audit
+                $quantityChanges = [];
+                foreach ($editingDistributionItems as $itemRow) {
+                    $distributionItemId = (int) ($itemRow['id'] ?? 0);
+                    $oldQty = (float) ($itemRow['quantity_distributed'] ?? 0);
+                    $newQty = (float) (trim((string) ($postedQuantityDistributed[$distributionItemId] ?? $oldQty)));
+                    if ($newQty < 0) $newQty = 0;
+                    if ($oldQty !== $newQty) {
+                        $quantityChanges[] = [
+                            'item_id' => $distributionItemId,
+                            'old_qty' => $oldQty,
+                            'new_qty' => $newQty,
+                        ];
+                    }
+                }
 
                 write_audit_log($db, [
                     'action' => 'update',
@@ -605,8 +657,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'purpose' => $editForm['purpose'],
                         'remarks' => $editForm['remarks'],
                         'line_count' => count($editingDistributionItems),
+                        'quantity_changes' => $quantityChanges,
                     ],
-                    'description' => 'Updated posted distribution header details.',
+                    'description' => 'Updated posted distribution header details' . (count($quantityChanges) > 0 ? ' and item quantities' : '') . '.',
                 ]);
 
                 $db->commit();
@@ -803,7 +856,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $headerStmt = $db->prepare("INSERT INTO distributions (system_reference, document_type, semi_expendable_type, document_no, distribution_date, office_id, employee_id, purpose, remarks, status, total_amount, created_by) VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), ?, ?, 'posted', ?, ?)");
                 $itemStmt = $db->prepare("INSERT INTO distribution_items (distribution_id, issuance_item_id, receiving_item_id, quantity_distributed, unit_cost, line_total, remarks) VALUES (?, NULLIF(?,0), NULLIF(?,0), ?, ?, ?, ?)");
                 $detailStmt = $db->prepare("INSERT INTO distribution_item_details (distribution_item_id, receiving_item_detail_id, brand, model, serial_no, remarks, property_number) VALUES (?, NULLIF(?, 0), ?, ?, ?, ?, ?)");
-                if (!$headerStmt || !$itemStmt || !$detailStmt) {
+                $priorPropertyStmt = $db->prepare("SELECT id, property_number FROM distribution_item_details WHERE receiving_item_detail_id = ? AND property_number IS NOT NULL AND property_number <> '' ORDER BY id DESC LIMIT 1");
+                $clearPriorPropertyStmt = $db->prepare("UPDATE distribution_item_details SET property_number = '' WHERE id = ? AND is_distributed = 0");
+                if (!$headerStmt || !$itemStmt || !$detailStmt || !$priorPropertyStmt || !$clearPriorPropertyStmt) {
                     throw new RuntimeException('Unable to prepare distribution statements.');
                 }
 
@@ -849,6 +904,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     foreach ($item['details'] as $detail) {
                         $detailId = (int) ($detail['id'] ?? 0);
                         $propertyNo = '';
+                        $priorPropertyId = 0;
                         if ($fundStmt) {
                             $fundStmt->bind_param('ii', $officeId, $originReceivingItemId);
                             $fundStmt->execute();
@@ -857,7 +913,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $fundCode    = $fundRow['fund_source'] ?? ($fundRow['fund_code'] ?? '');
                             $accountCode = $fundRow['account_code'] ?? '';
                             $officeCode = $fundRow['office_code'] ?? '';
-                            $propertyNo = generate_property_number($db, $year, $fundCode, $accountCode, $officeCode);
+                            if ($detailId > 0) {
+                                $priorPropertyStmt->bind_param('i', $detailId);
+                                $priorPropertyStmt->execute();
+                                $priorPropertyRow = $priorPropertyStmt->get_result()->fetch_assoc() ?: null;
+                                if ($priorPropertyRow && trim((string) ($priorPropertyRow['property_number'] ?? '')) !== '') {
+                                    $priorPropertyId = (int) ($priorPropertyRow['id'] ?? 0);
+                                    $propertyNo = distribution_force_office_suffix(trim((string) $priorPropertyRow['property_number']), $officeCode);
+                                }
+                            }
+                            if ($propertyNo === '') {
+                                $propertyNo = generate_property_number($db, $year, $fundCode, $accountCode, $officeCode);
+                            }
                         }
 
                         $detailStmt->bind_param('iisssss', $distributionItemId, $detailId, $detail['brand'], $detail['model'], $detail['serial_no'], $detail['remarks'], $propertyNo);
@@ -865,6 +932,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             throw new RuntimeException('Unable to save distributed unit details.');
                         }
                         $distributionDetailId = (int) $detailStmt->insert_id;
+                        if ($priorPropertyId > 0 && $priorPropertyId !== $distributionDetailId) {
+                            $clearPriorPropertyStmt->bind_param('i', $priorPropertyId);
+                            if (!$clearPriorPropertyStmt->execute()) {
+                                throw new RuntimeException('Unable to transfer the prior property number.');
+                            }
+                        }
 
                         $photoFile = is_array($detail['photo_file'] ?? null) ? $detail['photo_file'] : ['error' => UPLOAD_ERR_NO_FILE];
                         $photoErrors = [];
@@ -898,6 +971,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $detailStmt->close();
+                $priorPropertyStmt->close();
+                $clearPriorPropertyStmt->close();
                 if ($fundStmt) $fundStmt->close();
                 $markDetailStmt->close();
                 $itemStmt->close();
@@ -994,6 +1069,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 LEFT JOIN receiving_items ri2 ON ri2.id = di2.receiving_item_id
                 LEFT JOIN purchase_order_items poi ON poi.id = ri2.purchase_order_item_id
                 LEFT JOIN classifications c ON c.id = poi.classification_id
+                WHERE COALESCE(di2.quantity_distributed, 0) > 0
 
                 UNION
 
@@ -1010,6 +1086,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 INNER JOIN distribution_item_details did3 ON did3.distribution_item_id = di3.id
                 INNER JOIN legacy_assets la ON la.property_number = did3.property_number
                 LEFT JOIN classifications lc ON lc.id = la.classification_id
+                                WHERE COALESCE(di3.quantity_distributed, 0) > 0
+                                    AND did3.is_distributed = 1
             ) item_names
             GROUP BY item_names.distribution_id
         ) item_summary ON item_summary.distribution_id = d.id";
@@ -1406,14 +1484,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                                 <div class="fw-semibold"><?php echo h($itemLabel); ?></div>
                                                                 <div class="small text-muted">
                                                                     <?php echo $lineNo > 0 ? 'Line ' . h((string) $lineNo) . ' | ' : ''; ?>
-                                                                    Qty: <?php echo h(format_quantity((float) ($itemRow['quantity_distributed'] ?? 0))); ?> |
                                                                     Unit Cost: <?php echo h(number_format((float) ($itemRow['unit_cost'] ?? 0), 2)); ?> |
                                                                     Amount: <?php echo h(number_format((float) ($itemRow['line_total'] ?? 0), 2)); ?>
                                                                 </div>
                                                             </div>
                                                         </div>
                                                         <div class="row g-2 mb-2">
-                                                            <div class="col-12">
+                                                            <div class="col-md-3">
+                                                                <label class="form-label small mb-1">Quantity Distributed *</label>
+                                                                <input type="number" class="form-control form-control-sm" name="quantity_distributed[<?php echo $distributionItemId; ?>]" value="<?php echo h(format_quantity((float) ($itemRow['quantity_distributed'] ?? 0))); ?>" min="0" step="0.01" required>
+                                                            </div>
+                                                            <div class="col-md-9">
                                                                 <label class="form-label small mb-1">Line Remarks</label>
                                                                 <textarea class="form-control form-control-sm" name="line_remarks[<?php echo $distributionItemId; ?>]" rows="2"><?php echo h((string) ($itemRow['remarks'] ?? '')); ?></textarea>
                                                             </div>

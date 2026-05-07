@@ -1,10 +1,11 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Export final Office Equipment 01 audit after reconciliation.
 Outputs CSV with 151 rows expected and total 12,344,704.00.
 */
 
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$mysqli = tools_db();
 if ($mysqli->connect_error) {
     die('Connection failed: ' . $mysqli->connect_error . PHP_EOL);
 }

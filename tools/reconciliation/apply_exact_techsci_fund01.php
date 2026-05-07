@@ -1,10 +1,11 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Apply authoritative Technical & Scientific Equipment (Fund 01) set for batch 14
 and target an exact total of 19,159,114.48.
 */
 
-$m = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$m = tools_db();
 if ($m->connect_error) {
     die("Connection failed\n");
 }

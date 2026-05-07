@@ -1,5 +1,6 @@
-<?php
-$m = new mysqli('127.0.0.1','root','','spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$m = tools_db();
 $tokens = ['CN8AAD6047','CNL9CAN01G','DTBLNSP003507004349600','K2406N0023758','A960278700076','464776'];
 $stmt = $m->prepare("SELECT id,batch_id,account_code,fund_code,fund_source,fund_number,property_number,serial_no,item_description,
                            ROUND(unit_cost*COALESCE(NULLIF(qty_physical_count,0),1),2) total

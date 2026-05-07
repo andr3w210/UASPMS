@@ -1,5 +1,6 @@
-<?php
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$mysqli = tools_db();
 $result = $mysqli->query('DESCRIBE account_codes');
 echo "Columns in account_codes:\n";
 while ($row = $result->fetch_assoc()) {

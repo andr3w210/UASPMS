@@ -1,5 +1,6 @@
-<?php
-$m = new mysqli('127.0.0.1','root','','spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$m = tools_db();
 
 $sql = "SELECT id, property_number, item_description, serial_no,
                ROUND(unit_cost*COALESCE(NULLIF(qty_physical_count,0),1),2) total

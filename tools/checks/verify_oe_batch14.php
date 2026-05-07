@@ -1,5 +1,6 @@
-<?php
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$mysqli = tools_db();
 
 // Check Office Equipment total for batch 14 specifically
 $query = "SELECT COUNT(*) as cnt, SUM(unit_cost * qty_physical_count) as total

@@ -1,9 +1,10 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /**
  * Audit batch 14 for blank/null account_codes (unclassified items)
  * and show full account breakdown.
  */
-$m = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$m = tools_db();
 if ($m->connect_error) die('Connection failed: ' . $m->connect_error);
 
 header('Content-Type: text/plain; charset=utf-8');

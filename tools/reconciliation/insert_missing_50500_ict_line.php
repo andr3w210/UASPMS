@@ -1,5 +1,6 @@
-<?php
-$m = new mysqli('127.0.0.1','root','','spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$m = tools_db();
 $tag = 'RCPPEE_2025_ICT_FUND01_LIST';
 
 // Insert the one remaining missing line from the provided list

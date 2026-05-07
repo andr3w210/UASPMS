@@ -1,9 +1,10 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Apply unique list marker to the authoritative RPCPPE 2025 list rows only.
 */
 
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$mysqli = tools_db();
 if ($mysqli->connect_error) {
     die('Connection failed: ' . $mysqli->connect_error . PHP_EOL);
 }

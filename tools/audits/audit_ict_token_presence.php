@@ -1,5 +1,6 @@
-<?php
-$m = new mysqli('127.0.0.1','root','','spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$m = tools_db();
 $patterns = ['K2406','DTBLNSP','CN8AAD','CNL9CAN01G','A960278700076','NXB18SP00D5232','X6N705','X6N706','XN19CQ00045'];
 foreach($patterns as $p){
     $like='%'.$p.'%';

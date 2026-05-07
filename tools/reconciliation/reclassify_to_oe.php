@@ -1,9 +1,10 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Reclassify 73 misplaced items to Fund 01 Office Equipment (1.06.05.020.00)
 */
 
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$mysqli = tools_db();
 if ($mysqli->connect_error) {
     die("Connection failed: " . $mysqli->connect_error);
 }

@@ -1,5 +1,6 @@
-<?php
-$m = new mysqli('127.0.0.1','root','','spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$m = tools_db();
 $tag='RCPPEE_2025_ICT_FUND01_LIST';
 
 $sql="SELECT COALESCE(fund_code,'(blank)') fund_code,

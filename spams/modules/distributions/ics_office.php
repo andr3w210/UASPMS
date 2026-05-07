@@ -169,10 +169,13 @@ if ($db) {
             }
         }
 
-        if ($legacyAssetId <= 0) {
+        if ($officeId > 0) {
             $sql = "SELECT
                     'system' AS source_type,
                     did.property_number,
+                    did.brand,
+                    did.model,
+                    did.serial_no,
                     poi.item_description,
                     c.classification_name,
                     c.classification_family,
@@ -219,26 +222,13 @@ if ($db) {
             }
         }
 
-        if ($legacyAssetId > 0) {
+        if ($officeId > 0) {
             $legacySql = "SELECT
                         'legacy' AS source_type,
                         la.property_number,
-                        la.item_description,
-                        c.classification_name,
-                        c.classification_family,
-                        c.useful_life_years,
-                        '' AS abbreviation,
-                        la.unit_cost
-                      FROM legacy_assets la
-                      LEFT JOIN classifications c ON c.id = la.classification_id
-                      WHERE la.id = ?
-                      LIMIT 1";
-            $legacyTypes = 'i';
-            $legacyParams = [$legacyAssetId];
-        } else {
-            $legacySql = "SELECT
-                        'legacy' AS source_type,
-                        la.property_number,
+                        la.brand,
+                        la.model,
+                        la.serial_no,
                         la.item_description,
                         c.classification_name,
                         c.classification_family,
@@ -262,16 +252,41 @@ if ($db) {
                 $legacyParams[] = $semiHvMin;
             }
             $legacySql .= " ORDER BY la.item_description ASC, la.id ASC";
+        } elseif ($legacyAssetId > 0) {
+            $legacySql = "SELECT
+                        'legacy' AS source_type,
+                        la.property_number,
+                        la.brand,
+                        la.model,
+                        la.serial_no,
+                        la.item_description,
+                        c.classification_name,
+                        c.classification_family,
+                        c.useful_life_years,
+                        '' AS abbreviation,
+                        la.unit_cost
+                      FROM legacy_assets la
+                      LEFT JOIN classifications c ON c.id = la.classification_id
+                      WHERE la.id = ?
+                      LIMIT 1";
+            $legacyTypes = 'i';
+            $legacyParams = [$legacyAssetId];
+        } else {
+            $legacySql = null;
+            $legacyTypes = '';
+            $legacyParams = [];
         }
-        $legacyStmt = $db->prepare($legacySql);
-        if ($legacyStmt) {
-            $legacyStmt->bind_param($legacyTypes, ...$legacyParams);
-            $legacyStmt->execute();
-            $res = $legacyStmt->get_result();
-            while ($res && ($row = $res->fetch_assoc())) {
-                $rows[] = $row;
+        if (!empty($legacySql)) {
+            $legacyStmt = $db->prepare($legacySql);
+            if ($legacyStmt) {
+                $legacyStmt->bind_param($legacyTypes, ...$legacyParams);
+                $legacyStmt->execute();
+                $res = $legacyStmt->get_result();
+                while ($res && ($row = $res->fetch_assoc())) {
+                    $rows[] = $row;
+                }
+                $legacyStmt->close();
             }
-            $legacyStmt->close();
         }
     }
 }
@@ -300,6 +315,7 @@ if ($isGrouped) {
                 'quantity' => 0,
                 'property_numbers' => [],
                 'property_number' => '',
+                'details' => [],
             ];
         }
 
@@ -308,6 +324,11 @@ if ($isGrouped) {
         if (!empty($row['property_number'])) {
             $groupedRows[$groupKey]['property_numbers'][] = (string) $row['property_number'];
         }
+        $groupedRows[$groupKey]['details'][] = [
+            'brand' => (string) ($row['brand'] ?? ''),
+            'model' => (string) ($row['model'] ?? ''),
+            'serial_no' => (string) ($row['serial_no'] ?? ''),
+        ];
     }
 
     foreach ($groupedRows as &$groupedRow) {
@@ -321,8 +342,44 @@ if ($isGrouped) {
 $printRows = $isGrouped ? array_values($groupedRows) : array_map(static function (array $row): array {
     $row['quantity'] = 1;
     $row['line_total'] = (float) ($row['unit_cost'] ?? 0);
+    $row['details'] = [[
+        'brand' => (string) ($row['brand'] ?? ''),
+        'model' => (string) ($row['model'] ?? ''),
+        'serial_no' => (string) ($row['serial_no'] ?? ''),
+    ]];
     return $row;
 }, $rows);
+
+$detailIdentityLine = static function (array $detail): string {
+    $parts = [];
+    $brand = trim((string) ($detail['brand'] ?? ''));
+    $model = trim((string) ($detail['model'] ?? ''));
+    $serial = trim((string) ($detail['serial_no'] ?? ''));
+
+    if ($brand !== '') {
+        $parts[] = 'Brand: ' . $brand;
+    }
+    if ($model !== '') {
+        $parts[] = 'Model: ' . $model;
+    }
+    if ($serial !== '') {
+        $parts[] = 'Serial: ' . $serial;
+    }
+
+    return implode(' | ', $parts);
+};
+
+$itemIdentityLines = static function (array $row) use ($detailIdentityLine): array {
+    $lines = [];
+    foreach ((array) ($row['details'] ?? []) as $detail) {
+        $line = $detailIdentityLine((array) $detail);
+        if ($line !== '') {
+            $lines[] = $line;
+        }
+    }
+
+    return array_values(array_unique($lines));
+};
 
 $recipientHead = ($db && $officeId > 0) ? $resolveOfficeHead($db, $officeId) : [];
 $supplyHead = $db ? $resolveSupplyOfficeHead($db) : [];
@@ -532,6 +589,7 @@ $blankRows = max(0, $targetRows - count($printRows));
                             $itemClass = trim((string) ($row['classification_name'] ?? ''));
                             $itemDescription = trim((string) ($row['item_description'] ?? ''));
                             $icsDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                            $identityLines = $itemIdentityLines((array) $row);
                             $inventoryItemNo = trim((string) ($row['property_number'] ?? ''));
                             $useful = '';
                             if (!empty($row['useful_life_years'])) {
@@ -543,7 +601,16 @@ $blankRows = max(0, $targetRows - count($printRows));
                             <td><?php echo h($unitLabel); ?></td>
                             <td class="text-end"><?php echo h(number_format($unitCost, 2)); ?></td>
                             <td class="text-end"><?php echo h(number_format($totalCost, 2)); ?></td>
-                            <td><?php echo nl2br(h($icsDescription)); ?></td>
+                            <td>
+                                <?php echo nl2br(h($icsDescription)); ?>
+                                <?php if (!empty($identityLines)): ?>
+                                    <div class="small">
+                                        <?php foreach ($identityLines as $identityLine): ?>
+                                            <?php echo h($identityLine); ?><br>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
                             <td><?php echo h($inventoryItemNo); ?></td>
                             <td><?php echo h($useful); ?></td>
                         </tr>

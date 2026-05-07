@@ -106,6 +106,21 @@ if (!$db) {
                 }
             }
             $errors[] = 'Unable to deactivate the brand.';
+        } elseif ($action === 'reactivate') {
+            $recordId = (int) ($_POST['id'] ?? 0);
+            $userId = current_user_id();
+            $stmt = $db->prepare("UPDATE brands SET is_active = 1, updated_by = ?, updated_at = NOW() WHERE id = ?");
+            if ($stmt) {
+                $stmt->bind_param('ii', $userId, $recordId);
+                $saved = $stmt->execute();
+                $stmt->close();
+                if ($saved) {
+                    write_audit_log($db, ['action' => 'update', 'table_name' => 'brands', 'record_id' => $recordId, 'module_name' => 'brands', 'record_type' => 'brand', 'action_name' => 'reactivate_brand', 'description' => 'Reactivated brand record.', 'new_values' => ['is_active' => 1]]);
+                    set_flash('success', 'Brand reactivated successfully.');
+                    redirect('modules/brands/index.php');
+                }
+            }
+            $errors[] = 'Unable to reactivate the brand.';
         } elseif ($action === 'hard_delete') {
             if (($_SESSION['user_role'] ?? '') !== 'Administrator') {
                 set_flash('error', 'Only administrators can permanently delete records.');
@@ -231,6 +246,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                     <input type="hidden" name="id" value="<?php echo (int) $brand['id']; ?>">
                                                     <button type="submit" class="btn btn-sm btn-outline-warning">
                                                         <i class="bi bi-slash-circle"></i> Deactivate
+                                                    </button>
+                                                </form>
+                                            <?php else: ?>
+                                                <form method="post" onsubmit="return confirm('Reactivate this brand?');" class="d-inline">
+                                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                    <input type="hidden" name="action" value="reactivate">
+                                                    <input type="hidden" name="id" value="<?php echo (int) $brand['id']; ?>">
+                                                    <button type="submit" class="btn btn-sm btn-outline-success">
+                                                        <i class="bi bi-arrow-counterclockwise"></i> Reactivate
                                                     </button>
                                                 </form>
                                             <?php endif; ?>

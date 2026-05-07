@@ -1,5 +1,6 @@
-<?php
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$mysqli = tools_db();
 
 // List all items currently in Office Equipment (batch 14)
 $query = "SELECT id, serial_no, brand, model, qty_physical_count, unit_cost, 

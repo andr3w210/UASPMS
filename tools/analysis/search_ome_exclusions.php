@@ -1,5 +1,6 @@
-<?php
-$m = new mysqli('127.0.0.1','root','','spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$m = tools_db();
 if ($m->connect_error) die("Connection failed\n");
 
 $res = $m->query("SELECT id, ROUND(unit_cost*COALESCE(NULLIF(qty_physical_count,0),1),2) total,

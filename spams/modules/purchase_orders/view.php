@@ -20,9 +20,12 @@ if ($purchaseOrderId <= 0) {
     exit;
 }
 
+$poSupportsDocumentTotal = function_exists('schema_has_column') ? schema_has_column($db, 'purchase_orders', 'document_total_amount') : false;
+$documentTotalSelect = $poSupportsDocumentTotal ? ', po.document_total_amount' : '';
+
 $stmt = $db->prepare("
     SELECT po.id, po.system_reference, po.po_number, po.po_date, po.supplier_address, po.place_of_delivery,
-           po.delivery_term_days, po.expected_delivery_date, po.total_amount, po.status, po.is_partial_entry, po.created_at,
+           po.delivery_term_days, po.expected_delivery_date, po.total_amount{$documentTotalSelect}, po.status, po.is_partial_entry, po.created_at,
            s.supplier_name, s.tin_no, f.fund_name, f.fund_code, f.fund_source, mop.mode_name AS mode_of_procurement_name
     FROM purchase_orders po
     INNER JOIN suppliers s ON s.id = po.supplier_id
@@ -249,6 +252,9 @@ if (($purchaseOrder['status'] ?? '') === 'completed') {
 }
 
 $totalAmountInWords = po_amount_in_words((float) $purchaseOrder['total_amount']);
+$documentTotalAmount = $poSupportsDocumentTotal && isset($purchaseOrder['document_total_amount']) && $purchaseOrder['document_total_amount'] !== null
+    ? (float) $purchaseOrder['document_total_amount']
+    : null;
 $fundClusterLabel = trim((string) ($purchaseOrder['fund_source'] ?? ''));
 if ($fundClusterLabel === '') {
     $fundClusterLabel = trim((string) ($purchaseOrder['fund_code'] ?? ''));
@@ -367,6 +373,14 @@ if ($fundClusterLabel === '') {
                         <td class="po-label-cell">Payment Term</td>
                         <td class="po-value-cell">Charge to Available Funds</td>
                     </tr>
+                    <?php if ($documentTotalAmount !== null): ?>
+                        <tr>
+                            <td class="po-label-cell">Hard Copy PO Total</td>
+                            <td class="po-value-cell"><?php echo h(number_format($documentTotalAmount, 2)); ?></td>
+                            <td class="po-label-cell">Computed Total</td>
+                            <td class="po-value-cell"><?php echo h(number_format((float) $purchaseOrder['total_amount'], 2)); ?></td>
+                        </tr>
+                    <?php endif; ?>
                 </tbody>
             </table>
 

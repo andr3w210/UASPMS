@@ -1,5 +1,6 @@
-<?php
-$m = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$m = tools_db();
 $queries = [
     'range_qty_physical' => "SELECT COUNT(*) cnt, COALESCE(SUM(unit_cost*COALESCE(NULLIF(qty_physical_count,0),1)),0) total FROM rpcppe_batch_items WHERE batch_id=14 AND id BETWEEN 19063 AND 19202",
     'range_qty_property' => "SELECT COUNT(*) cnt, COALESCE(SUM(unit_cost*COALESCE(NULLIF(qty_property_card,0),1)),0) total FROM rpcppe_batch_items WHERE batch_id=14 AND id BETWEEN 19063 AND 19202",

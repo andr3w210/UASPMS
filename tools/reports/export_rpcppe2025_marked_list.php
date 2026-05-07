@@ -1,11 +1,12 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Export rows marked with RPCPPE_2025_LIST and provide totals:
 - DB total (actual row qty)
 - Normalized list total (treat ID 19065 qty as 1 based on provided list line)
 */
 
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$mysqli = tools_db();
 if ($mysqli->connect_error) {
     die('Connection failed: ' . $mysqli->connect_error . PHP_EOL);
 }

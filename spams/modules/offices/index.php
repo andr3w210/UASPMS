@@ -3,6 +3,24 @@ require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 
+function offices_parse_coordinate(string $value, float $min, float $max): ?float
+{
+    $value = trim($value);
+    if ($value === '') {
+        return null;
+    }
+    if (!is_numeric($value)) {
+        return null;
+    }
+
+    $number = (float) $value;
+    if ($number < $min || $number > $max) {
+        return null;
+    }
+
+    return round($number, 7);
+}
+
 function offices_has_reference(mysqli $db, int $recordId): bool
 {
     return has_foreign_key_reference($db, 'offices', $recordId, [
@@ -24,6 +42,8 @@ $form = [
     'office_code' => '',
     'office_name' => '',
     'office_head_employee_id' => '',
+    'location_lat' => '',
+    'location_lng' => '',
     'description' => '',
     'is_active' => '1',
 ];
@@ -32,6 +52,8 @@ $unitHeads = [];
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    ensure_office_location_pin_schema($db);
+
     $generatedCode = preview_module_code($db, 'offices');
     $employeeResult = $db->query("SELECT id, first_name, middle_name, last_name, suffix_name, employee_no FROM employees WHERE is_active = 1 ORDER BY last_name, first_name");
     if ($employeeResult) {
@@ -53,14 +75,25 @@ if (!$db) {
             $form['office_code'] = strtoupper(old($_POST, 'office_code'));
             $form['office_name'] = old($_POST, 'office_name');
             $form['office_head_employee_id'] = old($_POST, 'office_head_employee_id');
+            $form['location_lat'] = trim(old($_POST, 'location_lat'));
+            $form['location_lng'] = trim(old($_POST, 'location_lng'));
             $form['description'] = old($_POST, 'description');
             $form['is_active'] = isset($_POST['is_active']) ? '1' : '0';
+
+            $locationLat = offices_parse_coordinate($form['location_lat'], -90, 90);
+            $locationLng = offices_parse_coordinate($form['location_lng'], -180, 180);
 
             if ($form['office_code'] === '') {
                 $errors[] = 'Office code is required.';
             }
             if ($form['office_name'] === '') {
                 $errors[] = 'Office name is required.';
+            }
+            if ($form['location_lat'] !== '' && $locationLat === null) {
+                $errors[] = 'Office latitude must be between -90 and 90.';
+            }
+            if ($form['location_lng'] !== '' && $locationLng === null) {
+                $errors[] = 'Office longitude must be between -180 and 180.';
             }
 
             $duplicateStmt = $db->prepare("SELECT id FROM offices WHERE (office_code = ? OR office_name = ?) AND id != ? LIMIT 1");
@@ -88,6 +121,17 @@ if (!$db) {
                         $saved = $stmt->execute();
                         $stmt->close();
                         if ($saved) {
+                            if ($locationLat !== null && $locationLng !== null) {
+                                upsert_office_location_pin(
+                                    $db,
+                                    $officeId,
+                                    $form['office_name'],
+                                    $form['office_name'],
+                                    $locationLat,
+                                    $locationLng,
+                                    (int) $userId
+                                );
+                            }
                             write_audit_log($db, [
                                 'action' => 'update',
                                 'table_name' => 'offices',
@@ -100,6 +144,8 @@ if (!$db) {
                                     'office_code' => $form['office_code'],
                                     'office_name' => $form['office_name'],
                                     'office_head_employee_id' => $officeHeadId,
+                                    'location_lat' => $locationLat,
+                                    'location_lng' => $locationLng,
                                     'description' => $form['description'],
                                     'is_active' => $isActive,
                                 ],
@@ -116,6 +162,17 @@ if (!$db) {
                         $newOfficeId = (int) $stmt->insert_id;
                         $stmt->close();
                         if ($saved) {
+                            if ($locationLat !== null && $locationLng !== null) {
+                                upsert_office_location_pin(
+                                    $db,
+                                    $newOfficeId,
+                                    $form['office_name'],
+                                    $form['office_name'],
+                                    $locationLat,
+                                    $locationLng,
+                                    (int) $userId
+                                );
+                            }
                             write_audit_log($db, [
                                 'action' => 'insert',
                                 'table_name' => 'offices',
@@ -128,6 +185,8 @@ if (!$db) {
                                     'office_code' => $form['office_code'],
                                     'office_name' => $form['office_name'],
                                     'office_head_employee_id' => $officeHeadId,
+                                    'location_lat' => $locationLat,
+                                    'location_lng' => $locationLng,
                                     'description' => $form['description'],
                                     'is_active' => $isActive,
                                 ],
@@ -164,6 +223,30 @@ if (!$db) {
                 }
             }
             $errors[] = 'Unable to deactivate the office.';
+        } elseif ($action === 'reactivate') {
+            $officeId = (int) ($_POST['id'] ?? 0);
+            $userId = current_user_id();
+            $stmt = $db->prepare("UPDATE offices SET is_active = 1, updated_by = ?, updated_at = NOW() WHERE id = ?");
+            if ($stmt) {
+                $stmt->bind_param('ii', $userId, $officeId);
+                $saved = $stmt->execute();
+                $stmt->close();
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'offices',
+                        'record_id' => $officeId,
+                        'module_name' => 'offices',
+                        'record_type' => 'office',
+                        'action_name' => 'reactivate_office',
+                        'description' => 'Reactivated office record.',
+                        'new_values' => ['is_active' => 1],
+                    ]);
+                    set_flash('success', 'Office reactivated successfully.');
+                    redirect('modules/offices/index.php');
+                }
+            }
+            $errors[] = 'Unable to reactivate the office.';
         } elseif ($action === 'hard_delete') {
             if (($_SESSION['user_role'] ?? '') !== 'Administrator') {
                 set_flash('error', 'Only administrators can permanently delete records.');
@@ -227,9 +310,17 @@ if (!$db) {
                     'office_code' => $record['office_code'],
                     'office_name' => $record['office_name'],
                     'office_head_employee_id' => (string) ($record['office_head_employee_id'] ?? ''),
+                    'location_lat' => '',
+                    'location_lng' => '',
                     'description' => $record['description'] ?? '',
                     'is_active' => (string) (int) $record['is_active'],
                 ];
+
+                $pin = get_office_location_pin($db, (int) $record['id']);
+                if ($pin) {
+                    $form['location_lat'] = isset($pin['location_lat']) ? (string) $pin['location_lat'] : '';
+                    $form['location_lng'] = isset($pin['location_lng']) ? (string) $pin['location_lng'] : '';
+                }
             }
         }
     }
@@ -335,6 +426,29 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div class="col-12">
                                                 <label class="form-label">Description</label>
                                                 <textarea class="form-control" name="description" rows="4" placeholder="Optional office notes or scope details"><?php echo h($form['description']); ?></textarea>
+                                            </div>
+                                            <input type="hidden" name="location_lat" id="office_location_lat" value="<?php echo h($form['location_lat']); ?>">
+                                            <input type="hidden" name="location_lng" id="office_location_lng" value="<?php echo h($form['location_lng']); ?>">
+                                            <div class="col-12">
+                                                <div class="border rounded-3 p-3 bg-light-subtle">
+                                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                                                        <div>
+                                                            <div class="fw-semibold">Office Map Pin</div>
+                                                            <div class="text-muted small">Set the default pin for this office on the University of Antique map. Asset views can auto-use this pin.</div>
+                                                        </div>
+                                                        <div class="d-flex gap-2">
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="officeMapRecenter">Recenter</button>
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="officeMapToggle">Expand</button>
+                                                        </div>
+                                                    </div>
+                                                    <div id="officeLocationMap" style="height: 460px; border-radius: 0.5rem;"></div>
+                                                    <div class="small text-muted mt-2">
+                                                        Selected pin: <span id="officeLocationMapCoords">Not set</span>
+                                                    </div>
+                                                    <div class="small mt-1">
+                                                        <a id="officeOpenInBrowser" href="#" target="_blank" rel="noopener">Open selected pin in browser</a>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -457,6 +571,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
                                                 <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button>
                                             </form>
+                                        <?php else: ?>
+                                            <form method="post" onsubmit="return confirm('Reactivate this office?');" class="d-inline">
+                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="reactivate">
+                                                <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-arrow-counterclockwise"></i> Reactivate</button>
+                                            </form>
                                         <?php endif; ?>
                                         <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
                                             <form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline">
@@ -508,6 +629,99 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     window.__spamsPendingMasterDataLists = window.__spamsPendingMasterDataLists || [];
     window.__spamsPendingMasterDataLists.push(['dataTable', options]);
+});
+</script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" crossorigin="" onerror="this.onerror=null;this.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var mapEl = document.getElementById('officeLocationMap');
+    var latInput = document.getElementById('office_location_lat');
+    var lngInput = document.getElementById('office_location_lng');
+    var coordLabel = document.getElementById('officeLocationMapCoords');
+    var openInBrowserLink = document.getElementById('officeOpenInBrowser');
+    var recenterBtn = document.getElementById('officeMapRecenter');
+    var toggleBtn = document.getElementById('officeMapToggle');
+
+    if (!mapEl || !latInput || !lngInput || !coordLabel) {
+        return;
+    }
+
+    if (typeof window.L === 'undefined') {
+        mapEl.classList.add('d-flex', 'align-items-center', 'justify-content-center', 'bg-light', 'border');
+        mapEl.textContent = 'Map failed to load. Check internet connection and refresh the page.';
+        return;
+    }
+
+    var uaLat = 10.7904, uaLng = 122.0078;
+
+    var initialLat = parseFloat(latInput.value);
+    var initialLng = parseFloat(lngInput.value);
+    if (Number.isNaN(initialLat) || initialLat < -90 || initialLat > 90) { initialLat = uaLat; }
+    if (Number.isNaN(initialLng) || initialLng < -180 || initialLng > 180) { initialLng = uaLng; }
+
+    var map = L.map(mapEl, { center: [initialLat, initialLng], zoom: 18 });
+    var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 20
+    });
+    var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri'
+    });
+    streetLayer.addTo(map);
+    L.control.layers(
+        {
+            'Street': streetLayer,
+            'Satellite': satelliteLayer
+        },
+        null,
+        { collapsed: false }
+    ).addTo(map);
+
+    var officeMarker = L.marker([initialLat, initialLng], { draggable: true }).addTo(map);
+
+    function refreshMapSize() {
+        setTimeout(function () {
+            map.invalidateSize();
+        }, 150);
+    }
+
+    refreshMapSize();
+    window.addEventListener('load', refreshMapSize);
+    document.addEventListener('shown.bs.tab', refreshMapSize);
+    document.addEventListener('shown.bs.collapse', refreshMapSize);
+    document.addEventListener('shown.bs.modal', refreshMapSize);
+
+    function syncCoords(latlng) {
+        latInput.value = Number(latlng.lat).toFixed(7);
+        lngInput.value = Number(latlng.lng).toFixed(7);
+        coordLabel.textContent = Number(latlng.lat).toFixed(7) + ', ' + Number(latlng.lng).toFixed(7);
+        if (openInBrowserLink) {
+            openInBrowserLink.href = 'https://www.google.com/maps?q=' + encodeURIComponent(latInput.value + ',' + lngInput.value);
+        }
+    }
+    syncCoords(officeMarker.getLatLng());
+
+    officeMarker.on('dragend', function () { syncCoords(officeMarker.getLatLng()); });
+    map.on('click', function (e) { officeMarker.setLatLng(e.latlng); syncCoords(e.latlng); });
+
+    if (recenterBtn) {
+        recenterBtn.addEventListener('click', function () {
+            map.setView([uaLat, uaLng], 18);
+            officeMarker.setLatLng([uaLat, uaLng]);
+            syncCoords({ lat: uaLat, lng: uaLng });
+        });
+    }
+
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+            var expanded = mapEl.style.height === '70vh';
+            mapEl.style.height = expanded ? '460px' : '70vh';
+            toggleBtn.textContent = expanded ? 'Expand' : 'Collapse';
+            refreshMapSize();
+        });
+    }
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

@@ -13,6 +13,16 @@ if (hasReleaseSigning) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
+// Load network endpoint config from local.properties (gitignored).
+// Copy local.properties.example to local.properties and set your own values.
+val localPropsFile = rootProject.file("local.properties")
+val localProps = Properties()
+if (localPropsFile.exists()) {
+    localPropsFile.inputStream().use { localProps.load(it) }
+}
+fun localUrl(key: String, fallback: String): String =
+    "\"${localProps.getProperty(key, fallback)}\""
+
 android {
     namespace = "com.uaspms.mobile"
     compileSdk = 34
@@ -26,11 +36,11 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Try Tailscale first, then LAN, then emulator-to-localhost.
-        buildConfigField("String", "BASE_URL", "\"http://spmu-andrew.tail985047.ts.net/UASPMS/spams/\"")
-        buildConfigField("String", "TAILSCALE_IP_BASE_URL", "\"http://100.84.75.22/UASPMS/spams/\"")
-        buildConfigField("String", "LAN_BASE_URL", "\"http://172.16.1.42/UASPMS/spams/\"")
-        buildConfigField("String", "LOCAL_BASE_URL", "\"http://10.0.2.2/UASPMS/spams/\"")
+        // Network endpoints — read from local.properties (gitignored); fallback to localhost-only defaults.
+        buildConfigField("String", "BASE_URL",             localUrl("BASE_URL",             "http://10.0.2.2/UASPMS/spams/"))
+        buildConfigField("String", "TAILSCALE_IP_BASE_URL", localUrl("TAILSCALE_IP_BASE_URL", "http://10.0.2.2/UASPMS/spams/"))
+        buildConfigField("String", "LAN_BASE_URL",          localUrl("LAN_BASE_URL",          "http://10.0.2.2/UASPMS/spams/"))
+        buildConfigField("String", "LOCAL_BASE_URL",        localUrl("LOCAL_BASE_URL",        "http://10.0.2.2/UASPMS/spams/"))
     }
 
     signingConfigs {

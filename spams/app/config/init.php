@@ -57,6 +57,10 @@ if (is_dir($helpers_dir)) {
     }
 }
 
+if (function_exists('request_guard_superglobals')) {
+    request_guard_superglobals();
+}
+
 if (!empty($_SESSION['user_id']) && function_exists('db') && function_exists('roles_name_expression')) {
     $authDb = db();
     if ($authDb) {
