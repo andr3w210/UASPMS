@@ -180,7 +180,8 @@ $detailIdentityLine = static function (array $detail): string {
 
 $itemIdentityLines = static function (array $item) use ($detailIdentityLine): array {
     $lines = [];
-    foreach ((array) ($item['details'] ?? []) as $detail) {
+    $details = array_key_exists('details', $item) ? (array) $item['details'] : [$item];
+    foreach ($details as $detail) {
         $line = $detailIdentityLine((array) $detail);
         if ($line !== '') {
             $lines[] = $line;
