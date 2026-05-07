@@ -390,10 +390,6 @@ if (!$db) {
                         $errors[] = 'Brand is required for line ' . $item['line_no'] . ' unless "No brand/model" is checked.';
                         continue 2;
                     }
-                    if ($modelId <= 0) {
-                        $errors[] = 'Model is required for line ' . $item['line_no'] . ' unless "No brand/model" is checked.';
-                        continue 2;
-                    }
                 }
 
                 if ($brandId > 0) {
@@ -1590,7 +1586,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                                                             <div>
                                                                 <div class="fw-semibold">Brand / Model / Serial Details</div>
-                                                                <div class="small text-muted">Add one detail row per accepted item. Brand and model are required unless you check "No brand/model". Serial number and remarks stay optional.</div>
+                                                                <div class="small text-muted">Add one detail row per accepted item. Brand is required unless you check "No brand/model". Model, serial number, and remarks are optional.</div>
                                                             </div>
                                                             <div class="d-flex align-items-center flex-wrap gap-3">
                                                                 <div class="form-check m-0">
@@ -2005,10 +2001,30 @@ document.addEventListener('DOMContentLoaded', function () {
 
         var brandId = bulkBrandSelect.value || '';
         var modelId = bulkModelSelect.value || '';
-        if (!brandId || !modelId) return;
+        if (!brandId && !modelId) return;
+
+        if (!brandId && modelId) {
+            var selectedModel = models.find(function (model) {
+                return String(model.id) === String(modelId);
+            });
+            if (selectedModel) {
+                brandId = String(selectedModel.brand_id || '');
+                bulkBrandSelect.value = brandId;
+                syncBulkModelOptions(itemId, modelId);
+            }
+        }
 
         var brandText = selectedOptionText(bulkBrandSelect);
         var modelText = selectedOptionText(bulkModelSelect);
+
+        function setSelectValue(select, value) {
+            if (!select) return;
+            select.value = value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            if (window.jQuery && window.jQuery.fn && window.jQuery.fn.select2) {
+                window.jQuery(select).trigger('change.select2');
+            }
+        }
 
         container.querySelectorAll('.receiving-detail-row').forEach(function (detailRow) {
             var noBrandCheckbox = detailRow.querySelector('.receiving-no-brand-model');
@@ -2024,13 +2040,13 @@ document.addEventListener('DOMContentLoaded', function () {
             var hiddenModel = detailRow.querySelector('input[name$="[model]"]');
 
             if (brandSelect) {
-                brandSelect.value = brandId;
+                setSelectValue(brandSelect, brandId);
                 if (hiddenBrand) hiddenBrand.value = brandText;
                 syncModelOptions(detailRow);
             }
             if (modelSelect) {
-                modelSelect.value = modelId;
-                if (hiddenModel) hiddenModel.value = modelText;
+                setSelectValue(modelSelect, modelId);
+                if (hiddenModel) hiddenModel.value = modelId ? modelText : '';
                 initReceivingSelect2(modelSelect);
             }
         });

@@ -2,8 +2,6 @@
 
 // Application constants
 define('APP_VERSION', 'v1.1.0');
-define('BASE_URL', '/UASPMS/spams');
-define('LOGO_PATH', BASE_URL . '/assets/img/ua-logo.png');
 define('APP_ROOT', dirname(__DIR__, 2) . DIRECTORY_SEPARATOR);
 
 if (!function_exists('spams_load_env')) {
@@ -82,6 +80,8 @@ define('TRIP_DB_PASS', spams_env('TRIP_DB_PASS', DB_PASS));
 // Misc
 define('APP_NAME', spams_env('APP_NAME', 'University of Antique'));
 define('APP_URL', rtrim((string) spams_env('APP_URL', ''), '/'));
+define('BASE_URL', rtrim((string) spams_env('BASE_URL', '/UASPMS/spams'), '/'));
+define('LOGO_PATH', BASE_URL . '/assets/img/ua-logo.png');
 define('TIMEZONE', spams_env('TIMEZONE', 'Asia/Manila'));
 define('LOW_STOCK_THRESHOLD', (int) spams_env('LOW_STOCK_THRESHOLD', '5'));
 

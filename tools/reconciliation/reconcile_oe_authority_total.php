@@ -1,4 +1,5 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Reconcile batch 14 Office Equipment against authoritative list.
 - Build matched row IDs from serial tokens (serial_no or item_description contains token)
@@ -11,7 +12,7 @@ Usage:
 
 $apply = in_array('--apply', $argv, true);
 
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$mysqli = tools_db();
 if ($mysqli->connect_error) {
     die("Connection failed: " . $mysqli->connect_error . "\n");
 }

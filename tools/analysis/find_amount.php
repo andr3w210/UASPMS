@@ -1,5 +1,6 @@
-<?php
-$m = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$m = tools_db();
 $target = (float)($argv[1] ?? 0);
 $sql = "SELECT id, account_code, serial_no, brand, model, unit_cost, qty_physical_count,
                (unit_cost * COALESCE(NULLIF(qty_physical_count,0),1)) AS total

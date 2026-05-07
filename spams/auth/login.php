@@ -15,7 +15,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($username === '' || $password === '') {
         $error = 'Please enter username and password.';
+    } elseif (rate_limit_check('login')) {
+        $retryAfter = rate_limit_retry_after('login');
+        $retryMinutes = $retryAfter > 0 ? (int) ceil($retryAfter / 60) : 15;
+        $error = 'Too many login attempts from your IP address. Please try again in ' . $retryMinutes . ' minute(s).';
     } else {
+        rate_limit_record('login');
         $db = db();
         if (!$db) {
             $error = 'Database connection error.';

@@ -1,9 +1,10 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 REVERT: Undo the reclassification - move items back to their original accounts
 */
 
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$mysqli = tools_db();
 
 // Get the IDs we moved and find their original account from legacy_assets
 $idsToRevert = [

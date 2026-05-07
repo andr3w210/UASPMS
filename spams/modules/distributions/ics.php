@@ -79,13 +79,14 @@ $itemStmt = $db->prepare(
             poi.item_description,
             u.uom_name, u.abbreviation,
             c.classification_name, c.useful_life_years,
-            did.property_number, did.id AS did_id
+            did.property_number, did.brand, did.model, did.serial_no, did.id AS did_id
      FROM distribution_items di
      INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
      INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
      LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id
      LEFT JOIN classifications c ON c.id = poi.classification_id
-     LEFT JOIN distribution_item_details did ON did.distribution_item_id = di.id
+      LEFT JOIN distribution_item_details did ON did.distribution_item_id = di.id
+          AND did.is_distributed = 1
      WHERE di.distribution_id = ?
      ORDER BY di.id ASC, did.id ASC"
 );
@@ -122,6 +123,9 @@ foreach ($rows as $row) {
     if (!empty($row['did_id'])) {
         $items[$di]['details'][] = [
             'property_number' => $row['property_number'] ?? '',
+            'brand' => $row['brand'] ?? '',
+            'model' => $row['model'] ?? '',
+            'serial_no' => $row['serial_no'] ?? '',
         ];
         if ($items[$di]['inventory_item_no'] === '' && !empty($row['property_number'])) {
             $items[$di]['inventory_item_no'] = (string) $row['property_number'];
@@ -176,6 +180,7 @@ if ($isGrouped) {
                 'abbreviation' => (string) ($item['abbreviation'] ?? ''),
                 'useful_life_years' => $item['useful_life_years'] ?? null,
                 'inventory_item_no' => '',
+                'details' => [],
                 'property_numbers' => [],
             ];
         }
@@ -184,6 +189,7 @@ if ($isGrouped) {
         $groupedItems[$groupKey]['line_total'] += (float) ($item['line_total'] ?? 0);
 
         foreach ((array) ($item['details'] ?? []) as $detail) {
+            $groupedItems[$groupKey]['details'][] = $detail;
             if (!empty($detail['property_number'])) {
                 $groupedItems[$groupKey]['property_numbers'][] = (string) $detail['property_number'];
             }
@@ -203,6 +209,37 @@ if ($isGrouped) {
 }
 
 $printItems = $isGrouped ? array_values($groupedItems) : array_values($items);
+
+$detailIdentityLine = static function (array $detail): string {
+    $parts = [];
+    $brand = trim((string) ($detail['brand'] ?? ''));
+    $model = trim((string) ($detail['model'] ?? ''));
+    $serial = trim((string) ($detail['serial_no'] ?? ''));
+
+    if ($brand !== '') {
+        $parts[] = 'Brand: ' . $brand;
+    }
+    if ($model !== '') {
+        $parts[] = 'Model: ' . $model;
+    }
+    if ($serial !== '') {
+        $parts[] = 'Serial: ' . $serial;
+    }
+
+    return implode(' | ', $parts);
+};
+
+$itemIdentityLines = static function (array $item) use ($detailIdentityLine): array {
+    $lines = [];
+    foreach ((array) ($item['details'] ?? []) as $detail) {
+        $line = $detailIdentityLine((array) $detail);
+        if ($line !== '') {
+            $lines[] = $line;
+        }
+    }
+
+    return array_values(array_unique($lines));
+};
 
 $recipientHead = $resolveOfficeHead($db, $officeId);
 $supplyHead = $resolveSupplyOfficeHead($db);
@@ -239,8 +276,7 @@ if (preg_match('/(?:^|[^0-9])(0[1567])(?:[^0-9]|$)/', $fundCluster, $matches)) {
     $fundCluster = $matches[1];
 }
 
-$targetRows = $isShort ? 10 : 24;
-$blankRows = ($isShort ? max(0, $targetRows - count($printItems)) : 0) + $extraRows;
+$blankRows = $extraRows;
 $shortSheetCount = (int) ceil($copyCount / 2);
 ?><!doctype html>
 <html lang="en">
@@ -386,12 +422,16 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                     <tbody class="ics-body">
                         <?php foreach ($printItems as $it):
                             $qty = (float) ($it['quantity_distributed'] ?? 0);
+
+                            if ($qty <= 0) continue;
+
                             $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
                             $unitCost = (float) ($it['unit_cost'] ?? 0);
                             $totalCost = (float) ($it['line_total'] ?? ($unitCost * $qty));
                             $itemClass = trim((string) ($it['classification_name'] ?? ''));
                             $itemDescription = trim((string) ($it['item_description'] ?? ''));
                             $icsDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                            $identityLines = $itemIdentityLines((array) $it);
                             $inventoryItemNo = trim((string) ($it['inventory_item_no'] ?? ''));
                             $useful = '';
                             if (!empty($it['useful_life_years'])) {
@@ -403,7 +443,16 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                             <td><?php echo h($unitLabel); ?></td>
                             <td class="text-end"><?php echo h(number_format($unitCost, 2)); ?></td>
                             <td class="text-end"><?php echo h(number_format($totalCost, 2)); ?></td>
-                            <td><?php echo nl2br(h($icsDescription)); ?></td>
+                            <td>
+                                <?php echo nl2br(h($icsDescription)); ?>
+                                <?php if (!empty($identityLines)): ?>
+                                    <div class="small">
+                                        <?php foreach ($identityLines as $identityLine): ?>
+                                            <?php echo h($identityLine); ?><br>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
                             <td><?php echo h($inventoryItemNo); ?></td>
                             <td><?php echo h($useful); ?></td>
                         </tr>
@@ -508,12 +557,16 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                     <tbody class="ics-body">
                         <?php foreach ($printItems as $it):
                             $qty = (float) ($it['quantity_distributed'] ?? 0);
+
+                            if ($qty <= 0) continue;
+
                             $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
                             $unitCost = (float) ($it['unit_cost'] ?? 0);
                             $totalCost = (float) ($it['line_total'] ?? ($unitCost * $qty));
                             $itemClass = trim((string) ($it['classification_name'] ?? ''));
                             $itemDescription = trim((string) ($it['item_description'] ?? ''));
                             $icsDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                            $identityLines = $itemIdentityLines((array) $it);
                             $inventoryItemNo = trim((string) ($it['inventory_item_no'] ?? ''));
                             $useful = '';
                             if (!empty($it['useful_life_years'])) {
@@ -525,7 +578,16 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                             <td><?php echo h($unitLabel); ?></td>
                             <td class="text-end"><?php echo h(number_format($unitCost, 2)); ?></td>
                             <td class="text-end"><?php echo h(number_format($totalCost, 2)); ?></td>
-                            <td><?php echo nl2br(h($icsDescription)); ?></td>
+                            <td>
+                                <?php echo nl2br(h($icsDescription)); ?>
+                                <?php if (!empty($identityLines)): ?>
+                                    <div class="small">
+                                        <?php foreach ($identityLines as $identityLine): ?>
+                                            <?php echo h($identityLine); ?><br>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
                             <td><?php echo h($inventoryItemNo); ?></td>
                             <td><?php echo h($useful); ?></td>
                         </tr>

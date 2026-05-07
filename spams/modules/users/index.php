@@ -286,6 +286,29 @@ if (!$db) {
                 }
             }
             $errors[]='Unable to deactivate the user.';
+        } elseif($action==='reactivate'){
+            $recordId=(int)($_POST['id']??0);
+            $stmt=$db->prepare("UPDATE users SET is_active = 1, updated_at = NOW() WHERE id = ?");
+            if($stmt){
+                $stmt->bind_param('i',$recordId);
+                $saved = $stmt->execute();
+                $stmt->close();
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'users',
+                        'record_id' => $recordId,
+                        'module_name' => 'users',
+                        'record_type' => 'user',
+                        'action_name' => 'reactivate_user',
+                        'description' => 'Reactivated user account.',
+                        'new_values' => ['is_active' => 1],
+                    ]);
+                    set_flash('success','User reactivated successfully.');
+                    redirect('modules/users/index.php');
+                }
+            }
+            $errors[]='Unable to reactivate the user.';
         } elseif($action==='hard_delete'){
             if(($_SESSION['user_role']??'')!=='Administrator'){
                 set_flash('error','Only administrators can permanently delete records.');
@@ -622,7 +645,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo h(date('M d, Y', strtotime($user['created_at']))); ?></td>
-                                <td class="text-end"><div class="d-inline-flex flex-wrap justify-content-end gap-2"><a href="<?php echo base_url('modules/users/index.php?edit=' . (int) $user['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a><?php if (!empty($userHasForcePasswordColumn) && (int) $user['is_active'] === 1): ?><form method="post" onsubmit="return confirm('Reset this user password and generate a temporary one-time password?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="reset_password"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-key"></i> Reset Password</button></form><?php endif; ?><?php if ((int) $user['is_active'] === 1): ?><form method="post" onsubmit="return confirm('Deactivate this user?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button></form><?php endif; ?><form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="hard_delete"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button></form></div></td>
+                                <td class="text-end"><div class="d-inline-flex flex-wrap justify-content-end gap-2"><a href="<?php echo base_url('modules/users/index.php?edit=' . (int) $user['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a><?php if (!empty($userHasForcePasswordColumn) && (int) $user['is_active'] === 1): ?><form method="post" onsubmit="return confirm('Reset this user password and generate a temporary one-time password?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="reset_password"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-key"></i> Reset Password</button></form><?php endif; ?><?php if ((int) $user['is_active'] === 1): ?><form method="post" onsubmit="return confirm('Deactivate this user?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button></form><?php else: ?><form method="post" onsubmit="return confirm('Reactivate this user?');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="reactivate"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-arrow-counterclockwise"></i> Reactivate</button></form><?php endif; ?><form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="hard_delete"><input type="hidden" name="id" value="<?php echo (int) $user['id']; ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i> Delete</button></form></div></td>
                             </tr>
                         <?php endforeach; else: ?>
                             <tr data-status="inactive"><td colspan="7" class="text-center text-muted py-4">No users found yet.</td></tr>

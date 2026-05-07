@@ -31,6 +31,7 @@ $form = [
     'place_of_delivery' => 'University of Antique',
     'delivery_term_days' => '',
     'expected_delivery_date' => '',
+    'document_total_amount' => '',
     'is_partial_entry' => 0,
 ];
 $itemRows = $defaultRows;
@@ -83,6 +84,9 @@ if ($db) {
     $poItemSupportsSemiType = function_exists('schema_has_column')
         ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type')
         : false;
+    $poSupportsDocumentTotal = function_exists('schema_has_column')
+        ? schema_has_column($db, 'purchase_orders', 'document_total_amount')
+        : false;
 
     // preview system reference for new PO
     $form['system_reference'] = preview_module_code($db, 'purchase_orders');
@@ -103,6 +107,7 @@ if ($db) {
             $form['place_of_delivery'] = old($_POST, 'place_of_delivery', 'University of Antique');
             $form['delivery_term_days'] = old($_POST, 'delivery_term_days');
             $form['expected_delivery_date'] = old($_POST, 'expected_delivery_date');
+            $form['document_total_amount'] = old($_POST, 'document_total_amount');
             $form['is_partial_entry'] = !empty($_POST['is_partial_entry']) ? 1 : 0;
 
             $postedRows = $_POST['items'] ?? [];
@@ -126,6 +131,9 @@ if ($db) {
                                 (!ctype_digit($form['delivery_term_days']) ||
                                  (int)$form['delivery_term_days'] < 0)) {
                             $errors[] = 'Delivery term must be a non-negative whole number.';
+                        }
+                        if ($form['document_total_amount'] !== '' && !preg_match('/^\d+(?:\.\d{1,2})?$/', $form['document_total_amount'])) {
+                            $errors[] = 'PO total amount must be a valid number with up to 2 decimal places.';
                         }
 
                         if ($form['supplier_id'] !== '') {
@@ -269,6 +277,14 @@ if ($db) {
 
                         if (empty($validatedItems)) $errors[] = 'At least one PO item is required.';
 
+                        $documentTotalAmount = null;
+                        if ($form['document_total_amount'] !== '') {
+                            $documentTotalAmount = round((float) $form['document_total_amount'], 2);
+                            if (abs($documentTotalAmount - $totalAmount) > 0.009) {
+                                $errors[] = 'Encoded line total (' . number_format($totalAmount, 2) . ') does not match the hard copy PO total (' . number_format($documentTotalAmount, 2) . ').';
+                            }
+                        }
+
                         // DB INSERT â€” only runs if no errors
                         if (empty($errors)) {
                             $supplierId          = (int)$form['supplier_id'];
@@ -285,26 +301,51 @@ if ($db) {
 
                             $db->begin_transaction();
                             try {
-                                $headerStmt = $db->prepare("\n        INSERT INTO purchase_orders\n          (system_reference, po_number, po_date, supplier_id, fund_id,\n           supplier_address, mode_of_procurement_id, place_of_delivery,\n           delivery_term_days, expected_delivery_date, status, is_partial_entry,\n           purpose, remarks, total_amount, created_by)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)\n      ");
+                                if ($poSupportsDocumentTotal) {
+                                    $headerStmt = $db->prepare("\n        INSERT INTO purchase_orders\n          (system_reference, po_number, po_date, supplier_id, fund_id,\n           supplier_address, mode_of_procurement_id, place_of_delivery,\n           delivery_term_days, expected_delivery_date, status, is_partial_entry,\n           purpose, remarks, total_amount, document_total_amount, created_by)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULLIF(?, ''), ?)\n      ");
+                                } else {
+                                    $headerStmt = $db->prepare("\n        INSERT INTO purchase_orders\n          (system_reference, po_number, po_date, supplier_id, fund_id,\n           supplier_address, mode_of_procurement_id, place_of_delivery,\n           delivery_term_days, expected_delivery_date, status, is_partial_entry,\n           purpose, remarks, total_amount, created_by)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)\n      ");
+                                }
                                 if (!$headerStmt) throw new RuntimeException('Prepare failed: header');
 
-                                $headerStmt->bind_param(
-                                    'sssiisisissidi',
-                                    $systemReference,
-                                    $form['po_number'],
-                                    $form['po_date'],
-                                    $supplierId,
-                                    $fundId,
-                                    $form['supplier_address'],
-                                    $modeId,
-                                    $form['place_of_delivery'],
-                                    $deliveryTermDays,
-                                    $expectedDelivery,
-                                    $status,
-                                    $isPartialEntry,
-                                    $totalAmount,
-                                    $userId
-                                );
+                                if ($poSupportsDocumentTotal) {
+                                    $headerStmt->bind_param(
+                                        'sssiisisissidsi',
+                                        $systemReference,
+                                        $form['po_number'],
+                                        $form['po_date'],
+                                        $supplierId,
+                                        $fundId,
+                                        $form['supplier_address'],
+                                        $modeId,
+                                        $form['place_of_delivery'],
+                                        $deliveryTermDays,
+                                        $expectedDelivery,
+                                        $status,
+                                        $isPartialEntry,
+                                        $totalAmount,
+                                        $form['document_total_amount'],
+                                        $userId
+                                    );
+                                } else {
+                                    $headerStmt->bind_param(
+                                        'sssiisisissidi',
+                                        $systemReference,
+                                        $form['po_number'],
+                                        $form['po_date'],
+                                        $supplierId,
+                                        $fundId,
+                                        $form['supplier_address'],
+                                        $modeId,
+                                        $form['place_of_delivery'],
+                                        $deliveryTermDays,
+                                        $expectedDelivery,
+                                        $status,
+                                        $isPartialEntry,
+                                        $totalAmount,
+                                        $userId
+                                    );
+                                }
                                 if (!$headerStmt->execute()) {
                                     throw new RuntimeException('Unable to save the purchase order header: ' . $headerStmt->error);
                                 }
@@ -374,6 +415,7 @@ if ($db) {
                                         'mode_of_procurement_id' => $modeId,
                                         'expected_delivery_date' => $expectedDelivery,
                                         'total_amount' => $totalAmount,
+                                        'document_total_amount' => $documentTotalAmount,
                                         'item_count' => count($validatedItems),
                                     ],
                                     'description' => 'Created purchase order with line items.',
@@ -496,6 +538,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-2">
                             <label for="expected_delivery_date" class="form-label">End Date</label>
                             <input type="date" class="form-control" id="expected_delivery_date" name="expected_delivery_date" value="<?php echo h($form['expected_delivery_date']); ?>" readonly>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label for="document_total_amount" class="form-label">PO Hard Copy Total</label>
+                            <input type="number" class="form-control" id="document_total_amount" name="document_total_amount" min="0" step="0.01" value="<?php echo h($form['document_total_amount']); ?>" placeholder="0.00">
+                            <div class="form-text">Optional printed PO total for cross-checking.</div>
                         </div>
                     </div>
 
@@ -661,7 +709,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <span class="text-muted small" id="footerLineCount">0 line(s)</span>
                             </div>
                             <div class="workspace-actions workspace-toolbar-cluster align-items-center">
+                                <span class="small text-muted">PO total: <span id="poDocumentTotalDisplay"><?php echo h($form['document_total_amount'] !== '' ? number_format((float) $form['document_total_amount'], 2) : '—'); ?></span></span>
                                 <span class="fw-semibold">Total: <span id="poGrandTotal">0.00</span></span>
+                                <span class="small text-muted">Delta: <span id="poTotalDelta">—</span></span>
                                 <div class="form-check form-check-inline mb-0">
                                     <input class="form-check-input" type="checkbox" id="is_partial_entry" name="is_partial_entry" value="1" <?php echo !empty($form['is_partial_entry']) ? 'checked' : ''; ?>>
                                     <label class="form-check-label small" for="is_partial_entry">Partial Entry <span class="text-muted">(more items to add later)</span></label>
@@ -1310,7 +1360,33 @@ document.addEventListener('DOMContentLoaded', function () {
         loadLineEditor(poLines.length - 1);
     }
 
-    function updateGrandTotal() { var total = poLines.reduce(function(acc,ln){ return acc + (parseFloat(ln.line_total||0)); },0); el.poGrandTotal && (el.poGrandTotal.textContent = formatNumber(total)); el.lineTotalSoFar && (el.lineTotalSoFar.textContent = formatNumber(total)); }
+    function updateGrandTotal() {
+        var total = poLines.reduce(function(acc,ln){ return acc + (parseFloat(ln.line_total||0)); },0);
+        el.poGrandTotal && (el.poGrandTotal.textContent = formatNumber(total));
+        el.lineTotalSoFar && (el.lineTotalSoFar.textContent = formatNumber(total));
+
+        var documentTotalInput = document.getElementById('document_total_amount');
+        var documentTotalDisplay = document.getElementById('poDocumentTotalDisplay');
+        var totalDelta = document.getElementById('poTotalDelta');
+        var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : '';
+        var documentTotal = documentTotalRaw !== '' ? parseFloat(documentTotalRaw) : NaN;
+        var hasDocumentTotal = documentTotalRaw !== '' && !isNaN(documentTotal);
+
+        if (documentTotalDisplay) {
+            documentTotalDisplay.textContent = hasDocumentTotal ? formatNumber(documentTotal) : '—';
+        }
+
+        if (totalDelta) {
+            if (hasDocumentTotal) {
+                var delta = Math.round((total - documentTotal) * 100) / 100;
+                totalDelta.textContent = formatNumber(delta);
+                totalDelta.className = Math.abs(delta) > 0.009 ? 'text-danger fw-semibold' : 'text-success fw-semibold';
+            } else {
+                totalDelta.textContent = '—';
+                totalDelta.className = 'text-muted';
+            }
+        }
+    }
 
     // events
     Array.from(document.querySelectorAll('.add-line-btn')).forEach(function(b){ b.addEventListener('click', function(){ addLine(b.dataset.type || 'supply'); }); });
@@ -1425,8 +1501,32 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
+            var documentTotalInput = document.getElementById('document_total_amount');
+            var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : '';
+            if (documentTotalRaw !== '') {
+                var documentTotal = parseFloat(documentTotalRaw);
+                var lineTotal = poLines.reduce(function(acc, ln) { return acc + (parseFloat(ln.line_total || 0) || 0); }, 0);
+                if (isNaN(documentTotal)) {
+                    e.preventDefault();
+                    alert('PO hard copy total must be a valid amount.');
+                    documentTotalInput && documentTotalInput.focus();
+                    return;
+                }
+                if (Math.abs(lineTotal - documentTotal) > 0.009) {
+                    e.preventDefault();
+                    alert('Encoded line total (' + formatNumber(lineTotal) + ') does not match the hard copy PO total (' + formatNumber(documentTotal) + ').');
+                    documentTotalInput && documentTotalInput.focus();
+                    return;
+                }
+            }
+
             // Allow submit â€” PHP handles all other validation
         });
+    }
+
+    var documentTotalInput = document.getElementById('document_total_amount');
+    if (documentTotalInput) {
+        documentTotalInput.addEventListener('input', updateGrandTotal);
     }
 
     // init state
@@ -1449,6 +1549,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }, 50);
     }
+    updateGrandTotal();
 
     function rebuildQuickAddAccountCodes(itemType, selectedId) {
         if (!el.quickAddAccountCode) return;
@@ -1952,6 +2053,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'supplier_address':   data.supplier_address,
                 'place_of_delivery':  data.place_of_delivery,
                 'delivery_term_days': data.delivery_term_days,
+                'document_total_amount': data.document_total_amount || data.total_amount,
             };
             Object.keys(fields).forEach(function(id) {
                 var eln  = document.getElementById(id);
@@ -2000,6 +2102,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
             renderLineList();
             loadLineEditor(0);
+            updateGrandTotal();
 
             if (window.SPAMS && window.SPAMS.refreshSelect2) {
                 ['editorCatalogSearch','editorAccountCode','editorClassification','editorUom'].forEach(function(id) {

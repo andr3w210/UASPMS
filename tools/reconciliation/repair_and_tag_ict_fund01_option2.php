@@ -1,4 +1,5 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Option 2: Repair/import missing ICT list rows into batch 14, then tag list rows.
 - Keeps existing account codes as-is for existing rows.
@@ -6,7 +7,7 @@ Option 2: Repair/import missing ICT list rows into batch 14, then tag list rows.
 - Applies tag: RCPPEE_2025_ICT_FUND01_LIST
 */
 
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$mysqli = tools_db();
 if ($mysqli->connect_error) {
     die('Connection failed: ' . $mysqli->connect_error . PHP_EOL);
 }

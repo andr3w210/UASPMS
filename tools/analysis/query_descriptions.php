@@ -1,5 +1,6 @@
-<?php
-$m = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$m = tools_db();
 $res = $m->query("SELECT id, account_code, item_description, serial_no, unit_cost, qty_physical_count,
                         (unit_cost*COALESCE(NULLIF(qty_physical_count,0),1)) total
                  FROM rpcppe_batch_items

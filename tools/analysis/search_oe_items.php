@@ -1,9 +1,10 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Search for expected Office Equipment items in the database
 */
 
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$mysqli = tools_db();
 if ($mysqli->connect_error) {
     die("Connection failed: " . $mysqli->connect_error);
 }

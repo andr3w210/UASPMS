@@ -20,9 +20,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Invalid CSRF token.';
     } elseif ($identifier === '') {
         $error = 'Please enter your username or email.';
+    } elseif (rate_limit_check('forgot_password')) {
+        $retryAfter = rate_limit_retry_after('forgot_password');
+        $retryMinutes = $retryAfter > 0 ? (int) ceil($retryAfter / 60) : 15;
+        $error = 'Too many requests from your IP address. Please try again in ' . $retryMinutes . ' minute(s).';
     } elseif (!$db) {
         $error = 'Database connection error.';
     } else {
+        rate_limit_record('forgot_password');
         $roleNameExpr = roles_name_expression($db, 'r');
         $stmt = $db->prepare("
             SELECT u.id, u.username, u.email, u.full_name, {$roleNameExpr} AS role_name

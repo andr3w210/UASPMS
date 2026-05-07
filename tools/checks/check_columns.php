@@ -1,5 +1,6 @@
-<?php
-$mysqli = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$mysqli = tools_db();
 
 // Check columns
 $result = $mysqli->query("DESCRIBE rpcppe_batch_items");

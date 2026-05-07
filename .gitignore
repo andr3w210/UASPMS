@@ -1,10 +1,17 @@
-# Environment
+# Environment — NEVER commit real credentials
 .env
+.env.local
+.env.*.local
 
 # Runtime uploads and artifacts
 uploads/**/*.log
 uploads/**/*.txt
 spams/uploads/**/*.log
+
+# Generated database backups
+spams/modules/settings/database/backups/generated/
+spams/modules/settings/database/backups/uploaded/
+database/backups/
 
 # Local debug/temp helpers
 tmp_*.php
@@ -15,9 +22,9 @@ cookies.txt
 android/key.properties
 android/keystore/*.jks
 android/keystore/*.keystore
+android/local.properties
 
 # Android Studio generated / local-only files
-android/local.properties
 android/.idea/
 android/.gradle/
 android/.gradle-user-home/
@@ -28,6 +35,11 @@ android/app/build/
 *.zip.part
 *.zip.lck
 
+# PHP Composer (if used in future)
+vendor/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db
+*.swp
+*~

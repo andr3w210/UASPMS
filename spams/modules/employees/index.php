@@ -405,6 +405,30 @@ if (!$db) {
                 }
             }
             $errors[]='Unable to deactivate the employee.';
+        } elseif($action==='reactivate'){
+            $recordId=(int)($_POST['id']??0);
+            $userId=current_user_id();
+            $stmt=$db->prepare("UPDATE employees SET is_active = 1, updated_by = ?, updated_at = NOW() WHERE id = ?");
+            if($stmt){
+                $stmt->bind_param('ii',$userId,$recordId);
+                $saved = $stmt->execute();
+                $stmt->close();
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'employees',
+                        'record_id' => $recordId,
+                        'module_name' => 'employees',
+                        'record_type' => 'employee',
+                        'action_name' => 'reactivate_employee',
+                        'description' => 'Reactivated employee record.',
+                        'new_values' => ['is_active' => 1],
+                    ]);
+                    set_flash('success','Employee reactivated successfully.');
+                    redirect('modules/employees/index.php');
+                }
+            }
+            $errors[]='Unable to reactivate the employee.';
         } elseif($action==='hard_delete'){
             if(($_SESSION['user_role']??'')!=='Administrator'){
                 set_flash('error','Only administrators can permanently delete records.');
@@ -1027,6 +1051,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
                                                 <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button>
+                                            </form>
+                                        <?php else: ?>
+                                            <form method="post" onsubmit="return confirm('Reactivate this employee?');" class="d-inline">
+                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="reactivate">
+                                                <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-arrow-counterclockwise"></i> Reactivate</button>
                                             </form>
                                         <?php endif; ?>
                                         <?php if(($_SESSION['user_role']??'')==='Administrator'): ?>

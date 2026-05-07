@@ -47,6 +47,7 @@ $form = [
     'place_of_delivery' => 'University of Antique',
     'delivery_term_days' => '',
     'expected_delivery_date' => '',
+    'document_total_amount' => '',
     'status' => 'encoded',
 ];
 $itemRows = [];
@@ -100,15 +101,23 @@ if (!$db) {
 
     $activeThreshold = get_active_threshold($db);
     $poItemSupportsSemiType = po_edit_schema_has_column($db, 'purchase_order_items', 'semi_expendable_type');
+    $poSupportsDocumentTotal = function_exists('schema_has_column')
+        ? schema_has_column($db, 'purchase_orders', 'document_total_amount')
+        : false;
 
-    $headerStmt = $db->prepare("
+    $headerSql = "
         SELECT id, system_reference, po_number, po_date, supplier_id, fund_id,
                supplier_address, mode_of_procurement_id, place_of_delivery,
-               delivery_term_days, expected_delivery_date, status, is_partial_entry
+               delivery_term_days, expected_delivery_date, status, is_partial_entry";
+    if ($poSupportsDocumentTotal) {
+        $headerSql .= ", document_total_amount";
+    }
+    $headerSql .= "
         FROM purchase_orders
         WHERE id = ?
         LIMIT 1
-    ");
+    ";
+    $headerStmt = $db->prepare($headerSql);
     if ($headerStmt) {
         $headerStmt->bind_param('i', $id);
         $headerStmt->execute();
@@ -134,6 +143,7 @@ if (!$db) {
             'place_of_delivery' => (string) ($existingPo['place_of_delivery'] ?? 'University of Antique'),
             'delivery_term_days' => $existingPo['delivery_term_days'] !== null ? (string) $existingPo['delivery_term_days'] : '',
             'expected_delivery_date' => (string) ($existingPo['expected_delivery_date'] ?? ''),
+            'document_total_amount' => $poSupportsDocumentTotal && $existingPo['document_total_amount'] !== null ? (string) $existingPo['document_total_amount'] : '',
             'status' => (string) ($existingPo['status'] ?? 'encoded'),
             'is_partial_entry' => (int) ($existingPo['is_partial_entry'] ?? 0),
         ];
@@ -189,6 +199,7 @@ if (!$db) {
             $form['place_of_delivery'] = old($_POST, 'place_of_delivery', 'University of Antique');
             $form['delivery_term_days'] = old($_POST, 'delivery_term_days');
             $form['expected_delivery_date'] = old($_POST, 'expected_delivery_date');
+            $form['document_total_amount'] = old($_POST, 'document_total_amount');
             $form['is_partial_entry'] = !empty($_POST['is_partial_entry']) ? 1 : 0;
             $existingIsPartial = !empty($existingPo['is_partial_entry']);
 
@@ -206,6 +217,9 @@ if (!$db) {
             if ($form['place_of_delivery'] === '') $errors[] = 'Place of delivery is required.';
             if ($form['delivery_term_days'] !== '' && (!ctype_digit($form['delivery_term_days']) || (int) $form['delivery_term_days'] < 0)) {
                 $errors[] = 'Delivery term must be a non-negative whole number.';
+            }
+            if ($form['document_total_amount'] !== '' && !preg_match('/^\d+(?:\.\d{1,2})?$/', $form['document_total_amount'])) {
+                $errors[] = 'PO total amount must be a valid number with up to 2 decimal places.';
             }
 
             $dupStmt = $db->prepare("SELECT id FROM purchase_orders WHERE po_number = ? AND id != ? LIMIT 1");
@@ -282,7 +296,7 @@ if (!$db) {
                 if ($unitCost < 0) $errors[] = 'Unit cost cannot be negative on line ' . $lineNo . '.';
 
                 if ($itemType === 'semi_expendable') {
-                    $semiExpendableType = classify_item_by_cost($itemType, $unitCost, $activeThreshold)['semi_expendable_type'] ?? '';
+                    $semiExpendableType = classify_item_by_cost($unitCost, $activeThreshold);
                 } else {
                     $semiExpendableType = '';
                 }
@@ -308,10 +322,26 @@ if (!$db) {
                 $errors[] = 'At least one PO line is required.';
             }
 
+            $documentTotalAmount = null;
+            if ($form['document_total_amount'] !== '') {
+                $documentTotalAmount = round((float) $form['document_total_amount'], 2);
+            }
+
             if (!$errors) {
                 $db->begin_transaction();
                 try {
-                    $updateStmt = $db->prepare("
+                    if ($poSupportsDocumentTotal) {
+                        $updateStmt = $db->prepare("
+                        UPDATE purchase_orders
+                        SET po_number = ?, po_date = ?, supplier_id = ?, fund_id = ?,
+                            supplier_address = ?, mode_of_procurement_id = ?, place_of_delivery = ?,
+                            delivery_term_days = ?, expected_delivery_date = ?, total_amount = ?,
+                            document_total_amount = NULLIF(?, ''), is_partial_entry = ?,
+                            updated_by = ?, updated_at = NOW()
+                        WHERE id = ?
+                    ");
+                    } else {
+                        $updateStmt = $db->prepare("
                         UPDATE purchase_orders
                         SET po_number = ?, po_date = ?, supplier_id = ?, fund_id = ?,
                             supplier_address = ?, mode_of_procurement_id = ?, place_of_delivery = ?,
@@ -320,6 +350,7 @@ if (!$db) {
                             updated_by = ?, updated_at = NOW()
                         WHERE id = ?
                     ");
+                    }
                     if (!$updateStmt) {
                         throw new RuntimeException('Unable to prepare PO update.');
                     }
@@ -346,22 +377,46 @@ if (!$db) {
                         }
                     }
 
-                    $updateStmt->bind_param(
-                        'ssiississdiii',
-                        $form['po_number'],
-                        $form['po_date'],
-                        $supplierId,
-                        $fundId,
-                        $form['supplier_address'],
-                        $modeId,
-                        $form['place_of_delivery'],
-                        $deliveryTermDays,
-                        $expectedDelivery,
-                        $totalAmount,
-                        $isPartialEntry,
-                        $userId,
-                        $id
-                    );
+                    if ($documentTotalAmount !== null && abs($documentTotalAmount - $totalAmount) > 0.009) {
+                        throw new RuntimeException('Encoded line total (' . number_format($totalAmount, 2) . ') does not match the hard copy PO total (' . number_format($documentTotalAmount, 2) . ').');
+                    }
+
+                    if ($poSupportsDocumentTotal) {
+                        $updateStmt->bind_param(
+                            'ssiisisisdsiii',
+                            $form['po_number'],
+                            $form['po_date'],
+                            $supplierId,
+                            $fundId,
+                            $form['supplier_address'],
+                            $modeId,
+                            $form['place_of_delivery'],
+                            $deliveryTermDays,
+                            $expectedDelivery,
+                            $totalAmount,
+                            $form['document_total_amount'],
+                            $isPartialEntry,
+                            $userId,
+                            $id
+                        );
+                    } else {
+                        $updateStmt->bind_param(
+                            'ssiisisisdiii',
+                            $form['po_number'],
+                            $form['po_date'],
+                            $supplierId,
+                            $fundId,
+                            $form['supplier_address'],
+                            $modeId,
+                            $form['place_of_delivery'],
+                            $deliveryTermDays,
+                            $expectedDelivery,
+                            $totalAmount,
+                            $isPartialEntry,
+                            $userId,
+                            $id
+                        );
+                    }
                     $updateStmt->execute();
                     $updateStmt->close();
 
@@ -550,6 +605,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <label for="expected_delivery_date" class="form-label">End Date</label>
                             <input type="date" class="form-control" id="expected_delivery_date" name="expected_delivery_date" value="<?php echo h($form['expected_delivery_date']); ?>" readonly>
                         </div>
+
+                        <div class="col-md-3">
+                            <label for="document_total_amount" class="form-label">PO Hard Copy Total</label>
+                            <input type="number" class="form-control" id="document_total_amount" name="document_total_amount" min="0" step="0.01" value="<?php echo h($form['document_total_amount']); ?>" placeholder="0.00">
+                            <div class="form-text">Optional printed PO total for cross-checking.</div>
+                        </div>
                     </div>
 
                     <div class="d-flex justify-content-between align-items-center mb-3 mt-4">
@@ -699,6 +760,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                             <span class="text-muted small" id="footerLineCount">0 line(s)</span>
                             <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <span class="small text-muted">PO total: <span id="poDocumentTotalDisplay"><?php echo h($form['document_total_amount'] !== '' ? number_format((float) $form['document_total_amount'], 2) : '—'); ?></span></span>
+                                <span class="small text-muted">Computed total: <span id="poGrandTotal">0.00</span></span>
+                                <span class="small text-muted">Delta: <span id="poTotalDelta">—</span></span>
                                 <div class="form-check form-check-inline mb-0">
                                     <input class="form-check-input" type="checkbox" id="is_partial_entry" name="is_partial_entry" value="1" <?php echo !empty($form['is_partial_entry']) ? 'checked' : ''; ?>>
                                     <label class="form-check-label small" for="is_partial_entry">Partial Entry <span class="text-muted">(more items to add later)</span></label>
@@ -1072,7 +1136,33 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function addLine(itemType) { var validTypes = ['supply', 'semi_expendable', 'equipment']; if (validTypes.indexOf(itemType) === -1) itemType = 'supply'; poLines.push({ index: poLines.length, item_type: itemType, semi_expendable_type: itemType === 'semi_expendable' ? 'low_value' : '', stock_catalog_id: '', account_code_id: '', classification_id: '', item_description: '', quantity: '1', unit_of_measure_id: '', unit_cost: '0.00', line_total: 0, is_complete: false, is_existing: false }); renderLineList(); loadLineEditor(poLines.length - 1); }
 
-    function updateGrandTotal() { var total = poLines.reduce(function(acc,ln){ return acc + (parseFloat(ln.line_total||0)); },0); el.poGrandTotal && (el.poGrandTotal.textContent = formatNumber(total)); el.lineTotalSoFar && (el.lineTotalSoFar.textContent = formatNumber(total)); }
+    function updateGrandTotal() {
+        var total = poLines.reduce(function(acc,ln){ return acc + (parseFloat(ln.line_total||0)); },0);
+        el.poGrandTotal && (el.poGrandTotal.textContent = formatNumber(total));
+        el.lineTotalSoFar && (el.lineTotalSoFar.textContent = formatNumber(total));
+
+        var documentTotalInput = document.getElementById('document_total_amount');
+        var documentTotalDisplay = document.getElementById('poDocumentTotalDisplay');
+        var totalDelta = document.getElementById('poTotalDelta');
+        var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : '';
+        var documentTotal = documentTotalRaw !== '' ? parseFloat(documentTotalRaw) : NaN;
+        var hasDocumentTotal = documentTotalRaw !== '' && !isNaN(documentTotal);
+
+        if (documentTotalDisplay) {
+            documentTotalDisplay.textContent = hasDocumentTotal ? formatNumber(documentTotal) : '—';
+        }
+
+        if (totalDelta) {
+            if (hasDocumentTotal) {
+                var delta = Math.round((total - documentTotal) * 100) / 100;
+                totalDelta.textContent = formatNumber(delta);
+                totalDelta.className = Math.abs(delta) > 0.009 ? 'text-danger fw-semibold' : 'text-success fw-semibold';
+            } else {
+                totalDelta.textContent = '—';
+                totalDelta.className = 'text-muted';
+            }
+        }
+    }
 
     Array.from(document.querySelectorAll('.add-line-btn')).forEach(function(b){ b.addEventListener('click', function(){ addLine(b.dataset.type || 'supply'); }); });
     el.lineSearchInput && el.lineSearchInput.addEventListener('input', function(){ searchTerm = (this.value||'').trim().toLowerCase(); renderLineList(); });
@@ -1232,7 +1322,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     var form = document.getElementById('purchaseOrderForm');
-    if (form) { form.addEventListener('submit', function(e) { saveCurrentLine(); buildHiddenInputs(); if (poLines.length === 0) { e.preventDefault(); alert('Please add at least one PO line before saving.'); return; } var emptyLines = poLines.filter(function(ln) { return !ln.is_existing && (!ln.item_description || ln.item_description.trim() === ''); }); if (emptyLines.length > 0) { e.preventDefault(); alert('Line ' + (emptyLines[0].index + 1) + ' has no description. Please fill in all lines before saving.'); loadLineEditor(emptyLines[0].index); return; } var missingCatalogLine = poLines.find(function(ln) { return !ln.is_existing && lineUsesCatalog(ln) && (!ln.stock_catalog_id || String(ln.stock_catalog_id).trim() === ''); }); if (missingCatalogLine) { e.preventDefault(); alert('Supply line ' + (missingCatalogLine.index + 1) + ' must be selected from the stock catalog before saving.'); loadLineEditor(missingCatalogLine.index); return; } }); }
+    if (form) { form.addEventListener('submit', function(e) { saveCurrentLine(); buildHiddenInputs(); if (poLines.length === 0) { e.preventDefault(); alert('Please add at least one PO line before saving.'); return; } var emptyLines = poLines.filter(function(ln) { return !ln.is_existing && (!ln.item_description || ln.item_description.trim() === ''); }); if (emptyLines.length > 0) { e.preventDefault(); alert('Line ' + (emptyLines[0].index + 1) + ' has no description. Please fill in all lines before saving.'); loadLineEditor(emptyLines[0].index); return; } var missingCatalogLine = poLines.find(function(ln) { return !ln.is_existing && lineUsesCatalog(ln) && (!ln.stock_catalog_id || String(ln.stock_catalog_id).trim() === ''); }); if (missingCatalogLine) { e.preventDefault(); alert('Supply line ' + (missingCatalogLine.index + 1) + ' must be selected from the stock catalog before saving.'); loadLineEditor(missingCatalogLine.index); return; } var documentTotalInput = document.getElementById('document_total_amount'); var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : ''; if (documentTotalRaw !== '') { var documentTotal = parseFloat(documentTotalRaw); var lineTotal = poLines.reduce(function(acc, ln) { return acc + (parseFloat(ln.line_total || 0) || 0); }, 0); if (isNaN(documentTotal)) { e.preventDefault(); alert('PO hard copy total must be a valid amount.'); documentTotalInput && documentTotalInput.focus(); return; } if (Math.abs(lineTotal - documentTotal) > 0.009) { e.preventDefault(); alert('Encoded line total (' + formatNumber(lineTotal) + ') does not match the hard copy PO total (' + formatNumber(documentTotal) + ').'); documentTotalInput && documentTotalInput.focus(); return; } } }); }
+    var documentTotalInput = document.getElementById('document_total_amount');
+    if (documentTotalInput) { documentTotalInput.addEventListener('input', updateGrandTotal); }
     if (typeof poLinesFromPhp !== 'undefined' && poLinesFromPhp.length > 0) { poLines = poLinesFromPhp.slice(); renderLineList(); loadLineEditor(0); } else if (poLines.length === 0) { addLine('supply'); }
 
     if (window.SPAMS && window.SPAMS.initSelect2) { window.SPAMS.initSelect2(document.getElementById('poLineEditor')); }
@@ -1243,6 +1335,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var expectedDeliveryInput = document.getElementById('expected_delivery_date');
     function computeExpectedDate() { if (!expectedDeliveryInput) return; var pdVal = poDateInput && poDateInput.value ? poDateInput.value : ''; var days = parseInt(deliveryTermInput && deliveryTermInput.value, 10); days = isNaN(days) ? 0 : days; if (!pdVal) { expectedDeliveryInput.value = ''; return; } var parts = pdVal.split('-'); if (parts.length !== 3) { expectedDeliveryInput.value = ''; return; } var d = new Date(parts[0], parseInt(parts[1],10) - 1, parts[2]); d.setDate(d.getDate() + days); var yyyy = d.getFullYear(); var mm = String(d.getMonth() + 1).padStart(2, '0'); var dd = String(d.getDate()).padStart(2, '0'); expectedDeliveryInput.value = yyyy + '-' + mm + '-' + dd; }
     if (poDateInput) poDateInput.addEventListener('change', computeExpectedDate); if (deliveryTermInput) deliveryTermInput.addEventListener('input', computeExpectedDate); computeExpectedDate();
+    updateGrandTotal();
 
     var supplierSelect = document.getElementById('supplier_id'); var supplierAddressInput = document.getElementById('supplier_address'); function syncSupplierAddress() { if (!supplierSelect || !supplierAddressInput) return; var selectedValue = supplierSelect.value; var addr = ''; Array.from(supplierSelect.options).forEach(function(opt) { if (opt.value === selectedValue) { addr = (opt.getAttribute('data-address') || '').trim(); } }); supplierAddressInput.value = addr; supplierAddressInput.placeholder = addr ? '' : 'No address on file — type manually'; }
     if (supplierSelect && supplierAddressInput) { supplierSelect.addEventListener('change', syncSupplierAddress); setTimeout(function(){ if (window.jQuery && jQuery.fn.select2) { window.jQuery(supplierSelect).off('select2:select select2:clear').on('select2:select select2:clear', syncSupplierAddress); } syncSupplierAddress(); }, 400); }

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__, 2) . '/spams/app/config/constants.php';
+
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 $csvPath = __DIR__ . DIRECTORY_SEPARATOR . 'stock_numbers.csv';
@@ -10,7 +12,12 @@ if (!is_file($csvPath)) {
     exit(1);
 }
 
-$db = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$db = new mysqli(
+    defined('DB_HOST') ? DB_HOST : '127.0.0.1',
+    defined('DB_USER') ? DB_USER : 'root',
+    defined('DB_PASS') ? DB_PASS : '',
+    defined('DB_NAME') ? DB_NAME : 'spamsdb'
+);
 $db->set_charset('utf8mb4');
 
 $handle = fopen($csvPath, 'r');

@@ -22,6 +22,13 @@ $brandOptions = [];
 $modelOptions = [];
 $accountCodeOptions = [];
 $fundOptions = [];
+$officeLocationPins = [];
+$assetOfficeId = 0;
+$assetOfficePin = null;
+$resolvedManualLocation = '';
+$resolvedLocationLat = null;
+$resolvedLocationLng = null;
+$resolvedLocationSource = 'asset';
 
 if (!in_array($source, ['system', 'legacy'], true) || $id <= 0) {
     http_response_code(404);
@@ -94,6 +101,25 @@ function asset_view_sort_timeline(array &$entries): void
     });
 }
 
+function asset_view_parse_coordinate(string $value, float $min, float $max): ?float
+{
+    $value = trim($value);
+    if ($value === '') {
+        return null;
+    }
+
+    if (!is_numeric($value)) {
+        return null;
+    }
+
+    $number = (float) $value;
+    if ($number < $min || $number > $max) {
+        return null;
+    }
+
+    return round($number, 7);
+}
+
 function asset_view_latest_inventory_check(mysqli $db, string $propertyNumber): ?array
 {
     $propertyNumber = trim($propertyNumber);
@@ -135,6 +161,9 @@ if (!$db) {
     http_response_code(500);
     exit('Unable to connect to the database.');
 }
+
+ensure_asset_location_tracking_schema($db);
+ensure_office_location_pin_schema($db);
 
 $brandRes = $db->query("SELECT brand_name FROM brands WHERE is_active = 1 ORDER BY brand_name ASC");
 if ($brandRes instanceof mysqli_result) {
@@ -190,6 +219,9 @@ if ($source === 'system') {
             did.current_office_id,
             did.current_employee_id,
             did.current_responsibility_code_id,
+            did.manual_location,
+            did.location_lat,
+            did.location_lng,
             poi.item_type,
             poi.item_description,
             c.classification_name,
@@ -271,6 +303,9 @@ if ($source === 'system') {
             la.office_id,
             la.account_code_id,
             la.fund_id,
+            la.manual_location,
+            la.location_lat,
+            la.location_lng,
             la.brand,
             la.model,
             la.serial_no,
@@ -318,10 +353,49 @@ if ($source === 'system') {
     }
 }
 
+if ($asset) {
+    $assetOfficeId = $source === 'system'
+        ? (int) ($asset['current_office_id'] ?? 0)
+        : (int) ($asset['office_id'] ?? 0);
+    $assetOfficePin = get_office_location_pin($db, $assetOfficeId);
+
+    $pinStmt = $db->prepare("SELECT olp.office_id, olp.office_name_snapshot, olp.manual_location, olp.location_lat, olp.location_lng,
+                                    o.office_name
+                             FROM office_location_pins olp
+                             LEFT JOIN offices o ON o.id = olp.office_id");
+    if ($pinStmt) {
+        $pinStmt->execute();
+        $officeLocationPins = $pinStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $pinStmt->close();
+    }
+
+    $resolvedManualLocation = trim((string) ($asset['manual_location'] ?? ''));
+    if ($resolvedManualLocation === '' && $assetOfficePin && !empty($assetOfficePin['manual_location'])) {
+        $resolvedManualLocation = trim((string) $assetOfficePin['manual_location']);
+        $resolvedLocationSource = 'office';
+    }
+
+    if (isset($asset['location_lat']) && $asset['location_lat'] !== null && $asset['location_lat'] !== '') {
+        $resolvedLocationLat = (float) $asset['location_lat'];
+    } elseif ($assetOfficePin && isset($assetOfficePin['location_lat']) && $assetOfficePin['location_lat'] !== null && $assetOfficePin['location_lat'] !== '') {
+        $resolvedLocationLat = (float) $assetOfficePin['location_lat'];
+        $resolvedLocationSource = 'office';
+    }
+
+    if (isset($asset['location_lng']) && $asset['location_lng'] !== null && $asset['location_lng'] !== '') {
+        $resolvedLocationLng = (float) $asset['location_lng'];
+    } elseif ($assetOfficePin && isset($assetOfficePin['location_lng']) && $assetOfficePin['location_lng'] !== null && $assetOfficePin['location_lng'] !== '') {
+        $resolvedLocationLng = (float) $assetOfficePin['location_lng'];
+        $resolvedLocationSource = 'office';
+    }
+}
+
 if (!$asset) {
     http_response_code(404);
     exit('Asset not found.');
 }
+
+$hasResolvedPin = $resolvedLocationLat !== null && $resolvedLocationLng !== null;
 
 $canManagePhotos = asset_view_can_manage_photos();
 $canEditDetails = asset_view_can_edit_details();
@@ -344,12 +418,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         $brand = trim((string) ($_POST['brand'] ?? ''));
         $model = trim((string) ($_POST['model'] ?? ''));
         $serialNo = trim((string) ($_POST['serial_no'] ?? ''));
+        $manualLocation = trim((string) ($_POST['manual_location'] ?? ($asset['manual_location'] ?? '')));
+        $locationLat = asset_view_parse_coordinate((string) ($_POST['location_lat'] ?? ''), -90, 90);
+        $locationLng = asset_view_parse_coordinate((string) ($_POST['location_lng'] ?? ''), -180, 180);
+        $locationLatRaw = trim((string) ($_POST['location_lat'] ?? ''));
+        $locationLngRaw = trim((string) ($_POST['location_lng'] ?? ''));
+        $saveOfficePin = isset($_POST['save_office_pin']) && (string) $_POST['save_office_pin'] === '1';
         $accountCodeIdInput = (int) ($_POST['account_code_id'] ?? 0);
         $fundIdInput = (int) ($_POST['fund_id'] ?? 0);
 
         if ($propertyNumber === '') {
             set_flash('error', 'Property number is required.');
             redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+        if ($locationLatRaw !== '' && $locationLat === null) {
+            set_flash('error', 'Latitude must be a number between -90 and 90.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+        if ($locationLngRaw !== '' && $locationLng === null) {
+            set_flash('error', 'Longitude must be a number between -180 and 180.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+
+        if (($locationLat === null || $locationLng === null) && $assetOfficePin) {
+            if ($locationLat === null && isset($assetOfficePin['location_lat'])) {
+                $locationLat = (float) $assetOfficePin['location_lat'];
+            }
+            if ($locationLng === null && isset($assetOfficePin['location_lng'])) {
+                $locationLng = (float) $assetOfficePin['location_lng'];
+            }
+            if ($manualLocation === '' && !empty($assetOfficePin['manual_location'])) {
+                $manualLocation = trim((string) $assetOfficePin['manual_location']);
+            }
         }
 
         if ($source === 'legacy' && $accountCodeIdInput > 0) {
@@ -383,6 +483,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         if ($source === 'system') {
             $db->begin_transaction();
             $saved = false;
+            $userId = current_user_id();
 
             $stmt = $db->prepare("UPDATE distribution_item_details
                                   SET property_number = ?,
@@ -394,6 +495,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                 $stmt->bind_param('ssssi', $propertyNumber, $brand, $model, $serialNo, $id);
                 $saved = (bool) $stmt->execute();
                 $stmt->close();
+            }
+
+            if ($saved) {
+                $saved = update_asset_location_snapshot(
+                    $db,
+                    'system',
+                    $id,
+                    $manualLocation,
+                    $locationLat,
+                    $locationLng,
+                    (int) $userId,
+                    'asset_details_edit'
+                );
+            }
+
+            if ($saved) {
+                if ($saveOfficePin && $assetOfficeId > 0 && $locationLat !== null && $locationLng !== null) {
+                    $saved = upsert_office_location_pin(
+                        $db,
+                        $assetOfficeId,
+                        (string) ($asset['office_name'] ?? ''),
+                        $manualLocation,
+                        $locationLat,
+                        $locationLng,
+                        (int) $userId
+                    );
+                }
             }
 
             if ($saved) {
@@ -411,6 +539,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'brand' => $brand,
                         'model' => $model,
                         'serial_no' => $serialNo,
+                        'manual_location' => $manualLocation,
+                        'location_lat' => $locationLat,
+                        'location_lng' => $locationLng,
                     ],
                 ]);
                 set_flash('success', 'Asset details updated successfully.');
@@ -479,6 +610,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             $saved = $stmt->execute();
             $stmt->close();
             if ($saved) {
+                if ($saveOfficePin && $assetOfficeId > 0 && $locationLat !== null && $locationLng !== null) {
+                    $saved = upsert_office_location_pin(
+                        $db,
+                        $assetOfficeId,
+                        (string) ($asset['office_name'] ?? ''),
+                        $manualLocation,
+                        $locationLat,
+                        $locationLng,
+                        (int) current_user_id()
+                    );
+                }
+            }
+
+            if ($saved) {
+                update_asset_location_snapshot(
+                    $db,
+                    'legacy',
+                    $id,
+                    $manualLocation,
+                    $locationLat,
+                    $locationLng,
+                    (int) current_user_id(),
+                    'asset_details_edit'
+                );
                 write_audit_log($db, [
                     'action' => 'update',
                     'table_name' => 'legacy_assets',
@@ -501,6 +656,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'acquisition_cost' => $acquisitionCost,
                         'condition_status' => $conditionStatus,
                         'remarks' => $remarksInput,
+                        'manual_location' => $manualLocation,
+                        'location_lat' => $locationLat,
+                        'location_lng' => $locationLng,
                     ],
                 ]);
                 set_flash('success', 'Asset details updated successfully.');
@@ -1036,6 +1194,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="d-flex flex-wrap gap-2">
                         <?php $assetKey = $source . ':' . (int) $id; ?>
                         <a href="<?php echo base_url('modules/property/index.php'); ?>" class="btn btn-outline-secondary btn-sm">Back to Registry</a>
+                        <?php if ($canEditDetails && !$hasResolvedPin): ?>
+                            <button type="button" class="btn btn-warning btn-sm js-add-pin-btn" title="No pin saved yet for this asset.">
+                                Add Pin
+                            </button>
+                        <?php endif; ?>
                         <div class="dropdown">
                             <button class="btn btn-dark btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                                 Actions
@@ -1153,6 +1316,34 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <label class="form-label">Serial No.</label>
                                         <input type="text" name="serial_no" class="form-control" value="<?php echo h((string) ($asset['serial_no'] ?? '')); ?>">
                                     </div>
+                                    <input type="hidden" name="manual_location" value="<?php echo h($resolvedManualLocation); ?>">
+                                    <input type="hidden" name="location_lat" value="<?php echo h($resolvedLocationLat !== null ? number_format((float) $resolvedLocationLat, 7, '.', '') : ''); ?>">
+                                    <input type="hidden" name="location_lng" value="<?php echo h($resolvedLocationLng !== null ? number_format((float) $resolvedLocationLng, 7, '.', '') : ''); ?>">
+                                    <div class="col-12">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="saveOfficePin" name="save_office_pin" value="1" <?php echo $assetOfficeId > 0 ? 'checked' : ''; ?>>
+                                            <label class="form-check-label" for="saveOfficePin">Save this pin as the default location for <?php echo h((string) ($asset['office_name'] ?? 'this office')); ?></label>
+                                        </div>
+                                        <div class="small text-muted">When enabled, future assets under the same office can auto-use this pin even when offline.</div>
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="border rounded-3 p-3 bg-light-subtle">
+                                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                                                <div>
+                                                    <div class="fw-semibold">University of Antique Map Picker</div>
+                                                    <div class="text-muted small">Click anywhere on the map or drag the pin to set latitude and longitude.</div>
+                                                </div>
+                                                <div class="d-flex gap-2">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="uaMapRecenter">Recenter</button>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="uaMapToggle">Expand</button>
+                                                </div>
+                                            </div>
+                                            <div id="uaLocationMap" style="height: 460px; border-radius: 0.5rem;"></div>
+                                            <div class="small mt-2">
+                                                <a id="uaOpenInBrowser" href="#" target="_blank" rel="noopener">Open selected pin in browser</a>
+                                            </div>
+                                        </div>
+                                    </div>
 
                                     <?php if ($source === 'legacy'): ?>
                                         <div class="col-md-6">
@@ -1267,6 +1458,35 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <div class="fw-semibold">Not checked yet</div>
                                 <div class="small text-muted">No completed inventory check recorded.</div>
                             <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-4">
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm">
+                            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">Office Pin Map Preview</h6>
+                                <span class="badge text-bg-light"><?php echo h($asset['office_name'] ?? 'No Office'); ?></span>
+                            </div>
+                            <div class="card-body">
+                                <div id="uaLocationPreviewMap"
+                                     data-lat="<?php echo h($resolvedLocationLat !== null ? number_format((float) $resolvedLocationLat, 7, '.', '') : ''); ?>"
+                                     data-lng="<?php echo h($resolvedLocationLng !== null ? number_format((float) $resolvedLocationLng, 7, '.', '') : ''); ?>"
+                                     style="height: 360px; border-radius: 0.5rem;"
+                                     class="position-relative border bg-light"></div>
+                                <div class="small text-muted mt-2">Shows the saved asset pin, or office default pin when asset-specific coordinates are blank.</div>
+                                <?php if ($canEditDetails && !$hasResolvedPin): ?>
+                                    <div class="alert alert-warning py-2 px-3 mt-3 mb-2">
+                                        Pin not available for this asset yet.
+                                    </div>
+                                    <button type="button" class="btn btn-warning btn-sm js-add-pin-btn">
+                                        Add Pin Now
+                                    </button>
+                                <?php endif; ?>
+                                <div class="small mt-1">
+                                    <a id="uaPreviewOpenInBrowser" href="#" target="_blank" rel="noopener">Open preview pin in browser</a>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1633,5 +1853,211 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     </div>
 </section>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" crossorigin="" onerror="this.onerror=null;this.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var mapEl = document.getElementById('uaLocationMap');
+    if (!mapEl) {
+        return;
+    }
+
+    if (typeof window.L === 'undefined') {
+        mapEl.classList.add('d-flex', 'align-items-center', 'justify-content-center', 'bg-light', 'border');
+        mapEl.textContent = 'Map failed to load. Check internet connection and refresh the page.';
+        return;
+    }
+
+    var latInput = document.querySelector('input[name="location_lat"]');
+    var lngInput = document.querySelector('input[name="location_lng"]');
+    var openInBrowserLink = document.getElementById('uaOpenInBrowser');
+    var recenterBtn = document.getElementById('uaMapRecenter');
+    var toggleBtn = document.getElementById('uaMapToggle');
+    var officePins = <?php echo json_encode($officeLocationPins, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> || [];
+
+    if (!latInput || !lngInput) {
+        return;
+    }
+
+    var uaLat = 10.7904, uaLng = 122.0078;
+    var initialLat = parseFloat(latInput.value);
+    var initialLng = parseFloat(lngInput.value);
+    if (Number.isNaN(initialLat) || initialLat < -90 || initialLat > 90) { initialLat = uaLat; }
+    if (Number.isNaN(initialLng) || initialLng < -180 || initialLng > 180) { initialLng = uaLng; }
+
+    var map = L.map(mapEl, { center: [initialLat, initialLng], zoom: 18 });
+    var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 20
+    });
+    var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri'
+    });
+    streetLayer.addTo(map);
+    L.control.layers(
+        {
+            'Street': streetLayer,
+            'Satellite': satelliteLayer
+        },
+        null,
+        { collapsed: false }
+    ).addTo(map);
+
+    var leafletMarker = L.marker([initialLat, initialLng], { draggable: true }).addTo(map);
+
+    function refreshMapSize() {
+        setTimeout(function () {
+            map.invalidateSize();
+        }, 150);
+    }
+
+    refreshMapSize();
+    window.addEventListener('load', refreshMapSize);
+    document.addEventListener('shown.bs.tab', refreshMapSize);
+    document.addEventListener('shown.bs.collapse', refreshMapSize);
+    document.addEventListener('shown.bs.modal', refreshMapSize);
+
+    function syncInputs(latlng) {
+        latInput.value = Number(latlng.lat).toFixed(7);
+        lngInput.value = Number(latlng.lng).toFixed(7);
+        if (openInBrowserLink) {
+            openInBrowserLink.href = 'https://www.google.com/maps?q=' + encodeURIComponent(latInput.value + ',' + lngInput.value);
+        }
+    }
+    syncInputs(leafletMarker.getLatLng());
+
+    leafletMarker.on('dragend', function () { syncInputs(leafletMarker.getLatLng()); });
+    map.on('click', function (e) { leafletMarker.setLatLng(e.latlng); syncInputs(e.latlng); });
+
+    function normalizeText(value) {
+        return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    }
+
+    function findMatchingOfficePin(text) {
+        var needle = normalizeText(text);
+        if (!needle) {
+            return null;
+        }
+
+        for (var i = 0; i < officePins.length; i++) {
+            var row = officePins[i] || {};
+            var officeName = normalizeText(row.office_name || row.office_name_snapshot || '');
+            var manualLocation = normalizeText(row.manual_location || '');
+            if (!officeName && !manualLocation) {
+                continue;
+            }
+            if (
+                (officeName && (needle === officeName || needle.indexOf(officeName) >= 0 || officeName.indexOf(needle) >= 0))
+                || (manualLocation && (needle === manualLocation || needle.indexOf(manualLocation) >= 0 || manualLocation.indexOf(needle) >= 0))
+            ) {
+                return row;
+            }
+        }
+
+        return null;
+    }
+
+    function applyOfficePinFromText(text) {
+        var pin = findMatchingOfficePin(text);
+        if (!pin) { return; }
+        var lat = parseFloat(pin.location_lat);
+        var lng = parseFloat(pin.location_lng);
+        if (Number.isNaN(lat) || Number.isNaN(lng)) { return; }
+        leafletMarker.setLatLng([lat, lng]);
+        map.setView([lat, lng], 18);
+        syncInputs({ lat: lat, lng: lng });
+    }
+
+    if (recenterBtn) {
+        recenterBtn.addEventListener('click', function () {
+            map.setView([uaLat, uaLng], 18);
+            leafletMarker.setLatLng([uaLat, uaLng]);
+            syncInputs({ lat: uaLat, lng: uaLng });
+        });
+    }
+
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+            var expanded = mapEl.style.height === '70vh';
+            mapEl.style.height = expanded ? '460px' : '70vh';
+            toggleBtn.textContent = expanded ? 'Expand' : 'Collapse';
+            refreshMapSize();
+        });
+    }
+
+    if (!latInput.value || !lngInput.value) {
+        applyOfficePinFromText('<?php echo h((string) ($asset['office_name'] ?? '')); ?>');
+    }
+
+    var addPinButtons = document.querySelectorAll('.js-add-pin-btn');
+    var editPanel = document.getElementById('assetEditPanel');
+    addPinButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            if (editPanel && typeof window.bootstrap !== 'undefined' && window.bootstrap.Collapse) {
+                window.bootstrap.Collapse.getOrCreateInstance(editPanel, { toggle: false }).show();
+            }
+            setTimeout(function () {
+                mapEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                refreshMapSize();
+            }, 250);
+        });
+    });
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var previewEl = document.getElementById('uaLocationPreviewMap');
+    var previewOpenInBrowserLink = document.getElementById('uaPreviewOpenInBrowser');
+    if (!previewEl) { return; }
+
+    if (typeof window.L === 'undefined') {
+        previewEl.classList.add('d-flex', 'align-items-center', 'justify-content-center', 'bg-light', 'border');
+        previewEl.textContent = 'Map preview unavailable (Leaflet failed to load).';
+        return;
+    }
+
+    var uaLat = 10.7904, uaLng = 122.0078;
+    var lat = parseFloat(previewEl.getAttribute('data-lat') || '');
+    var lng = parseFloat(previewEl.getAttribute('data-lng') || '');
+    if (Number.isNaN(lat) || lat < -90 || lat > 90) { lat = uaLat; }
+    if (Number.isNaN(lng) || lng < -180 || lng > 180) { lng = uaLng; }
+
+    var previewMap = L.map(previewEl, {
+        center: [lat, lng],
+        zoom: 18,
+        zoomControl: false,
+        attributionControl: true
+    });
+
+    var previewStreetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 20
+    });
+    var previewSatelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri'
+    });
+    previewStreetLayer.addTo(previewMap);
+    L.control.layers(
+        {
+            'Street': previewStreetLayer,
+            'Satellite': previewSatelliteLayer
+        },
+        null,
+        { collapsed: false }
+    ).addTo(previewMap);
+
+    L.marker([lat, lng]).addTo(previewMap);
+
+    if (previewOpenInBrowserLink) {
+        previewOpenInBrowserLink.href = 'https://www.google.com/maps?q=' + encodeURIComponent(lat.toFixed(7) + ',' + lng.toFixed(7));
+    }
+
+    setTimeout(function () {
+        previewMap.invalidateSize();
+    }, 150);
+});
+</script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

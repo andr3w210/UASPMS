@@ -61,6 +61,25 @@ function normalize_inventory_count_status(string $status): string
     return in_array($status, $allowed, true) ? $status : 'pending';
 }
 
+function inventory_parse_coordinate(string $value, float $min, float $max): ?float
+{
+    $value = trim($value);
+    if ($value === '') {
+        return null;
+    }
+
+    if (!is_numeric($value)) {
+        return null;
+    }
+
+    $number = (float) $value;
+    if ($number < $min || $number > $max) {
+        return null;
+    }
+
+    return round($number, 7);
+}
+
 function extract_scanned_property_reference(string $rawValue): string
 {
     $rawValue = trim($rawValue);
@@ -83,6 +102,8 @@ function extract_scanned_property_reference(string $rawValue): string
 }
 
 if ($db) {
+    ensure_asset_location_tracking_schema($db);
+
     $officeResult = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeResult instanceof mysqli_result) {
         $offices = $officeResult->fetch_all(MYSQLI_ASSOC);
@@ -296,12 +317,21 @@ if ($db) {
             $itemId = (int) ($_POST['item_id'] ?? 0);
             $newStatus = normalize_inventory_count_status((string) ($_POST['status'] ?? 'pending'));
             $remarks = trim((string) ($_POST['remarks'] ?? ''));
+            $manualLocation = trim((string) ($_POST['manual_location'] ?? ''));
+            $locationLatRaw = trim((string) ($_POST['location_lat'] ?? ''));
+            $locationLngRaw = trim((string) ($_POST['location_lng'] ?? ''));
+            $locationLat = inventory_parse_coordinate($locationLatRaw, -90, 90);
+            $locationLng = inventory_parse_coordinate($locationLngRaw, -180, 180);
 
             if ($sessionId <= 0 || $itemId <= 0) {
                 $errors[] = 'Invalid count item update.';
+            } elseif ($locationLatRaw !== '' && $locationLat === null) {
+                $errors[] = 'Latitude must be a number between -90 and 90.';
+            } elseif ($locationLngRaw !== '' && $locationLng === null) {
+                $errors[] = 'Longitude must be a number between -180 and 180.';
             } else {
                 $lookupStmt = $db->prepare("
-                    SELECT ici.id, ici.status, ics.status AS session_status
+                    SELECT ici.id, ici.status, ici.source_type, ici.distribution_item_detail_id, ici.legacy_asset_id, ics.status AS session_status
                     FROM inventory_count_items ici
                     INNER JOIN inventory_count_sessions ics ON ics.id = ici.session_id
                     WHERE ici.id = ? AND ici.session_id = ?
@@ -332,6 +362,25 @@ if ($db) {
                             $updateStmt->close();
 
                             if ($ok) {
+                                $assetSource = (string) ($itemRow['source_type'] ?? '');
+                                $assetId = $assetSource === 'legacy'
+                                    ? (int) ($itemRow['legacy_asset_id'] ?? 0)
+                                    : (int) ($itemRow['distribution_item_detail_id'] ?? 0);
+                                if ($assetId > 0) {
+                                    update_asset_location_snapshot(
+                                        $db,
+                                        $assetSource,
+                                        $assetId,
+                                        $manualLocation,
+                                        $locationLat,
+                                        $locationLng,
+                                        (int) $userId,
+                                        'inventory_count_update',
+                                        $sessionId,
+                                        $itemId
+                                    );
+                                }
+
                                 write_audit_log($db, [
                                     'action' => 'update',
                                     'table_name' => 'inventory_count_items',
@@ -340,7 +389,13 @@ if ($db) {
                                     'record_type' => 'inventory_count_item',
                                     'action_name' => 'update_inventory_count_item_status',
                                     'old_values' => ['status' => $itemRow['status'] ?? 'pending'],
-                                    'new_values' => ['status' => $newStatus, 'remarks' => $remarks],
+                                    'new_values' => [
+                                        'status' => $newStatus,
+                                        'remarks' => $remarks,
+                                        'manual_location' => $manualLocation,
+                                        'location_lat' => $locationLat,
+                                        'location_lng' => $locationLng,
+                                    ],
                                     'description' => 'Updated inventory count item status.',
                                 ]);
 
@@ -582,9 +637,14 @@ if ($db) {
             $itemsSql = "
                 SELECT
                     ici.*,
+                    COALESCE(did.manual_location, la.manual_location) AS asset_manual_location,
+                    COALESCE(did.location_lat, la.location_lat) AS asset_location_lat,
+                    COALESCE(did.location_lng, la.location_lng) AS asset_location_lng,
                     o.office_name
                 FROM inventory_count_items ici
                 LEFT JOIN offices o ON o.id = ici.office_id
+                LEFT JOIN distribution_item_details did ON did.id = ici.distribution_item_detail_id AND ici.source_type = 'system'
+                LEFT JOIN legacy_assets la ON la.id = ici.legacy_asset_id AND ici.source_type = 'legacy'
                 WHERE ici.session_id = ?
             ";
             $itemTypes = 'i';
@@ -962,6 +1022,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         </div>
                                                         <div class="col-md-2 d-grid">
                                                             <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <input type="text" class="form-control form-control-sm" name="manual_location" value="<?php echo h((string) ($item['asset_manual_location'] ?? '')); ?>" placeholder="Manual location (building/floor/room)">
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <input type="number" class="form-control form-control-sm" min="-90" max="90" step="0.0000001" name="location_lat" value="<?php echo h((string) ($item['asset_location_lat'] ?? '')); ?>" placeholder="Lat">
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <input type="number" class="form-control form-control-sm" min="-180" max="180" step="0.0000001" name="location_lng" value="<?php echo h((string) ($item['asset_location_lng'] ?? '')); ?>" placeholder="Lng">
                                                         </div>
                                                     </form>
                                                 <?php else: ?>

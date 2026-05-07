@@ -1,9 +1,10 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /**
  * Audit legacy_assets with NULL classification_id (shown as "Unclassified" in registry).
  * Also shows their account_code and fund so we can identify the correct classification.
  */
-$m = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$m = tools_db();
 if ($m->connect_error) die('Connection failed: ' . $m->connect_error);
 header('Content-Type: text/plain; charset=utf-8');
 

@@ -1,0 +1,18 @@
+Place a campus basemap image here to enable true offline background map rendering.
+
+Expected filenames (in priority order):
+1. ua-campus-map.jpg
+2. ua-campus-map.png
+
+Path:
+spams/assets/img/
+
+Recommended:
+- Use a clear top-down UA campus image.
+- Suggested minimum size: 1200x800.
+- Keep aspect ratio close to landscape (3:2 or 16:9).
+
+The app fallback order is:
+- local ua-campus-map.jpg/png
+- online OpenStreetMap static image
+- grid-only background

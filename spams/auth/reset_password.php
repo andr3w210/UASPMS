@@ -19,6 +19,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!csrf_verify()) {
         $error = 'Invalid CSRF token.';
+    } elseif (rate_limit_check('reset_password')) {
+        $retryAfter = rate_limit_retry_after('reset_password');
+        $retryMinutes = $retryAfter > 0 ? (int) ceil($retryAfter / 60) : 15;
+        $error = 'Too many requests from your IP address. Please try again in ' . $retryMinutes . ' minute(s).';
     } elseif ($token === '') {
         $error = 'Reset token is missing.';
     } elseif (strlen($newPassword) < 8) {
@@ -28,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!$db) {
         $error = 'Database connection error.';
     } else {
+        rate_limit_record('reset_password');
         $tokenHash = hash('sha256', $token);
         $stmt = $db->prepare("
             SELECT pr.id, pr.user_id, pr.email, pr.expires_at, pr.used_at, u.username, u.full_name

@@ -1,5 +1,6 @@
-<?php
-$db = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
+$db = tools_db();
 if ($db->connect_error) {
     die("Connection failed\n");
 }

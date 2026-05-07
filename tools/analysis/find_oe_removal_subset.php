@@ -1,11 +1,12 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Find subset of current OE rows to remove so OE total hits expected.
 Uses rows currently in OE that are NOT matched by authoritative SN tokens.
 Meet-in-the-middle exact subset-sum on cents.
 */
 
-$m = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$m = tools_db();
 $expected = 12344704.00;
 
 $oe = $m->query("SELECT id, serial_no, brand, model, item_description,

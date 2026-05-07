@@ -1,9 +1,10 @@
-<?php
+﻿<?php
+require_once __DIR__ . '/../bootstrap.php';
 /*
 Apply authoritative Office Equipment set for batch 14 to exactly match 12,344,704.00.
 */
 
-$m = new mysqli('127.0.0.1', 'root', '', 'spamsdb');
+$m = tools_db();
 if ($m->connect_error) {
     die("Connection failed\n");
 }

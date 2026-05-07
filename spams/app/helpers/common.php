@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 function h(?string $value): string
 {
@@ -83,9 +83,185 @@ function redirect(string $path): void
     exit;
 }
 
+function request_expects_json(): bool
+{
+    $xhr = strtolower(trim((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')));
+    if ($xhr === 'xmlhttprequest') {
+        return true;
+    }
+
+    $accept = strtolower((string) ($_SERVER['HTTP_ACCEPT'] ?? ''));
+    return strpos($accept, 'application/json') !== false;
+}
+
+function request_reject_invalid_input(string $message, int $statusCode = 400): void
+{
+    http_response_code($statusCode);
+
+    if (request_expects_json()) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'ok' => false,
+            'message' => $message,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    header('Content-Type: text/plain; charset=utf-8');
+    echo $message;
+    exit;
+}
+
+function request_is_valid_utf8(string $value): bool
+{
+    return preg_match('//u', $value) === 1;
+}
+
+function request_input_limits(): array
+{
+    return [
+        'max_depth' => 8,
+        'max_items' => 2000,
+        'max_key_bytes' => 128,
+        'max_scalar_bytes' => 20000,
+        'max_file_scalar_bytes' => 2048,
+    ];
+}
+
+function request_validate_key($key, string $path, array $limits): string
+{
+    if (is_int($key)) {
+        return (string) $key;
+    }
+
+    if (!is_string($key)) {
+        request_reject_invalid_input('Malformed request payload.', 400);
+    }
+
+    if ($key === '' || strlen($key) > $limits['max_key_bytes']) {
+        request_reject_invalid_input('Request payload is too large.', 413);
+    }
+
+    if (!request_is_valid_utf8($key) || preg_match('/[\x00-\x1F\x7F]/', $key)) {
+        request_reject_invalid_input('Malformed request payload.', 400);
+    }
+
+    return $key;
+}
+
+function request_validate_scalar($value, string $path, int $maxBytes): string
+{
+    if ($value === null) {
+        return '';
+    }
+
+    if (!is_scalar($value)) {
+        request_reject_invalid_input('Malformed request payload.', 400);
+    }
+
+    $stringValue = (string) $value;
+
+    if (strlen($stringValue) > $maxBytes) {
+        request_reject_invalid_input('Request payload is too large.', 413);
+    }
+
+    if (!request_is_valid_utf8($stringValue)) {
+        request_reject_invalid_input('Malformed request payload.', 400);
+    }
+
+    if (preg_match('/[\x00\x08\x0B\x0C\x0E-\x1F\x7F]/', $stringValue)) {
+        request_reject_invalid_input('Malformed request payload.', 400);
+    }
+
+    return $stringValue;
+}
+
+function request_sanitize_array(array $input, string $path, array &$state, array $limits, int $depth = 0): array
+{
+    if ($depth > $limits['max_depth']) {
+        request_reject_invalid_input('Malformed request payload.', 400);
+    }
+
+    $sanitized = [];
+
+    foreach ($input as $key => $value) {
+        $state['items']++;
+        if ($state['items'] > $limits['max_items']) {
+            request_reject_invalid_input('Request payload is too large.', 413);
+        }
+
+        $validatedKey = request_validate_key($key, $path, $limits);
+        $itemPath = $path . '[' . $validatedKey . ']';
+
+        if (is_array($value)) {
+            $sanitized[$key] = request_sanitize_array($value, $itemPath, $state, $limits, $depth + 1);
+            continue;
+        }
+
+        $sanitized[$key] = request_validate_scalar($value, $itemPath, $limits['max_scalar_bytes']);
+    }
+
+    return $sanitized;
+}
+
+function request_sanitize_files_array(array $input, string $path, array &$state, array $limits, int $depth = 0): array
+{
+    if ($depth > $limits['max_depth']) {
+        request_reject_invalid_input('Malformed request payload.', 400);
+    }
+
+    $sanitized = [];
+
+    foreach ($input as $key => $value) {
+        $state['items']++;
+        if ($state['items'] > $limits['max_items']) {
+            request_reject_invalid_input('Request payload is too large.', 413);
+        }
+
+        $validatedKey = request_validate_key($key, $path, $limits);
+        $itemPath = $path . '[' . $validatedKey . ']';
+
+        if (is_array($value)) {
+            $sanitized[$key] = request_sanitize_files_array($value, $itemPath, $state, $limits, $depth + 1);
+            continue;
+        }
+
+        $maxBytes = is_string($key) && in_array($key, ['name', 'full_path', 'type', 'tmp_name'], true)
+            ? $limits['max_file_scalar_bytes']
+            : $limits['max_scalar_bytes'];
+
+        $sanitized[$key] = request_validate_scalar($value, $itemPath, $maxBytes);
+    }
+
+    return $sanitized;
+}
+
+function request_guard_superglobals(): void
+{
+    static $hasRun = false;
+    if ($hasRun) {
+        return;
+    }
+
+    $hasRun = true;
+    $limits = request_input_limits();
+
+    $inputState = ['items' => 0];
+    $_GET = request_sanitize_array($_GET, 'GET', $inputState, $limits);
+    $_POST = request_sanitize_array($_POST, 'POST', $inputState, $limits);
+    $_COOKIE = request_sanitize_array($_COOKIE, 'COOKIE', $inputState, $limits);
+
+    $fileState = ['items' => 0];
+    $_FILES = request_sanitize_files_array($_FILES, 'FILES', $fileState, $limits);
+}
+
 function old(array $source, string $key, string $default = ''): string
 {
-    return isset($source[$key]) ? trim((string) $source[$key]) : $default;
+    if (!array_key_exists($key, $source) || is_array($source[$key])) {
+        return $default;
+    }
+
+    return trim((string) $source[$key]);
 }
 
 function add_validation_error(array &$errors, string $message): void
@@ -812,6 +988,224 @@ function ensure_legacy_assets_po_number_column(mysqli $db): void
     if (function_exists('schema_has_column') && !schema_has_column($db, 'legacy_assets', 'po_number')) {
         $db->query("ALTER TABLE legacy_assets ADD COLUMN po_number VARCHAR(100) NULL AFTER system_reference");
     }
+}
+
+function ensure_asset_location_tracking_schema(mysqli $db): void
+{
+    $db->query("ALTER TABLE distribution_item_details
+        ADD COLUMN IF NOT EXISTS manual_location VARCHAR(255) NULL AFTER current_responsibility_code_id,
+        ADD COLUMN IF NOT EXISTS location_lat DECIMAL(10,7) NULL AFTER manual_location,
+        ADD COLUMN IF NOT EXISTS location_lng DECIMAL(10,7) NULL AFTER location_lat,
+        ADD COLUMN IF NOT EXISTS location_updated_at DATETIME NULL AFTER location_lng,
+        ADD COLUMN IF NOT EXISTS location_updated_by BIGINT UNSIGNED NULL AFTER location_updated_at");
+
+    $db->query("ALTER TABLE legacy_assets
+        ADD COLUMN IF NOT EXISTS manual_location VARCHAR(255) NULL AFTER responsibility_code_id,
+        ADD COLUMN IF NOT EXISTS location_lat DECIMAL(10,7) NULL AFTER manual_location,
+        ADD COLUMN IF NOT EXISTS location_lng DECIMAL(10,7) NULL AFTER location_lat,
+        ADD COLUMN IF NOT EXISTS location_updated_at DATETIME NULL AFTER location_lng,
+        ADD COLUMN IF NOT EXISTS location_updated_by BIGINT UNSIGNED NULL AFTER location_updated_at");
+
+    $db->query("CREATE TABLE IF NOT EXISTS asset_location_history (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        asset_source ENUM('system', 'legacy') NOT NULL,
+        asset_id BIGINT UNSIGNED NOT NULL,
+        inventory_session_id INT UNSIGNED NULL,
+        inventory_count_item_id INT UNSIGNED NULL,
+        changed_by BIGINT UNSIGNED NULL,
+        change_reason VARCHAR(120) NOT NULL DEFAULT 'manual_update',
+        old_manual_location VARCHAR(255) NULL,
+        old_latitude DECIMAL(10,7) NULL,
+        old_longitude DECIMAL(10,7) NULL,
+        new_manual_location VARCHAR(255) NULL,
+        new_latitude DECIMAL(10,7) NULL,
+        new_longitude DECIMAL(10,7) NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_asset_location_history_asset (asset_source, asset_id),
+        KEY idx_asset_location_history_session (inventory_session_id),
+        KEY idx_asset_location_history_item (inventory_count_item_id),
+        KEY idx_asset_location_history_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+function update_asset_location_snapshot(
+    mysqli $db,
+    string $assetSource,
+    int $assetId,
+    string $manualLocation,
+    ?float $latitude,
+    ?float $longitude,
+    int $changedBy = 0,
+    string $changeReason = 'manual_update',
+    ?int $inventorySessionId = null,
+    ?int $inventoryCountItemId = null
+): bool {
+    ensure_asset_location_tracking_schema($db);
+
+    if (!in_array($assetSource, ['system', 'legacy'], true) || $assetId <= 0) {
+        return false;
+    }
+
+    $table = $assetSource === 'legacy' ? 'legacy_assets' : 'distribution_item_details';
+    $selectStmt = $db->prepare("SELECT manual_location, location_lat, location_lng FROM {$table} WHERE id = ? LIMIT 1");
+    if (!$selectStmt) {
+        return false;
+    }
+
+    $selectStmt->bind_param('i', $assetId);
+    $selectStmt->execute();
+    $current = $selectStmt->get_result()->fetch_assoc();
+    $selectStmt->close();
+    if (!$current) {
+        return false;
+    }
+
+    $manualLocation = trim($manualLocation);
+    $oldManualLocation = trim((string) ($current['manual_location'] ?? ''));
+    $oldLatitude = isset($current['location_lat']) ? (float) $current['location_lat'] : null;
+    $oldLongitude = isset($current['location_lng']) ? (float) $current['location_lng'] : null;
+
+    $oldLatitudeStr = $oldLatitude === null ? '' : number_format($oldLatitude, 7, '.', '');
+    $oldLongitudeStr = $oldLongitude === null ? '' : number_format($oldLongitude, 7, '.', '');
+    $newLatitudeStr = $latitude === null ? '' : number_format($latitude, 7, '.', '');
+    $newLongitudeStr = $longitude === null ? '' : number_format($longitude, 7, '.', '');
+
+    if (
+        $manualLocation === $oldManualLocation
+        && $newLatitudeStr === $oldLatitudeStr
+        && $newLongitudeStr === $oldLongitudeStr
+    ) {
+        return true;
+    }
+
+    $updateStmt = $db->prepare("UPDATE {$table}
+        SET manual_location = NULLIF(?, ''),
+            location_lat = NULLIF(?, ''),
+            location_lng = NULLIF(?, ''),
+            location_updated_at = NOW(),
+            location_updated_by = NULLIF(?, 0)
+        WHERE id = ?");
+    if (!$updateStmt) {
+        return false;
+    }
+
+    $updateStmt->bind_param('sssii', $manualLocation, $newLatitudeStr, $newLongitudeStr, $changedBy, $assetId);
+    $saved = $updateStmt->execute();
+    $updateStmt->close();
+    if (!$saved) {
+        return false;
+    }
+
+    $historyStmt = $db->prepare("INSERT INTO asset_location_history
+        (asset_source, asset_id, inventory_session_id, inventory_count_item_id, changed_by, change_reason,
+         old_manual_location, old_latitude, old_longitude, new_manual_location, new_latitude, new_longitude)
+        VALUES (?, ?, NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?,
+                NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''))");
+    if ($historyStmt) {
+        $sessionIdValue = max(0, (int) ($inventorySessionId ?? 0));
+        $countItemIdValue = max(0, (int) ($inventoryCountItemId ?? 0));
+        $historyStmt->bind_param(
+            'siiiisssssss',
+            $assetSource,
+            $assetId,
+            $sessionIdValue,
+            $countItemIdValue,
+            $changedBy,
+            $changeReason,
+            $oldManualLocation,
+            $oldLatitudeStr,
+            $oldLongitudeStr,
+            $manualLocation,
+            $newLatitudeStr,
+            $newLongitudeStr
+        );
+        $historyStmt->execute();
+        $historyStmt->close();
+    }
+
+    return true;
+}
+
+function ensure_office_location_pin_schema(mysqli $db): void
+{
+    $db->query("CREATE TABLE IF NOT EXISTS office_location_pins (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        office_id INT UNSIGNED NOT NULL,
+        office_name_snapshot VARCHAR(255) NULL,
+        manual_location VARCHAR(255) NULL,
+        location_lat DECIMAL(10,7) NOT NULL,
+        location_lng DECIMAL(10,7) NOT NULL,
+        updated_by BIGINT UNSIGNED NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_office_location_pins_office (office_id),
+        KEY idx_office_location_pins_updated (updated_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+function get_office_location_pin(mysqli $db, int $officeId): ?array
+{
+    ensure_office_location_pin_schema($db);
+    if ($officeId <= 0) {
+        return null;
+    }
+
+    $stmt = $db->prepare("SELECT office_id, office_name_snapshot, manual_location, location_lat, location_lng
+        FROM office_location_pins
+        WHERE office_id = ?
+        LIMIT 1");
+    if (!$stmt) {
+        return null;
+    }
+
+    $stmt->bind_param('i', $officeId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: null;
+    $stmt->close();
+
+    return $row ?: null;
+}
+
+function upsert_office_location_pin(
+    mysqli $db,
+    int $officeId,
+    string $officeNameSnapshot,
+    string $manualLocation,
+    float $latitude,
+    float $longitude,
+    int $updatedBy = 0
+): bool {
+    ensure_office_location_pin_schema($db);
+    if ($officeId <= 0) {
+        return false;
+    }
+
+    $officeNameSnapshot = trim($officeNameSnapshot);
+    $manualLocation = trim($manualLocation);
+    $latValue = number_format($latitude, 7, '.', '');
+    $lngValue = number_format($longitude, 7, '.', '');
+
+    $stmt = $db->prepare("INSERT INTO office_location_pins
+        (office_id, office_name_snapshot, manual_location, location_lat, location_lng, updated_by)
+        VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, NULLIF(?, 0))
+        ON DUPLICATE KEY UPDATE
+            office_name_snapshot = VALUES(office_name_snapshot),
+            manual_location = VALUES(manual_location),
+            location_lat = VALUES(location_lat),
+            location_lng = VALUES(location_lng),
+            updated_by = VALUES(updated_by),
+            updated_at = NOW()");
+    if (!$stmt) {
+        return false;
+    }
+
+    $stmt->bind_param('issssi', $officeId, $officeNameSnapshot, $manualLocation, $latValue, $lngValue, $updatedBy);
+    $ok = $stmt->execute();
+    $stmt->close();
+
+    return $ok;
 }
 
 function generate_property_number(

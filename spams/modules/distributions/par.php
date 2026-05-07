@@ -89,7 +89,7 @@ if (!empty($header['document_type']) && $header['document_type'] === 'ics') {
      "INNER JOIN receivings r ON r.id = ri.receiving_id\n" .
      "LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id\n" .
     "LEFT JOIN classifications c ON c.id = poi.classification_id\n" .
-    "LEFT JOIN distribution_item_details did ON did.distribution_item_id = di.id\n" .
+        "LEFT JOIN distribution_item_details did ON did.distribution_item_id = di.id AND did.is_distributed = 1\n" .
      "WHERE di.distribution_id = ?\n" .
      "ORDER BY di.id ASC, did.id ASC"
 );
@@ -159,9 +159,45 @@ $buildPropertyRange = static function (array $propertyNumbers): string {
     return $first . ' to ' . $last;
 };
 
+$detailIdentityLine = static function (array $detail): string {
+    $parts = [];
+    $brand = trim((string) ($detail['brand'] ?? ''));
+    $model = trim((string) ($detail['model'] ?? ''));
+    $serial = trim((string) ($detail['serial_no'] ?? ''));
+
+    if ($brand !== '') {
+        $parts[] = 'Brand: ' . $brand;
+    }
+    if ($model !== '') {
+        $parts[] = 'Model: ' . $model;
+    }
+    if ($serial !== '') {
+        $parts[] = 'Serial: ' . $serial;
+    }
+
+    return implode(' | ', $parts);
+};
+
+$itemIdentityLines = static function (array $item) use ($detailIdentityLine): array {
+    $lines = [];
+    foreach ((array) ($item['details'] ?? []) as $detail) {
+        $line = $detailIdentityLine((array) $detail);
+        if ($line !== '') {
+            $lines[] = $line;
+        }
+    }
+
+    return array_values(array_unique($lines));
+};
+
 $groupedItems = [];
 if ($isGrouped) {
     foreach ($items as $item) {
+        // Skip items with zero quantity (removed/corrected items)
+        $qty = (float) ($item['quantity_distributed'] ?? 0);
+        if ($qty <= 0) {
+            continue;
+        }
         $unitLabel = trim((string) ($item['abbreviation'] ?? $item['uom_name'] ?? ''));
         $groupKey = implode('|', [
             trim((string) ($item['classification_name'] ?? '')),
@@ -397,6 +433,9 @@ $shortSheetCount = (int) ceil($copyCount / 2);
             <tbody class="par-body">
                     <?php $total = 0.0; foreach ($printItems as $it):
                         $qty = (float) ($it['quantity_distributed'] ?? 0);
+
+                        if ($qty <= 0) continue;
+
                         $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
                         $amount = (float) ($it['line_total'] ?? 0);
                         $total += $amount;
@@ -409,8 +448,16 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                                 $itemClass = trim((string) ($it['classification_name'] ?? ''));
                                 $itemDescription = trim((string) ($it['item_description'] ?? ''));
                                 $parDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                                $identityLines = $itemIdentityLines((array) $it);
                             ?>
                             <?php echo nl2br(h($parDescription)); ?>
+                            <?php if (!empty($identityLines)): ?>
+                                <div class="small">
+                                    <?php foreach ($identityLines as $identityLine): ?>
+                                        <?php echo h($identityLine); ?><br>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
                         </td>
                         <td>
                             <?php if ($isGrouped): ?>
@@ -526,6 +573,9 @@ $shortSheetCount = (int) ceil($copyCount / 2);
             <tbody class="par-body">
                     <?php $total = 0.0; foreach ($printItems as $it):
                         $qty = (float) ($it['quantity_distributed'] ?? 0);
+
+                        if ($qty <= 0) continue;
+
                         $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
                         $amount = (float) ($it['line_total'] ?? 0);
                         $total += $amount;
@@ -538,8 +588,16 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                                 $itemClass = trim((string) ($it['classification_name'] ?? ''));
                                 $itemDescription = trim((string) ($it['item_description'] ?? ''));
                                 $parDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                                $identityLines = $itemIdentityLines((array) $it);
                             ?>
                             <?php echo nl2br(h($parDescription)); ?>
+                            <?php if (!empty($identityLines)): ?>
+                                <div class="small">
+                                    <?php foreach ($identityLines as $identityLine): ?>
+                                        <?php echo h($identityLine); ?><br>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
                         </td>
                         <td>
                             <?php if ($isGrouped): ?>
