@@ -105,13 +105,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <table class="table table-hover align-middle">
                     <thead>
                         <tr>
-                            <th>Trip Ticket No.</th>
-                            <th>RIS No.</th>
-                            <th>Travel Dates</th>
-                            <th>Vehicle</th>
-                            <th>Driver</th>
-                            <th>Destination</th>
-                            <th>Status</th>
+                            <th data-sort="no">Trip Ticket No. <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="ris">RIS No. <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="dates">Travel Dates <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="vehicle">Vehicle <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="driver">Driver <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="dest">Destination <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
                             <th class="text-end">Passengers</th>
                             <th class="text-end">Distance</th>
                             <th class="text-end">Fuel (L)</th>

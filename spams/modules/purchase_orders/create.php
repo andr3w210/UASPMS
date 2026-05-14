@@ -2122,7 +2122,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 scanBtn.disabled = true; scanBtn.textContent = 'Reading...';
 
                 try {
-                    var formData = new FormData(); formData.append('po_image', file);
+                    var formData = new FormData(); formData.append('po_image', file); formData.append('_csrf', '<?php echo h(csrf_token()); ?>');
                     var response = await fetch('<?php echo BASE_URL; ?>/modules/purchase_orders/scan_proxy.php', { method: 'POST', body: formData });
                     var result = await response.json();
                     if (!response.ok) {

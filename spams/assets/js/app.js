@@ -618,6 +618,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         table.querySelectorAll('th[data-sort]').forEach(function (th, idx) {
+            th.setAttribute('data-sort-initialized', '1');
             th.style.cursor = 'pointer';
             th.addEventListener('click', function () {
                 var rows = getRows();
@@ -1092,6 +1093,174 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function setupRequiredSummaryValidation(options) {
+        var config = options || {};
+        var form = config.form || (config.formId ? document.getElementById(config.formId) : null);
+        var summary = config.summary || (config.summaryId ? document.getElementById(config.summaryId) : null);
+        var requiredFields = Array.isArray(config.requiredFields) ? config.requiredFields : [];
+        var showAttribute = config.showAttribute || 'data-show-required-summary';
+        var summaryPrefix = config.summaryPrefix || 'Please complete required fields: ';
+
+        if (!form || !summary || !requiredFields.length) {
+            return null;
+        }
+
+        function getFieldState(fieldConfig) {
+            var field = fieldConfig.field || (fieldConfig.id ? document.getElementById(fieldConfig.id) : null);
+            if (!field) {
+                return null;
+            }
+
+            var requiredWhenResult = true;
+            if (typeof fieldConfig.requiredWhen === 'function') {
+                requiredWhenResult = !!fieldConfig.requiredWhen(field, form, fieldConfig);
+            }
+
+            var isMissing = false;
+            if (requiredWhenResult) {
+                if (typeof fieldConfig.isMissing === 'function') {
+                    isMissing = !!fieldConfig.isMissing(field, form, fieldConfig);
+                } else if (field.type === 'checkbox' || field.type === 'radio') {
+                    isMissing = !field.checked;
+                } else {
+                    isMissing = String(field.value || '').trim() === '';
+                }
+            }
+
+            return {
+                field: field,
+                label: fieldConfig.label || field.getAttribute('name') || 'Field',
+                feedback: fieldConfig.feedbackId ? document.getElementById(fieldConfig.feedbackId) : null,
+                useSelect2: fieldConfig.useSelect2 !== false,
+                isMissing: isMissing
+            };
+        }
+
+        function render(showSummary) {
+            var show = !!showSummary;
+            var states = requiredFields.map(getFieldState).filter(Boolean);
+            var missingStates = states.filter(function (state) {
+                return state.isMissing;
+            });
+
+            states.forEach(function (state) {
+                var showFieldInvalid = show && state.isMissing;
+                state.field.classList.toggle('is-invalid', showFieldInvalid);
+                if (state.feedback) {
+                    state.feedback.classList.toggle('d-none', !showFieldInvalid);
+                }
+                if (state.useSelect2) {
+                    syncSelect2ValidationState(state.field);
+                }
+            });
+
+            if (!show || !missingStates.length) {
+                summary.classList.add('d-none');
+                summary.textContent = '';
+            } else {
+                summary.textContent = summaryPrefix + missingStates.map(function (state) {
+                    return state.label;
+                }).join(', ') + '.';
+                summary.classList.remove('d-none');
+            }
+
+            return missingStates;
+        }
+
+        requiredFields.forEach(function (fieldConfig) {
+            var field = fieldConfig.field || (fieldConfig.id ? document.getElementById(fieldConfig.id) : null);
+            if (!field) {
+                return;
+            }
+
+            var events = Array.isArray(fieldConfig.events) && fieldConfig.events.length
+                ? fieldConfig.events
+                : ['change'];
+
+            events.forEach(function (eventName) {
+                field.addEventListener(eventName, function () {
+                    render(form.getAttribute(showAttribute) === '1');
+                });
+            });
+
+            if (fieldConfig.useSelect2 !== false && window.jQuery) {
+                window.jQuery(field).on('select2:select select2:clear', function () {
+                    render(form.getAttribute(showAttribute) === '1');
+                });
+            }
+        });
+
+        form.addEventListener('submit', function (event) {
+            if (typeof config.beforeValidate === 'function') {
+                config.beforeValidate(form, event);
+            }
+
+            form.setAttribute(showAttribute, '1');
+            var missingStates = render(true);
+            if (!missingStates.length) {
+                if (typeof config.onValid === 'function') {
+                    config.onValid(form, event);
+                }
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            var firstMissing = missingStates[0] && missingStates[0].field ? missingStates[0].field : null;
+            if (firstMissing) {
+                if (window.jQuery && jQuery(firstMissing).hasClass('select2-hidden-accessible')) {
+                    jQuery(firstMissing).select2('open');
+                } else {
+                    firstMissing.focus();
+                }
+            }
+
+            if (typeof config.onInvalid === 'function') {
+                config.onInvalid(missingStates, form, event);
+            }
+        });
+
+        render(false);
+
+        return {
+            render: render
+        };
+    }
+
+    function initGlobalSortableHeaders(root) {
+        var context = root || document;
+        context.querySelectorAll('th[data-sort]').forEach(function (th) {
+            if (th.getAttribute('data-sort-initialized')) { return; }
+            th.setAttribute('data-sort-initialized', '1');
+            th.style.cursor = 'pointer';
+            var table = th.closest('table');
+            if (!table) { return; }
+            th.addEventListener('click', function () {
+                var tbody = table.querySelector('tbody');
+                if (!tbody) { return; }
+                var idx = Array.from(th.parentElement.children).indexOf(th);
+                var currentDir = th.getAttribute('data-sort-dir') || '';
+                var dir = currentDir === 'asc' ? 'desc' : 'asc';
+                table.querySelectorAll('th[data-sort]').forEach(function (t) {
+                    t.removeAttribute('data-sort-dir');
+                    var i = t.querySelector('i.bi');
+                    if (i) { i.className = 'bi bi-arrow-down-up text-muted small'; }
+                });
+                th.setAttribute('data-sort-dir', dir);
+                var icon = th.querySelector('i.bi');
+                if (icon) { icon.className = 'bi bi-arrow-' + (dir === 'asc' ? 'up' : 'down') + ' text-primary small'; }
+                var rows = Array.from(tbody.querySelectorAll('tr'));
+                rows.sort(function (a, b) {
+                    var at = (a.cells[idx] ? a.cells[idx].textContent : '').trim().toLowerCase();
+                    var bt = (b.cells[idx] ? b.cells[idx].textContent : '').trim().toLowerCase();
+                    return dir === 'asc' ? at.localeCompare(bt) : bt.localeCompare(at);
+                });
+                rows.forEach(function (row) { tbody.appendChild(row); });
+            });
+        });
+    }
+
     window.SPAMS = window.SPAMS || {};
     window.SPAMS.initSelect2 = initSelect2;
     window.SPAMS.refreshSelect2 = refreshSelect2;
@@ -1099,7 +1268,9 @@ document.addEventListener('DOMContentLoaded', function () {
     window.SPAMS.initDataTable = initDataTable;
     window.SPAMS.initMasterDataList = initMasterDataList;
     window.SPAMS.initFormValidation = initFormValidation;
+    window.SPAMS.initGlobalSortableHeaders = initGlobalSortableHeaders;
     window.SPAMS.markFieldValidationState = markFieldValidationState;
+    window.SPAMS.setupRequiredSummaryValidation = setupRequiredSummaryValidation;
     window.initDataTable = initDataTable;
     window.initMasterDataList = initMasterDataList;
 
@@ -1129,6 +1300,7 @@ document.addEventListener('DOMContentLoaded', function () {
     initMobileTableFrames(document);
     initTableSearch(document);
     initFormValidation(document);
+    initGlobalSortableHeaders(document);
 
     var observer = new MutationObserver(function (mutations) {
         mutations.forEach(function (mutation) {

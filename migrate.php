@@ -2,7 +2,8 @@
 require_once __DIR__ . '/spams/app/config/constants.php';
 
 if (PHP_SAPI !== 'cli') {
-    header('Content-Type: text/plain; charset=utf-8');
+    http_response_code(403);
+    exit('Forbidden');
 }
 
 const SPAMS_BASELINE_BEFORE = 44;

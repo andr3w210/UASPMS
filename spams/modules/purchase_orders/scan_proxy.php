@@ -16,6 +16,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+if (!csrf_verify()) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Invalid CSRF token']);
+    exit;
+}
+
 $file = $_FILES['po_image'] ?? null;
 if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
     http_response_code(400);

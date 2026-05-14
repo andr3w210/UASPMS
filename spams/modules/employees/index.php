@@ -999,13 +999,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <table class="table align-middle" id="dataTable">
                     <thead>
                         <tr>
-                            <th>Employee</th>
-                            <th>Office</th>
-                            <th>Responsibility Code</th>
-                            <th>Unit Head</th>
-                            <th>Driver</th>
-                            <th>Status</th>
-                            <th>Created</th>
+                            <th data-sort="employee">Employee <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="office">Office <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="rc">Responsibility Code <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="unithead">Unit Head <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="driver">Driver <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="created">Created <i class="bi bi-arrow-down-up text-muted small"></i></th>
                             <th class="text-end">Actions</th>
                         </tr>
                     </thead>

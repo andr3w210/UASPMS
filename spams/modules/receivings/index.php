@@ -91,6 +91,7 @@ $purchaseOrders = [];
 $receivingItems = [];
 $brands = [];
 $models = [];
+$semiHighValueMin = 5000.0;
 $selectedPurchaseOrder = null;
 $selectedPurchaseOrderId = (int) ($_GET['po_id'] ?? ($_POST['purchase_order_id'] ?? 0));
 $form = [
@@ -102,6 +103,7 @@ $form = [
     'invoice_no' => '',
     'inspected_by' => '',
     'remarks' => '',
+    'confirm_physical_receipt' => '0',
 ];
 
 if (!$db) {
@@ -110,6 +112,8 @@ if (!$db) {
     $poItemHasSemiType = function_exists('schema_has_column')
         ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type')
         : false;
+    $activeThreshold = get_active_threshold($db);
+    $semiHighValueMin = (float) ($activeThreshold['semi_hv_min'] ?? 5000);
     $form['system_reference'] = preview_module_code($db, 'receivings');
     $form['ris_no'] = preview_ris_number($db, $form['received_date']);
 
@@ -211,8 +215,8 @@ if (!$db) {
                 while ($itemResult && ($item = $itemResult->fetch_assoc())) {
                     $remaining = max(0, (float) $item['quantity'] - (float) $item['quantity_already_received']);
                     $item['remaining_quantity'] = $remaining;
-                    $item['deliver_quantity'] = $remaining > 0 ? number_format($remaining, 2, '.', '') : '0.00';
-                    $item['accept_quantity'] = $item['deliver_quantity'];
+                    $item['deliver_quantity'] = '0.00';
+                    $item['accept_quantity'] = '0.00';
                     $item['reject_quantity'] = '0.00';
                     $item['item_condition'] = 'Good Condition';
                     $item['remarks'] = '';
@@ -240,11 +244,14 @@ if (!$db) {
         $form['invoice_no'] = old($_POST, 'invoice_no');
         $form['inspected_by'] = old($_POST, 'inspected_by');
         $form['remarks'] = old($_POST, 'remarks');
+        $form['confirm_physical_receipt'] = !empty($_POST['confirm_physical_receipt']) ? '1' : '0';
         $postedItems = $_POST['items'] ?? [];
         $validatedItems = [];
         $remainingAfterSave = [];
         $postedSerialNumbers = [];
         $totalReceivedAmount = 0.00;
+        $requiresPhysicalCheckConfirmation = false;
+        $requiresPhysicalCheckLineNos = [];
 
         if ($form['purchase_order_id'] === '') {
             add_validation_error($errors, 'Purchase order is required.');
@@ -290,10 +297,6 @@ if (!$db) {
             $delivered = (float) ($posted['deliver_quantity'] ?? 0);
             $accepted = (float) ($posted['accept_quantity'] ?? 0);
             $rejected = (float) ($posted['reject_quantity'] ?? 0);
-            // If user provided delivered quantity but left accept/reject blank, assume full acceptance.
-            if ($delivered > 0 && round($accepted, 6) === 0.0 && round($rejected, 6) === 0.0) {
-                $accepted = $delivered;
-            }
             $remaining = (float) $item['remaining_quantity'];
             $condition = trim((string) ($posted['item_condition'] ?? ''));
             $details = receiving_normalize_details($posted['details'] ?? []);
@@ -363,6 +366,21 @@ if (!$db) {
             if ($condition === '') {
                 $errors[] = 'Condition is required for line ' . $item['line_no'] . '.';
                 continue;
+            }
+
+            $itemType = (string) ($item['item_type'] ?? '');
+            $isEquipment = $itemType === 'equipment';
+            $isHighValueSemi = false;
+            if ($itemType === 'semi_expendable') {
+                $semiType = (string) ($item['semi_expendable_type'] ?? '');
+                if (!in_array($semiType, ['high_value', 'low_value'], true)) {
+                    $semiType = ((float) ($item['unit_cost'] ?? 0) >= $semiHighValueMin) ? 'high_value' : 'low_value';
+                }
+                $isHighValueSemi = $semiType === 'high_value';
+            }
+            if ($accepted > 0 && ($isEquipment || $isHighValueSemi)) {
+                $requiresPhysicalCheckConfirmation = true;
+                $requiresPhysicalCheckLineNos[] = (string) ($item['line_no'] ?? '');
             }
 
             $detailRows = [];
@@ -505,6 +523,11 @@ if (!$db) {
             ];
         }
         unset($item);
+
+        if ($requiresPhysicalCheckConfirmation && $form['confirm_physical_receipt'] !== '1') {
+            $lineSummary = implode(', ', array_filter(array_unique($requiresPhysicalCheckLineNos)));
+            add_validation_error($errors, 'Please confirm physical verification before posting accepted equipment/high-value semi-expendable items' . ($lineSummary !== '' ? ' (lines: ' . $lineSummary . ')' : '') . '.');
+        }
 
         if (!$validatedItems) {
             $errors[] = 'Enter at least one delivered item.';
@@ -688,41 +711,13 @@ if (!$db) {
                 $detailStmt->close();
                 $itemStmt->close();
 
-                // After inserting receiving items, recalculate PO status across all receivings (excluding cancelled)
-                $poStatusStmt = $db->prepare(
-                    "SELECT\n" .
-                    "    SUM(poi.quantity) AS total_ordered,\n" .
-                    "    COALESCE((SELECT SUM(ri2.quantity_delivered)\n" .
-                    "              FROM receiving_items ri2\n" .
-                    "              INNER JOIN receivings r2 ON r2.id = ri2.receiving_id\n" .
-                    "              WHERE r2.purchase_order_id = po.id AND r2.status != 'cancelled'), 0) AS total_delivered\n" .
-                    "FROM purchase_order_items poi\n" .
-                    "INNER JOIN purchase_orders po ON po.id = poi.purchase_order_id\n" .
-                    "WHERE poi.purchase_order_id = ?"
-                );
-                if ($poStatusStmt) {
-                    $poStatusStmt->bind_param('i', $purchaseOrderId);
-                    $poStatusStmt->execute();
-                    $poRow = $poStatusStmt->get_result()->fetch_assoc();
-                    $poStatusStmt->close();
-
-                    $totalOrdered = (float) ($poRow['total_ordered'] ?? 0);
-                    $totalDelivered = (float) ($poRow['total_delivered'] ?? 0);
-
-                    if ($totalOrdered > 0 && $totalDelivered >= $totalOrdered) {
-                        $poStatus = 'completed';
-                    } elseif ($totalDelivered > 0) {
-                        $poStatus = 'partial';
-                    } else {
-                        $poStatus = 'encoded';
-                    }
-
-                    $poUpdateStmt = $db->prepare("UPDATE purchase_orders SET status = ? WHERE id = ?");
-                    if ($poUpdateStmt) {
-                        $poUpdateStmt->bind_param('si', $poStatus, $purchaseOrderId);
-                        $poUpdateStmt->execute();
-                        $poUpdateStmt->close();
-                    }
+                // Keep PO status in sync with both delivery completion and distribution completion.
+                $poStatus = recalculate_purchase_order_status($db, $purchaseOrderId);
+                $poUpdateStmt = $db->prepare("UPDATE purchase_orders SET status = ? WHERE id = ?");
+                if ($poUpdateStmt) {
+                    $poUpdateStmt->bind_param('si', $poStatus, $purchaseOrderId);
+                    $poUpdateStmt->execute();
+                    $poUpdateStmt->close();
                 }
 
                 // Set receiving status: 'completed' if this receiving left no remaining quantities, otherwise 'partial'
@@ -761,6 +756,20 @@ if (!$db) {
 
                 $db->commit();
                 set_flash('success', 'Receiving record saved successfully.');
+                $hasDistributableUnits = false;
+                foreach ($validatedItems as $postedItem) {
+                    if (in_array((string) ($postedItem['item_type'] ?? ''), ['semi_expendable', 'equipment'], true)
+                        && (float) ($postedItem['quantity_accepted'] ?? 0) > 0
+                    ) {
+                        $hasDistributableUnits = true;
+                        break;
+                    }
+                }
+
+                if ($hasDistributableUnits) {
+                    redirect('modules/distributions/index.php?receiving_id=' . $receivingId);
+                }
+
                 redirect('modules/receivings/index.php');
             } catch (Throwable $e) {
                 $db->rollback();
@@ -910,6 +919,21 @@ require_once __DIR__ . '/../../includes/topbar.php';
     color: var(--bs-secondary-color);
     font-size: 0.78rem;
     line-height: 1.35;
+}
+
+.receiving-verification-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #842029;
+    background: #f8d7da;
+    border: 1px solid #f5c2c7;
 }
 
 .receiving-step-panel {
@@ -1390,7 +1414,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </button>
                                             <button type="button" class="receiving-step text-start" data-scroll-target="receivingSaveSection">
                                                 <div class="receiving-step-number">4</div>
-                                                <div class="receiving-step-title">Review & Save</div>
+                                                <div class="receiving-step-title">Review & Save <span id="receivingVerificationBadge" class="receiving-verification-badge" style="display:none;">Verification Required</span></div>
                                                 <div class="receiving-step-copy">Finish the review and post the batch.</div>
                                             </button>
                                         </div>
@@ -1435,14 +1459,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 </div>
                                         </div>
 
-                                        <form method="post">
+                                        <form method="post" id="receivingForm" data-semi-hv-min="<?php echo h(number_format($semiHighValueMin, 2, '.', '')); ?>">
                             <input type="hidden" name="action" value="save">
                             <?php echo '<input type="hidden" name="_csrf" value="' . h(csrf_token()) . '">'; ?>
                             <input type="hidden" name="purchase_order_id" value="<?php echo (int) $selectedPurchaseOrder['id']; ?>">
                         <div class="row g-3 mb-4 workspace-filter-panel" id="receivingHeaderSection">
+                            <div class="col-12">
+                                <div id="receiving_form_feedback" class="alert alert-danger small py-2 px-3 mb-0 d-none" role="alert" aria-live="polite"></div>
+                            </div>
                             <div class="col-md-3"><label class="form-label">System Reference</label><input type="text" class="form-control" value="<?php echo h($form['system_reference']); ?>" readonly></div>
                             <div class="col-md-3"><label for="ris_no" class="form-label">RIS Number</label><input type="text" class="form-control" id="ris_no" name="ris_no" value="<?php echo h($form['ris_no']); ?>" readonly><div class="form-text">Generated as `RIS-YEAR-MONTH-SERIES`.</div></div>
-                            <div class="col-md-3"><label for="received_date" class="form-label">Received Date</label><input type="date" class="form-control" id="received_date" name="received_date" value="<?php echo h($form['received_date']); ?>" required></div>
+                            <div class="col-md-3"><label for="received_date" class="form-label">Received Date <span class="text-danger">*</span></label><input type="date" class="form-control" id="received_date" name="received_date" value="<?php echo h($form['received_date']); ?>" required><div id="received_date_feedback" class="small text-danger mt-1 d-none">Received date is required.</div></div>
                             <div class="col-md-3"><label for="delivery_receipt_no" class="form-label">Delivery Receipt No.</label><input type="text" class="form-control" id="delivery_receipt_no" name="delivery_receipt_no" value="<?php echo h($form['delivery_receipt_no']); ?>"></div>
                             <div class="col-md-3"><label for="invoice_no" class="form-label">Invoice No.</label><input type="text" class="form-control" id="invoice_no" name="invoice_no" value="<?php echo h($form['invoice_no']); ?>"></div>
                             <div class="col-md-3"><label for="inspected_by" class="form-label">Inspected By</label><input type="text" class="form-control" id="inspected_by" name="inspected_by" value="<?php echo h($form['inspected_by']); ?>" placeholder="Inspection officer / committee"></div>
@@ -1510,7 +1537,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <th class="text-end" style="width: 90px;">Received</th>
                                         <th class="text-end" style="width: 90px;">Remaining</th>
                                         <th style="width: 120px;">Delivered</th>
-                                        <th style="width: 120px;">Accepted</th>
+                                        <th style="width: 120px;">Accepted<br><span class="small text-danger">Verify physically</span></th>
                                         <th style="width: 120px;">Rejected</th>
                                         <th style="min-width: 140px;">Condition</th>
                                         <th style="min-width: 180px;">Remarks</th>
@@ -1529,7 +1556,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         }
                                         $trackIdentity = receiving_tracks_identity((string) $item['item_type']);
                                         ?>
-                                        <tr class="receiving-line-row <?php echo $itemId === (int) ($receivingItems[0]['id'] ?? 0) ? 'table-primary' : ''; ?>" data-line-id="<?php echo $itemId; ?>" data-line-no="<?php echo (int) $item['line_no']; ?>" data-unit-cost="<?php echo h(number_format((float) $item['unit_cost'], 2, '.', '')); ?>" data-item-type="<?php echo h($item['item_type']); ?>" data-has-remaining="<?php echo (float) $item['remaining_quantity'] > 0 ? '1' : '0'; ?>">
+                                        <tr class="receiving-line-row <?php echo $itemId === (int) ($receivingItems[0]['id'] ?? 0) ? 'table-primary' : ''; ?>" data-line-id="<?php echo $itemId; ?>" data-line-no="<?php echo (int) $item['line_no']; ?>" data-unit-cost="<?php echo h(number_format((float) $item['unit_cost'], 2, '.', '')); ?>" data-item-type="<?php echo h($item['item_type']); ?>" data-semi-type="<?php echo h((string) ($item['semi_expendable_type'] ?? '')); ?>" data-has-remaining="<?php echo (float) $item['remaining_quantity'] > 0 ? '1' : '0'; ?>">
                                             <td><?php echo (int) $item['line_no']; ?></td>
                                             <td>
                                                 <?php if (!empty($item['catalog_stock_no'])): ?>
@@ -1670,6 +1697,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                         </div>
 
+                        <div class="alert alert-warning py-2 px-3 mb-3 small">
+                            Accepted quantity creates stock and asset records. Set accepted to 0 for items not physically received.
+                        </div>
+                        <div class="form-check mb-3" id="receivingPhysicalConfirmWrap">
+                            <input class="form-check-input" type="checkbox" value="1" id="confirm_physical_receipt" name="confirm_physical_receipt" <?php echo $form['confirm_physical_receipt'] === '1' ? 'checked' : ''; ?>>
+                            <label class="form-check-label" for="confirm_physical_receipt">
+                                I confirm all accepted equipment and high-value semi-expendable items were physically verified.
+                            </label>
+                            <div class="form-text" id="receivingPhysicalConfirmHint">Required only when accepted qty exists for equipment/high-value semi-expendable lines.</div>
+                            <div class="small text-danger mt-1 d-none" id="confirm_physical_receipt_feedback">Please confirm physical verification before saving.</div>
+                        </div>
                         <div class="d-flex justify-content-end" id="receivingSaveSection"><button type="submit" class="btn btn-primary">Save Receiving</button></div>
                     </form>
                 <?php else: ?>
@@ -1723,7 +1761,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                 <div class="table-responsive mobile-table-frame">
                     <table class="table align-middle">
-                        <thead><tr><th>Reference</th><th>RIS No.</th><th>Received Date</th><th>PO Number</th><th>Supplier</th><th>DR No.</th><th>Status</th><th class="text-end">Amount</th><th class="text-end">Actions</th></tr></thead>
+                        <thead><tr><th data-sort="ref">Reference <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="ris">RIS No. <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="date">Received Date <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="po">PO Number <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="supplier">Supplier <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="dr">DR No. <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th><th class="text-end" data-sort="amount">Amount <i class="bi bi-arrow-down-up text-muted small"></i></th><th class="text-end">Actions</th></tr></thead>
                         <tbody>
                             <?php if ($receivings): foreach ($receivings as $receiving): ?>
                                 <tr>
@@ -1735,7 +1773,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo h($receiving['delivery_receipt_no'] ?? ''); ?></td>
                                     <td><?php echo receiving_status_badge($receiving['status']); ?></td>
                                     <td class="text-end"><?php echo h(number_format((float) $receiving['total_received_amount'], 2)); ?></td>
-                                    <td class="text-end"><?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print IAR</a><a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Final IAR by PO</a><?php else: ?><span class="text-muted small">No items received yet</span><?php endif; ?></td>
+                                    <td class="text-end"><?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print IAR</a><a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="btn btn-sm btn-outline-secondary me-1" target="_blank">Final IAR by PO</a><a href="<?php echo base_url('modules/receivings/correct_receiving.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-warning">Correct</a><?php else: ?><span class="text-muted small">No items received yet</span><?php endif; ?></td>
                                 </tr>
                             <?php endforeach; else: ?>
                                 <tr><td colspan="9" class="text-center text-muted py-4">No receiving records yet.</td></tr>
@@ -2348,6 +2386,61 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    var receivingRequiredValidation = null;
+
+    function updatePhysicalConfirmRequirement() {
+        var form = document.getElementById('receivingForm');
+        var checkbox = document.getElementById('confirm_physical_receipt');
+        var hint = document.getElementById('receivingPhysicalConfirmHint');
+        var badge = document.getElementById('receivingVerificationBadge');
+        var feedback = document.getElementById('confirm_physical_receipt_feedback');
+        if (!form || !checkbox || !hint) {
+            return;
+        }
+        var semiHvMin = parseNum(form.getAttribute('data-semi-hv-min') || '5000');
+        var requiresConfirmation = Array.from(document.querySelectorAll('.receiving-line-row')).some(function (row) {
+            var acceptedInput = row.querySelector('.receiving-accept-input');
+            var acceptedQty = parseNum((acceptedInput && acceptedInput.value) ? acceptedInput.value : 0);
+            if (acceptedQty <= 0) {
+                return false;
+            }
+            var itemType = String(row.getAttribute('data-item-type') || '');
+            if (itemType === 'equipment') {
+                return true;
+            }
+            if (itemType !== 'semi_expendable') {
+                return false;
+            }
+            var semiType = String(row.getAttribute('data-semi-type') || '');
+            if (semiType === 'high_value') {
+                return true;
+            }
+            if (semiType === 'low_value') {
+                return false;
+            }
+            var unitCost = parseNum(row.getAttribute('data-unit-cost') || '0');
+            return unitCost >= semiHvMin;
+        });
+
+        checkbox.required = requiresConfirmation;
+        if (!requiresConfirmation) {
+            checkbox.classList.remove('is-invalid');
+            if (feedback) {
+                feedback.classList.add('d-none');
+            }
+        }
+        if (badge) {
+            badge.style.display = requiresConfirmation ? 'inline-flex' : 'none';
+        }
+        hint.textContent = requiresConfirmation
+            ? 'Required now: at least one equipment/high-value semi-expendable line has accepted quantity.'
+            : 'Required only when accepted qty exists for equipment/high-value semi-expendable lines.';
+
+        if (receivingRequiredValidation && form) {
+            receivingRequiredValidation.render(form.getAttribute('data-show-required-summary') === '1');
+        }
+    }
+
     document.addEventListener('input', function (ev) {
         var t = ev.target;
         if (!t || t.tagName !== 'INPUT' || t.type !== 'number') return;
@@ -2385,6 +2478,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 ensureTrackedDetailRows(deliverDetailContainer.getAttribute('data-item-id'));
             }
             updateWorkspaceSummary();
+            updatePhysicalConfirmRequirement();
             return;
         }
 
@@ -2404,6 +2498,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 ensureTrackedDetailRows(detailContainer.getAttribute('data-item-id'));
             }
             updateWorkspaceSummary();
+            updatePhysicalConfirmRequirement();
             return;
         }
 
@@ -2421,9 +2516,37 @@ document.addEventListener('DOMContentLoaded', function () {
                 ensureTrackedDetailRows(rejectDetailContainer.getAttribute('data-item-id'));
             }
             updateWorkspaceSummary();
+            updatePhysicalConfirmRequirement();
             return;
         }
     });
+
+    var receivingForm = document.getElementById('receivingForm');
+    if (receivingForm && window.SPAMS && typeof window.SPAMS.setupRequiredSummaryValidation === 'function') {
+        receivingRequiredValidation = window.SPAMS.setupRequiredSummaryValidation({
+            form: receivingForm,
+            summaryId: 'receiving_form_feedback',
+            requiredFields: [
+                { id: 'received_date', label: 'Received date', feedbackId: 'received_date_feedback' },
+                {
+                    id: 'confirm_physical_receipt',
+                    label: 'Physical verification confirmation',
+                    feedbackId: 'confirm_physical_receipt_feedback',
+                    useSelect2: false,
+                    requiredWhen: function (field) {
+                        return !!field.required;
+                    },
+                    isMissing: function (field) {
+                        return !field.checked;
+                    }
+                }
+            ],
+            beforeValidate: function () {
+                updatePhysicalConfirmRequirement();
+            }
+        });
+    }
+    updatePhysicalConfirmRequirement();
 
     // PO selector interactions (left list -> preview)
     function renderPoDetail(po, items) {

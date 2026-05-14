@@ -19,3 +19,13 @@ Options -Indexes
         Deny from all
     </IfModule>
 </FilesMatch>
+
+<FilesMatch "^(find_tables\.php|query_counts\.php|query_table\.php|search_spams\.php|verify_property_numbers\.php)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

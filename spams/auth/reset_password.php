@@ -27,6 +27,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Reset token is missing.';
     } elseif (strlen($newPassword) < 8) {
         $error = 'New password must be at least 8 characters long.';
+    } elseif (!preg_match('/[A-Za-z]/', $newPassword)) {
+        $error = 'New password must contain at least one letter.';
+    } elseif (!preg_match('/\d/', $newPassword)) {
+        $error = 'New password must contain at least one number.';
+    } elseif (!preg_match('/[^A-Za-z0-9]/', $newPassword)) {
+        $error = 'New password must contain at least one special character.';
     } elseif ($newPassword !== $confirmPassword) {
         $error = 'New password and confirmation do not match.';
     } elseif (!$db) {

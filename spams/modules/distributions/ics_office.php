@@ -14,6 +14,7 @@ if (!in_array($semiType, ['all', 'high_value', 'low_value'], true)) {
 $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
 $isGrouped = $viewMode === 'grouped';
+$extraRows = max(0, min(25, (int) ($_GET['extra_rows'] ?? 0)));
 $offices = [];
 $header = null;
 $rows = [];
@@ -29,17 +30,18 @@ $resolveSupplyOfficeHead = static function (mysqli $db): array {
 };
 
 $signatoryDisplayName = static function (array $person): string {
-    if (function_exists('person_full_name')) {
-        return person_full_name($person);
-    }
-
-    return trim(implode(' ', array_filter([
+    $suffix = trim((string) ($person['suffix_name'] ?? ''));
+    $nameParts = array_filter([
         trim((string) ($person['name_prefix'] ?? '')),
         trim((string) ($person['first_name'] ?? '')),
         trim((string) ($person['middle_name'] ?? '')),
         trim((string) ($person['last_name'] ?? '')),
-        trim((string) ($person['suffix_name'] ?? '')),
-    ])));
+    ]);
+    $name = strtoupper(trim(implode(' ', $nameParts)));
+    if ($suffix !== '') {
+        $name .= ' ' . $suffix;
+    }
+    return $name;
 };
 
 $buildPropertyRange = static function (array $propertyNumbers): string {
@@ -430,8 +432,7 @@ if ($db && $officeId > 0 && $legacyAssetId <= 0) {
 
 $subtypeLabel = $semiType === 'low_value' ? 'Low Value Semi-Expendable' : ($semiType === 'high_value' ? 'High Value Semi-Expendable' : 'All Semi-Expendable');
 $officePrintNo = 'ICS-OFFICE-' . str_pad((string) max(1, $officeId), 4, '0', STR_PAD_LEFT);
-$targetRows = $isShort ? 10 : 22;
-$blankRows = max(0, $targetRows - count($printRows));
+$blankRows = $extraRows;
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -469,7 +470,7 @@ $blankRows = max(0, $targetRows - count($printRows));
         .print-shell.short .ics-body td { height: 14px; }
         .ics-sign-table .sign-head { text-align: left; font-weight: bold; }
         .ics-sign-table .sign-box { height: 74px; text-align: center; vertical-align: top; font-size: 10px; padding-top: 8px; }
-        .ics-sign-table .sign-name { font-weight: 700; text-transform: uppercase; font-size: 12px; letter-spacing: 0.2px; line-height: 1.1; margin: 26px 0 0; }
+        .ics-sign-table .sign-name { font-weight: 700; font-size: 12px; letter-spacing: 0.2px; line-height: 1.1; margin: 26px 0 0; }
         .ics-sign-table .meta-box { height: 52px; text-align: center; vertical-align: top; padding-top: 6px; }
         .ics-sign-table .meta-value { margin: 10px 0 0; font-size: 10px; line-height: 1.15; }
         .ics-sign-table .meta-caption { text-align: center; font-size: 10px; }
@@ -493,7 +494,7 @@ $blankRows = max(0, $targetRows - count($printRows));
             <div class="d-flex gap-2">
                 <a href="<?php echo base_url('modules/distributions/index.php?document_type=ics'); ?>" class="btn btn-outline-secondary">Back to Distribution</a>
                 <?php if (($officeId > 0 || $legacyAssetId > 0) && $rows): ?>
-                    <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&semi_type=' . urlencode($semiType) . '&view_mode=' . $viewMode . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : '') . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
+                    <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&semi_type=' . urlencode($semiType) . '&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : '') . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
                 <?php endif; ?>
             </div>
         </div>
@@ -542,9 +543,19 @@ $blankRows = max(0, $targetRows - count($printRows));
     <?php if (($officeId > 0 || $legacyAssetId > 0) && $header): ?>
         <div class="d-flex justify-content-between align-items-start mt-3 mb-2 no-print">
             <div class="d-flex gap-2 flex-wrap">
-                <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=short&semi_type=' . urlencode($semiType) . '&view_mode=' . $viewMode . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Short</a>
-                <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=long&semi_type=' . urlencode($semiType) . '&view_mode=' . $viewMode . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Long</a>
+                <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=short&semi_type=' . urlencode($semiType) . '&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Short</a>
+                <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=long&semi_type=' . urlencode($semiType) . '&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Long</a>
             </div>
+            <form method="get" class="d-flex align-items-center gap-2 no-print ms-3">
+                <input type="hidden" name="office_id" value="<?php echo (int) $officeId; ?>">
+                <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
+                <input type="hidden" name="semi_type" value="<?php echo h($semiType); ?>">
+                <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
+                <?php if ($legacyAssetId > 0): ?><input type="hidden" name="legacy_asset_id" value="<?php echo (int) $legacyAssetId; ?>"><?php endif; ?>
+                <label for="extra_rows_ics" style="font-size:12px;color:#666;white-space:nowrap;">Extra rows</label>
+                <input type="number" min="0" max="25" step="1" id="extra_rows_ics" name="extra_rows" value="<?php echo (int) $extraRows; ?>" style="width:80px;" class="form-control form-control-sm">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button>
+            </form>
         </div>
         <div class="print-copy" id="printCopy">
             <div class="ics-form">

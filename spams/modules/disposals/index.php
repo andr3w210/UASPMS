@@ -555,12 +555,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <table class="table align-middle">
                             <thead>
                                 <tr>
-                                    <th>Reference</th>
-                                    <th>Date</th>
-                                    <th>Asset</th>
-                                    <th>Document</th>
-                                    <th>Reason</th>
-                                    <th>Approved By</th>
+                                    <th data-sort="ref">Reference <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                    <th data-sort="date">Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                    <th data-sort="asset">Asset <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                    <th data-sort="doc">Document <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                    <th data-sort="reason">Reason <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                    <th data-sort="approved">Approved By <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 </tr>
                             </thead>
                             <tbody>

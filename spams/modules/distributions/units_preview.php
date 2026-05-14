@@ -34,7 +34,8 @@ $rStmt = $db->prepare(
      FROM receivings r
      INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
      INNER JOIN suppliers s ON s.id = po.supplier_id
-     WHERE r.id = ?
+    WHERE r.id = ?
+    AND r.status IN ('completed', 'partial')
      LIMIT 1"
 );
 
@@ -57,6 +58,9 @@ $itemSql = "SELECT ri.id AS ri_id,
                    rid.serial_no,
                    rid.is_disposed
             FROM receiving_items ri
+                INNER JOIN receivings rcv
+                    ON rcv.id = ri.receiving_id
+                  AND rcv.status IN ('completed', 'partial')
             INNER JOIN purchase_order_items poi
                ON poi.id = ri.purchase_order_item_id
               AND poi.item_type = ?";
@@ -117,6 +121,9 @@ if ($itemStmt) {
 
 ob_start();
 $groupNumber = 0;
+if (!empty($groups)) {
+    echo '<div class="alert alert-light border small py-2">Brand, model, and serial number are optional when unavailable.</div>';
+}
 foreach ($groups as $group) {
     $groupNumber++;
     $groupId = 'dist-unit-group-' . $groupNumber;

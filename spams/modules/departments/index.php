@@ -24,6 +24,10 @@ if (!$db) {
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? 'save';
+        if (!csrf_verify()) {
+            $errors[] = 'Invalid CSRF token.';
+            $action = '';
+        }
 
         if ($action === 'save') {
             $form['id'] = (int) ($_POST['id'] ?? 0);
@@ -166,6 +170,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    var csrfToken = <?php echo json_encode(csrf_token()); ?>;
+    document.querySelectorAll('form[method="post"]').forEach(function (form) {
+        if (!form.querySelector('input[name="_csrf"]')) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = '_csrf';
+            input.value = csrfToken;
+            form.appendChild(input);
+        }
+    });
+
     var recordCountMobile = document.getElementById('recordCountMobile');
     var options = {
         recordCountFormatter: function (visible, total) {

@@ -1,6 +1,7 @@
 ﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
+require_once __DIR__ . '/../../app/helpers/employee_assignments.php';
 require_role('Administrator');
 
 function users_password_validation_errors(string $password): array
@@ -14,6 +15,9 @@ function users_password_validation_errors(string $password): array
     }
     if (!preg_match('/\d/', $password)) {
         $errors[] = 'Password must contain at least one number.';
+    }
+    if (!preg_match('/[^A-Za-z0-9]/', $password)) {
+        $errors[] = 'Password must contain at least one special character.';
     }
     return $errors;
 }
@@ -47,12 +51,14 @@ function users_generate_initial_password(int $length = 12): string
     $upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
     $lower = 'abcdefghijkmnopqrstuvwxyz';
     $digits = '23456789';
-    $all = $upper . $lower . $digits;
+    $symbols = '!@#$%*?';
+    $all = $upper . $lower . $digits . $symbols;
 
     $password = [
         $upper[random_int(0, strlen($upper) - 1)],
         $lower[random_int(0, strlen($lower) - 1)],
         $digits[random_int(0, strlen($digits) - 1)],
+        $symbols[random_int(0, strlen($symbols) - 1)],
     ];
 
     for ($i = count($password); $i < $length; $i++) {
@@ -73,6 +79,7 @@ $users = [];
 $roles = [];
 $employees = [];
 $offices = [];
+$employeeOfficeMap = [];
 $form = ['id'=>0,'username'=>'','email'=>'','full_name'=>'','role_id'=>'','employee_id'=>'','office_id'=>'','password'=>users_generate_initial_password(),'is_active'=>'1'];
 
 if (!$db) {
@@ -90,9 +97,43 @@ if (!$db) {
         $roles = $roleResult->fetch_all(MYSQLI_ASSOC);
     }
 
+    $assignmentsEnabled = employee_assignments_enabled($db);
+
     $employeeResult = $db->query("SELECT id, employee_no, first_name, middle_name, last_name, suffix_name, email, office_id, is_unit_head, position_title FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
     if ($employeeResult) {
         $employees = $employeeResult->fetch_all(MYSQLI_ASSOC);
+    }
+
+    if ($assignmentsEnabled) {
+        $assignmentResult = $db->query("SELECT employee_id, office_id, is_primary, is_unit_head
+                                        FROM employee_assignments
+                                        WHERE is_active = 1
+                                        ORDER BY employee_id ASC, is_primary DESC, id ASC");
+        if ($assignmentResult) {
+            foreach ($assignmentResult->fetch_all(MYSQLI_ASSOC) as $assignmentRow) {
+                $employeeId = (int) ($assignmentRow['employee_id'] ?? 0);
+                $officeId = (int) ($assignmentRow['office_id'] ?? 0);
+                if ($employeeId <= 0 || $officeId <= 0) {
+                    continue;
+                }
+                if (!isset($employeeOfficeMap[$employeeId])) {
+                    $employeeOfficeMap[$employeeId] = [
+                        'office_ids' => [],
+                        'primary_office_id' => 0,
+                        'unit_head_office_ids' => [],
+                    ];
+                }
+                if (!in_array($officeId, $employeeOfficeMap[$employeeId]['office_ids'], true)) {
+                    $employeeOfficeMap[$employeeId]['office_ids'][] = $officeId;
+                }
+                if ((int) ($assignmentRow['is_primary'] ?? 0) === 1 && $employeeOfficeMap[$employeeId]['primary_office_id'] === 0) {
+                    $employeeOfficeMap[$employeeId]['primary_office_id'] = $officeId;
+                }
+                if ((int) ($assignmentRow['is_unit_head'] ?? 0) === 1 && !in_array($officeId, $employeeOfficeMap[$employeeId]['unit_head_office_ids'], true)) {
+                    $employeeOfficeMap[$employeeId]['unit_head_office_ids'][] = $officeId;
+                }
+            }
+        }
     }
 
     $officeResult = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
@@ -142,11 +183,27 @@ if (!$db) {
                     $employeeRow=$stmt->get_result()->fetch_assoc();
                     $stmt->close();
                     if($employeeRow){
-                        if(!$officeId && !empty($employeeRow['office_id'])){
-                            $officeId=(int)$employeeRow['office_id'];
-                            $form['office_id']=(string)$officeId;
-                        } elseif($officeId && !empty($employeeRow['office_id']) && (int)$employeeRow['office_id']!==$officeId){
-                            $errors[]='Selected user office does not match the employee office.';
+                        $employeeOfficeIds = [];
+                        if (!empty($employeeOfficeMap[$employeeId]['office_ids'])) {
+                            $employeeOfficeIds = array_map('intval', (array) $employeeOfficeMap[$employeeId]['office_ids']);
+                        } elseif (!empty($employeeRow['office_id'])) {
+                            $employeeOfficeIds = [(int) $employeeRow['office_id']];
+                        }
+
+                        $preferredOfficeId = 0;
+                        if (!empty($employeeOfficeMap[$employeeId]['primary_office_id'])) {
+                            $preferredOfficeId = (int) $employeeOfficeMap[$employeeId]['primary_office_id'];
+                        } elseif (!empty($employeeRow['office_id'])) {
+                            $preferredOfficeId = (int) $employeeRow['office_id'];
+                        } elseif (!empty($employeeOfficeIds)) {
+                            $preferredOfficeId = (int) $employeeOfficeIds[0];
+                        }
+
+                        if (!$officeId && $preferredOfficeId > 0) {
+                            $officeId = $preferredOfficeId;
+                            $form['office_id'] = (string) $officeId;
+                        } elseif ($officeId && $employeeOfficeIds && !in_array((int) $officeId, $employeeOfficeIds, true)) {
+                            $errors[]='Selected user office does not match any of the employee assignments.';
                         }
 
                         $employeeFullName = trim(employee_display_name($employeeRow));
@@ -555,7 +612,29 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <label class="form-label">Linked Employee</label>
                                                 <select class="form-select" id="employee_id" name="employee_id" data-placeholder="Select employee" onchange="window.syncUserOfficeFromEmployee && window.syncUserOfficeFromEmployee();">
                                                     <option value="">Select employee</option>
-                                                    <?php foreach ($employees as $employee): ?><option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>" data-email="<?php echo h($employee['email'] ?? ''); ?>" data-full-name="<?php echo h(employee_display_name($employee)); ?>" <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>><?php echo h(employee_display_name($employee) . ' - ' . $employee['employee_no']); ?></option><?php endforeach; ?>
+                                                    <?php foreach ($employees as $employee): ?>
+                                                        <?php
+                                                        $employeeId = (int) ($employee['id'] ?? 0);
+                                                        $officeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['office_ids'] ?? []));
+                                                        if (!$officeIds && !empty($employee['office_id'])) {
+                                                            $officeIds = [(int) $employee['office_id']];
+                                                        }
+                                                        $primaryOfficeId = (int) ($employeeOfficeMap[$employeeId]['primary_office_id'] ?? 0);
+                                                        if ($primaryOfficeId <= 0 && !empty($employee['office_id'])) {
+                                                            $primaryOfficeId = (int) $employee['office_id'];
+                                                        }
+                                                        $unitHeadOfficeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['unit_head_office_ids'] ?? []));
+                                                        $isAnyUnitHead = !empty($unitHeadOfficeIds) || (int) ($employee['is_unit_head'] ?? 0) === 1;
+                                                        ?>
+                                                        <option value="<?php echo $employeeId; ?>"
+                                                                data-office-ids="<?php echo h(implode(',', $officeIds)); ?>"
+                                                                data-primary-office-id="<?php echo (int) $primaryOfficeId; ?>"
+                                                                data-unit-head-office-ids="<?php echo h(implode(',', $unitHeadOfficeIds)); ?>"
+                                                                data-is-unit-head="<?php echo $isAnyUnitHead ? '1' : '0'; ?>"
+                                                                data-email="<?php echo h($employee['email'] ?? ''); ?>"
+                                                                data-full-name="<?php echo h(employee_display_name($employee)); ?>"
+                                                                <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>><?php echo h(employee_display_name($employee) . ' - ' . $employee['employee_no']); ?></option>
+                                                    <?php endforeach; ?>
                                                 </select>
                                             </div>
                                         </div>
@@ -630,7 +709,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
             <div class="master-data-table-shell">
             <div class="table-responsive mobile-table-frame master-data-table-scroll">
                 <table class="table align-middle" id="dataTable">
-                    <thead><tr><th>User</th><th>Role</th><th>Employee</th><th>Office</th><th>Status</th><th>Created</th><th class="text-end">Actions</th></tr></thead>
+                    <thead><tr><th data-sort="user">User <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="role">Role <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="employee">Employee <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="office">Office <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="created">Created <i class="bi bi-arrow-down-up text-muted small"></i></th><th class="text-end">Actions</th></tr></thead>
                     <tbody>
                         <?php if ($users): foreach ($users as $user): ?>
                             <tr data-status="<?php echo (int) $user['is_active'] ? 'active' : 'inactive'; ?>">
@@ -666,7 +745,24 @@ require_once __DIR__ . '/../../includes/topbar.php';
     </div>
 </section><script>
 document.addEventListener('DOMContentLoaded', function () {
-    var employeeDirectory = <?php echo json_encode(array_reduce($employees, function ($carry, $employee) { $carry[(string) $employee['id']] = ['full_name' => employee_display_name($employee), 'email' => (string) ($employee['email'] ?? ''), 'office_id' => (string) ($employee['office_id'] ?? '')]; return $carry; }, []), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+    var employeeDirectory = <?php echo json_encode(array_reduce($employees, function ($carry, $employee) use ($employeeOfficeMap) {
+        $employeeId = (int) ($employee['id'] ?? 0);
+        $officeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['office_ids'] ?? []));
+        if (!$officeIds && !empty($employee['office_id'])) {
+            $officeIds = [(int) $employee['office_id']];
+        }
+        $primaryOfficeId = (int) ($employeeOfficeMap[$employeeId]['primary_office_id'] ?? 0);
+        if ($primaryOfficeId <= 0 && !empty($employee['office_id'])) {
+            $primaryOfficeId = (int) $employee['office_id'];
+        }
+        $carry[(string) $employeeId] = [
+            'full_name' => employee_display_name($employee),
+            'email' => (string) ($employee['email'] ?? ''),
+            'office_ids' => $officeIds,
+            'primary_office_id' => $primaryOfficeId > 0 ? (string) $primaryOfficeId : '',
+        ];
+        return $carry;
+    }, []), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
     function getSelectedEmployeeId() {
         var employeeSelect = document.getElementById('employee_id');
         if (!employeeSelect) return '';
@@ -700,11 +796,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 option.hidden = false;
                 return;
             }
-            var optionOfficeId = option.getAttribute('data-office-id') || '';
-            var matches = !officeId || optionOfficeId === officeId;
+            var optionOfficeIds = (option.getAttribute('data-office-ids') || '').split(',').map(function (value) {
+                return value.trim();
+            }).filter(Boolean);
+            var matches = !officeId || optionOfficeIds.indexOf(officeId) !== -1;
             option.hidden = !matches;
-            if (matches && officeId !== '' && option.getAttribute('data-is-unit-head') === '1' && !preferredEmployeeId) {
-                preferredEmployeeId = option.value;
+            if (matches && officeId !== '' && !preferredEmployeeId) {
+                var unitHeadOfficeIds = (option.getAttribute('data-unit-head-office-ids') || '').split(',').map(function (value) {
+                    return value.trim();
+                }).filter(Boolean);
+                if (unitHeadOfficeIds.indexOf(officeId) !== -1) {
+                    preferredEmployeeId = option.value;
+                }
             }
             if (!matches && option.selected) {
                 employeeSelect.value = '';
@@ -724,9 +827,27 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!employeeSelect || !officeSelect) return;
 
         var employeeId = getSelectedEmployeeId();
-        var employeeOfficeId = employeeId && employeeDirectory[employeeId] ? (employeeDirectory[employeeId].office_id || '') : '';
-        if (employeeOfficeId && officeSelect.value !== employeeOfficeId) {
-            officeSelect.value = employeeOfficeId;
+        var employeeRecord = employeeId && employeeDirectory[employeeId] ? employeeDirectory[employeeId] : null;
+        var employeeOfficeIds = employeeRecord && Array.isArray(employeeRecord.office_ids)
+            ? employeeRecord.office_ids.map(function (value) { return String(value); })
+            : [];
+        var primaryOfficeId = employeeRecord ? (employeeRecord.primary_office_id || '') : '';
+        var currentOfficeId = officeSelect.value || '';
+
+        var shouldSetOffice = false;
+        var nextOfficeId = '';
+        if (employeeRecord) {
+            if (!currentOfficeId) {
+                nextOfficeId = primaryOfficeId || (employeeOfficeIds[0] || '');
+                shouldSetOffice = nextOfficeId !== '';
+            } else if (employeeOfficeIds.length > 0 && employeeOfficeIds.indexOf(currentOfficeId) === -1) {
+                nextOfficeId = primaryOfficeId || employeeOfficeIds[0] || '';
+                shouldSetOffice = nextOfficeId !== '' && nextOfficeId !== currentOfficeId;
+            }
+        }
+
+        if (shouldSetOffice) {
+            officeSelect.value = nextOfficeId;
             refreshSharedSelect(officeSelect);
         }
         syncEmployeeIdentity();

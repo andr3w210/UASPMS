@@ -108,6 +108,10 @@ if (!$db) {
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? 'save';
+        if (!csrf_verify()) {
+            set_flash('error', 'Invalid CSRF token.');
+            redirect('modules/purchase_orders/index.php');
+        }
 
         if ($action === 'cancel_po') {
             $cancelId = (int)($_POST['cancel_id'] ?? 0);
@@ -604,17 +608,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>
-                                <th>System Ref</th>
-                                <th>PO Number</th>
-                                <th>Date</th>
-                                <th>Supplier</th>
-                                <th>Fund</th>
-                                <th>Mode</th>
-                                <th>Receiving</th>
-                                <th>End Date</th>
-                                <th>Place of Delivery</th>
-                                <th>Status</th>
-                                <th class="text-end">Amount</th>
+                                <th data-sort="ref">System Ref <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="po">PO Number <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="date">Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="supplier">Supplier <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="fund">Fund <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="mode">Mode <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="receiving">Receiving <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="enddate">End Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="delivery">Place of Delivery <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th class="text-end" data-sort="amount">Amount <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th class="text-end">Actions</th>
                             </tr>
                         </thead>
@@ -703,6 +707,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 </section>
 
     <form id="cancelPoForm" method="post" style="display:none;">
+        <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
         <input type="hidden" name="action" value="cancel_po">
         <input type="hidden" name="cancel_id" id="cancelPoId" value="">
         <input type="hidden" name="cancel_reason" id="cancelPoReason" value="">

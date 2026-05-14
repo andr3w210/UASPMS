@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/employee_assignments.php';
 require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 // Page metadata and UI state
@@ -13,6 +14,7 @@ $db = db();
 // Default state variables
 $offices              = [];
 $employees            = [];
+$employeeOfficeMap    = [];
 $distributions        = [];
 $iarList              = [];
 $candidateItems       = [];
@@ -234,7 +236,26 @@ function distribution_fetch_editable_items(mysqli $db, int $distributionId): arr
     return $items;
 }
 
+function distribution_collect_detail_ids(array $validatedItems): array
+{
+    $detailIds = [];
+    foreach ($validatedItems as $item) {
+        foreach (($item['details'] ?? []) as $detail) {
+            $detailId = (int) ($detail['id'] ?? 0);
+            if ($detailId > 0) {
+                $detailIds[] = $detailId;
+            }
+        }
+    }
+
+    $detailIds = array_values(array_unique($detailIds));
+    sort($detailIds);
+
+    return $detailIds;
+}
+
 if ($db) {
+    $assignmentsEnabled = employee_assignments_enabled($db);
     $threshold    = get_active_threshold($db);
     $equipmentMin = (float)$threshold['equipment_min'];
     $semiHvMin    = (float)$threshold['semi_hv_min'];
@@ -263,6 +284,40 @@ if ($db) {
          ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC"
     );
     if ($empResult) $employees = $empResult->fetch_all(MYSQLI_ASSOC);
+
+    if ($assignmentsEnabled) {
+        $assignmentResult = $db->query(
+            "SELECT employee_id, office_id, is_primary, is_unit_head
+             FROM employee_assignments
+             WHERE is_active = 1
+             ORDER BY employee_id ASC, is_primary DESC, id ASC"
+        );
+        if ($assignmentResult) {
+            foreach ($assignmentResult->fetch_all(MYSQLI_ASSOC) as $assignmentRow) {
+                $employeeId = (int) ($assignmentRow['employee_id'] ?? 0);
+                $officeId = (int) ($assignmentRow['office_id'] ?? 0);
+                if ($employeeId <= 0 || $officeId <= 0) {
+                    continue;
+                }
+                if (!isset($employeeOfficeMap[$employeeId])) {
+                    $employeeOfficeMap[$employeeId] = [
+                        'office_ids' => [],
+                        'primary_office_id' => 0,
+                        'unit_head_office_ids' => [],
+                    ];
+                }
+                if (!in_array($officeId, $employeeOfficeMap[$employeeId]['office_ids'], true)) {
+                    $employeeOfficeMap[$employeeId]['office_ids'][] = $officeId;
+                }
+                if ((int) ($assignmentRow['is_primary'] ?? 0) === 1 && $employeeOfficeMap[$employeeId]['primary_office_id'] === 0) {
+                    $employeeOfficeMap[$employeeId]['primary_office_id'] = $officeId;
+                }
+                if ((int) ($assignmentRow['is_unit_head'] ?? 0) === 1 && !in_array($officeId, $employeeOfficeMap[$employeeId]['unit_head_office_ids'], true)) {
+                    $employeeOfficeMap[$employeeId]['unit_head_office_ids'][] = $officeId;
+                }
+            }
+        }
+    }
 
     if ($editingDistributionId > 0) {
         $editingDistribution = distribution_fetch_editable_header($db, $editingDistributionId);
@@ -308,7 +363,7 @@ if ($db) {
     $iarSql .= " INNER JOIN receiving_item_details rid
                     ON rid.receiving_item_id = ri.id
                    AND rid.is_distributed = 0
-                WHERE r.status != 'cancelled'
+                WHERE r.status IN ('completed', 'partial')
                 GROUP BY r.id, r.system_reference, r.received_date, po.po_number, s.supplier_name
                 HAVING COUNT(DISTINCT rid.id) > 0
                 ORDER BY r.received_date DESC, r.id DESC";
@@ -464,6 +519,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $officeId = (int) ($editForm['office_id'] !== '' ? $editForm['office_id'] : 0);
         $employeeId = (int) ($editForm['employee_id'] !== '' ? $editForm['employee_id'] : 0);
+        if ($employeeId <= 0) {
+            add_validation_error($errors, 'Accountable employee is required.');
+        }
         $oldOfficeId = (int) ($editingDistribution['office_id'] ?? 0);
         $oldEmployeeId = (int) ($editingDistribution['employee_id'] ?? 0);
         $oldOfficeCode = '';
@@ -482,14 +540,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if ($employeeId > 0) {
             $employeeValid = false;
+            $employeeFound = false;
             foreach ($employees as $employee) {
                 if ((int) $employee['id'] === $employeeId) {
-                    $employeeValid = (int) ($employee['office_id'] ?? 0) === $officeId;
-                    break;
+                    $employeeFound = true;
+                    $employeeOfficeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['office_ids'] ?? []));
+                    if (!$employeeOfficeIds && !empty($employee['office_id'])) {
+                        $employeeOfficeIds = [(int) $employee['office_id']];
+                    }
+                    if (in_array($officeId, $employeeOfficeIds, true)) {
+                        $employeeValid = true;
+                        break;
+                    }
                 }
             }
-            if (!$employeeValid) {
+            if ($employeeFound && !$employeeValid) {
                 $errors[] = 'Selected employee does not belong to the chosen office.';
+            } elseif (!$employeeFound) {
+                $errors[] = 'Selected employee is invalid.';
             }
         }
 
@@ -706,6 +774,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $officeId = (int) ($form['office_id'] !== '' ? $form['office_id'] : 0);
         $employeeId = (int) ($form['employee_id'] !== '' ? $form['employee_id'] : 0);
+        if ($employeeId <= 0) {
+            add_validation_error($errors, 'Accountable employee is required.');
+        }
         if ($officeId > 0) {
             $officeValid = false;
             foreach ($offices as $officeRow) {
@@ -720,14 +791,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if ($employeeId > 0) {
             $employeeValid = false;
+            $employeeFound = false;
             foreach ($employees as $employee) {
                 if ((int) $employee['id'] === $employeeId) {
-                    $employeeValid = (int) ($employee['office_id'] ?? 0) === $officeId;
-                    break;
+                    $employeeFound = true;
+                    $employeeOfficeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['office_ids'] ?? []));
+                    if (!$employeeOfficeIds && !empty($employee['office_id'])) {
+                        $employeeOfficeIds = [(int) $employee['office_id']];
+                    }
+                    if (in_array($officeId, $employeeOfficeIds, true)) {
+                        $employeeValid = true;
+                        break;
+                    }
                 }
             }
-            if (!$employeeValid) {
+            if ($employeeFound && !$employeeValid) {
                 $errors[] = 'Selected employee does not belong to the chosen office.';
+            } elseif (!$employeeFound) {
+                $errors[] = 'Selected employee is invalid.';
             }
         }
 
@@ -742,7 +823,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (empty($selectedUnits)) {
                 $errors[] = 'Select at least one unit to distribute.';
             } else {
-                $detailCheckStmt = $db->prepare("SELECT rid.id AS detail_id, rid.receiving_item_id, rid.brand, rid.model, rid.serial_no, rid.remarks AS detail_remarks, ri.unit_cost, poi.item_type, poi.line_no, poi.item_description, ac.account_code, c.classification_name, u.abbreviation, r.system_reference AS receiving_reference, r.received_date, po.po_number, rid.is_distributed FROM receiving_item_details rid INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id LEFT JOIN account_codes ac ON ac.id = poi.account_code_id LEFT JOIN classifications c ON c.id = poi.classification_id LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id INNER JOIN receivings r ON r.id = ri.receiving_id LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id WHERE rid.id = ?");
+                $detailCheckStmt = $db->prepare("SELECT rid.id AS detail_id, rid.receiving_item_id, rid.brand, rid.model, rid.serial_no, rid.remarks AS detail_remarks, ri.unit_cost, poi.item_type, poi.line_no, poi.item_description, ac.account_code, c.classification_name, u.abbreviation, r.system_reference AS receiving_reference, r.received_date, po.po_number, rid.is_distributed FROM receiving_item_details rid INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id LEFT JOIN account_codes ac ON ac.id = poi.account_code_id LEFT JOIN classifications c ON c.id = poi.classification_id LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id INNER JOIN receivings r ON r.id = ri.receiving_id LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id WHERE rid.id = ? AND r.status IN ('completed', 'partial')");
                 if (!$detailCheckStmt) {
                     $errors[] = 'Internal error validating selected units.';
                 } else {
@@ -844,6 +925,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $savedDistributionPhotoPaths = [];
             $db->begin_transaction();
             try {
+                $detailIdsToLock = distribution_collect_detail_ids($validatedItems);
+                if ($detailIdsToLock) {
+                    $lockStmt = $db->prepare("SELECT id, is_distributed FROM receiving_item_details WHERE id = ? FOR UPDATE");
+                    if (!$lockStmt) {
+                        throw new RuntimeException('Unable to lock selected units for posting.');
+                    }
+
+                    foreach ($detailIdsToLock as $detailIdToLock) {
+                        $lockStmt->bind_param('i', $detailIdToLock);
+                        $lockStmt->execute();
+                        $lockRow = $lockStmt->get_result()->fetch_assoc();
+                        if (!$lockRow) {
+                            $lockStmt->close();
+                            throw new RuntimeException('A selected unit no longer exists. Please reload and retry.');
+                        }
+                        if ((int) ($lockRow['is_distributed'] ?? 0) === 1) {
+                            $lockStmt->close();
+                            throw new RuntimeException('A selected unit was already distributed by another encoder. Please refresh and retry.');
+                        }
+                    }
+
+                    $lockStmt->close();
+                }
+
                 $systemReference = next_module_code($db, 'distributions');
                 // Determine semi type for this save: prefer POSTed value, fall back to detected value
                 $postSemi = $_POST['semi_type'] ?? $distributionSemiType;
@@ -871,7 +976,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $headerStmt->close();
 
                 // Prepare statement to mark a receiving item detail as distributed when assigned
-                $markDetailStmt = $db->prepare("UPDATE receiving_item_details SET is_distributed = 1 WHERE id = ?");
+                $markDetailStmt = $db->prepare("UPDATE receiving_item_details SET is_distributed = 1 WHERE id = ? AND is_distributed = 0");
                 if (!$markDetailStmt) {
                     throw new RuntimeException('Unable to prepare mark-detail statement.');
                 }
@@ -966,6 +1071,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if (!$markDetailStmt->execute()) {
                                 throw new RuntimeException('Unable to mark receiving units as distributed.');
                             }
+                            if ($markDetailStmt->affected_rows < 1) {
+                                throw new RuntimeException('One or more selected units were already distributed by another encoder. Please refresh and retry.');
+                            }
                         }
                     }
                 }
@@ -976,6 +1084,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($fundStmt) $fundStmt->close();
                 $markDetailStmt->close();
                 $itemStmt->close();
+
+                $affectedPoStmt = $db->prepare(
+                    "SELECT DISTINCT po.id AS purchase_order_id
+                     FROM distribution_items di
+                     INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
+                     INNER JOIN receivings r ON r.id = ri.receiving_id
+                     INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
+                     WHERE di.distribution_id = ?"
+                );
+                if (!$affectedPoStmt) {
+                    throw new RuntimeException('Unable to refresh purchase order status after posting distribution.');
+                }
+                $affectedPoStmt->bind_param('i', $distributionId);
+                $affectedPoStmt->execute();
+                $affectedPoRows = $affectedPoStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                $affectedPoStmt->close();
+
+                $poUpdateStmt = $db->prepare("UPDATE purchase_orders SET status = ? WHERE id = ?");
+                if (!$poUpdateStmt) {
+                    throw new RuntimeException('Unable to prepare purchase order status update after posting distribution.');
+                }
+                foreach ($affectedPoRows as $affectedPoRow) {
+                    $affectedPoId = (int) ($affectedPoRow['purchase_order_id'] ?? 0);
+                    if ($affectedPoId <= 0) {
+                        continue;
+                    }
+                    $poStatus = recalculate_purchase_order_status($db, $affectedPoId);
+                    $poUpdateStmt->bind_param('si', $poStatus, $affectedPoId);
+                    if (!$poUpdateStmt->execute()) {
+                        $poUpdateStmt->close();
+                        throw new RuntimeException('Unable to update purchase order status after posting distribution.');
+                    }
+                }
+                $poUpdateStmt->close();
 
                 if (!write_audit_log($db, [
                     'action' => 'insert',
@@ -1302,6 +1444,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                             <div>
                                                                 <div class="small fw-semibold text-muted">Step 3A: Units to distribute</div>
                                                                 <div class="small text-muted">Use the group cards for bulk selection, then fine-tune at the unit level.</div>
+                                                                <div class="small text-muted">Brand, model, and serial number are optional when not available.</div>
                                                             </div>
                                                             <label class="small" style="cursor:pointer;"><input type="checkbox" id="selectAllUnits" class="me-1"> Select all units</label>
                                                         </div>
@@ -1314,6 +1457,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                     <div class="card-body p-3">
                                                         <div class="small fw-semibold text-muted mb-3">Step 3B: Assign accountability</div>
                                                         <div class="row g-3 mb-3 workspace-filter-panel">
+                                                            <div class="col-12">
+                                                                <div id="distribution_form_feedback" class="alert alert-danger small py-2 px-3 mb-0 d-none" role="alert" aria-live="polite"></div>
+                                                            </div>
                                                             <div class="col-md-6">
                                                                 <label class="form-label">Office *</label>
                                                                 <select class="form-select" id="office_id" name="office_id" required data-placeholder="Select office">
@@ -1322,25 +1468,42 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                                         <option value="<?= (int)$office['id'] ?>" <?php echo $form['office_id'] === (string)($office['id'] ?? '') ? 'selected' : ''; ?>><?= h($office['office_name']) ?></option>
                                                                     <?php endforeach; ?>
                                                                 </select>
+                                                                <div id="office_id_feedback" class="small text-danger mt-1 d-none">Office is required.</div>
                                                             </div>
                                                             <div class="col-md-6">
-                                                                <label class="form-label">Accountable Employee</label>
-                                                                <select class="form-select" id="employee_id" name="employee_id" data-placeholder="Select employee">
+                                                                <label class="form-label">Accountable Employee <span class="text-danger">*</span></label>
+                                                                <select class="form-select" id="employee_id" name="employee_id" data-placeholder="Select employee" required>
                                                                     <option value="">Select employee</option>
                                                                     <?php foreach ($employees as $emp): ?>
+                                                                        <?php
+                                                                        $employeeId = (int) ($emp['id'] ?? 0);
+                                                                        $officeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['office_ids'] ?? []));
+                                                                        if (!$officeIds && !empty($emp['office_id'])) {
+                                                                            $officeIds = [(int) $emp['office_id']];
+                                                                        }
+                                                                        $primaryOfficeId = (int) ($employeeOfficeMap[$employeeId]['primary_office_id'] ?? 0);
+                                                                        if ($primaryOfficeId <= 0 && !empty($emp['office_id'])) {
+                                                                            $primaryOfficeId = (int) $emp['office_id'];
+                                                                        }
+                                                                        $unitHeadOfficeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['unit_head_office_ids'] ?? []));
+                                                                        ?>
                                                                         <option value="<?= (int)$emp['id'] ?>"
-                                                                                data-office-id="<?= (int)($emp['office_id'] ?? 0) ?>"
-                                                                                data-is-unit-head="<?= (int)($emp['is_unit_head'] ?? 0) ?>"
+                                                                                data-office-ids="<?= h(implode(',', $officeIds)) ?>"
+                                                                                data-primary-office-id="<?= (int) $primaryOfficeId ?>"
+                                                                                data-unit-head-office-ids="<?= h(implode(',', $unitHeadOfficeIds)) ?>"
+                                                                                data-is-unit-head="<?= (!empty($unitHeadOfficeIds) || (int)($emp['is_unit_head'] ?? 0) === 1) ? '1' : '0' ?>"
                                                                                 data-position-title="<?= h($emp['position_title'] ?? '') ?>"
                                                                                 <?php echo $form['employee_id'] === (string)($emp['id'] ?? '') ? 'selected' : ''; ?>>
                                                                             <?= h(employee_display_name($emp) . ' - ' . $emp['employee_no'] . (!empty($emp['position_title']) ? ' (' . $emp['position_title'] . ')' : '')) ?>
                                                                         </option>
                                                                     <?php endforeach; ?>
                                                                 </select>
+                                                                <div id="employee_id_feedback" class="small text-danger mt-1 d-none">Accountable employee is required.</div>
                                                             </div>
                                                             <div class="col-md-4">
                                                                 <label class="form-label">Distribution Date *</label>
                                                                 <input type="date" class="form-control" id="distribution_date" name="distribution_date" value="<?= h($form['distribution_date']) ?>" required>
+                                                                <div id="distribution_date_feedback" class="small text-danger mt-1 d-none">Distribution date is required.</div>
                                                             </div>
                                                             <div class="col-md-4">
                                                                 <label class="form-label">System Reference</label>
@@ -1409,10 +1572,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType)); ?>" class="btn btn-sm btn-outline-secondary">Close</a>
                                 </div>
                             </div>
-                            <form method="post" class="row g-3 workspace-filter-panel">
+                            <form method="post" id="editDistributionForm" class="row g-3 workspace-filter-panel">
                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                 <input type="hidden" name="action" value="update_distribution">
                                 <input type="hidden" name="edit_id" value="<?php echo (int) ($editingDistribution['id'] ?? 0); ?>">
+                                <div class="col-12">
+                                    <div id="edit_distribution_form_feedback" class="alert alert-danger small py-2 px-3 mb-0 d-none" role="alert" aria-live="polite"></div>
+                                </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Document Number</label>
                                     <input type="text" class="form-control" value="<?php echo h((string) ($editingDistribution['document_no'] ?? '')); ?>" readonly>
@@ -1423,7 +1589,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Distribution Date *</label>
-                                    <input type="date" class="form-control" name="distribution_date" value="<?php echo h((string) ($editForm['distribution_date'] ?? '')); ?>" required>
+                                    <input type="date" class="form-control" id="edit_distribution_date" name="distribution_date" value="<?php echo h((string) ($editForm['distribution_date'] ?? '')); ?>" required>
+                                    <div id="edit_distribution_date_feedback" class="small text-danger mt-1 d-none">Distribution date is required.</div>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Office *</label>
@@ -1435,19 +1602,35 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
+                                    <div id="edit_office_id_feedback" class="small text-danger mt-1 d-none">Office is required.</div>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Accountable Employee</label>
-                                    <select class="form-select" name="employee_id" id="edit_employee_id" data-placeholder="Select employee">
+                                    <label class="form-label">Accountable Employee <span class="text-danger">*</span></label>
+                                    <select class="form-select" name="employee_id" id="edit_employee_id" data-placeholder="Select employee" required>
                                         <option value="">Select employee</option>
                                         <?php foreach ($employees as $emp): ?>
+                                            <?php
+                                            $employeeId = (int) ($emp['id'] ?? 0);
+                                            $officeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['office_ids'] ?? []));
+                                            if (!$officeIds && !empty($emp['office_id'])) {
+                                                $officeIds = [(int) $emp['office_id']];
+                                            }
+                                            $primaryOfficeId = (int) ($employeeOfficeMap[$employeeId]['primary_office_id'] ?? 0);
+                                            if ($primaryOfficeId <= 0 && !empty($emp['office_id'])) {
+                                                $primaryOfficeId = (int) $emp['office_id'];
+                                            }
+                                            $unitHeadOfficeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['unit_head_office_ids'] ?? []));
+                                            ?>
                                             <option value="<?php echo (int) $emp['id']; ?>"
-                                                data-office-id="<?php echo (int) ($emp['office_id'] ?? 0); ?>"
+                                                data-office-ids="<?php echo h(implode(',', $officeIds)); ?>"
+                                                data-primary-office-id="<?php echo (int) $primaryOfficeId; ?>"
+                                                data-unit-head-office-ids="<?php echo h(implode(',', $unitHeadOfficeIds)); ?>"
                                                 <?php echo (string) ($editForm['employee_id'] ?? '') === (string) ($emp['id'] ?? '') ? 'selected' : ''; ?>>
                                                 <?php echo h(employee_display_name($emp) . ' - ' . ($emp['employee_no'] ?? '') . (!empty($emp['position_title']) ? ' (' . $emp['position_title'] . ')' : '')); ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
+                                    <div id="edit_employee_id_feedback" class="small text-danger mt-1 d-none">Accountable employee is required.</div>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Purpose</label>
@@ -1461,6 +1644,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="card border-0 bg-light-subtle">
                                         <div class="card-body p-3">
                                             <div class="small fw-semibold text-muted mb-2">Posted items and unit details</div>
+                                            <div class="small text-muted mb-2">Brand, model, and serial number are optional when unavailable.</div>
                                             <?php if ($editingDistributionItems): ?>
                                                 <?php foreach ($editingDistributionItems as $idx => $itemRow): ?>
                                                     <?php
@@ -1576,16 +1760,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <table class="table align-middle">
                         <thead>
                             <tr>
-                                <th>Reference</th>
-                                <th>Document No.</th>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Items</th>
-                                <th>Office</th>
-                                <th>Employee</th>
-                                <th>Status</th>
+                                <th data-sort="ref">Reference <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="docno">Document No. <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="date">Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="type">Type <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="items">Items <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="office">Office <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="employee">Employee <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th class="text-end">Actions</th>
-                                <th class="text-end">Amount</th>
+                                <th class="text-end" data-sort="amount">Amount <i class="bi bi-arrow-down-up text-muted small"></i></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1641,6 +1825,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     </div>
 </section>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     var officeSelect = document.getElementById('office_id');
@@ -1809,6 +1994,18 @@ document.addEventListener('DOMContentLoaded', function () {
     var selectedIarId = '<?= (int) $selectedReceivingId ?>';
     var syncingAssignment = false;
 
+    function optionOfficeIds(option) {
+        return (option.getAttribute('data-office-ids') || '').split(',').map(function (value) {
+            return value.trim();
+        }).filter(Boolean);
+    }
+
+    function optionUnitHeadOfficeIds(option) {
+        return (option.getAttribute('data-unit-head-office-ids') || '').split(',').map(function (value) {
+            return value.trim();
+        }).filter(Boolean);
+    }
+
     function refreshSelectWidget(select) {
         if (window.SPAMS && window.SPAMS.refreshSelect2) {
             window.SPAMS.refreshSelect2(select);
@@ -1822,8 +2019,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         return Array.prototype.find.call(employeeSelect.options, function (option) {
             return option.value &&
-                option.getAttribute('data-office-id') === officeId &&
-                option.getAttribute('data-is-unit-head') === '1';
+                optionUnitHeadOfficeIds(option).indexOf(officeId) !== -1;
         }) || null;
     }
 
@@ -1840,7 +2036,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            var matches = !selectedOffice || option.getAttribute('data-office-id') === selectedOffice;
+            var matches = !selectedOffice || optionOfficeIds(option).indexOf(selectedOffice) !== -1;
             option.hidden = !matches;
             if (matches && option.value === employeeSelect.value) {
                 currentEmployeeStillValid = true;
@@ -1871,9 +2067,19 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        var officeId = selectedOption.getAttribute('data-office-id') || '';
-        if (officeId && officeSelect.value !== officeId) {
-            officeSelect.value = officeId;
+        var officeIds = optionOfficeIds(selectedOption);
+        var primaryOfficeId = selectedOption.getAttribute('data-primary-office-id') || '';
+        var currentOfficeId = officeSelect.value || '';
+        var nextOfficeId = '';
+
+        if (!currentOfficeId) {
+            nextOfficeId = primaryOfficeId || (officeIds[0] || '');
+        } else if (officeIds.length > 0 && officeIds.indexOf(currentOfficeId) === -1) {
+            nextOfficeId = primaryOfficeId || (officeIds[0] || '');
+        }
+
+        if (nextOfficeId && officeSelect.value !== nextOfficeId) {
+            officeSelect.value = nextOfficeId;
             refreshSelectWidget(officeSelect);
         }
     }
@@ -2125,6 +2331,33 @@ document.addEventListener('DOMContentLoaded', function () {
             loadUnits(selectedIarId);
         }
     }
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (!window.SPAMS || typeof window.SPAMS.setupRequiredSummaryValidation !== 'function') {
+        return;
+    }
+
+    window.SPAMS.setupRequiredSummaryValidation({
+        formId: 'distributionForm',
+        summaryId: 'distribution_form_feedback',
+        requiredFields: [
+            { id: 'office_id', label: 'Office', feedbackId: 'office_id_feedback' },
+            { id: 'employee_id', label: 'Accountable employee', feedbackId: 'employee_id_feedback' },
+            { id: 'distribution_date', label: 'Distribution date', feedbackId: 'distribution_date_feedback', useSelect2: false }
+        ]
+    });
+
+    window.SPAMS.setupRequiredSummaryValidation({
+        formId: 'editDistributionForm',
+        summaryId: 'edit_distribution_form_feedback',
+        requiredFields: [
+            { id: 'edit_office_id', label: 'Office', feedbackId: 'edit_office_id_feedback' },
+            { id: 'edit_employee_id', label: 'Accountable employee', feedbackId: 'edit_employee_id_feedback' },
+            { id: 'edit_distribution_date', label: 'Distribution date', feedbackId: 'edit_distribution_date_feedback', useSelect2: false }
+        ]
+    });
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
