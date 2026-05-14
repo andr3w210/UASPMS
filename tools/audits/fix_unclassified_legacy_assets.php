@@ -11,12 +11,9 @@
  *     account name, creating that classification if it does not yet exist.
  */
 
-$host = 'localhost';
-$db   = 'spamsdb';
-$user = 'root';
-$pass = '';
+require_once __DIR__ . '/../bootstrap.php';
 
-$pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass, [
+$pdo = new PDO(sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', DB_HOST, DB_NAME), DB_USER, DB_PASS, [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
 ]);
 

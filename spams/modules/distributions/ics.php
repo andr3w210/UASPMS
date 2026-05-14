@@ -106,10 +106,12 @@ $items = [];
 foreach ($rows as $row) {
     $di = (int) $row['di_id'];
     if (!isset($items[$di])) {
+        $qty_di = (float) $row['quantity_distributed'];
+        $uc_di  = (float) $row['unit_cost'];
         $items[$di] = [
-            'quantity_distributed' => $row['quantity_distributed'],
-            'unit_cost' => $row['unit_cost'],
-            'line_total' => $row['line_total'],
+            'quantity_distributed' => $qty_di,
+            'unit_cost' => $uc_di,
+            'line_total' => $qty_di * $uc_di,
             'item_description' => $row['item_description'],
             'classification_name' => $row['classification_name'] ?? '',
             'uom_name' => $row['uom_name'] ?? '',
@@ -186,7 +188,7 @@ if ($isGrouped) {
         }
 
         $groupedItems[$groupKey]['quantity_distributed'] += (float) ($item['quantity_distributed'] ?? 0);
-        $groupedItems[$groupKey]['line_total'] += (float) ($item['line_total'] ?? 0);
+        $groupedItems[$groupKey]['line_total'] = $groupedItems[$groupKey]['quantity_distributed'] * $groupedItems[$groupKey]['unit_cost'];
 
         foreach ((array) ($item['details'] ?? []) as $detail) {
             $groupedItems[$groupKey]['details'][] = $detail;
@@ -246,17 +248,18 @@ $recipientHead = $resolveOfficeHead($db, $officeId);
 $supplyHead = $resolveSupplyOfficeHead($db);
 
 $signatoryDisplayName = static function (array $person): string {
-    if (function_exists('person_full_name')) {
-        return person_full_name($person);
-    }
-
-    return trim(implode(' ', array_filter([
+    $suffix = trim((string) ($person['suffix_name'] ?? ''));
+    $nameParts = array_filter([
         trim((string) ($person['name_prefix'] ?? '')),
         trim((string) ($person['first_name'] ?? '')),
         trim((string) ($person['middle_name'] ?? '')),
         trim((string) ($person['last_name'] ?? '')),
-        trim((string) ($person['suffix_name'] ?? '')),
-    ])));
+    ]);
+    $name = strtoupper(trim(implode(' ', $nameParts)));
+    if ($suffix !== '') {
+        $name .= ' ' . $suffix;
+    }
+    return $name;
 };
 
 $recipientHeadName = !empty($recipientHead) ? $signatoryDisplayName($recipientHead) : '';
@@ -315,7 +318,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         .ics-sign-table .sign-head { text-align: left; font-weight: bold; }
         .ics-sign-table .sign-box { height: 74px; text-align: center; vertical-align: top; font-size: 10px; padding-top: 8px; }
         .ics-sign-table .sign-line { display: none; }
-        .ics-sign-table .sign-name { font-weight: 700; text-transform: uppercase; font-size: 14px; letter-spacing: 0.2px; line-height: 1.1; margin: 24px 0 0; }
+        .ics-sign-table .sign-name { font-weight: 700; font-size: 14px; letter-spacing: 0.2px; line-height: 1.1; margin: 24px 0 0; }
         .ics-sign-table .meta-box { height: 52px; text-align: center; vertical-align: top; padding-top: 6px; }
         .ics-sign-table .meta-line { display: none; }
         .ics-sign-table .meta-value { margin: 10px 0 0; font-size: 12px; line-height: 1.15; }
@@ -428,7 +431,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
 
                             $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
                             $unitCost = (float) ($it['unit_cost'] ?? 0);
-                            $totalCost = (float) ($it['line_total'] ?? ($unitCost * $qty));
+                            $totalCost = $qty * $unitCost;
                             $itemClass = trim((string) ($it['classification_name'] ?? ''));
                             $itemDescription = trim((string) ($it['item_description'] ?? ''));
                             $icsDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
@@ -563,7 +566,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
 
                             $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
                             $unitCost = (float) ($it['unit_cost'] ?? 0);
-                            $totalCost = (float) ($it['line_total'] ?? ($unitCost * $qty));
+                            $totalCost = $qty * $unitCost;
                             $itemClass = trim((string) ($it['classification_name'] ?? ''));
                             $itemDescription = trim((string) ($it['item_description'] ?? ''));
                             $icsDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);

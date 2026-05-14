@@ -620,11 +620,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <table class="table align-middle">
                         <thead>
                             <tr>
-                                <th style="min-width: 180px;">When</th>
-                                <th style="min-width: 160px;">User</th>
-                                <th style="min-width: 140px;">Module</th>
-                                <th style="min-width: 120px;">Action</th>
-                                <th style="min-width: 180px;">Record</th>
+                                <th style="min-width: 180px;" data-sort="when">When <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th style="min-width: 160px;" data-sort="user">User <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th style="min-width: 140px;" data-sort="module">Module <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th style="min-width: 120px;" data-sort="action">Action <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th style="min-width: 180px;" data-sort="record">Record <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th style="min-width: 320px;">Details</th>
                             </tr>
                         </thead>

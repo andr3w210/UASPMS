@@ -1419,14 +1419,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>
-                                <th>Document No.</th>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Status</th>
-                                <th>From</th>
-                                <th>To</th>
-                                <th>Items</th>
-                                <th>Reason</th>
+                                <th data-sort="docno">Document No. <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="date">Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="type">Type <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="from">From <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="to">To <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="items">Items <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="reason">Reason <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th class="text-end">Actions</th>
                             </tr>
                         </thead>
@@ -1495,14 +1495,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>
-                                <th>Reference</th>
-                                <th>Date</th>
-                                <th>Status</th>
-                                <th>Asset</th>
-                                <th>Source</th>
-                                <th>From</th>
-                                <th>To</th>
-                                <th>Reason</th>
+                                <th data-sort="ref">Reference <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="date">Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="asset">Asset <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="source">Source <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="from">From <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="to">To <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="reason">Reason <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th class="text-end">Actions</th>
                             </tr>
                         </thead>

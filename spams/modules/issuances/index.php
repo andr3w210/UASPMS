@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/employee_assignments.php';
 require_role('Administrator', 'Supply Officer');
 
 $db = db();
@@ -28,6 +29,7 @@ $form = [
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    $assignmentsEnabled = employee_assignments_enabled($db);
     $selectedPoId = (int) ($_POST['po_id'] ?? ($_GET['po_id'] ?? 0));
     $form['system_reference'] = preview_module_code($db, 'issuances');
 
@@ -36,7 +38,17 @@ if (!$db) {
         $offices = $officeResult->fetch_all(MYSQLI_ASSOC);
     }
 
-    $employeeResult = $db->query("SELECT id, office_id, employee_no, first_name, middle_name, last_name, suffix_name, position_title, is_unit_head FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
+    if ($assignmentsEnabled) {
+        $employeeResult = $db->query("SELECT e.id, ea.office_id, e.employee_no, e.first_name, e.middle_name, e.last_name, e.suffix_name,
+                                             COALESCE(NULLIF(TRIM(ea.role_title), ''), e.position_title) AS position_title,
+                                             ea.is_unit_head
+                                      FROM employees e
+                                      INNER JOIN employee_assignments ea ON ea.employee_id = e.id AND ea.is_active = 1
+                                      WHERE e.is_active = 1
+                                      ORDER BY ea.office_id ASC, ea.is_primary DESC, ea.is_unit_head DESC, e.last_name ASC, e.first_name ASC");
+    } else {
+        $employeeResult = $db->query("SELECT id, office_id, employee_no, first_name, middle_name, last_name, suffix_name, position_title, is_unit_head FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
+    }
     if ($employeeResult) {
         $employees = $employeeResult->fetch_all(MYSQLI_ASSOC);
     }
@@ -46,8 +58,10 @@ if (!$db) {
         FROM stock_items si
         INNER JOIN purchase_order_items poi ON poi.id = si.purchase_order_item_id
         INNER JOIN purchase_orders po ON po.id = poi.purchase_order_id
+        LEFT JOIN receivings r ON r.id = si.receiving_id
         WHERE si.item_type = 'supply'
           AND si.quantity_on_hand > 0
+                    AND (si.receiving_id IS NULL OR r.status = 'completed')
         ORDER BY po.po_date DESC, po.id DESC
     ");
     if ($poResult) {
@@ -65,7 +79,8 @@ if (!$db) {
         LEFT JOIN receivings r ON r.id = si.receiving_id
         LEFT JOIN purchase_order_items poi ON poi.id = si.purchase_order_item_id
         LEFT JOIN purchase_orders po ON po.id = poi.purchase_order_id
-        WHERE si.item_type = 'supply' AND si.quantity_on_hand > 0
+                WHERE si.item_type = 'supply' AND si.quantity_on_hand > 0
+                    AND (si.receiving_id IS NULL OR r.status = 'completed')
     ";
     $stockTypes = '';
     $stockParams = [];
@@ -147,14 +162,20 @@ if (!$db) {
 
         if ($employeeId > 0) {
             $employeeValid = false;
+            $employeeFound = false;
             foreach ($employees as $employee) {
                 if ((int) $employee['id'] === $employeeId) {
-                    $employeeValid = (int) ($employee['office_id'] ?? 0) === $officeId;
-                    break;
+                    $employeeFound = true;
+                    if ((int) ($employee['office_id'] ?? 0) === $officeId) {
+                        $employeeValid = true;
+                        break;
+                    }
                 }
             }
-            if (!$employeeValid) {
+            if ($employeeFound && !$employeeValid) {
                 add_validation_error($errors, 'Selected employee does not belong to the chosen office.');
+            } elseif (!$employeeFound) {
+                add_validation_error($errors, 'Selected employee is invalid.');
             }
         }
 
@@ -495,12 +516,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <table class="table align-middle">
                         <thead>
                             <tr>
-                                <th>Reference</th>
-                                <th>Date</th>
-                                <th>Office</th>
-                                <th>Employee</th>
-                                <th>Status</th>
-                                <th class="text-end">Amount</th>
+                                <th data-sort="ref">Reference <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="date">Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="office">Office <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="employee">Employee <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th class="text-end" data-sort="amount">Amount <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th>Actions</th>
                             </tr>
                         </thead>

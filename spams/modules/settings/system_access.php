@@ -7,11 +7,11 @@ $page_title = 'System Access URL';
 $flash = get_flash();
 $errors = [];
 $appUrl = $db ? get_system_setting($db, 'app_url', APP_URL) : APP_URL;
-$tailscaleServeUrl = $db ? get_system_setting($db, 'tailscale_serve_url', 'http://spmu-andrew.tail985047.ts.net') : 'http://spmu-andrew.tail985047.ts.net';
-$tailscaleIpUrl = $db ? get_system_setting($db, 'tailscale_ip_url', 'http://100.84.75.22') : 'http://100.84.75.22';
-$localUrl = $db ? get_system_setting($db, 'local_access_url', 'http://172.16.1.42') : 'http://172.16.1.42';
+$tailscaleServeUrl = $db ? get_system_setting($db, 'tailscale_serve_url', '') : '';
+$tailscaleIpUrl = $db ? get_system_setting($db, 'tailscale_ip_url', '') : '';
+$localUrl = $db ? get_system_setting($db, 'local_access_url', '') : '';
 $sessionTimeoutMinutes = $db ? get_system_setting($db, 'session_timeout_minutes', '30') : '30';
-$caCertificatePath = 'C:\xampp\apache\conf\ssl.crt\uaspms-lan-ca.crt';
+$caCertificatePath = trim((string) spams_env('UASPMS_CA_CERT_PATH', ''));
 $caCertificateExists = is_file($caCertificatePath);
 
 function normalize_access_url(string $value): string

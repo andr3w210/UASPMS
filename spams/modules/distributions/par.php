@@ -110,10 +110,12 @@ $items = [];
 foreach ($rows as $r) {
     $di = (int) $r['di_id'];
     if (!isset($items[$di])) {
+        $qty_di = (float) $r['quantity_distributed'];
+        $uc_di  = (float) $r['unit_cost'];
         $items[$di] = [
-            'quantity_distributed' => $r['quantity_distributed'],
-            'unit_cost' => $r['unit_cost'],
-            'line_total' => $r['line_total'],
+            'quantity_distributed' => $qty_di,
+            'unit_cost' => $uc_di,
+            'line_total' => $qty_di * $uc_di,
             'item_description' => $r['item_description'],
             'classification_name' => $r['classification_name'] ?? '',
             'classification_family' => $r['classification_family'] ?? '',
@@ -226,7 +228,7 @@ if ($isGrouped) {
         }
 
         $groupedItems[$groupKey]['quantity_distributed'] += (float) ($item['quantity_distributed'] ?? 0);
-        $groupedItems[$groupKey]['line_total'] += (float) ($item['line_total'] ?? 0);
+        $groupedItems[$groupKey]['line_total'] = $groupedItems[$groupKey]['quantity_distributed'] * $groupedItems[$groupKey]['unit_cost'];
 
         foreach ((array) ($item['details'] ?? []) as $detail) {
             $groupedItems[$groupKey]['details'][] = $detail;
@@ -252,17 +254,18 @@ $printItems = $isGrouped ? array_values($groupedItems) : array_values($items);
 
 // Received by name
 $signatoryDisplayName = static function (array $person): string {
-    if (function_exists('person_full_name')) {
-        return person_full_name($person);
-    }
-
-    return trim(implode(' ', array_filter([
+    $suffix = trim((string) ($person['suffix_name'] ?? ''));
+    $nameParts = array_filter([
         trim((string) ($person['name_prefix'] ?? '')),
         trim((string) ($person['first_name'] ?? '')),
         trim((string) ($person['middle_name'] ?? '')),
         trim((string) ($person['last_name'] ?? '')),
-        trim((string) ($person['suffix_name'] ?? '')),
-    ])));
+    ]);
+    $name = strtoupper(trim(implode(' ', $nameParts)));
+    if ($suffix !== '') {
+        $name .= ' ' . $suffix;
+    }
+    return $name;
 };
 
 $recipientHead = $resolveOfficeHead($db, $officeId);
@@ -329,7 +332,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         .par-sign-table .sign-head { font-weight:bold; text-align:left; }
         .par-sign-table .sign-box { height:74px; text-align:center; vertical-align:top; font-size:10px; padding-top:8px; }
         .par-sign-table .sign-line { display:none; }
-        .par-sign-table .sign-name { font-weight:700; text-transform:uppercase; font-size:14px; letter-spacing:0.2px; line-height:1.1; margin:24px 0 0; }
+        .par-sign-table .sign-name { font-weight:700; font-size:14px; letter-spacing:0.2px; line-height:1.1; margin:24px 0 0; }
         .par-sign-table .meta-box { height:52px; text-align:center; vertical-align:top; padding-top:6px; }
         .par-sign-table .meta-line { display:none; }
         .par-sign-table .meta-value { margin: 10px 0 0; font-size:12px; line-height:1.15; }

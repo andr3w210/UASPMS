@@ -593,6 +593,85 @@ function reconcile_stock_item(mysqli $db, int $stockItemId): bool
     return (bool) $ok;
 }
 
+function recalculate_purchase_order_status(mysqli $db, int $purchaseOrderId): string
+{
+    if ($purchaseOrderId <= 0) {
+        return 'encoded';
+    }
+
+    $orderedDeliveredStmt = $db->prepare(
+        "SELECT
+            COALESCE(SUM(poi.quantity), 0) AS total_ordered,
+            COALESCE((
+                SELECT SUM(ri2.quantity_delivered)
+                FROM receiving_items ri2
+                INNER JOIN receivings r2 ON r2.id = ri2.receiving_id
+                WHERE r2.purchase_order_id = po.id
+                  AND r2.status != 'cancelled'
+            ), 0) AS total_delivered
+         FROM purchase_order_items poi
+         INNER JOIN purchase_orders po ON po.id = poi.purchase_order_id
+         WHERE poi.purchase_order_id = ?"
+    );
+
+    if (!$orderedDeliveredStmt) {
+        return 'encoded';
+    }
+
+    $orderedDeliveredStmt->bind_param('i', $purchaseOrderId);
+    $orderedDeliveredStmt->execute();
+    $orderedDelivered = $orderedDeliveredStmt->get_result()->fetch_assoc() ?: [
+        'total_ordered' => 0,
+        'total_delivered' => 0,
+    ];
+    $orderedDeliveredStmt->close();
+
+    $totalOrdered = (float) ($orderedDelivered['total_ordered'] ?? 0);
+    $totalDelivered = (float) ($orderedDelivered['total_delivered'] ?? 0);
+
+    $hasFullDelivery = $totalOrdered > 0 && $totalDelivered >= $totalOrdered;
+
+    $disposedCondition = '1=1';
+    if (function_exists('schema_has_column') && schema_has_column($db, 'receiving_item_details', 'is_disposed')) {
+        $disposedCondition = '(rid.is_disposed IS NULL OR rid.is_disposed = 0)';
+    }
+
+    $pendingDistributionSql =
+        "SELECT COUNT(*) AS pending_count
+         FROM receiving_item_details rid
+         INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id
+         INNER JOIN receivings r ON r.id = ri.receiving_id
+         INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+         WHERE r.purchase_order_id = ?
+           AND r.status != 'cancelled'
+           AND poi.item_type IN ('semi_expendable', 'equipment')
+           AND rid.is_distributed = 0
+           AND " . $disposedCondition;
+
+    $pendingDistributionStmt = $db->prepare($pendingDistributionSql);
+    if (!$pendingDistributionStmt) {
+        return $totalDelivered > 0 ? 'partial' : 'encoded';
+    }
+
+    $pendingDistributionStmt->bind_param('i', $purchaseOrderId);
+    $pendingDistributionStmt->execute();
+    $pendingDistributionRow = $pendingDistributionStmt->get_result()->fetch_assoc() ?: ['pending_count' => 0];
+    $pendingDistributionStmt->close();
+
+    $pendingDistributionCount = (int) ($pendingDistributionRow['pending_count'] ?? 0);
+    $hasCompleteDistribution = $pendingDistributionCount === 0;
+
+    if ($hasFullDelivery && $hasCompleteDistribution) {
+        return 'completed';
+    }
+
+    if ($totalDelivered > 0) {
+        return 'partial';
+    }
+
+    return 'encoded';
+}
+
 function get_active_threshold(mysqli $db): array
 {
     $defaults = ['equipment_min' => 50000.00, 'semi_hv_min' => 5000.01];
@@ -1228,33 +1307,30 @@ function generate_property_number(
         $fundSegment = 'GEN';
     }
 
-    // Extract 3rd and 4th decimal segments from account code
+    // For Semi-Expendable ME (03.210.xx): use segments 3, 4, 5 (indices 2,3,4) → 03.210.01/02/03
+    // For other Equipment (05.xxx.xx): use segments 3, 4 (indices 2,3) → 05.030/140/990
     $acctParts = explode('.', $accountCode);
-    if (isset($acctParts[2]) && isset($acctParts[3])) {
+    $acctShort = $accountCode; // fallback
+    
+    // Check if semi-expendable (contains 03.210)
+    if (isset($acctParts[2]) && isset($acctParts[3]) && $acctParts[2] === '03' && $acctParts[3] === '210') {
+        // Semi-expendable: use all 5 segments via indices 2,3,4
+        if (isset($acctParts[4])) {
+            $acctShort = $acctParts[2] . '.' . $acctParts[3] . '.' . $acctParts[4];
+        }
+    } elseif (isset($acctParts[2]) && isset($acctParts[3])) {
+        // Other equipment: use segments 3,4 via indices 2,3
         $acctShort = $acctParts[2] . '.' . $acctParts[3];
-    } else {
-        $acctShort = $accountCode;
     }
     $acctShort = trim((string) $acctShort);
     if ($acctShort === '') {
         $acctShort = 'GEN';
     }
 
-    // Use office code as the last property number segment.
-    $officeShort = trim($officeCode);
-    if (stripos($officeShort, 'RC-') === 0) {
-        $officeShort = substr($officeShort, 3);
-    }
-    $officeShort = strtoupper((string) $officeShort);
-    if ($officeShort === '') {
-        $officeShort = 'GEN';
-    }
-
     $prefix = $year . '-' . $fundSegment . '-' . $acctShort;
-    $seriesModuleKey = 'property_number|' . $year;
-    $legacySeriesModuleKey = 'property_number|' . $year . '|' . $officeShort;
-    $legacyPrefixSeriesModuleKey = 'property_number|' . $prefix . '|' . $officeShort;
-    $legacyRcSeriesModuleKey = 'property_number|' . $prefix . '|RC-' . $officeShort;
+
+    // One series per account-code bucket (prefix = year+fund+acctShort).
+    $seriesModuleKey = 'property_number|' . $prefix;
     $padding = 4;
     $nextSeq = 1;
 
@@ -1268,45 +1344,11 @@ function generate_property_number(
         if ($row) {
             $nextSeq = ((int) $row['current_value']) + 1;
         } else {
-            $legacyCurrentValue = null;
-            $legacyStmt = $db->prepare("SELECT current_value FROM series_numbers WHERE module_key = ? LIMIT 1");
-            if ($legacyStmt) {
-                $legacyStmt->bind_param('s', $legacySeriesModuleKey);
-                $legacyStmt->execute();
-                $legacyRow = $legacyStmt->get_result()->fetch_assoc();
-                $legacyStmt->close();
-                if ($legacyRow) {
-                    $legacyCurrentValue = (int) ($legacyRow['current_value'] ?? 0);
-                }
-            }
-            $legacyPrefixStmt = $db->prepare("SELECT current_value FROM series_numbers WHERE module_key = ? LIMIT 1");
-            if ($legacyPrefixStmt) {
-                $legacyPrefixStmt->bind_param('s', $legacyPrefixSeriesModuleKey);
-                $legacyPrefixStmt->execute();
-                $legacyPrefixRow = $legacyPrefixStmt->get_result()->fetch_assoc();
-                $legacyPrefixStmt->close();
-                if ($legacyPrefixRow) {
-                    $legacyPrefixValue = (int) ($legacyPrefixRow['current_value'] ?? 0);
-                    if ($legacyCurrentValue === null || $legacyPrefixValue > $legacyCurrentValue) {
-                        $legacyCurrentValue = $legacyPrefixValue;
-                    }
-                }
-            }
-            $legacyRcStmt = $db->prepare("SELECT current_value FROM series_numbers WHERE module_key = ? LIMIT 1");
-            if ($legacyRcStmt) {
-                $legacyRcStmt->bind_param('s', $legacyRcSeriesModuleKey);
-                $legacyRcStmt->execute();
-                $legacyRcRow = $legacyRcStmt->get_result()->fetch_assoc();
-                $legacyRcStmt->close();
-                if ($legacyRcRow) {
-                    $legacyRcValue = (int) ($legacyRcRow['current_value'] ?? 0);
-                    if ($legacyCurrentValue === null || $legacyRcValue > $legacyCurrentValue) {
-                        $legacyCurrentValue = $legacyRcValue;
-                    }
-                }
-            }
+            // Seed: find the highest existing sequence for this prefix across all offices.
+            $seedPattern = $prefix . '-%';
+            $currentValue = 0;
 
-            $yearPrefix = (string) $year;
+            // Check distribution_item_details
             $seedStmt = $db->prepare(
                 "SELECT COALESCE(MAX(
                     CAST(
@@ -1317,19 +1359,37 @@ function generate_property_number(
                         ) AS UNSIGNED
                     )
                  ), 0) AS current_value
-                 FROM distribution_item_details
-                                 WHERE SUBSTRING_INDEX(property_number, '-', 1) = ?"
+                                 FROM distribution_item_details
+                                 WHERE property_number LIKE ?"
             );
-            $currentValue = 0;
             if ($seedStmt) {
-                                $seedStmt->bind_param('s', $yearPrefix);
+                                $seedStmt->bind_param('s', $seedPattern);
                 $seedStmt->execute();
                 $seedRow = $seedStmt->get_result()->fetch_assoc();
-                $currentValue = (int) ($seedRow['current_value'] ?? 0);
+                $currentValue = max($currentValue, (int) ($seedRow['current_value'] ?? 0));
                 $seedStmt->close();
             }
-            if ($legacyCurrentValue !== null && $legacyCurrentValue > $currentValue) {
-                $currentValue = $legacyCurrentValue;
+
+            // Check legacy_assets (beginning balance entries)
+            $legacySeedStmt = $db->prepare(
+                "SELECT COALESCE(MAX(
+                    CAST(
+                        SUBSTRING_INDEX(
+                            SUBSTRING_INDEX(property_number, '-', 4),
+                            '-',
+                            -1
+                        ) AS UNSIGNED
+                    )
+                 ), 0) AS current_value
+                                 FROM legacy_assets
+                                 WHERE property_number LIKE ?"
+            );
+            if ($legacySeedStmt) {
+                                $legacySeedStmt->bind_param('s', $seedPattern);
+                $legacySeedStmt->execute();
+                $legacySeedRow = $legacySeedStmt->get_result()->fetch_assoc();
+                $currentValue = max($currentValue, (int) ($legacySeedRow['current_value'] ?? 0));
+                $legacySeedStmt->close();
             }
 
             $insertStmt = $db->prepare(
@@ -1338,8 +1398,7 @@ function generate_property_number(
                  ON DUPLICATE KEY UPDATE module_key = module_key"
             );
             if ($insertStmt) {
-                $seriesPrefix = $year;
-                $insertStmt->bind_param('ssii', $seriesModuleKey, $seriesPrefix, $currentValue, $padding);
+                $insertStmt->bind_param('ssii', $seriesModuleKey, $prefix, $currentValue, $padding);
                 $insertStmt->execute();
                 $insertStmt->close();
             }
@@ -1355,7 +1414,6 @@ function generate_property_number(
         $updateStmt->close();
     }
 
-    return $prefix
-         . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT)
-         . '-' . $officeShort;
+        return $prefix
+            . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT);
 }

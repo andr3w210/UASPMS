@@ -1296,13 +1296,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         Update the core asset identity fields here for registry corrections. Other acquisition and source transaction details stay tied to the original PO and receiving records.
                                     </div>
                                 <?php endif; ?>
-                                <form method="post" class="row g-3">
+                                <form method="post" id="assetEditForm" class="row g-3">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                     <input type="hidden" name="action" value="save_asset_details">
 
+                                    <div class="col-12">
+                                        <div id="asset_edit_form_feedback" class="alert alert-danger small py-2 px-3 mb-0 d-none" role="alert" aria-live="polite"></div>
+                                    </div>
+
                                     <div class="col-md-4">
-                                        <label class="form-label">Property Number</label>
-                                        <input type="text" name="property_number" class="form-control" value="<?php echo h((string) ($asset['property_number'] ?? '')); ?>" required>
+                                        <label class="form-label">Property Number <span class="text-danger">*</span></label>
+                                        <input type="text" id="asset_property_number" name="property_number" class="form-control" value="<?php echo h((string) ($asset['property_number'] ?? '')); ?>" required>
+                                        <div id="asset_property_number_feedback" class="small text-danger mt-1 d-none">Property number is required.</div>
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label">Brand</label>
@@ -2057,6 +2062,21 @@ document.addEventListener('DOMContentLoaded', function () {
     setTimeout(function () {
         previewMap.invalidateSize();
     }, 150);
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (!window.SPAMS || typeof window.SPAMS.setupRequiredSummaryValidation !== 'function') {
+        return;
+    }
+
+    window.SPAMS.setupRequiredSummaryValidation({
+        formId: 'assetEditForm',
+        summaryId: 'asset_edit_form_feedback',
+        requiredFields: [
+            { id: 'asset_property_number', label: 'Property number', feedbackId: 'asset_property_number_feedback', events: ['input', 'change'] }
+        ]
+    });
 });
 </script>
 

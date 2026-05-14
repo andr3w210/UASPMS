@@ -13,7 +13,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    if ($username === '' || $password === '') {
+    if (!csrf_verify()) {
+        $error = 'Invalid form submission. Please try again.';
+    } elseif ($username === '' || $password === '') {
         $error = 'Please enter username and password.';
     } elseif (rate_limit_check('login')) {
         $retryAfter = rate_limit_retry_after('login');
@@ -230,6 +232,7 @@ require_once __DIR__ . '/../includes/header.php';
             <?php endif; ?>
 
             <form method="post" action="" class="auth-login-form">
+                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                 <div class="auth-login-field">
                     <label for="username" class="form-label">Username or Email</label>
                     <div class="auth-login-input-wrap">

@@ -1,7 +1,7 @@
 <?php
 
 // Application constants
-define('APP_VERSION', 'v1.2.0');
+define('APP_VERSION', 'v1.2.1');
 define('APP_ROOT', dirname(__DIR__, 2) . DIRECTORY_SEPARATOR);
 
 if (!function_exists('spams_load_env')) {

@@ -61,6 +61,41 @@ if (function_exists('request_guard_superglobals')) {
     request_guard_superglobals();
 }
 
+if (!empty($_SESSION['user_id'])) {
+    $timeoutMinutes = 30;
+    if (function_exists('db') && function_exists('get_system_setting')) {
+        $timeoutDb = db();
+        if ($timeoutDb) {
+            $configuredTimeout = (int) get_system_setting($timeoutDb, 'session_timeout_minutes', '30');
+            if ($configuredTimeout >= 5 && $configuredTimeout <= 480) {
+                $timeoutMinutes = $configuredTimeout;
+            }
+        }
+    }
+
+    $lastActivityAt = (int) ($_SESSION['last_activity_at'] ?? 0);
+    if ($lastActivityAt > 0 && (time() - $lastActivityAt) > ($timeoutMinutes * 60)) {
+        $_SESSION = [];
+        if (ini_get('session.use_cookies')) {
+            $params = session_get_cookie_params();
+            setcookie(
+                session_name(),
+                '',
+                time() - 42000,
+                $params['path'],
+                $params['domain'],
+                $params['secure'],
+                $params['httponly']
+            );
+        }
+        session_destroy();
+        header('Location: ' . base_url('auth/login.php?expired=1'));
+        exit;
+    }
+
+    $_SESSION['last_activity_at'] = time();
+}
+
 if (!empty($_SESSION['user_id']) && function_exists('db') && function_exists('roles_name_expression')) {
     $authDb = db();
     if ($authDb) {

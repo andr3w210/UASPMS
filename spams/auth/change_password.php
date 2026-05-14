@@ -38,6 +38,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $db) {
             if (!preg_match('/\d/', $newPassword)) {
                 $errors[] = 'Password must contain at least one number.';
             }
+            if (!preg_match('/[^A-Za-z0-9]/', $newPassword)) {
+                $errors[] = 'Password must contain at least one special character.';
+            }
         }
 
         $stmt = $db->prepare("SELECT password_hash FROM users WHERE id = ? LIMIT 1");
