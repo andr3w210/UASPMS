@@ -83,6 +83,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
             <a href="<?php echo base_url('modules/trip_tickets/vehicles.php'); ?>" class="btn btn-outline-secondary">
                 <i class="bi bi-truck-front me-1"></i> Vehicles
             </a>
+            <a href="<?php echo base_url('modules/trip_tickets/fuel_ris.php'); ?>" class="btn btn-outline-secondary">
+                <i class="bi bi-journal-plus me-1"></i> Fuel RIS Encoding
+            </a>
+            <a href="<?php echo base_url('modules/trip_tickets/fuel_ris_report.php'); ?>" class="btn btn-outline-secondary">
+                <i class="bi bi-graph-up-arrow me-1"></i> Fuel Consolidated
+            </a>
             <a href="<?php echo base_url('modules/trip_tickets/create.php'); ?>" class="btn btn-primary">
                 <i class="bi bi-plus-circle me-1"></i> New Trip Ticket
             </a>
