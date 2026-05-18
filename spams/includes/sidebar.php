@@ -171,8 +171,10 @@ $menuGroups = [
             ['label' => 'Trip Tickets', 'path' => 'modules/trip_tickets/index.php', 'needle' => '/trip_tickets/', 'icon' => 'bi bi-journal-text', 'roles' => ['Administrator', 'Transport Officer']],
             ['label' => 'Schedule Calendar', 'path' => 'modules/trip_tickets/schedules.php', 'needle' => '/trip_tickets/schedules', 'icon' => 'bi bi-calendar3', 'roles' => ['Administrator', 'Transport Officer']],
             ['label' => 'Trip Vehicles', 'path' => 'modules/trip_tickets/vehicles.php', 'needle' => '/trip_tickets/vehicles', 'icon' => 'bi bi-truck-front', 'roles' => ['Administrator', 'Transport Officer']],
+            ['label' => 'Fuel RIS Encoding', 'path' => 'modules/trip_tickets/fuel_ris.php', 'needle' => '/trip_tickets/fuel_ris', 'icon' => 'bi bi-journal-plus', 'roles' => ['Administrator', 'Transport Officer']],
             ['label' => 'Monthly Official Travel', 'path' => 'modules/trip_tickets/monthly_report.php', 'needle' => '/trip_tickets/monthly_report', 'icon' => 'bi bi-file-earmark-bar-graph', 'roles' => ['Administrator', 'Transport Officer']],
             ['label' => 'Fuel Consumption Report', 'path' => 'modules/trip_tickets/fuel_consumption_report.php', 'needle' => '/trip_tickets/fuel_consumption_report', 'icon' => 'bi bi-fuel-pump', 'roles' => ['Administrator', 'Transport Officer']],
+            ['label' => 'Fuel Consolidated', 'path' => 'modules/trip_tickets/fuel_ris_report.php', 'needle' => '/trip_tickets/fuel_ris_report', 'icon' => 'bi bi-graph-up-arrow', 'roles' => ['Administrator', 'Transport Officer']],
         ],
     ],
 ];
