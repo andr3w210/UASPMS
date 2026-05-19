@@ -1,0 +1,18 @@
+# Deployment packaging rules for `git archive`.
+# Mark non-runtime directories/files as export-ignore so production packages stay lean.
+
+.vscode/ export-ignore
+android/ export-ignore
+devtools/ export-ignore
+tools/ export-ignore
+docs/ export-ignore
+exports/ export-ignore
+uploads/ export-ignore
+
+# Maintenance and one-off scripts (blocked via .htaccess; keep in repo, exclude from archive)
+scripts/ export-ignore
+spams/scripts/ export-ignore
+
+# Local environment templates and git internals are not needed in release archives
+.env.example export-ignore
+.gitignore export-ignore
