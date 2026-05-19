@@ -543,10 +543,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <table class="table align-middle" id="dataTable">
                     <thead>
                         <tr>
-                            <th>Code</th>
-                            <th>Office</th>
-                            <th>Office Head</th>
-                            <th>Status</th>
+                            <th data-sort="code">Code <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="office">Office <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="head">Office Head <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                            <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
                             <th class="text-end">Actions</th>
                         </tr>
                     </thead>
@@ -623,6 +623,7 @@ document.addEventListener('DOMContentLoaded', function () {
         },
         emptyMessage: 'No offices matched your search or status filter.'
     };
+
     if (typeof window.initMasterDataList === 'function') {
         window.initMasterDataList('dataTable', options);
         return;

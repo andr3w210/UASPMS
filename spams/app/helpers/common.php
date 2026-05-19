@@ -1329,6 +1329,14 @@ function generate_property_number(
 
     $prefix = $year . '-' . $fundSegment . '-' . $acctShort;
 
+    // Office suffix is kept as a display/disambiguation suffix.
+    // Series is still controlled by prefix only (year-fund-account bucket).
+    $officeSuffix = strtoupper(trim($officeCode));
+    $officeSuffix = preg_replace('/[^A-Z0-9]/', '', $officeSuffix);
+    if ($officeSuffix === '') {
+        $officeSuffix = 'GEN';
+    }
+
     // One series per account-code bucket (prefix = year+fund+acctShort).
     $seriesModuleKey = 'property_number|' . $prefix;
     $padding = 4;
@@ -1415,5 +1423,6 @@ function generate_property_number(
     }
 
         return $prefix
-            . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT);
+            . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT)
+            . '-' . $officeSuffix;
 }

@@ -308,6 +308,21 @@
 				"& 'C:\\xampp\\php\\php.exe' -l 'C:\\xampp\\htdocs\\UASPMS\\spams\\modules\\property\\view.php'"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "backup-database-now",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"C:\\xampp\\htdocs\\UASPMS\\scripts\\backup_database.ps1",
+				"-KeepDays",
+				"30"
+			],
+			"isBackground": false
 		}
 	]
 }

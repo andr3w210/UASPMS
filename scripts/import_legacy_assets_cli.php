@@ -4,6 +4,12 @@ require_once __DIR__ . '/../spams/app/config/init.php';
 function cli_out(string $message): void
 {
     fwrite(STDOUT, $message . PHP_EOL);
+    if (function_exists('flush')) {
+        flush();
+    }
+    if (function_exists('ob_flush')) {
+        @ob_flush();
+    }
 }
 
 function cli_norm(string $value): string
@@ -264,6 +270,635 @@ function cli_find_or_create_model(mysqli $db, array &$maps, string $modelName, ?
     return $created;
 }
 
+function cli_store_supplier_map(array &$maps, array $supplier): void
+{
+    if (!isset($supplier['id'])) {
+        return;
+    }
+
+    $supplier['id'] = (int) $supplier['id'];
+    $maps['supplier']['__id_' . $supplier['id']] = $supplier;
+
+    foreach (['supplier_name', 'supplier_code'] as $field) {
+        $value = trim((string) ($supplier[$field] ?? ''));
+        if ($value !== '') {
+            $maps['supplier'][cli_norm($value)] = $supplier;
+        }
+    }
+}
+
+function cli_store_office_map(array &$maps, array $office): void
+{
+    if (!isset($office['id'])) {
+        return;
+    }
+
+    $office['id'] = (int) $office['id'];
+    $maps['office']['__id_' . $office['id']] = $office;
+
+    foreach (['office_name', 'office_code'] as $field) {
+        $value = trim((string) ($office[$field] ?? ''));
+        if ($value !== '') {
+            $maps['office'][cli_norm($value)] = $office;
+        }
+    }
+}
+
+function cli_generate_office_code(mysqli $db, string $seed): string
+{
+    $seed = trim($seed);
+    $base = strtoupper(preg_replace('/[^A-Za-z0-9]+/', '', $seed) ?: 'OFFICE');
+    $base = substr($base, 0, 20);
+
+    $candidate = $base;
+    $suffix = 1;
+    while (true) {
+        $stmt = $db->prepare('SELECT id FROM offices WHERE office_code = ? LIMIT 1');
+        if (!$stmt) {
+            throw new RuntimeException('Unable to validate generated office code.');
+        }
+
+        $stmt->bind_param('s', $candidate);
+        $stmt->execute();
+        $exists = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$exists) {
+            return $candidate;
+        }
+
+        $candidate = substr($base, 0, max(1, 50 - strlen((string) $suffix) - 1)) . '-' . $suffix;
+        $suffix++;
+    }
+}
+
+function cli_find_or_create_office(mysqli $db, array &$maps, string $officeName, int $userId): ?array
+{
+    $officeName = cli_clean_optional_value($officeName);
+    if ($officeName === '' || cli_is_unknown_value($officeName)) {
+        return null;
+    }
+
+    $key = cli_norm($officeName);
+    if (isset($maps['office'][$key])) {
+        $existing = $maps['office'][$key];
+        if ((int) ($existing['is_active'] ?? 1) !== 1) {
+            $update = $db->prepare('UPDATE offices SET is_active = 1, updated_by = ? WHERE id = ?');
+            if ($update) {
+                $id = (int) $existing['id'];
+                $update->bind_param('ii', $userId, $id);
+                $update->execute();
+                $update->close();
+                $existing['is_active'] = 1;
+                cli_store_office_map($maps, $existing);
+            }
+        }
+
+        return $existing;
+    }
+
+    $select = $db->prepare('SELECT id, office_name, office_code, is_active FROM offices WHERE LOWER(TRIM(office_name)) = LOWER(TRIM(?)) OR LOWER(TRIM(COALESCE(office_code, ""))) = LOWER(TRIM(?)) LIMIT 1');
+    if ($select) {
+        $select->bind_param('ss', $officeName, $officeName);
+        $select->execute();
+        $existing = $select->get_result()->fetch_assoc() ?: null;
+        $select->close();
+        if ($existing) {
+            if ((int) ($existing['is_active'] ?? 1) !== 1) {
+                $update = $db->prepare('UPDATE offices SET is_active = 1, updated_by = ? WHERE id = ?');
+                if ($update) {
+                    $id = (int) $existing['id'];
+                    $update->bind_param('ii', $userId, $id);
+                    $update->execute();
+                    $update->close();
+                }
+                $existing['is_active'] = 1;
+            }
+
+            cli_store_office_map($maps, $existing);
+            return $existing;
+        }
+    }
+
+    $officeCode = cli_generate_office_code($db, $officeName);
+    $description = 'Auto-created from legacy asset import.';
+    $insert = $db->prepare('INSERT INTO offices (office_name, office_code, description, is_active, created_by) VALUES (?, ?, ?, 1, ?)');
+    if (!$insert) {
+        throw new RuntimeException('Unable to create missing office.');
+    }
+
+    $insert->bind_param('sssi', $officeName, $officeCode, $description, $userId);
+    $saved = $insert->execute();
+    $newId = (int) $insert->insert_id;
+    $insert->close();
+    if (!$saved || $newId <= 0) {
+        throw new RuntimeException('Unable to create missing office.');
+    }
+
+    $created = [
+        'id' => $newId,
+        'office_name' => $officeName,
+        'office_code' => $officeCode,
+        'is_active' => 1,
+    ];
+    cli_store_office_map($maps, $created);
+    return $created;
+}
+
+function cli_find_or_create_supplier(mysqli $db, array &$maps, string $supplierName, int $userId): ?array
+{
+    $supplierName = cli_clean_optional_value($supplierName);
+    if ($supplierName === '' || cli_is_unknown_value($supplierName)) {
+        return null;
+    }
+
+    $key = cli_norm($supplierName);
+    if (isset($maps['supplier'][$key])) {
+        $existing = $maps['supplier'][$key];
+        if ((int) ($existing['is_active'] ?? 1) !== 1) {
+            $update = $db->prepare('UPDATE suppliers SET is_active = 1, updated_by = ? WHERE id = ?');
+            if ($update) {
+                $id = (int) $existing['id'];
+                $update->bind_param('ii', $userId, $id);
+                $update->execute();
+                $update->close();
+                $existing['is_active'] = 1;
+                cli_store_supplier_map($maps, $existing);
+            }
+        }
+
+        return $existing;
+    }
+
+    $select = $db->prepare('SELECT id, supplier_name, supplier_code, is_active FROM suppliers WHERE LOWER(TRIM(supplier_name)) = LOWER(TRIM(?)) LIMIT 1');
+    if ($select) {
+        $select->bind_param('s', $supplierName);
+        $select->execute();
+        $existing = $select->get_result()->fetch_assoc() ?: null;
+        $select->close();
+        if ($existing) {
+            if ((int) ($existing['is_active'] ?? 1) !== 1) {
+                $update = $db->prepare('UPDATE suppliers SET is_active = 1, updated_by = ? WHERE id = ?');
+                if ($update) {
+                    $id = (int) $existing['id'];
+                    $update->bind_param('ii', $userId, $id);
+                    $update->execute();
+                    $update->close();
+                }
+                $existing['is_active'] = 1;
+            }
+
+            cli_store_supplier_map($maps, $existing);
+            return $existing;
+        }
+    }
+
+    $supplierCode = 'SUP-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]+/', '', $supplierName) ?: 'NEW', 0, 20));
+    $suffix = 1;
+    while (true) {
+        $stmt = $db->prepare('SELECT id FROM suppliers WHERE supplier_code = ? LIMIT 1');
+        if (!$stmt) {
+            throw new RuntimeException('Unable to validate generated supplier code.');
+        }
+
+        $stmt->bind_param('s', $supplierCode);
+        $stmt->execute();
+        $exists = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$exists) {
+            break;
+        }
+
+        $supplierCode = 'SUP-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]+/', '', $supplierName) ?: 'NEW', 0, 16)) . '-' . $suffix;
+        $suffix++;
+    }
+
+    $insert = $db->prepare('INSERT INTO suppliers (supplier_name, supplier_code, is_active, created_by) VALUES (?, ?, 1, ?)');
+    if (!$insert) {
+        throw new RuntimeException('Unable to create missing supplier.');
+    }
+
+    $insert->bind_param('ssi', $supplierName, $supplierCode, $userId);
+    $saved = $insert->execute();
+    $newId = (int) $insert->insert_id;
+    $insert->close();
+    if (!$saved || $newId <= 0) {
+        throw new RuntimeException('Unable to create missing supplier.');
+    }
+
+    $created = [
+        'id' => $newId,
+        'supplier_name' => $supplierName,
+        'supplier_code' => $supplierCode,
+        'is_active' => 1,
+    ];
+    cli_store_supplier_map($maps, $created);
+    return $created;
+}
+
+function cli_store_fund_map(array &$maps, array $fund): void
+{
+    if (!isset($fund['id'])) {
+        return;
+    }
+
+    $fund['id'] = (int) $fund['id'];
+    $maps['fund']['__id_' . $fund['id']] = $fund;
+
+    foreach (['fund_code', 'fund_name', 'fund_source'] as $field) {
+        $value = trim((string) ($fund[$field] ?? ''));
+        if ($value !== '') {
+            $maps['fund'][cli_norm($value)] = $fund;
+        }
+    }
+}
+
+function cli_generate_fund_code(mysqli $db, string $seed): string
+{
+    $seed = trim($seed);
+    $digits = preg_replace('/\D+/', '', $seed);
+
+    if ($digits !== '') {
+        $base = str_pad(substr($digits, -2), 2, '0', STR_PAD_LEFT);
+    } else {
+        $base = strtoupper(preg_replace('/[^A-Za-z0-9]+/', '', $seed) ?? '');
+        $base = substr($base, 0, 20);
+        if ($base === '') {
+            $base = 'FUND';
+        }
+    }
+
+    $candidate = $base;
+    $suffix = 1;
+
+    while (true) {
+        $stmt = $db->prepare('SELECT id FROM funds WHERE fund_code = ? LIMIT 1');
+        if (!$stmt) {
+            throw new RuntimeException('Unable to validate generated fund code.');
+        }
+
+        $stmt->bind_param('s', $candidate);
+        $stmt->execute();
+        $exists = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$exists) {
+            return $candidate;
+        }
+
+        $suffixText = (string) $suffix;
+        $trimLength = max(1, 50 - strlen($suffixText) - 1);
+        $candidate = substr($base, 0, $trimLength) . '-' . $suffixText;
+        $suffix++;
+    }
+}
+
+function cli_find_or_create_fund(mysqli $db, array &$maps, string $fundValue, int $userId): ?array
+{
+    $fundValue = cli_clean_optional_value($fundValue);
+    if ($fundValue === '' || cli_is_unknown_value($fundValue)) {
+        return null;
+    }
+
+    $key = cli_norm($fundValue);
+    if (isset($maps['fund'][$key])) {
+        $existing = $maps['fund'][$key];
+        if ((int) ($existing['is_active'] ?? 1) !== 1) {
+            $update = $db->prepare('UPDATE funds SET is_active = 1, updated_by = ?, updated_at = NOW() WHERE id = ?');
+            if ($update) {
+                $id = (int) $existing['id'];
+                $update->bind_param('ii', $userId, $id);
+                $update->execute();
+                $update->close();
+                $existing['is_active'] = 1;
+                cli_store_fund_map($maps, $existing);
+            }
+        }
+
+        return $existing;
+    }
+
+    $select = $db->prepare('SELECT id, fund_code, fund_name, fund_source, is_active FROM funds WHERE LOWER(TRIM(fund_code)) = LOWER(TRIM(?)) OR LOWER(TRIM(COALESCE(fund_name, ""))) = LOWER(TRIM(?)) OR LOWER(TRIM(COALESCE(fund_source, ""))) = LOWER(TRIM(?)) LIMIT 1');
+    if ($select) {
+        $select->bind_param('sss', $fundValue, $fundValue, $fundValue);
+        $select->execute();
+        $existing = $select->get_result()->fetch_assoc() ?: null;
+        $select->close();
+        if ($existing) {
+            if ((int) ($existing['is_active'] ?? 1) !== 1) {
+                $update = $db->prepare('UPDATE funds SET is_active = 1, updated_by = ?, updated_at = NOW() WHERE id = ?');
+                if ($update) {
+                    $id = (int) $existing['id'];
+                    $update->bind_param('ii', $userId, $id);
+                    $update->execute();
+                    $update->close();
+                }
+                $existing['is_active'] = 1;
+            }
+            cli_store_fund_map($maps, $existing);
+            return $existing;
+        }
+    }
+
+    $fundCode = cli_generate_fund_code($db, $fundValue);
+    $fundName = $fundValue;
+    $insert = $db->prepare('INSERT INTO funds (fund_code, fund_name, is_active, created_by) VALUES (?, ?, 1, ?)');
+    if (!$insert) {
+        throw new RuntimeException('Unable to create missing fund.');
+    }
+
+    $insert->bind_param('ssi', $fundCode, $fundName, $userId);
+    $saved = $insert->execute();
+    $newId = (int) $insert->insert_id;
+    $insert->close();
+    if (!$saved || $newId <= 0) {
+        throw new RuntimeException('Unable to create missing fund.');
+    }
+
+    $created = [
+        'id' => $newId,
+        'fund_code' => $fundCode,
+        'fund_name' => $fundName,
+        'fund_source' => null,
+        'is_active' => 1,
+    ];
+    cli_store_fund_map($maps, $created);
+    return $created;
+}
+
+function cli_store_rc_map(array &$maps, array $rc): void
+{
+    if (!isset($rc['id'])) {
+        return;
+    }
+
+    $rc['id'] = (int) $rc['id'];
+    $maps['rc']['__id_' . $rc['id']] = $rc;
+
+    $code = trim((string) ($rc['code'] ?? ''));
+    if ($code !== '') {
+        $maps['rc'][cli_norm($code)] = $rc;
+    }
+}
+
+function cli_find_or_create_rc(mysqli $db, array &$maps, string $rcCode, ?int $officeId, int $userId): ?array
+{
+    $rcCode = cli_clean_optional_value($rcCode);
+    if ($rcCode === '' || cli_is_unknown_value($rcCode)) {
+        return null;
+    }
+
+    $key = cli_norm($rcCode);
+    $existing = $maps['rc'][$key] ?? null;
+
+    if (!$existing) {
+        $select = $db->prepare('SELECT id, code, office_id, is_active FROM responsibility_codes WHERE LOWER(TRIM(code)) = LOWER(TRIM(?)) LIMIT 1');
+        if ($select) {
+            $select->bind_param('s', $rcCode);
+            $select->execute();
+            $existing = $select->get_result()->fetch_assoc() ?: null;
+            $select->close();
+        }
+    }
+
+    if ($existing) {
+        $targetOffice = ($officeId ?? 0) > 0 ? (int) $officeId : (int) ($existing['office_id'] ?? 0);
+        $needsUpdate = (int) ($existing['is_active'] ?? 1) !== 1 || ($targetOffice > 0 && (int) ($existing['office_id'] ?? 0) !== $targetOffice);
+        if ($needsUpdate) {
+            $update = $db->prepare('UPDATE responsibility_codes SET office_id = NULLIF(?, 0), is_active = 1, updated_by = ?, updated_at = NOW() WHERE id = ?');
+            if ($update) {
+                $id = (int) $existing['id'];
+                $update->bind_param('iii', $targetOffice, $userId, $id);
+                $update->execute();
+                $update->close();
+                $existing['office_id'] = $targetOffice > 0 ? $targetOffice : null;
+                $existing['is_active'] = 1;
+            }
+        }
+
+        cli_store_rc_map($maps, $existing);
+        return $existing;
+    }
+
+    $description = 'Auto-created from legacy asset import.';
+    $officeValue = ($officeId ?? 0) > 0 ? (int) $officeId : 0;
+    $insert = $db->prepare('INSERT INTO responsibility_codes (code, office_id, description, is_active, created_by) VALUES (?, NULLIF(?, 0), ?, 1, ?)');
+    if (!$insert) {
+        throw new RuntimeException('Unable to create missing responsibility code.');
+    }
+
+    $insert->bind_param('sisi', $rcCode, $officeValue, $description, $userId);
+    $saved = $insert->execute();
+    $newId = (int) $insert->insert_id;
+    $insert->close();
+    if (!$saved || $newId <= 0) {
+        throw new RuntimeException('Unable to create missing responsibility code.');
+    }
+
+    $created = [
+        'id' => $newId,
+        'code' => $rcCode,
+        'office_id' => $officeValue > 0 ? $officeValue : null,
+        'is_active' => 1,
+    ];
+    cli_store_rc_map($maps, $created);
+    return $created;
+}
+
+function cli_split_employee_name(string $fullName): array
+{
+    $fullName = trim($fullName);
+    if ($fullName === '') {
+        return ['first_name' => '', 'middle_name' => '', 'last_name' => '', 'suffix_name' => ''];
+    }
+
+    if (strpos($fullName, ',') !== false) {
+        [$last, $rest] = array_pad(array_map('trim', explode(',', $fullName, 2)), 2, '');
+        $parts = preg_split('/\s+/', $rest) ?: [];
+        $first = $parts[0] ?? '';
+        $middle = count($parts) > 1 ? implode(' ', array_slice($parts, 1)) : '';
+        return ['first_name' => $first, 'middle_name' => $middle, 'last_name' => $last, 'suffix_name' => ''];
+    }
+
+    $parts = preg_split('/\s+/', $fullName) ?: [];
+    if (count($parts) === 1) {
+        return ['first_name' => $parts[0], 'middle_name' => '', 'last_name' => 'Unknown', 'suffix_name' => ''];
+    }
+
+    $first = array_shift($parts);
+    $last = array_pop($parts);
+    $middle = implode(' ', $parts);
+    return ['first_name' => (string) $first, 'middle_name' => $middle, 'last_name' => (string) $last, 'suffix_name' => ''];
+}
+
+function cli_generate_employee_no(mysqli $db): string
+{
+    for ($i = 0; $i < 8; $i++) {
+        $candidate = 'IMP-' . date('YmdHis') . '-' . strtoupper(substr(md5((string) microtime(true) . (string) random_int(1000, 999999)), 0, 6));
+        $stmt = $db->prepare('SELECT id FROM employees WHERE employee_no = ? LIMIT 1');
+        if (!$stmt) {
+            break;
+        }
+        $stmt->bind_param('s', $candidate);
+        $stmt->execute();
+        $exists = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$exists) {
+            return $candidate;
+        }
+    }
+
+    return 'IMP-' . date('YmdHis') . '-' . random_int(100000, 999999);
+}
+
+function cli_store_employee_map(array &$maps, array $employee): void
+{
+    if (!isset($employee['id'])) {
+        return;
+    }
+
+    $employee['id'] = (int) $employee['id'];
+    $maps['employee']['__id_' . $employee['id']] = $employee;
+    $display = cli_name($employee);
+    if ($display !== '') {
+        $maps['employee'][cli_norm($display)] = $employee;
+    }
+}
+
+function cli_find_or_create_employee(mysqli $db, array &$maps, string $employeeName, ?int $officeId, ?int $rcId, int $userId): ?array
+{
+    $employeeName = cli_clean_optional_value($employeeName);
+    if ($employeeName === '' || cli_is_unknown_value($employeeName)) {
+        return null;
+    }
+
+    $key = cli_norm($employeeName);
+    $existing = $maps['employee'][$key] ?? null;
+
+    if (!$existing) {
+        $all = $db->query('SELECT id, employee_no, first_name, middle_name, last_name, suffix_name, office_id, responsibility_code_id, is_active FROM employees');
+        if ($all instanceof mysqli_result) {
+            while ($candidate = $all->fetch_assoc()) {
+                if (cli_norm(cli_name($candidate)) === $key) {
+                    $existing = $candidate;
+                    break;
+                }
+            }
+        }
+    }
+
+    if ($existing) {
+        $targetOffice = ($officeId ?? 0) > 0 ? (int) $officeId : (int) ($existing['office_id'] ?? 0);
+        $targetRc = ($rcId ?? 0) > 0 ? (int) $rcId : (int) ($existing['responsibility_code_id'] ?? 0);
+        $needsUpdate = (int) ($existing['is_active'] ?? 1) !== 1
+            || ($targetOffice > 0 && (int) ($existing['office_id'] ?? 0) !== $targetOffice)
+            || ($targetRc > 0 && (int) ($existing['responsibility_code_id'] ?? 0) !== $targetRc);
+
+        if ($needsUpdate) {
+            $update = $db->prepare('UPDATE employees SET office_id = NULLIF(?, 0), responsibility_code_id = NULLIF(?, 0), is_active = 1, updated_by = ? WHERE id = ?');
+            if ($update) {
+                $id = (int) $existing['id'];
+                $update->bind_param('iiii', $targetOffice, $targetRc, $userId, $id);
+                $update->execute();
+                $update->close();
+                $existing['office_id'] = $targetOffice > 0 ? $targetOffice : null;
+                $existing['responsibility_code_id'] = $targetRc > 0 ? $targetRc : null;
+                $existing['is_active'] = 1;
+            }
+        }
+
+        cli_store_employee_map($maps, $existing);
+        return $existing;
+    }
+
+    $nameParts = cli_split_employee_name($employeeName);
+    $firstName = trim((string) ($nameParts['first_name'] ?? ''));
+    $lastName = trim((string) ($nameParts['last_name'] ?? ''));
+    if ($firstName === '') {
+        $firstName = 'Unknown';
+    }
+    if ($lastName === '') {
+        $lastName = 'Unknown';
+    }
+
+    $employeeNo = cli_generate_employee_no($db);
+    $middleName = trim((string) ($nameParts['middle_name'] ?? ''));
+    $suffixName = trim((string) ($nameParts['suffix_name'] ?? ''));
+    $officeValue = ($officeId ?? 0) > 0 ? (int) $officeId : 0;
+    $rcValue = ($rcId ?? 0) > 0 ? (int) $rcId : 0;
+
+    $insert = $db->prepare('INSERT INTO employees (employee_no, first_name, middle_name, last_name, suffix_name, office_id, responsibility_code_id, is_active, created_by) VALUES (?, ?, NULLIF(?, ""), ?, NULLIF(?, ""), NULLIF(?, 0), NULLIF(?, 0), 1, ?)');
+    if (!$insert) {
+        throw new RuntimeException('Unable to create missing employee.');
+    }
+
+    $insert->bind_param('sssssiii', $employeeNo, $firstName, $middleName, $lastName, $suffixName, $officeValue, $rcValue, $userId);
+    $saved = $insert->execute();
+    $newId = (int) $insert->insert_id;
+    $insert->close();
+    if (!$saved || $newId <= 0) {
+        throw new RuntimeException('Unable to create missing employee.');
+    }
+
+    $created = [
+        'id' => $newId,
+        'employee_no' => $employeeNo,
+        'first_name' => $firstName,
+        'middle_name' => $middleName,
+        'last_name' => $lastName,
+        'suffix_name' => $suffixName,
+        'office_id' => $officeValue > 0 ? $officeValue : null,
+        'responsibility_code_id' => $rcValue > 0 ? $rcValue : null,
+        'is_active' => 1,
+    ];
+    cli_store_employee_map($maps, $created);
+    return $created;
+}
+
+function cli_find_existing_legacy_asset_id(mysqli $db, int $legacyId, string $systemReference, string $sourcePropertyNumber): int
+{
+    if ($legacyId > 0) {
+        $stmt = $db->prepare('SELECT id FROM legacy_assets WHERE id = ? LIMIT 1');
+        if ($stmt) {
+            $stmt->bind_param('i', $legacyId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if ($row) {
+                return (int) $row['id'];
+            }
+        }
+    }
+
+    if ($systemReference !== '') {
+        $stmt = $db->prepare('SELECT id FROM legacy_assets WHERE system_reference = ? LIMIT 1');
+        if ($stmt) {
+            $stmt->bind_param('s', $systemReference);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if ($row) {
+                return (int) $row['id'];
+            }
+        }
+    }
+
+    if ($sourcePropertyNumber !== '') {
+        $stmt = $db->prepare('SELECT id FROM legacy_assets WHERE property_number = ? LIMIT 1');
+        if ($stmt) {
+            $stmt->bind_param('s', $sourcePropertyNumber);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if ($row) {
+                return (int) $row['id'];
+            }
+        }
+    }
+
+    return 0;
+}
+
 $filePath = $argv[1] ?? '';
 if ($filePath === '') {
     fwrite(STDERR, "Usage: php scripts/import_legacy_assets_cli.php <csv-path>" . PHP_EOL);
@@ -292,13 +927,13 @@ if ($userRes && ($userRow = $userRes->fetch_assoc())) {
 
 $classifications = ($db->query("SELECT id, classification_name FROM classifications WHERE is_active = 1 ORDER BY classification_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
 $accountCodes = ($db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
-$funds = ($db->query("SELECT id, fund_code, fund_name, fund_source FROM funds WHERE is_active = 1 ORDER BY fund_code ASC, fund_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
-$suppliers = ($db->query("SELECT id, supplier_name FROM suppliers WHERE is_active = 1 ORDER BY supplier_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
+$funds = ($db->query("SELECT id, fund_code, fund_name, fund_source, is_active FROM funds ORDER BY fund_code ASC, fund_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
+$suppliers = ($db->query("SELECT id, supplier_name, supplier_code, is_active FROM suppliers ORDER BY supplier_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
 $brands = ($db->query("SELECT id, brand_name FROM brands WHERE is_active = 1 ORDER BY brand_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
 $models = ($db->query("SELECT id, model_name, brand_id FROM models WHERE is_active = 1 ORDER BY model_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
-$offices = ($db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
-$employees = ($db->query("SELECT id, office_id, responsibility_code_id, is_unit_head, first_name, middle_name, last_name, suffix_name FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
-$responsibilityCodes = ($db->query("SELECT id, office_id, code FROM responsibility_codes WHERE is_active = 1 ORDER BY code ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
+$offices = ($db->query("SELECT id, office_name, office_code, is_active FROM offices ORDER BY office_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
+$employees = ($db->query("SELECT id, employee_no, office_id, responsibility_code_id, is_unit_head, is_active, first_name, middle_name, last_name, suffix_name FROM employees ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
+$responsibilityCodes = ($db->query("SELECT id, office_id, code, is_active FROM responsibility_codes ORDER BY code ASC") ?: false)?->fetch_all(MYSQLI_ASSOC) ?? [];
 
 $maps = ['classification' => [], 'account' => [], 'fund' => [], 'supplier' => [], 'brand' => [], 'model' => [], 'office' => [], 'employee' => [], 'rc' => []];
 foreach ($classifications as $r) {
@@ -309,14 +944,10 @@ foreach ($accountCodes as $r) {
     $maps['account'][cli_norm($r['account_name'])] = $r;
 }
 foreach ($funds as $r) {
-    $maps['fund'][cli_norm($r['fund_code'])] = $r;
-    $maps['fund'][cli_norm($r['fund_name'])] = $r;
-    if (!empty($r['fund_source'])) {
-        $maps['fund'][cli_norm((string) $r['fund_source'])] = $r;
-    }
+    cli_store_fund_map($maps, $r);
 }
 foreach ($suppliers as $r) {
-    $maps['supplier'][cli_norm($r['supplier_name'])] = $r;
+    cli_store_supplier_map($maps, $r);
 }
 foreach ($brands as $r) {
     $maps['brand'][cli_norm($r['brand_name'])] = $r;
@@ -325,14 +956,13 @@ foreach ($models as $r) {
     $maps['model'][cli_norm($r['model_name'])][] = $r;
 }
 foreach ($offices as $r) {
-    $maps['office'][cli_norm($r['office_name'])] = $r;
-    $maps['office'][cli_norm($r['office_code'])] = $r;
+    cli_store_office_map($maps, $r);
 }
 foreach ($employees as $r) {
-    $maps['employee'][cli_norm(cli_name($r))] = $r;
+    cli_store_employee_map($maps, $r);
 }
 foreach ($responsibilityCodes as $r) {
-    $maps['rc'][cli_norm($r['code'])] = $r;
+    cli_store_rc_map($maps, $r);
 }
 
 $rows = cli_parse_csv_file($filePath);
@@ -366,8 +996,16 @@ if (!$insert) {
     exit(1);
 }
 
+$update = $db->prepare("UPDATE legacy_assets SET po_number = ?, property_number = ?, item_type = ?, item_description = ?, classification_id = ?, account_code_id = ?, fund_id = ?, supplier_id = ?, brand_id = ?, model_id = ?, brand = ?, model = ?, serial_no = ?, acquisition_date = NULLIF(?, ''), quantity = ?, unit_cost = ?, acquisition_cost = ?, office_id = ?, employee_id = ?, responsibility_code_id = ?, condition_status = ?, remarks = ?, is_active = 1 WHERE id = ?");
+if (!$update) {
+    fwrite(STDERR, "Unable to prepare update statement." . PHP_EOL);
+    $insert->close();
+    exit(1);
+}
+
 $db->begin_transaction();
 $inserted = 0;
+$updated = 0;
 $skipped = 0;
 $failures = [];
 
@@ -376,6 +1014,10 @@ try {
         $src = $rows[$i];
         if (!array_filter($src, static fn($v) => trim((string) $v) !== '')) {
             continue;
+        }
+
+        if ($i === 1 || $i % 100 === 0) {
+            cli_out('Processing row ' . $i . ' of ' . (count($rows) - 1) . '...');
         }
 
         $isSemiTemplate = isset($col['propno']);
@@ -388,6 +1030,8 @@ try {
 
         $row = [
             'source_row' => $i + 1,
+            'legacy_id' => (int) ($src[$col['legacy_id'] ?? $col['id'] ?? null] ?? 0),
+            'system_reference_input' => trim((string) ($src[$col['system_reference'] ?? null] ?? '')),
             'po_number' => '',
             'property_number' => $isSemiTemplate ? cli_pick_csv_value($src, $col, ['propno']) : trim((string) ($src[$col['property_number'] ?? null] ?? '')),
             'item_type' => $isSemiTemplate ? 'semi_expendable' : strtolower(str_replace([' ', '-'], '_', (string) ($src[$col['inventory_type']] ?? ''))),
@@ -424,34 +1068,28 @@ try {
             $row['errors'][] = 'Unit cost is required.';
         }
 
+        $sourcePropertyNumber = $row['property_number'];
+
         $account = $maps['account'][cli_norm($row['account_code'])] ?? null;
         $classification = null;
-        $fund = $maps['fund'][cli_norm($row['fund'])] ?? null;
-        $supplier = $maps['supplier'][cli_norm($row['supplier'])] ?? null;
-        $office = $maps['office'][cli_norm($row['office'])] ?? null;
-        $employee = $maps['employee'][cli_norm($row['employee'])] ?? null;
-        $rc = $maps['rc'][cli_norm($row['responsibility_code'])] ?? null;
+        $fund = null;
+        $supplier = null;
+        $office = null;
+        $employee = null;
+        $rc = null;
 
-        if ($row['supplier'] !== '' && !$supplier) {
-            $row['errors'][] = 'Unknown supplier.';
-        }
         if ($row['account_code'] !== '' && !$account) {
             $row['errors'][] = 'Unknown account code.';
         }
-        if ($row['fund'] !== '' && !$fund) {
-            $row['errors'][] = 'Unknown fund.';
-        }
-        if ($row['office'] !== '' && !$office) {
-            $row['errors'][] = 'Unknown office.';
-        }
-        if ($row['employee'] !== '' && !$employee) {
-            $row['errors'][] = 'Unknown employee.';
-        }
-        if ($row['responsibility_code'] !== '' && !$rc) {
-            $row['errors'][] = 'Unknown RC.';
-        }
 
         try {
+            $office = cli_find_or_create_office($db, $maps, $row['office'], $userId);
+            $supplier = cli_find_or_create_supplier($db, $maps, $row['supplier'], $userId);
+            $fund = cli_find_or_create_fund($db, $maps, $row['fund'], $userId);
+            $officeIdSeed = $office ? (int) ($office['id'] ?? 0) : 0;
+            $rc = cli_find_or_create_rc($db, $maps, $row['responsibility_code'], $officeIdSeed > 0 ? $officeIdSeed : null, $userId);
+            $rcIdSeed = $rc ? (int) ($rc['id'] ?? 0) : 0;
+            $employee = cli_find_or_create_employee($db, $maps, $row['employee'], $officeIdSeed > 0 ? $officeIdSeed : null, $rcIdSeed > 0 ? $rcIdSeed : null, $userId);
             $classification = cli_find_or_create_classification($db, $maps, $row['classification'], $row['item_type'], isset($account['id']) ? (int) $account['id'] : null, $userId);
             $brand = cli_find_or_create_brand($db, $maps, $row['brand'], $userId);
             $brandId = isset($brand['id']) ? (int) $brand['id'] : null;
@@ -461,6 +1099,10 @@ try {
             }
         } catch (Throwable $e) {
             $row['errors'][] = $e->getMessage();
+        }
+
+        if ($row['office'] !== '' && !$office) {
+            $row['errors'][] = 'Unknown office.';
         }
 
         if (!$office && $employee && !empty($employee['office_id'])) {
@@ -480,30 +1122,32 @@ try {
             }
         }
 
-        if ($employee && $office && (int) ($employee['office_id'] ?? 0) !== (int) $office['id']) {
-            $row['errors'][] = 'Employee does not belong to office.';
-        }
-        if ($rc && $office && (int) ($rc['office_id'] ?? 0) !== (int) $office['id']) {
-            $row['errors'][] = 'RC does not belong to office.';
-        }
-
-        $dup = $row['property_number'] !== '' ? $db->prepare("SELECT id FROM legacy_assets WHERE property_number = ? LIMIT 1") : null;
-        if ($dup) {
-            $dup->bind_param('s', $row['property_number']);
-            $dup->execute();
-            if ($dup->get_result()->fetch_assoc()) {
-                $row['errors'][] = 'Property number already exists.';
-            }
-            $dup->close();
-        }
-
         if ($row['errors']) {
             $skipped++;
             $failures[] = 'Row ' . $row['source_row'] . ': ' . implode(' ', $row['errors']);
             continue;
         }
 
-        $systemReference = next_module_code($db, 'stock_items');
+        $yearValue = date('Y');
+        if ($row['acquisition_date'] !== '') {
+            $timestamp = strtotime($row['acquisition_date']);
+            if ($timestamp !== false) {
+                $yearValue = date('Y', $timestamp);
+            }
+        }
+        $fundCode = trim((string) ($fund['fund_code'] ?? ''));
+        $fundSource = trim((string) ($fund['fund_source'] ?? ''));
+        $fundNumber = fund_number_from_source($fundCode, $fundSource);
+        if ($fundNumber === '') {
+            $fundNumber = $fundCode;
+        }
+        $accountCode = trim((string) ($account['account_code'] ?? $row['account_code']));
+        $officeCode = trim((string) ($office['office_code'] ?? ''));
+
+        $row['property_number'] = generate_property_number($db, $yearValue, $fundNumber, $accountCode, $officeCode);
+        $row['po_number'] = cli_resolve_po_number($row['po_number'], $row['property_number']);
+
+        $systemReference = $row['system_reference_input'] !== '' ? $row['system_reference_input'] : next_module_code($db, 'stock_items');
         $qty = (int) $row['quantity'];
         $unitCost = (float) $row['unit_cost'];
         $totalCost = round($qty * $unitCost, 2);
@@ -518,6 +1162,43 @@ try {
         $rcId = $rc['id'] ?? null;
         $brandName = $brand['brand_name'] ?? $row['brand'];
         $modelName = $model['model_name'] ?? $row['model'];
+
+        $existingId = cli_find_existing_legacy_asset_id($db, (int) $row['legacy_id'], $row['system_reference_input'], $sourcePropertyNumber);
+        if ($existingId > 0) {
+            $update->bind_param(
+                'ssssiiiiiissssiddiiissi',
+                $row['po_number'],
+                $row['property_number'],
+                $row['item_type'],
+                $row['item_description'],
+                $classificationId,
+                $accountCodeId,
+                $fundId,
+                $supplierId,
+                $brandId,
+                $modelId,
+                $brandName,
+                $modelName,
+                $row['serial_no'],
+                $row['acquisition_date'],
+                $qty,
+                $unitCost,
+                $totalCost,
+                $officeId,
+                $employeeId,
+                $rcId,
+                $row['condition_status'],
+                $row['remarks'],
+                $existingId
+            );
+
+            if (!$update->execute()) {
+                throw new RuntimeException('Failed to update row ' . $row['source_row'] . ': ' . $update->error);
+            }
+
+            $updated++;
+            continue;
+        }
 
         $insert->bind_param(
             'sssssiiiiissssidddiiissi',
@@ -556,6 +1237,7 @@ try {
 
     $db->commit();
     cli_out('Inserted: ' . $inserted);
+    cli_out('Updated: ' . $updated);
     cli_out('Skipped: ' . $skipped);
     if ($failures) {
         cli_out('Failures:');
@@ -565,10 +1247,12 @@ try {
     }
 } catch (Throwable $e) {
     $db->rollback();
+    $update->close();
     $insert->close();
     fwrite(STDERR, $e->getMessage() . PHP_EOL);
     exit(1);
 }
 
+$update->close();
 $insert->close();
 exit(0);

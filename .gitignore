@@ -18,6 +18,63 @@ tmp_*.php
 tmp_scan_output.html
 cookies.txt
 
+# Local one-off migration/reconciliation scripts (root only)
+/analyze_*.php
+/add_*.php
+/apply_*.php
+/audit_*.php
+/auto_assign_*.php
+/build_*.php
+/bulk_*.php
+/check_*.php
+/cleanup_*.php
+/consolidate_*.php
+/correct_*.php
+/count_*.php
+/create_combined_*.php
+/debug_*.php
+/delete_*.php
+/diagnose_*.php
+/export_*.php
+/final_reconciliation_report.php
+/find_*.php
+/fix_*.php
+/investigate_*.php
+/list_*.php
+/match_*.php
+/merge_*.php
+/normalize_*.php
+/post_merge_*.php
+/reappend_*.php
+/regenerate_*.php
+/report_*.php
+/rescan_*.php
+/sample_*.php
+/scan_*.php
+/show_*.php
+/strip_*.php
+/summarize_*.php
+/sync_*.php
+/validate_*.php
+
+# Local generated migration outputs (root only)
+/fund_overlap_candidates.csv
+/fuzzy_office_rc_candidates.csv
+/legacy_*.csv
+/preexisting_spmu_*.csv
+/reconciliation_*.csv
+/rpcppe_*.csv
+/spmu_*.csv
+/output.txt
+
+# Local uploaded workbooks/inbox files
+/uploads/*.xlsx
+/uploads/legacy_import_inbox/
+
+# Local backup automation helpers
+/scripts/backup_database.php
+/scripts/backup_database.ps1
+
 # Android signing secrets/artifacts
 android/key.properties
 android/keystore/*.jks
