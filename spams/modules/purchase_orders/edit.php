@@ -543,9 +543,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div>
                 <?php endif; ?>
 
-                <form id="purchaseOrderForm" method="post" action="<?php echo base_url('modules/purchase_orders/edit.php?id=' . $id); ?>">
+                <form id="purchaseOrderForm" method="post" action="<?php echo base_url('modules/purchase_orders/edit.php?id=' . $id); ?>" data-submit-loading="1">
                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                     <input type="hidden" name="action" value="update">
+                    <div id="purchaseOrderFormSummary" class="alert alert-danger d-none mb-3" role="alert" aria-live="polite"></div>
 
                     <div class="row g-3">
                         <div class="col-md-4">
@@ -1119,6 +1120,49 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function upsertUom(u) { if (!u || !u.id) return; var idx = -1; for (var i = 0; i < units.length; i++) { if (String(units[i].id) === String(u.id)) { idx = i; break; } } if (idx >= 0) { units[idx] = Object.assign({}, units[idx], u); } else { units.push(u); } units.sort(function(a, b) { return (a.uom_name || '').localeCompare(b.uom_name || ''); }); }
 
+    function showQuickAddError(errorId, message) { var errorEl = document.getElementById(errorId); if (!errorEl) return; errorEl.textContent = message || ''; errorEl.style.display = message ? '' : 'none'; }
+    function clearQuickAddError(errorId) { showQuickAddError(errorId, ''); }
+
+    function bindQuickAddModal(config) {
+        var modalEl = document.getElementById(config.modalId);
+        var saveBtn = document.getElementById(config.saveBtnId);
+        if (!modalEl || !saveBtn) return;
+
+        modalEl.addEventListener('show.bs.modal', function () {
+            clearQuickAddError(config.errorId);
+            if (typeof config.onShow === 'function') {
+                config.onShow();
+            }
+        });
+
+        saveBtn.addEventListener('click', async function () {
+            clearQuickAddError(config.errorId);
+            var payload = typeof config.buildPayload === 'function' ? config.buildPayload() : null;
+            if (!payload) {
+                showQuickAddError(config.errorId, 'Please complete required fields.');
+                return;
+            }
+
+            saveBtn.disabled = true;
+            try {
+                var response = await fetch(config.endpoint, { method: 'POST', body: payload });
+                var result = await response.json();
+                if (!response.ok || !result.ok) {
+                    throw new Error(result.error || 'Unable to save item.');
+                }
+                if (typeof config.onSuccess === 'function') {
+                    config.onSuccess(result);
+                }
+                var modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            } catch (err) {
+                showQuickAddError(config.errorId, err.message || 'Unable to save item.');
+            } finally {
+                saveBtn.disabled = false;
+            }
+        });
+    }
+
     function seedClassificationQuickAdd() { var line = (activeIndex >= 0 && activeIndex < poLines.length) ? poLines[activeIndex] : null; var itemType = line ? (line.item_type || 'supply') : 'supply'; if (el.quickClassificationType) { el.quickClassificationType.value = typeLabel(itemType); el.quickClassificationType.setAttribute('data-item-type', itemType); } if (el.quickClassificationName) el.quickClassificationName.value = ''; if (el.quickClassificationFamily) el.quickClassificationFamily.value = itemType === 'supply' ? 'Office Supplies' : ''; if (el.quickClassificationDescription) el.quickClassificationDescription.value = ''; if (el.quickClassificationUsefulLife) el.quickClassificationUsefulLife.value = itemType === 'supply' ? '' : '3'; rebuildClassificationQuickAddAccountCodes(itemType, line ? line.account_code_id : ''); showClassificationQuickAddError(''); }
     function escapeHtml(s) { return String(s || '').replace(/[&<>\"]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c];}); }
 
@@ -1130,7 +1174,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function updateEditorAmount() { var q = parseFloat(el.editorQty.value || 0) || 0; var c = parseFloat(el.editorUnitCost.value || 0) || 0; el.editorAmount.textContent = formatNumber(Math.round(q * c * 100) / 100); }
 
-    function deleteLine(idx) { if (isPartialMode && poLines[idx] && poLines[idx].is_existing) { alert('Existing items cannot be removed. Only new items added in this session can be deleted.'); return; } if (poLines.length <= 1) { alert('At least one line is required.'); return; } poLines.splice(idx,1); poLines.forEach(function(l,i){ l.index = i; }); var nextIndex = Math.min(idx, poLines.length-1); renderLineList(); loadLineEditor(nextIndex); }
+    function deleteLine(idx) { if (isPartialMode && poLines[idx] && poLines[idx].is_existing) { showFormSummary('Existing items cannot be removed. Only new items added in this session can be deleted.'); return; } if (poLines.length <= 1) { showFormSummary('At least one line is required.'); return; } poLines.splice(idx,1); poLines.forEach(function(l,i){ l.index = i; }); var nextIndex = Math.min(idx, poLines.length-1); renderLineList(); loadLineEditor(nextIndex); }
 
     function buildHiddenInputs() { var container = el.poHiddenInputs; if (!container) return; container.innerHTML = ''; poLines.forEach(function(ln,i){ var fields = { item_type: ln.item_type, semi_expendable_type: ln.semi_expendable_type, stock_catalog_id: ln.stock_catalog_id, account_code_id: ln.account_code_id, classification_id: ln.classification_id, item_description: ln.item_description, quantity: ln.quantity, unit_of_measure_id: ln.unit_of_measure_id, unit_cost: ln.unit_cost, is_existing: ln.is_existing ? '1' : '0' }; Object.keys(fields).forEach(function(k){ var inp = document.createElement('input'); inp.type='hidden'; inp.name='items['+i+']['+k+']'; inp.value = fields[k] || ''; container.appendChild(inp); }); }); }
 
@@ -1220,38 +1264,35 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (el.openClassificationQuickAdd) { el.openClassificationQuickAdd.addEventListener('click', function() { seedClassificationQuickAdd(); if (classificationQuickAddModal) classificationQuickAddModal.show(); }); }
 
-    if (el.saveClassificationQuickAdd) {
-        el.saveClassificationQuickAdd.addEventListener('click', async function() {
+    bindQuickAddModal({
+        modalId: 'classificationQuickAddModal',
+        saveBtnId: 'saveClassificationQuickAdd',
+        errorId: 'classificationQuickAddError',
+        endpoint: '<?php echo base_url('modules/purchase_orders/classification_quick_add.php'); ?>',
+        buildPayload: function () {
             var itemType = el.quickClassificationType ? (el.quickClassificationType.getAttribute('data-item-type') || 'supply') : 'supply';
+            var classificationName = el.quickClassificationName ? el.quickClassificationName.value.trim() : '';
+            if (classificationName === '') return null;
             var payload = new FormData();
             payload.append('_csrf', <?php echo json_encode(csrf_token(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>);
             payload.append('item_type', itemType);
-            payload.append('classification_name', el.quickClassificationName ? el.quickClassificationName.value.trim() : '');
+            payload.append('classification_name', classificationName);
             payload.append('classification_family', el.quickClassificationFamily ? el.quickClassificationFamily.value.trim() : '');
             payload.append('account_code_id', el.quickClassificationAccountCode ? (el.quickClassificationAccountCode.value || '') : '');
             payload.append('useful_life_years', el.quickClassificationUsefulLife ? (el.quickClassificationUsefulLife.value || '') : '');
             payload.append('description', el.quickClassificationDescription ? el.quickClassificationDescription.value.trim() : '');
-            showClassificationQuickAddError('');
-            el.saveClassificationQuickAdd.disabled = true;
-            try {
-                var response = await fetch('<?php echo base_url('modules/purchase_orders/classification_quick_add.php'); ?>', { method: 'POST', body: payload });
-                var result = await response.json();
-                if (!response.ok || !result.ok) { throw new Error(result.error || 'Unable to save classification.'); }
-                upsertClassification(result.classification);
-                if (activeIndex >= 0 && activeIndex < poLines.length) {
-                    poLines[activeIndex].classification_id = String(result.classification.id);
-                    rebuildClassificationSelect(poLines[activeIndex].item_type, result.classification.id);
-                    if (window.jQuery && jQuery.fn.select2) { window.jQuery(el.editorClassification).val(String(result.classification.id)).trigger('change'); }
-                    else if (el.editorClassification) { el.editorClassification.value = String(result.classification.id); }
-                }
-                if (classificationQuickAddModal) classificationQuickAddModal.hide();
-            } catch (err) {
-                showClassificationQuickAddError(err.message || 'Unable to save classification.');
-            } finally {
-                el.saveClassificationQuickAdd.disabled = false;
+            return payload;
+        },
+        onSuccess: function (result) {
+            upsertClassification(result.classification);
+            if (activeIndex >= 0 && activeIndex < poLines.length) {
+                poLines[activeIndex].classification_id = String(result.classification.id);
+                rebuildClassificationSelect(poLines[activeIndex].item_type, result.classification.id);
+                if (window.jQuery && jQuery.fn.select2) { window.jQuery(el.editorClassification).val(String(result.classification.id)).trigger('change'); }
+                else if (el.editorClassification) { el.editorClassification.value = String(result.classification.id); }
             }
-        });
-    }
+        }
+    });
 
     function showAccountCodeQuickAddError(message) { if (!el.accountCodeQuickAddError) return; el.accountCodeQuickAddError.textContent = message || ''; el.accountCodeQuickAddError.style.display = message ? '' : 'none'; }
     function showUomQuickAddError(message) { if (!el.uomQuickAddError) return; el.uomQuickAddError.textContent = message || ''; el.uomQuickAddError.style.display = message ? '' : 'none'; }
@@ -1261,68 +1302,148 @@ document.addEventListener('DOMContentLoaded', function () {
     if (el.openAccountCodeQuickAdd) { el.openAccountCodeQuickAdd.addEventListener('click', function() { seedAccountCodeQuickAdd(); if (accountCodeQuickAddModal) accountCodeQuickAddModal.show(); }); }
     if (el.openUomQuickAdd) { el.openUomQuickAdd.addEventListener('click', function() { seedUomQuickAdd(); if (uomQuickAddModal) uomQuickAddModal.show(); }); }
 
-    if (el.saveAccountCodeQuickAdd) {
-        el.saveAccountCodeQuickAdd.addEventListener('click', async function() {
+    bindQuickAddModal({
+        modalId: 'accountCodeQuickAddModal',
+        saveBtnId: 'saveAccountCodeQuickAdd',
+        errorId: 'accountCodeQuickAddError',
+        endpoint: '<?php echo base_url('modules/purchase_orders/po_masterdata_quickadd.php'); ?>',
+        buildPayload: function () {
+            var accountCode = el.quickAccountCode ? el.quickAccountCode.value.trim() : '';
+            var accountName = el.quickAccountName ? el.quickAccountName.value.trim() : '';
+            if (accountCode === '' || accountName === '') return null;
             var payload = new FormData();
             payload.append('_csrf', <?php echo json_encode(csrf_token(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>);
             payload.append('action', 'add_account_code');
-            payload.append('account_code', el.quickAccountCode ? el.quickAccountCode.value.trim() : '');
-            payload.append('account_name', el.quickAccountName ? el.quickAccountName.value.trim() : '');
+            payload.append('account_code', accountCode);
+            payload.append('account_name', accountName);
             payload.append('account_group', el.quickAccountCodeGroup ? el.quickAccountCodeGroup.value : 'supply');
-            showAccountCodeQuickAddError('');
-            el.saveAccountCodeQuickAdd.disabled = true;
-            try {
-                var response = await fetch('<?php echo base_url('modules/purchase_orders/po_masterdata_quickadd.php'); ?>', { method: 'POST', body: payload });
-                var result = await response.json();
-                if (!response.ok || !result.ok) throw new Error(result.error || 'Unable to save account code.');
-                upsertAccountCode(result.account_code);
-                if (activeIndex >= 0 && activeIndex < poLines.length) {
-                    poLines[activeIndex].account_code_id = String(result.account_code.id);
-                    rebuildAccountCodeSelect(poLines[activeIndex].item_type, result.account_code.id);
-                    if (window.jQuery && jQuery.fn.select2) { window.jQuery(el.editorAccountCode).val(String(result.account_code.id)).trigger('change'); }
-                    else if (el.editorAccountCode) { el.editorAccountCode.value = String(result.account_code.id); }
-                }
-                if (el.quickClassificationType) { rebuildClassificationQuickAddAccountCodes(el.quickClassificationType.getAttribute('data-item-type') || 'supply', ''); }
-                if (accountCodeQuickAddModal) accountCodeQuickAddModal.hide();
-            } catch (err) {
-                showAccountCodeQuickAddError(err.message || 'Unable to save account code.');
-            } finally {
-                el.saveAccountCodeQuickAdd.disabled = false;
+            return payload;
+        },
+        onSuccess: function (result) {
+            upsertAccountCode(result.account_code);
+            if (activeIndex >= 0 && activeIndex < poLines.length) {
+                poLines[activeIndex].account_code_id = String(result.account_code.id);
+                rebuildAccountCodeSelect(poLines[activeIndex].item_type, result.account_code.id);
+                if (window.jQuery && jQuery.fn.select2) { window.jQuery(el.editorAccountCode).val(String(result.account_code.id)).trigger('change'); }
+                else if (el.editorAccountCode) { el.editorAccountCode.value = String(result.account_code.id); }
             }
-        });
-    }
+            if (el.quickClassificationType) { rebuildClassificationQuickAddAccountCodes(el.quickClassificationType.getAttribute('data-item-type') || 'supply', ''); }
+        }
+    });
 
-    if (el.saveUomQuickAdd) {
-        el.saveUomQuickAdd.addEventListener('click', async function() {
+    bindQuickAddModal({
+        modalId: 'uomQuickAddModal',
+        saveBtnId: 'saveUomQuickAdd',
+        errorId: 'uomQuickAddError',
+        endpoint: '<?php echo base_url('modules/purchase_orders/po_masterdata_quickadd.php'); ?>',
+        buildPayload: function () {
+            var uomName = el.quickUomName ? el.quickUomName.value.trim() : '';
+            var abbreviation = el.quickUomAbbreviation ? el.quickUomAbbreviation.value.trim() : '';
+            if (uomName === '' || abbreviation === '') return null;
             var payload = new FormData();
             payload.append('_csrf', <?php echo json_encode(csrf_token(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>);
             payload.append('action', 'add_uom');
-            payload.append('uom_name', el.quickUomName ? el.quickUomName.value.trim() : '');
-            payload.append('abbreviation', el.quickUomAbbreviation ? el.quickUomAbbreviation.value.trim() : '');
-            showUomQuickAddError('');
-            el.saveUomQuickAdd.disabled = true;
-            try {
-                var response = await fetch('<?php echo base_url('modules/purchase_orders/po_masterdata_quickadd.php'); ?>', { method: 'POST', body: payload });
-                var result = await response.json();
-                if (!response.ok || !result.ok) throw new Error(result.error || 'Unable to save unit.');
-                upsertUom(result.uom);
-                if (activeIndex >= 0 && activeIndex < poLines.length) {
-                    poLines[activeIndex].unit_of_measure_id = String(result.uom.id);
-                    rebuildUomSelect(result.uom.id);
-                    if (window.jQuery && jQuery.fn.select2) { window.jQuery(el.editorUom).val(String(result.uom.id)).trigger('change'); }
-                    else if (el.editorUom) { el.editorUom.value = String(result.uom.id); }
-                }
-                if (uomQuickAddModal) uomQuickAddModal.hide();
-            } catch (err) {
-                showUomQuickAddError(err.message || 'Unable to save unit.');
-            } finally {
-                el.saveUomQuickAdd.disabled = false;
+            payload.append('uom_name', uomName);
+            payload.append('abbreviation', abbreviation);
+            return payload;
+        },
+        onSuccess: function (result) {
+            upsertUom(result.uom);
+            if (activeIndex >= 0 && activeIndex < poLines.length) {
+                poLines[activeIndex].unit_of_measure_id = String(result.uom.id);
+                rebuildUomSelect(result.uom.id);
+                if (window.jQuery && jQuery.fn.select2) { window.jQuery(el.editorUom).val(String(result.uom.id)).trigger('change'); }
+                else if (el.editorUom) { el.editorUom.value = String(result.uom.id); }
             }
+        }
+    });
+
+    var form = document.getElementById('purchaseOrderForm');
+    var formSummary = document.getElementById('purchaseOrderFormSummary');
+
+    function showFormSummary(message) {
+        if (!formSummary) {
+            console.warn(message);
+            return;
+        }
+        formSummary.textContent = message;
+        formSummary.classList.remove('d-none');
+        formSummary.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function clearFormSummary() {
+        if (!formSummary) return;
+        formSummary.textContent = '';
+        formSummary.classList.add('d-none');
+    }
+
+    function resetFormValidationState() {
+        if (!form) return;
+        clearFormSummary();
+        form.classList.remove('was-validated');
+        form.removeAttribute('data-show-required-summary');
+        Array.from(form.querySelectorAll('.is-invalid, .is-valid')).forEach(function (field) {
+            field.classList.remove('is-invalid', 'is-valid');
         });
     }
 
-    var form = document.getElementById('purchaseOrderForm');
-    if (form) { form.addEventListener('submit', function(e) { saveCurrentLine(); buildHiddenInputs(); if (poLines.length === 0) { e.preventDefault(); alert('Please add at least one PO line before saving.'); return; } var emptyLines = poLines.filter(function(ln) { return !ln.is_existing && (!ln.item_description || ln.item_description.trim() === ''); }); if (emptyLines.length > 0) { e.preventDefault(); alert('Line ' + (emptyLines[0].index + 1) + ' has no description. Please fill in all lines before saving.'); loadLineEditor(emptyLines[0].index); return; } var missingCatalogLine = poLines.find(function(ln) { return !ln.is_existing && lineUsesCatalog(ln) && (!ln.stock_catalog_id || String(ln.stock_catalog_id).trim() === ''); }); if (missingCatalogLine) { e.preventDefault(); alert('Supply line ' + (missingCatalogLine.index + 1) + ' must be selected from the stock catalog before saving.'); loadLineEditor(missingCatalogLine.index); return; } var documentTotalInput = document.getElementById('document_total_amount'); var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : ''; if (documentTotalRaw !== '') { var documentTotal = parseFloat(documentTotalRaw); var lineTotal = poLines.reduce(function(acc, ln) { return acc + (parseFloat(ln.line_total || 0) || 0); }, 0); if (isNaN(documentTotal)) { e.preventDefault(); alert('PO hard copy total must be a valid amount.'); documentTotalInput && documentTotalInput.focus(); return; } if (Math.abs(lineTotal - documentTotal) > 0.009) { e.preventDefault(); alert('Encoded line total (' + formatNumber(lineTotal) + ') does not match the hard copy PO total (' + formatNumber(documentTotal) + ').'); documentTotalInput && documentTotalInput.focus(); return; } } }); }
+    resetFormValidationState();
+    window.addEventListener('pageshow', function () {
+        resetFormValidationState();
+    });
+
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            saveCurrentLine();
+            buildHiddenInputs();
+            clearFormSummary();
+
+            if (poLines.length === 0) {
+                e.preventDefault();
+                showFormSummary('Please add at least one PO line before saving.');
+                return;
+            }
+
+            var emptyLines = poLines.filter(function(ln) {
+                return !ln.is_existing && (!ln.item_description || ln.item_description.trim() === '');
+            });
+            if (emptyLines.length > 0) {
+                e.preventDefault();
+                showFormSummary('Line ' + (emptyLines[0].index + 1) + ' has no description. Please fill in all lines before saving.');
+                loadLineEditor(emptyLines[0].index);
+                return;
+            }
+
+            var missingCatalogLine = poLines.find(function(ln) {
+                return !ln.is_existing && lineUsesCatalog(ln) && (!ln.stock_catalog_id || String(ln.stock_catalog_id).trim() === '');
+            });
+            if (missingCatalogLine) {
+                e.preventDefault();
+                showFormSummary('Supply line ' + (missingCatalogLine.index + 1) + ' must be selected from the stock catalog before saving.');
+                loadLineEditor(missingCatalogLine.index);
+                return;
+            }
+
+            var documentTotalInput = document.getElementById('document_total_amount');
+            var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : '';
+            if (documentTotalRaw !== '') {
+                var documentTotal = parseFloat(documentTotalRaw);
+                var lineTotal = poLines.reduce(function(acc, ln) { return acc + (parseFloat(ln.line_total || 0) || 0); }, 0);
+                if (isNaN(documentTotal)) {
+                    e.preventDefault();
+                    showFormSummary('PO hard copy total must be a valid amount.');
+                    documentTotalInput && documentTotalInput.focus();
+                    return;
+                }
+                if (Math.abs(lineTotal - documentTotal) > 0.009) {
+                    e.preventDefault();
+                    showFormSummary('Encoded line total (' + formatNumber(lineTotal) + ') does not match the hard copy PO total (' + formatNumber(documentTotal) + ').');
+                    documentTotalInput && documentTotalInput.focus();
+                    return;
+                }
+            }
+        });
+    }
     var documentTotalInput = document.getElementById('document_total_amount');
     if (documentTotalInput) { documentTotalInput.addEventListener('input', updateGrandTotal); }
     if (typeof poLinesFromPhp !== 'undefined' && poLinesFromPhp.length > 0) { poLines = poLinesFromPhp.slice(); renderLineList(); loadLineEditor(0); } else if (poLines.length === 0) { addLine('supply'); }

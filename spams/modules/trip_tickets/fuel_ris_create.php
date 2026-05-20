@@ -432,8 +432,8 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $vehicleName = $vehicle ? (string) ($vehicle['vehicle_name'] ?? '') : '';
             $fuelType = $form['fuel_type'] !== '' ? $form['fuel_type'] : ($vehicle['fuel_type'] ?? 'Diesel');
             $unit = $form['unit'] !== '' ? $form['unit'] : 'Liter';
-            $litersPurchased = $quantity;
-            $litersConsumed = 0.0;
+            $litersPurchased = 0.0;
+            $litersConsumed = $quantity;
             $stationName = $gasStation ? (string) ($gasStation['station_name'] ?? $form['station_name']) : $form['station_name'];
             $userId = current_user_id();
 
@@ -550,9 +550,9 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'import') {
         $upload = $_FILES['import_file'] ?? null;
-        $quantityMode = trim((string) ($_POST['import_quantity_mode'] ?? 'purchased'));
+        $quantityMode = trim((string) ($_POST['import_quantity_mode'] ?? 'consumed'));
         if (!in_array($quantityMode, ['purchased', 'consumed'], true)) {
-            $quantityMode = 'purchased';
+            $quantityMode = 'consumed';
         }
         if (!$upload || !isset($upload['tmp_name']) || (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             $errors[] = 'Please upload a CSV or XLSX file to import.';
@@ -630,10 +630,10 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $quantityLiters = fr_parse_decimal($rawQuantity) ?? 0.0;
 
                                 if ($quantityLiters > 0) {
-                                    if ($quantityMode === 'consumed' && $litersConsumed <= 0) {
+                                    if ($quantityMode === 'consumed') {
+                                        $litersPurchased = 0.0;
                                         $litersConsumed = $quantityLiters;
-                                    }
-                                    if ($quantityMode === 'purchased' && $litersPurchased <= 0) {
+                                    } elseif ($litersPurchased <= 0) {
                                         $litersPurchased = $quantityLiters;
                                     }
                                 }
@@ -890,23 +890,24 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </button>
                     </div>
 
-                    <form method="post" class="row g-3">
+                    <form method="post" class="row g-3" id="fuel-ris-entry-form" data-submit-loading="1">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
+                        <div id="fuelRisFormSummary" class="alert alert-danger d-none mb-0" role="alert" aria-live="polite"></div>
 
                         <div class="col-md-6">
                             <label class="form-label">RIS Date</label>
-                            <input type="date" name="ris_date" class="form-control" required value="<?php echo h($form['ris_date']); ?>">
+                            <input type="date" name="ris_date" id="ris_date" class="form-control" required value="<?php echo h($form['ris_date']); ?>">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">RIS No.</label>
-                            <input type="text" name="ris_no" class="form-control" required value="<?php echo h($form['ris_no']); ?>" placeholder="RIS-2026-05-0001">
+                            <input type="text" name="ris_no" id="ris_no" class="form-control" required value="<?php echo h($form['ris_no']); ?>" placeholder="RIS-2026-05-0001">
                         </div>
 
                         <div class="col-12">
                             <label class="form-label">Gasoline Station</label>
                             <div class="d-flex gap-2 mb-2">
-                                <select name="gas_station_id" class="form-select">
+                                <select name="gas_station_id" id="gas_station_id" class="form-select">
                                     <option value="">Select from saved stations</option>
                                     <?php foreach ($gasStations as $station): ?>
                                         <option value="<?php echo (int) $station['id']; ?>" <?php echo (string) $station['id'] === (string) $form['gas_station_id'] ? 'selected' : ''; ?>>
@@ -916,12 +917,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 </select>
                                 <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#fuel-ris-add-station-modal">Add</button>
                             </div>
-                            <input type="text" name="station_name" class="form-control" value="<?php echo h($form['station_name']); ?>" placeholder="Or type a new station name">
+                            <input type="text" name="station_name" id="station_name" class="form-control" value="<?php echo h($form['station_name']); ?>" placeholder="Or type a new station name">
                         </div>
 
                         <div class="col-12">
                             <label class="form-label">Vehicle (optional)</label>
-                            <select name="vehicle_id" class="form-select">
+                            <select name="vehicle_id" id="vehicle_id" class="form-select">
                                 <option value="">Not linked to vehicle</option>
                                 <?php foreach ($vehicles as $vehicle): ?>
                                     <option value="<?php echo (int) $vehicle['id']; ?>" <?php echo (string) $vehicle['id'] === (string) $form['vehicle_id'] ? 'selected' : ''; ?>>
@@ -933,24 +934,24 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                         <div class="col-md-4">
                             <label class="form-label">Type</label>
-                            <input type="text" name="fuel_type" class="form-control" value="<?php echo h($form['fuel_type']); ?>" placeholder="Diesel">
+                            <input type="text" name="fuel_type" id="fuel_type" class="form-control" value="<?php echo h($form['fuel_type']); ?>" placeholder="Diesel">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Unit</label>
-                            <input type="text" name="unit" class="form-control" value="<?php echo h($form['unit']); ?>" placeholder="Liter">
+                            <input type="text" name="unit" id="unit" class="form-control" value="<?php echo h($form['unit']); ?>" placeholder="Liter">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Quantity</label>
-                            <input type="number" step="0.01" min="0" name="quantity" class="form-control" value="<?php echo h($form['quantity']); ?>" placeholder="0.00" required>
+                            <input type="number" step="0.01" min="0" name="quantity" id="quantity" class="form-control" value="<?php echo h($form['quantity']); ?>" placeholder="0.00" required>
                         </div>
 
                         <div class="col-md-6">
                             <label class="form-label">Purpose</label>
-                            <textarea name="purpose" class="form-control" rows="2" placeholder="Purpose from RIS"><?php echo h($form['purpose']); ?></textarea>
+                            <textarea name="purpose" id="purpose" class="form-control" rows="2" placeholder="Purpose from RIS"><?php echo h($form['purpose']); ?></textarea>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Driver</label>
-                            <select name="driver_name" class="form-select">
+                            <select name="driver_name" id="driver_name" class="form-select">
                                 <option value="">Select driver</option>
                                 <?php foreach ($driverEmployees as $driverEmployee): ?>
                                     <?php $driverName = employee_display_name($driverEmployee); ?>
@@ -966,16 +967,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                         <div class="col-md-6">
                             <label class="form-label">Amount</label>
-                            <input type="number" step="0.01" min="0" name="amount" class="form-control" value="<?php echo h($form['amount']); ?>" placeholder="0.00">
+                            <input type="number" step="0.01" min="0" name="amount" id="amount" class="form-control" value="<?php echo h($form['amount']); ?>" placeholder="0.00">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Odometer Reading</label>
-                            <input type="number" step="0.01" min="0" name="odometer_reading" class="form-control" value="<?php echo h($form['odometer_reading']); ?>" placeholder="0.00">
+                            <input type="number" step="0.01" min="0" name="odometer_reading" id="odometer_reading" class="form-control" value="<?php echo h($form['odometer_reading']); ?>" placeholder="0.00">
                         </div>
 
                         <div class="col-12">
                             <label class="form-label">Remarks</label>
-                            <textarea name="remarks" class="form-control" rows="2" placeholder="Optional notes"><?php echo h($form['remarks']); ?></textarea>
+                            <textarea name="remarks" id="remarks" class="form-control" rows="2" placeholder="Optional notes"><?php echo h($form['remarks']); ?></textarea>
                         </div>
 
                         <div class="col-12 d-grid d-md-flex justify-content-md-end">
@@ -998,8 +999,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <input type="hidden" name="action" value="import">
                         <label class="form-label mb-0">If the file has a <strong>Quantity</strong> column, treat it as:</label>
                         <select name="import_quantity_mode" class="form-select">
-                            <option value="purchased" selected>Liters Purchased</option>
-                            <option value="consumed">Liters Consumed</option>
+                            <option value="consumed" selected>Liters Consumed</option>
+                            <option value="purchased">Liters Purchased</option>
                         </select>
                         <input type="file" name="import_file" class="form-control" accept=".csv,.xlsx" required>
                         <button type="submit" class="btn btn-outline-primary">
@@ -1047,6 +1048,29 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('fuel-ris-entry-form');
+    var summary = document.getElementById('fuelRisFormSummary');
+
+    if (!form || !summary || !window.SPAMS || typeof window.SPAMS.setupRequiredSummaryValidation !== 'function') {
+        return;
+    }
+
+    window.SPAMS.setupRequiredSummaryValidation({
+        form: form,
+        summary: summary,
+        summaryPrefix: 'Please complete required fields: ',
+        requiredFields: [
+            { id: 'ris_date', label: 'RIS Date' },
+            { id: 'ris_no', label: 'RIS No.' },
+            { id: 'fuel_type', label: 'Type' },
+            { id: 'quantity', label: 'Quantity' }
+        ]
+    });
+});
+</script>
 
 <style>
 .fuel-ris-workspace .metric-card {

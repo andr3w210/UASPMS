@@ -2542,6 +2542,36 @@ body.auth-login-page .footer {
     }
 
     body.toggle-sidebar {
+
+    .asset-registry-table-frame .asset-col-primary {
+        background: var(--bs-body-bg);
+        box-shadow: 8px 0 10px -10px rgba(15, 23, 42, 0.35);
+        left: 0;
+        position: sticky;
+        z-index: 2;
+    }
+
+    .asset-registry-table-frame thead .asset-col-primary {
+        z-index: 3;
+    }
+
+    .po-document .table-responsive {
+        -webkit-overflow-scrolling: touch;
+        overflow-x: auto;
+    }
+
+    .po-items-table .po-col-stock {
+        background: #ffffff;
+        box-shadow: 8px 0 10px -10px rgba(15, 23, 42, 0.35);
+        left: 0;
+        position: sticky;
+        z-index: 2;
+    }
+
+    .po-items-table thead .po-col-stock {
+        background: #f8fafc;
+        z-index: 3;
+    }
         overflow: hidden;
     }
 

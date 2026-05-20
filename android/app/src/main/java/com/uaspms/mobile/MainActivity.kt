@@ -24,6 +24,10 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import java.io.File
 import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URI
+import java.net.URL
+import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -36,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var cameraImageUri: Uri? = null
     private var currentBaseUrlIndex = 0
+    private var resolvedBaseUrls: List<String> = emptyList()
 
     private lateinit var fileChooserLauncher: ActivityResultLauncher<Intent>
 
@@ -221,9 +226,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadHome() {
-        val urls = availableBaseUrls()
-        currentBaseUrlIndex = 0
-        webView.loadUrl(urls[currentBaseUrlIndex])
+        val fallbackUrls = prioritizedUrls(
+            listOf(
+                BuildConfig.BASE_URL,
+                BuildConfig.TAILSCALE_IP_BASE_URL,
+                BuildConfig.LAN_BASE_URL,
+                BuildConfig.LOCAL_BASE_URL
+            )
+        )
+
+        Thread {
+            val syncedUrls = fetchServerConfiguredUrls(fallbackUrls)
+            val urlsToUse = syncedUrls ?: fallbackUrls
+            runOnUiThread {
+                resolvedBaseUrls = urlsToUse
+                currentBaseUrlIndex = 0
+                val homeUrl = resolvedBaseUrls.getOrElse(0) { BuildConfig.BASE_URL }
+                webView.loadUrl(homeUrl)
+            }
+        }.start()
     }
 
     private fun tryFallbackUrl(failingUrl: String): Boolean {
@@ -247,12 +268,136 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun availableBaseUrls(): List<String> {
-        return listOf(
-            BuildConfig.BASE_URL,
-            BuildConfig.TAILSCALE_IP_BASE_URL,
-            BuildConfig.LAN_BASE_URL,
-            BuildConfig.LOCAL_BASE_URL
-        ).distinct()
+        if (resolvedBaseUrls.isNotEmpty()) {
+            return resolvedBaseUrls
+        }
+
+        return prioritizedUrls(
+            listOf(
+                BuildConfig.BASE_URL,
+                BuildConfig.TAILSCALE_IP_BASE_URL,
+                BuildConfig.LAN_BASE_URL,
+                BuildConfig.LOCAL_BASE_URL
+            )
+        )
+    }
+
+    private fun prioritizedUrls(urls: List<String>): List<String> {
+        return urls
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .mapNotNull { normalizeBaseUrl(it) }
+            .distinct()
+            .sortedBy { urlPriority(it) }
+    }
+
+    private fun normalizeBaseUrl(url: String): String? {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) {
+            return null
+        }
+
+        return if (trimmed.endsWith('/')) trimmed else "$trimmed/"
+    }
+
+    private fun fetchServerConfiguredUrls(seedUrls: List<String>): List<String>? {
+        for (base in seedUrls) {
+            val endpoint = base.trimEnd('/') + "/modules/settings/access_urls_public.php"
+            try {
+                val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 1500
+                    readTimeout = 1500
+                    useCaches = false
+                }
+
+                val responseCode = connection.responseCode
+                if (responseCode != HttpURLConnection.HTTP_OK) {
+                    connection.disconnect()
+                    continue
+                }
+
+                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                connection.disconnect()
+
+                val remoteUrls = parseUrlsFromConfigResponse(body)
+                if (remoteUrls.isNotEmpty()) {
+                    return prioritizedUrls(remoteUrls + seedUrls)
+                }
+            } catch (_: Exception) {
+                // Try the next candidate base URL.
+            }
+        }
+
+        return null
+    }
+
+    private fun parseUrlsFromConfigResponse(body: String): List<String> {
+        return try {
+            val json = JSONObject(body)
+            val urlsArray = json.optJSONArray("urls") ?: return emptyList()
+            buildList {
+                for (i in 0 until urlsArray.length()) {
+                    val value = urlsArray.optString(i, "").trim()
+                    if (value.isNotEmpty()) {
+                        add(value)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun urlPriority(url: String): Int {
+        val host = hostFromUrl(url) ?: return 2
+        return when {
+            isPrivateLanHost(host) -> 0
+            isTailscaleHost(host) -> 1
+            else -> 2
+        }
+    }
+
+    private fun hostFromUrl(url: String): String? {
+        return try {
+            URI(url).host?.lowercase()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun isPrivateLanHost(host: String): Boolean {
+        if (host == "localhost" || host == "127.0.0.1" || host == "10.0.2.2") {
+            return true
+        }
+
+        val octets = host.split('.')
+        if (octets.size != 4 || octets.any { it.toIntOrNull() == null }) {
+            return false
+        }
+
+        val a = octets[0].toInt()
+        val b = octets[1].toInt()
+
+        return (a == 10)
+            || (a == 192 && b == 168)
+            || (a == 172 && b in 16..31)
+    }
+
+    private fun isTailscaleHost(host: String): Boolean {
+        if (host.endsWith(".ts.net")) {
+            return true
+        }
+
+        val octets = host.split('.')
+        if (octets.size != 4 || octets.any { it.toIntOrNull() == null }) {
+            return false
+        }
+
+        val a = octets[0].toInt()
+        val b = octets[1].toInt()
+
+        return a == 100 && b in 64..127
     }
 
     private fun clearLegacyServerSettings() {

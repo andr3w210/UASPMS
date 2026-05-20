@@ -13,17 +13,20 @@ Configured in:
 - SPAMS web settings page for system/QR access URLs
 - `app/build.gradle.kts` for Android startup fallback defaults
 
-Primary:
-- `http://spmu-andrew.tail985047.ts.net/UASPMS/spams/`
+At startup, the app attempts to fetch live URL order from:
+- `/UASPMS/spams/modules/settings/access_urls_public.php`
 
-Tailscale IP fallback:
-- `http://100.84.75.22/UASPMS/spams/`
+If reachable, Android uses the server-configured list (local first). If not reachable, it uses bundled fallback defaults from `BuildConfig`.
 
-LAN fallback:
+The app now prioritizes local network URLs first, then Tailscale URLs.
+
+LAN/Local priority:
 - `http://172.16.1.42/UASPMS/spams/`
-
-Local emulator fallback:
 - `http://10.0.2.2/UASPMS/spams/`
+
+Tailscale fallback:
+- `http://spmu-andrew.tail985047.ts.net/UASPMS/spams/`
+- `http://100.84.75.22/UASPMS/spams/`
 
 Update Tailscale Serve URL, Tailscale IP, and Local URL from the SPAMS web page: Administration > Settings > System Access URL. The Android app only uses its bundled fallback list to reach SPAMS.
 

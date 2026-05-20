@@ -59,5 +59,17 @@ if ($poStmt) {
     $poStmt->close();
 }
 
+if ($header) {
+    $fundParts = array_filter([
+        trim((string) ($header['fund_code'] ?? '')),
+        trim((string) ($header['fund_name'] ?? '')),
+    ], static function (string $value): bool {
+        return $value !== '';
+    });
+    $header['supplier'] = (string) ($header['supplier_name'] ?? '');
+    $header['fund'] = implode(' - ', $fundParts);
+    $header['po_date'] = !empty($header['po_date']) ? date('M d, Y', strtotime((string) $header['po_date'])) : '';
+}
+
 echo json_encode(['ok' => true, 'po' => $header, 'items' => $items]);
 exit;

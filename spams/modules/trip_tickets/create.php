@@ -563,26 +563,27 @@ require_once __DIR__ . '/../../includes/topbar.php';
             <?php if (!$vehicles): ?>
                 <div class="alert alert-warning">No active vehicles found. Add vehicles first in <a href="<?php echo base_url('modules/trip_tickets/vehicles.php'); ?>">Trip Vehicles</a>.</div>
             <?php endif; ?>
-            <form method="post" id="trip-ticket-form">
+            <form method="post" id="trip-ticket-form" data-submit-loading="1">
                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                 <input type="hidden" name="action" value="save">
                 <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
+                <div id="tripTicketRequiredSummary" class="alert alert-danger d-none" role="alert" aria-live="polite"></div>
                 <div class="row g-3">
                     <div class="col-md-3">
                         <label class="form-label">Departure Date</label>
-                        <input type="date" name="departure_date" class="form-control" value="<?php echo h($form['departure_date']); ?>" required>
+                        <input type="date" id="departure_date" name="departure_date" class="form-control" value="<?php echo h($form['departure_date']); ?>" required>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Return Date <span class="text-muted">(Optional)</span></label>
-                        <input type="date" name="return_date" class="form-control" value="<?php echo h($form['return_date']); ?>" min="<?php echo h($form['departure_date']); ?>">
+                        <input type="date" id="return_date" name="return_date" class="form-control" value="<?php echo h($form['return_date']); ?>" min="<?php echo h($form['departure_date']); ?>">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Departure Time</label>
-                        <input type="time" name="departure_time" class="form-control" value="<?php echo h($form['departure_time']); ?>" required>
+                        <input type="time" id="departure_time" name="departure_time" class="form-control" value="<?php echo h($form['departure_time']); ?>" required>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Vehicle Plate Number</label>
-                        <select name="vehicle_id" class="form-select" required>
+                        <select name="vehicle_id" id="vehicle_id" class="form-select" required>
                             <option value="">Select vehicle</option>
                             <?php foreach ($vehicles as $vehicle): ?>
                                 <option value="<?php echo (int) $vehicle['id']; ?>" <?php echo (int) $form['vehicle_id'] === (int) $vehicle['id'] ? 'selected' : ''; ?>><?php echo h($vehicle['plate_no'] . ' - ' . $vehicle['vehicle_name'] . ' (' . $vehicle['fuel_type'] . ')'); ?></option>
@@ -610,7 +611,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                     <div class="col-12">
                         <label class="form-label">Place to Visit / Location to Travel</label>
-                        <textarea name="destination" class="form-control" rows="2" required><?php echo h($form['destination']); ?></textarea>
+                        <textarea name="destination" id="destination" class="form-control" rows="2" required><?php echo h($form['destination']); ?></textarea>
                         <div class="form-text">Keep the readable destination text here. This remains the printed source of truth.</div>
                     </div>
                     <div class="col-12">
@@ -646,7 +647,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                     <div class="col-12">
                         <label class="form-label">Purpose of Travel</label>
-                        <textarea name="purpose" class="form-control" rows="3" required><?php echo h($form['purpose']); ?></textarea>
+                        <textarea name="purpose" id="purpose" class="form-control" rows="3" required><?php echo h($form['purpose']); ?></textarea>
                     </div>
                 </div>
 
@@ -690,25 +691,25 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">RIS Requested By</label>
-                        <select name="requested_by_name" id="requested_by_name" class="form-select" data-placeholder="Select employee">
+                        <select name="requested_by_name" id="requested_by_name" class="form-select" data-placeholder="Select employee" aria-describedby="ris-signatory-title-help">
                             <?php echo trip_ticket_signatory_options_html($signatoryEmployees, $form['requested_by_name']); ?>
                         </select>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">RIS Received By</label>
-                        <select name="received_by_name" id="received_by_name" class="form-select" data-placeholder="Select employee">
+                        <select name="received_by_name" id="received_by_name" class="form-select" data-placeholder="Select employee" aria-describedby="ris-signatory-title-help">
                             <?php echo trip_ticket_signatory_options_html($signatoryEmployees, $form['received_by_name']); ?>
                         </select>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Approved By</label>
-                        <select name="approved_by_name" id="approved_by_name" class="form-select" data-placeholder="Select employee">
+                        <select name="approved_by_name" id="approved_by_name" class="form-select" data-placeholder="Select employee" aria-describedby="ris-signatory-title-help">
                             <?php echo trip_ticket_signatory_options_html($signatoryEmployees, $form['approved_by_name']); ?>
                         </select>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Issued By</label>
-                        <select name="issued_by_name" id="issued_by_name" class="form-select" data-placeholder="Select employee">
+                        <select name="issued_by_name" id="issued_by_name" class="form-select" data-placeholder="Select employee" aria-describedby="ris-signatory-title-help">
                             <?php echo trip_ticket_signatory_options_html($signatoryEmployees, $form['issued_by_name']); ?>
                         </select>
                     </div>
@@ -716,6 +717,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <input type="hidden" name="approved_by_title" id="approved_by_title" value="<?php echo h($form['approved_by_title']); ?>">
                     <input type="hidden" name="issued_by_title" id="issued_by_title" value="<?php echo h($form['issued_by_title']); ?>">
                     <input type="hidden" name="received_by_title" id="received_by_title" value="<?php echo h($form['received_by_title']); ?>">
+                    <div class="col-12">
+                        <div id="ris-signatory-title-help" class="form-text">Signatory titles are auto-filled from the selected employee records.</div>
+                    </div>
                     <div class="col-12">
                         <label class="form-label">Remarks</label>
                         <textarea name="remarks" class="form-control" rows="2"><?php echo h($form['remarks']); ?></textarea>
@@ -749,6 +753,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const tripTicketForm = document.getElementById('trip-ticket-form');
+    const tripTicketRequiredSummary = document.getElementById('tripTicketRequiredSummary');
     const rowsContainer = document.getElementById('passenger-rows');
     const addButton = document.getElementById('add-passenger-row');
     const departureDateField = document.querySelector('input[name="departure_date"]');
@@ -774,6 +779,22 @@ document.addEventListener('DOMContentLoaded', function () {
     const useCurrentLocationButton = document.getElementById('use-current-location');
     const clearMapPinButton = document.getElementById('clear-map-pin');
     const mapCanvas = document.getElementById('leaflet-map');
+        if (window.SPAMS && typeof window.SPAMS.setupRequiredSummaryValidation === 'function' && tripTicketForm && tripTicketRequiredSummary) {
+            window.SPAMS.setupRequiredSummaryValidation({
+                form: tripTicketForm,
+                summary: tripTicketRequiredSummary,
+                summaryPrefix: 'Please complete required fields: ',
+                requiredFields: [
+                    { id: 'departure_date', label: 'Departure Date' },
+                    { id: 'departure_time', label: 'Departure Time' },
+                    { id: 'vehicle_id', label: 'Vehicle Plate Number' },
+                    { id: 'driver_employee_id', label: 'Driver' },
+                    { id: 'destination', label: 'Place to Visit / Location to Travel' },
+                    { id: 'purpose', label: 'Purpose of Travel' }
+                ]
+            });
+        }
+
     let leafletMap = null;
     let marker = null;
 
@@ -1015,6 +1036,10 @@ document.addEventListener('DOMContentLoaded', function () {
         applyDriverToRisSignatories(true);
     });
     tripTicketForm?.addEventListener('submit', function (event) {
+        if (event.defaultPrevented) {
+            return;
+        }
+
         const litersValue = parseFloat((litersRequestedField?.value || '').trim());
         if (!Number.isNaN(litersValue) && litersValue > 0) {
             return;

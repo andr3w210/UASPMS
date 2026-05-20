@@ -13,8 +13,25 @@
 <script src="<?php echo base_url('assets/js/app.js'); ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    var dangerAlert = document.querySelector('.alert.alert-danger');
-    if (!dangerAlert || !window.bootstrap || !bootstrap.Toast) {
+    if (!window.bootstrap || !bootstrap.Toast) {
+        return;
+    }
+
+    var dangerAlert = Array.from(document.querySelectorAll('.alert.alert-danger')).find(function (el) {
+        var isHidden = el.classList.contains('d-none') || el.hasAttribute('hidden') || el.getAttribute('aria-hidden') === 'true';
+        if (isHidden) {
+            return false;
+        }
+
+        if (el.offsetParent === null && el.getClientRects().length === 0) {
+            return false;
+        }
+
+        var text = (el.textContent || '').trim();
+        return text !== '';
+    });
+
+    if (!dangerAlert) {
         return;
     }
 
@@ -24,7 +41,10 @@ document.addEventListener('DOMContentLoaded', function () {
         return line !== '';
     });
 
-    var summary = messageLines[0] || (dangerAlert.textContent || '').trim() || 'Please review the highlighted validation errors.';
+    var summary = messageLines[0] || (dangerAlert.textContent || '').trim();
+    if (!summary) {
+        return;
+    }
 
     var container = document.getElementById('globalValidationToastContainer');
     if (!container) {
