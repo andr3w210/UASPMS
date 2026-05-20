@@ -389,7 +389,7 @@ if ($fundClusterLabel === '') {
                     <table class="table po-items-table mb-0">
                         <thead>
                             <tr>
-                                <th class="text-center" style="width: 12%;">Stock / Property No.</th>
+                                <th class="text-center po-col-stock" style="width: 12%;">Stock / Property No.</th>
                                 <th class="text-center" style="width: 10%;">Unit</th>
                                 <th>Description</th>
                                 <th class="text-end" style="width: 10%;">Quantity</th>
@@ -401,7 +401,7 @@ if ($fundClusterLabel === '') {
                             <?php if ($items): ?>
                                 <?php foreach ($items as $item): ?>
                                     <tr>
-                                        <td class="text-center"><?php echo h($item['stock_no'] ?: ''); ?></td>
+                                        <td class="text-center po-col-stock"><?php echo h($item['stock_no'] ?: ''); ?></td>
                                         <td class="text-center"><?php echo h(po_print_unit_label($item)); ?></td>
                                         <td>
                                             <div class="fw-semibold"><?php echo h($item['item_description'] ?: '-'); ?></div>

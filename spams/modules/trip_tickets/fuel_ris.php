@@ -432,8 +432,8 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $vehicleName = $vehicle ? (string) ($vehicle['vehicle_name'] ?? '') : '';
             $fuelType = $form['fuel_type'] !== '' ? $form['fuel_type'] : ($vehicle['fuel_type'] ?? 'Diesel');
             $unit = $form['unit'] !== '' ? $form['unit'] : 'Liter';
-            $litersPurchased = $quantity;
-            $litersConsumed = 0.0;
+            $litersPurchased = 0.0;
+            $litersConsumed = $quantity;
             $stationName = $gasStation ? (string) ($gasStation['station_name'] ?? $form['station_name']) : $form['station_name'];
             $userId = current_user_id();
 
@@ -550,9 +550,9 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'import') {
         $upload = $_FILES['import_file'] ?? null;
-        $quantityMode = trim((string) ($_POST['import_quantity_mode'] ?? 'purchased'));
+        $quantityMode = trim((string) ($_POST['import_quantity_mode'] ?? 'consumed'));
         if (!in_array($quantityMode, ['purchased', 'consumed'], true)) {
-            $quantityMode = 'purchased';
+            $quantityMode = 'consumed';
         }
         if (!$upload || !isset($upload['tmp_name']) || (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             $errors[] = 'Please upload a CSV or XLSX file to import.';
@@ -630,10 +630,10 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $quantityLiters = fr_parse_decimal($rawQuantity) ?? 0.0;
 
                                 if ($quantityLiters > 0) {
-                                    if ($quantityMode === 'consumed' && $litersConsumed <= 0) {
+                                    if ($quantityMode === 'consumed') {
+                                        $litersPurchased = 0.0;
                                         $litersConsumed = $quantityLiters;
-                                    }
-                                    if ($quantityMode === 'purchased' && $litersPurchased <= 0) {
+                                    } elseif ($litersPurchased <= 0) {
                                         $litersPurchased = $quantityLiters;
                                     }
                                 }
@@ -775,15 +775,58 @@ $entryCount = count($entries);
 $totalQuantity = 0.0;
 $totalAmount = 0.0;
 $stationSet = [];
+$quantityByMonth = [];
+$quantityByFuelType = [];
+$quantityByVehicle = [];
+$quantityByStation = [];
 foreach ($entries as $entry) {
-    $totalQuantity += (float) ($entry['quantity'] ?? 0);
+    $quantity = (float) ($entry['quantity'] ?? 0);
+    $totalQuantity += $quantity;
     $totalAmount += (float) ($entry['amount'] ?? 0);
     $stationLabel = trim((string) (($entry['gas_station_name'] ?? '') !== '' ? ($entry['gas_station_name'] ?? '') : ($entry['station_name'] ?? '')));
     if ($stationLabel !== '') {
         $stationSet[fr_station_key($stationLabel)] = true;
     }
+
+    $monthKey = date('Y-m', strtotime((string) ($entry['ris_date'] ?? 'now')));
+    $quantityByMonth[$monthKey] = ($quantityByMonth[$monthKey] ?? 0.0) + $quantity;
+
+    $fuelType = trim((string) ($entry['fuel_type'] ?? ''));
+    $fuelType = $fuelType !== '' ? $fuelType : 'Unspecified';
+    $quantityByFuelType[$fuelType] = ($quantityByFuelType[$fuelType] ?? 0.0) + $quantity;
+
+    $vehicleLabel = trim((string) ($entry['vehicle_plate_no'] ?? ''));
+    $vehicleName = trim((string) ($entry['vehicle_name'] ?? ''));
+    if ($vehicleLabel === '') {
+        $vehicleLabel = $vehicleName !== '' ? $vehicleName : 'Unassigned';
+    } elseif ($vehicleName !== '') {
+        $vehicleLabel .= ' - ' . $vehicleName;
+    }
+    $quantityByVehicle[$vehicleLabel] = ($quantityByVehicle[$vehicleLabel] ?? 0.0) + $quantity;
+
+    if ($stationLabel === '') {
+        $stationLabel = 'Unspecified';
+    }
+    $quantityByStation[$stationLabel] = ($quantityByStation[$stationLabel] ?? 0.0) + $quantity;
 }
 $stationCount = count($stationSet);
+$sortChartRows = static function (array $rows, int $limit = 6, bool $ascendingKeys = false): array {
+    if ($ascendingKeys) {
+        ksort($rows);
+    } else {
+        arsort($rows);
+    }
+
+    return array_slice($rows, 0, $limit, true);
+};
+$monthlyChartRows = $sortChartRows($quantityByMonth, 6, true);
+$fuelTypeChartRows = $sortChartRows($quantityByFuelType);
+$vehicleChartRows = $sortChartRows($quantityByVehicle);
+$stationChartRows = $sortChartRows($quantityByStation);
+$maxMonthlyQuantity = $monthlyChartRows ? max($monthlyChartRows) : 0.0;
+$maxFuelTypeQuantity = $fuelTypeChartRows ? max($fuelTypeChartRows) : 0.0;
+$maxVehicleQuantity = $vehicleChartRows ? max($vehicleChartRows) : 0.0;
+$maxStationQuantity = $stationChartRows ? max($stationChartRows) : 0.0;
 $postedAction = (string) ($_POST['action'] ?? '');
 $showEntryPanel = $_SERVER['REQUEST_METHOD'] === 'POST' && $postedAction !== '' && $postedAction !== 'delete';
 
@@ -842,6 +885,101 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <div class="card-body">
                     <div class="metric-label">Gasoline Stations</div>
                     <div class="metric-value"><?php echo number_format($stationCount); ?></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                <div>
+                    <h5 class="card-title mb-1">Fuel RIS Charts</h5>
+                    <div class="text-muted small">Visual summary from the latest 300 visible Fuel RIS records.</div>
+                </div>
+                <a href="<?php echo base_url('modules/trip_tickets/fuel_ris_report.php'); ?>" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-graph-up-arrow me-1"></i> Full Report
+                </a>
+            </div>
+            <div class="row g-3">
+                <div class="col-lg-6">
+                    <div class="fuel-chart-panel h-100">
+                        <div class="fuel-chart-title">Quantity by Month</div>
+                        <?php if (!$monthlyChartRows): ?>
+                            <div class="fuel-chart-empty">No chart data available.</div>
+                        <?php else: ?>
+                            <div class="fuel-chart-list">
+                                <?php foreach ($monthlyChartRows as $monthKey => $quantity): ?>
+                                    <?php
+                                    $barWidth = $maxMonthlyQuantity > 0 ? max(4, min(100, ($quantity / $maxMonthlyQuantity) * 100)) : 0;
+                                    $monthLabel = date('M Y', strtotime((string) $monthKey . '-01'));
+                                    ?>
+                                    <div class="fuel-chart-row">
+                                        <div class="fuel-chart-label"><?php echo h($monthLabel); ?></div>
+                                        <div class="fuel-chart-track"><span class="fuel-chart-bar tone-primary" style="width: <?php echo h(number_format($barWidth, 2, '.', '')); ?>%;"></span></div>
+                                        <div class="fuel-chart-value"><?php echo number_format((float) $quantity, 2); ?></div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="fuel-chart-panel h-100">
+                        <div class="fuel-chart-title">Quantity by Fuel Type</div>
+                        <?php if (!$fuelTypeChartRows): ?>
+                            <div class="fuel-chart-empty">No chart data available.</div>
+                        <?php else: ?>
+                            <div class="fuel-chart-list">
+                                <?php foreach ($fuelTypeChartRows as $fuelType => $quantity): ?>
+                                    <?php $barWidth = $maxFuelTypeQuantity > 0 ? max(4, min(100, ($quantity / $maxFuelTypeQuantity) * 100)) : 0; ?>
+                                    <div class="fuel-chart-row">
+                                        <div class="fuel-chart-label"><?php echo h((string) $fuelType); ?></div>
+                                        <div class="fuel-chart-track"><span class="fuel-chart-bar tone-success" style="width: <?php echo h(number_format($barWidth, 2, '.', '')); ?>%;"></span></div>
+                                        <div class="fuel-chart-value"><?php echo number_format((float) $quantity, 2); ?></div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="fuel-chart-panel h-100">
+                        <div class="fuel-chart-title">Top Vehicles by Quantity</div>
+                        <?php if (!$vehicleChartRows): ?>
+                            <div class="fuel-chart-empty">No chart data available.</div>
+                        <?php else: ?>
+                            <div class="fuel-chart-list">
+                                <?php foreach ($vehicleChartRows as $vehicleLabel => $quantity): ?>
+                                    <?php $barWidth = $maxVehicleQuantity > 0 ? max(4, min(100, ($quantity / $maxVehicleQuantity) * 100)) : 0; ?>
+                                    <div class="fuel-chart-row">
+                                        <div class="fuel-chart-label"><?php echo h((string) $vehicleLabel); ?></div>
+                                        <div class="fuel-chart-track"><span class="fuel-chart-bar tone-info" style="width: <?php echo h(number_format($barWidth, 2, '.', '')); ?>%;"></span></div>
+                                        <div class="fuel-chart-value"><?php echo number_format((float) $quantity, 2); ?></div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="fuel-chart-panel h-100">
+                        <div class="fuel-chart-title">Top Gasoline Stations by Quantity</div>
+                        <?php if (!$stationChartRows): ?>
+                            <div class="fuel-chart-empty">No chart data available.</div>
+                        <?php else: ?>
+                            <div class="fuel-chart-list">
+                                <?php foreach ($stationChartRows as $stationLabel => $quantity): ?>
+                                    <?php $barWidth = $maxStationQuantity > 0 ? max(4, min(100, ($quantity / $maxStationQuantity) * 100)) : 0; ?>
+                                    <div class="fuel-chart-row">
+                                        <div class="fuel-chart-label"><?php echo h((string) $stationLabel); ?></div>
+                                        <div class="fuel-chart-track"><span class="fuel-chart-bar tone-warning" style="width: <?php echo h(number_format($barWidth, 2, '.', '')); ?>%;"></span></div>
+                                        <div class="fuel-chart-value"><?php echo number_format((float) $quantity, 2); ?></div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
         </div>
@@ -970,6 +1108,85 @@ require_once __DIR__ . '/../../includes/topbar.php';
     margin-top: 0.25rem;
 }
 
+.fuel-ris-workspace .fuel-chart-panel {
+    background: #fbfdff;
+    border: 1px solid rgba(95, 111, 137, 0.14);
+    border-radius: 14px;
+    padding: 1rem;
+}
+
+.fuel-ris-workspace .fuel-chart-title {
+    color: #12233a;
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 0.85rem;
+}
+
+.fuel-ris-workspace .fuel-chart-list {
+    display: grid;
+    gap: 0.7rem;
+}
+
+.fuel-ris-workspace .fuel-chart-row {
+    align-items: center;
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: minmax(130px, 0.9fr) minmax(120px, 1.15fr) minmax(78px, auto);
+}
+
+.fuel-ris-workspace .fuel-chart-label {
+    color: #334155;
+    font-size: 0.86rem;
+    font-weight: 650;
+    line-height: 1.25;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.fuel-ris-workspace .fuel-chart-track {
+    background: rgba(95, 111, 137, 0.14);
+    border-radius: 999px;
+    height: 12px;
+    overflow: hidden;
+}
+
+.fuel-ris-workspace .fuel-chart-bar {
+    border-radius: inherit;
+    display: block;
+    height: 100%;
+}
+
+.fuel-ris-workspace .fuel-chart-bar.tone-primary {
+    background: linear-gradient(90deg, #2563eb, #0f766e);
+}
+
+.fuel-ris-workspace .fuel-chart-bar.tone-success {
+    background: linear-gradient(90deg, #16a34a, #0f766e);
+}
+
+.fuel-ris-workspace .fuel-chart-bar.tone-info {
+    background: linear-gradient(90deg, #0891b2, #2563eb);
+}
+
+.fuel-ris-workspace .fuel-chart-bar.tone-warning {
+    background: linear-gradient(90deg, #f59e0b, #dc2626);
+}
+
+.fuel-ris-workspace .fuel-chart-value {
+    color: #12233a;
+    font-size: 0.88rem;
+    font-weight: 700;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.fuel-ris-workspace .fuel-chart-empty {
+    align-items: center;
+    color: #6b7280;
+    display: flex;
+    min-height: 112px;
+}
+
 .fuel-ris-workspace .fuel-ris-table-wrap {
     max-height: 68vh;
     overflow: auto;
@@ -998,6 +1215,22 @@ require_once __DIR__ . '/../../includes/topbar.php';
 @media (max-width: 1199px) {
     .fuel-ris-workspace .fuel-import-card {
         position: static !important;
+    }
+}
+
+@media (max-width: 575px) {
+    .fuel-ris-workspace .fuel-chart-row {
+        grid-template-columns: minmax(0, 1fr) minmax(72px, auto);
+    }
+
+    .fuel-ris-workspace .fuel-chart-track {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+
+    .fuel-ris-workspace .fuel-chart-value {
+        grid-column: 2;
+        grid-row: 1;
     }
 }
 </style>

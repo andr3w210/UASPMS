@@ -461,8 +461,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                 <?php endif; ?>
 
-                                <form id="purchaseOrderForm" method="post">
+                                <form id="purchaseOrderForm" method="post" data-submit-loading="1">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                    <div id="purchaseOrderFormSummary" class="alert alert-danger d-none mb-3" role="alert" aria-live="polite"></div>
 
                                         <div class="card mb-4 workspace-form-section" style="border-color: var(--bs-primary-border-subtle);">
                                             <div class="card-body p-3">
@@ -492,7 +493,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="col-md-6">
                             <label for="supplier_id" class="form-label">Supplier</label>
-                            <select class="form-select" id="supplier_id" name="supplier_id" required>
+                            <select class="form-select" id="supplier_id" name="supplier_id" required aria-label="Supplier (required)">
                                 <option value="">Select supplier</option>
                                 <?php foreach ($suppliers as $supplier): ?>
                                     <option value="<?php echo (int) $supplier['id']; ?>" data-address="<?php echo h($supplier['address'] ?? ''); ?>" <?php echo $form['supplier_id'] === (string) $supplier['id'] ? 'selected' : ''; ?>><?php echo h($supplier['supplier_name'] . ' (' . $supplier['supplier_code'] . ')'); ?></option>
@@ -502,7 +503,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                         <div class="col-md-6">
                             <label for="fund_id" class="form-label">Fund</label>
-                            <select class="form-select" id="fund_id" name="fund_id" required>
+                            <select class="form-select" id="fund_id" name="fund_id" required aria-label="Fund (required)">
                                 <option value="">Select fund</option>
                                 <?php foreach ($funds as $fund): ?>
                                     <option value="<?php echo (int) $fund['id']; ?>" <?php echo $form['fund_id'] === (string) $fund['id'] ? 'selected' : ''; ?>><?php echo h($fund['fund_code'] . ' - ' . $fund['fund_name'] . ($fund['fund_source'] !== null && $fund['fund_source'] !== '' ? ' - ' . $fund['fund_source'] : '')); ?></option>
@@ -1335,7 +1336,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function updateEditorAmount() { var q = parseFloat(el.editorQty.value || 0) || 0; var c = parseFloat(el.editorUnitCost.value || 0) || 0; el.editorAmount.textContent = formatNumber(Math.round(q * c * 100) / 100); }
 
-    function deleteLine(idx) { if (poLines.length <= 1) { alert('At least one line is required.'); return; } poLines.splice(idx,1); poLines.forEach(function(l,i){ l.index = i; }); var nextIndex = Math.min(idx, poLines.length-1); renderLineList(); loadLineEditor(nextIndex); }
+    function deleteLine(idx) { if (poLines.length <= 1) { showFormSummary('At least one line is required.'); return; } poLines.splice(idx,1); poLines.forEach(function(l,i){ l.index = i; }); var nextIndex = Math.min(idx, poLines.length-1); renderLineList(); loadLineEditor(nextIndex); }
 
     function buildHiddenInputs() { var container = el.poHiddenInputs; if (!container) return; container.innerHTML = ''; poLines.forEach(function(ln,i){ var fields = { item_type: ln.item_type, semi_expendable_type: ln.semi_expendable_type, stock_catalog_id: ln.stock_catalog_id, account_code_id: ln.account_code_id, classification_id: ln.classification_id, item_description: ln.item_description, quantity: ln.quantity, unit_of_measure_id: ln.unit_of_measure_id, unit_cost: ln.unit_cost }; Object.keys(fields).forEach(function(k){ var inp = document.createElement('input'); inp.type='hidden'; inp.name='items['+i+']['+k+']'; inp.value = fields[k] || ''; container.appendChild(inp); }); }); }
 
@@ -1467,15 +1468,49 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     var form = document.getElementById('purchaseOrderForm');
+    var formSummary = document.getElementById('purchaseOrderFormSummary');
+
+    function showFormSummary(message) {
+        if (!formSummary) {
+            console.warn(message);
+            return;
+        }
+        formSummary.textContent = message;
+        formSummary.classList.remove('d-none');
+        formSummary.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function clearFormSummary() {
+        if (!formSummary) return;
+        formSummary.textContent = '';
+        formSummary.classList.add('d-none');
+    }
+
+    function resetFormValidationState() {
+        if (!form) return;
+        clearFormSummary();
+        form.classList.remove('was-validated');
+        form.removeAttribute('data-show-required-summary');
+        Array.from(form.querySelectorAll('.is-invalid, .is-valid')).forEach(function (field) {
+            field.classList.remove('is-invalid', 'is-valid');
+        });
+    }
+
+    resetFormValidationState();
+    window.addEventListener('pageshow', function () {
+        resetFormValidationState();
+    });
+
     if (form) {
         form.addEventListener('submit', function(e) {
             saveCurrentLine();
             buildHiddenInputs();
+            clearFormSummary();
 
             // Check if there are any lines at all
             if (poLines.length === 0) {
                 e.preventDefault();
-                alert('Please add at least one PO line before saving.');
+                showFormSummary('Please add at least one PO line before saving.');
                 return;
             }
 
@@ -1486,7 +1521,7 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             if (emptyLines.length > 0) {
                 e.preventDefault();
-                alert('Line ' + (emptyLines[0].index + 1) + ' has no description. Please fill in all lines before saving.');
+                showFormSummary('Line ' + (emptyLines[0].index + 1) + ' has no description. Please fill in all lines before saving.');
                 loadLineEditor(emptyLines[0].index);
                 return;
             }
@@ -1496,7 +1531,7 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             if (missingCatalogLine) {
                 e.preventDefault();
-                alert('Supply line ' + (missingCatalogLine.index + 1) + ' must be selected from the stock catalog before saving.');
+                showFormSummary('Supply line ' + (missingCatalogLine.index + 1) + ' must be selected from the stock catalog before saving.');
                 loadLineEditor(missingCatalogLine.index);
                 return;
             }
@@ -1508,13 +1543,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 var lineTotal = poLines.reduce(function(acc, ln) { return acc + (parseFloat(ln.line_total || 0) || 0); }, 0);
                 if (isNaN(documentTotal)) {
                     e.preventDefault();
-                    alert('PO hard copy total must be a valid amount.');
+                    showFormSummary('PO hard copy total must be a valid amount.');
                     documentTotalInput && documentTotalInput.focus();
                     return;
                 }
                 if (Math.abs(lineTotal - documentTotal) > 0.009) {
                     e.preventDefault();
-                    alert('Encoded line total (' + formatNumber(lineTotal) + ') does not match the hard copy PO total (' + formatNumber(documentTotal) + ').');
+                    showFormSummary('Encoded line total (' + formatNumber(lineTotal) + ') does not match the hard copy PO total (' + formatNumber(documentTotal) + ').');
                     documentTotalInput && documentTotalInput.focus();
                     return;
                 }

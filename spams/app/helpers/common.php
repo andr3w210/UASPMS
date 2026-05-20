@@ -25,9 +25,9 @@ function app_url(string $path = ''): string
             $db = db();
             if ($db) {
                 $savedUrls = [
+                    get_system_setting($db, 'local_access_url', ''),
                     get_system_setting($db, 'tailscale_serve_url', ''),
                     get_system_setting($db, 'tailscale_ip_url', ''),
-                    get_system_setting($db, 'local_access_url', ''),
                     get_system_setting($db, 'app_url', APP_URL),
                 ];
 

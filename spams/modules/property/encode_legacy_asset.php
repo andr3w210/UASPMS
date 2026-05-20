@@ -971,93 +971,141 @@ require_once __DIR__ . '/../../includes/topbar.php';
         .catch(function () { onError('Network error. Please try again.'); });
     }
 
-    /* ── Classification ── */
-    document.getElementById('qaClassificationModal').addEventListener('show.bs.modal', function () {
-        clearError('qaClassificationError');
-        document.getElementById('qa_classification_family').value = '';
-        document.getElementById('qa_classification_name').value = '';
-    });
-    document.getElementById('qaClassificationSaveBtn').addEventListener('click', function () {
-        clearError('qaClassificationError');
-        var name = document.getElementById('qa_classification_name').value.trim();
-        if (!name) { showError('qaClassificationError', 'Classification Name is required.'); return; }
-        postQA({ action: 'add_classification', classification_name: name,
-                 classification_family: document.getElementById('qa_classification_family').value.trim() },
-            function (data) {
-                appendOption('classification_id', data.id, data.label);
-                bootstrap.Modal.getInstance(document.getElementById('qaClassificationModal')).hide();
-            }, function (err) { showError('qaClassificationError', err); });
+    function hideQAModal(modalId) {
+        var modalEl = document.getElementById(modalId);
+        if (!modalEl) return;
+        var modal = bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+    }
+
+    function bindQAModal(config) {
+        var modalEl = document.getElementById(config.modalId);
+        var saveBtn = document.getElementById(config.saveBtnId);
+        if (!modalEl || !saveBtn) return;
+
+        modalEl.addEventListener('show.bs.modal', function () {
+            clearError(config.errorId);
+            if (typeof config.onShow === 'function') {
+                config.onShow();
+            }
+        });
+
+        saveBtn.addEventListener('click', function () {
+            clearError(config.errorId);
+            var payload = config.buildPayload();
+            if (!payload || payload.error) {
+                showError(config.errorId, (payload && payload.error) || 'Please complete required fields.');
+                return;
+            }
+
+            postQA(payload, function (data) {
+                config.onSuccess(data);
+                hideQAModal(config.modalId);
+            }, function (err) {
+                showError(config.errorId, err);
+            });
+        });
+    }
+
+    bindQAModal({
+        modalId: 'qaClassificationModal',
+        saveBtnId: 'qaClassificationSaveBtn',
+        errorId: 'qaClassificationError',
+        onShow: function () {
+            document.getElementById('qa_classification_family').value = '';
+            document.getElementById('qa_classification_name').value = '';
+        },
+        buildPayload: function () {
+            var name = document.getElementById('qa_classification_name').value.trim();
+            if (!name) return { error: 'Classification Name is required.' };
+            return {
+                action: 'add_classification',
+                classification_name: name,
+                classification_family: document.getElementById('qa_classification_family').value.trim()
+            };
+        },
+        onSuccess: function (data) {
+            appendOption('classification_id', data.id, data.label);
+        }
     });
 
-    /* ── Account Code ── */
-    document.getElementById('qaAccountCodeModal').addEventListener('show.bs.modal', function () {
-        clearError('qaAccountCodeError');
-        document.getElementById('qa_account_code').value = '';
-        document.getElementById('qa_account_name').value = '';
-    });
-    document.getElementById('qaAccountCodeSaveBtn').addEventListener('click', function () {
-        clearError('qaAccountCodeError');
-        var code = document.getElementById('qa_account_code').value.trim();
-        var name = document.getElementById('qa_account_name').value.trim();
-        if (!code) { showError('qaAccountCodeError', 'Account Code is required.'); return; }
-        if (!name) { showError('qaAccountCodeError', 'Account Name is required.'); return; }
-        postQA({ action: 'add_account_code', account_code: code, account_name: name },
-            function (data) {
-                appendOption('account_code_id', data.id, data.label);
-                bootstrap.Modal.getInstance(document.getElementById('qaAccountCodeModal')).hide();
-            }, function (err) { showError('qaAccountCodeError', err); });
+    bindQAModal({
+        modalId: 'qaAccountCodeModal',
+        saveBtnId: 'qaAccountCodeSaveBtn',
+        errorId: 'qaAccountCodeError',
+        onShow: function () {
+            document.getElementById('qa_account_code').value = '';
+            document.getElementById('qa_account_name').value = '';
+        },
+        buildPayload: function () {
+            var code = document.getElementById('qa_account_code').value.trim();
+            var name = document.getElementById('qa_account_name').value.trim();
+            if (!code) return { error: 'Account Code is required.' };
+            if (!name) return { error: 'Account Name is required.' };
+            return { action: 'add_account_code', account_code: code, account_name: name };
+        },
+        onSuccess: function (data) {
+            appendOption('account_code_id', data.id, data.label);
+        }
     });
 
-    /* ── Brand ── */
-    document.getElementById('qaBrandModal').addEventListener('show.bs.modal', function () {
-        clearError('qaBrandError');
-        document.getElementById('qa_brand_name').value = '';
-    });
-    document.getElementById('qaBrandSaveBtn').addEventListener('click', function () {
-        clearError('qaBrandError');
-        var name = document.getElementById('qa_brand_name').value.trim();
-        if (!name) { showError('qaBrandError', 'Brand Name is required.'); return; }
-        postQA({ action: 'add_brand', brand_name: name }, function (data) {
+    bindQAModal({
+        modalId: 'qaBrandModal',
+        saveBtnId: 'qaBrandSaveBtn',
+        errorId: 'qaBrandError',
+        onShow: function () {
+            document.getElementById('qa_brand_name').value = '';
+        },
+        buildPayload: function () {
+            var name = document.getElementById('qa_brand_name').value.trim();
+            if (!name) return { error: 'Brand Name is required.' };
+            return { action: 'add_brand', brand_name: name };
+        },
+        onSuccess: function (data) {
             appendOption('brand_id', data.id, data.label);
-            bootstrap.Modal.getInstance(document.getElementById('qaBrandModal')).hide();
-        }, function (err) { showError('qaBrandError', err); });
+        }
     });
 
-    /* ── Model ── */
-    document.getElementById('qaModelModal').addEventListener('show.bs.modal', function () {
-        clearError('qaModelError');
-        document.getElementById('qa_model_name').value = '';
-        var brandSel = document.getElementById('brand_id');
-        var brandId = brandSel ? brandSel.value : '';
-        var brandLabel = brandSel && brandSel.selectedIndex >= 0 ? brandSel.options[brandSel.selectedIndex].text : '—';
-        document.getElementById('qa_model_brand_id').value = brandId;
-        document.getElementById('qaModelBrandLabel').textContent = brandId ? brandLabel : '— (no brand selected)';
-    });
-    document.getElementById('qaModelSaveBtn').addEventListener('click', function () {
-        clearError('qaModelError');
-        var name = document.getElementById('qa_model_name').value.trim();
-        var brandId = document.getElementById('qa_model_brand_id').value;
-        if (!name) { showError('qaModelError', 'Model Name is required.'); return; }
-        if (!brandId) { showError('qaModelError', 'Please select a Brand first, then open this dialog.'); return; }
-        postQA({ action: 'add_model', model_name: name, brand_id: brandId }, function (data) {
+    bindQAModal({
+        modalId: 'qaModelModal',
+        saveBtnId: 'qaModelSaveBtn',
+        errorId: 'qaModelError',
+        onShow: function () {
+            document.getElementById('qa_model_name').value = '';
+            var brandSel = document.getElementById('brand_id');
+            var brandId = brandSel ? brandSel.value : '';
+            var brandLabel = brandSel && brandSel.selectedIndex >= 0 ? brandSel.options[brandSel.selectedIndex].text : '—';
+            document.getElementById('qa_model_brand_id').value = brandId;
+            document.getElementById('qaModelBrandLabel').textContent = brandId ? brandLabel : '— (no brand selected)';
+        },
+        buildPayload: function () {
+            var name = document.getElementById('qa_model_name').value.trim();
+            var brandId = document.getElementById('qa_model_brand_id').value;
+            if (!name) return { error: 'Model Name is required.' };
+            if (!brandId) return { error: 'Please select a Brand first, then open this dialog.' };
+            return { action: 'add_model', model_name: name, brand_id: brandId };
+        },
+        onSuccess: function (data) {
             appendOption('model_id', data.id, data.label, { 'brand-id': data.brand_id });
-            bootstrap.Modal.getInstance(document.getElementById('qaModelModal')).hide();
-        }, function (err) { showError('qaModelError', err); });
+        }
     });
 
-    /* ── Office ── */
-    document.getElementById('qaOfficeModal').addEventListener('show.bs.modal', function () {
-        clearError('qaOfficeError');
-        document.getElementById('qa_office_code').value = '';
-        document.getElementById('qa_office_name').value = '';
-    });
-    document.getElementById('qaOfficeSaveBtn').addEventListener('click', function () {
-        clearError('qaOfficeError');
-        var code = document.getElementById('qa_office_code').value.trim().toUpperCase();
-        var name = document.getElementById('qa_office_name').value.trim();
-        if (!code) { showError('qaOfficeError', 'Office Code is required.'); return; }
-        if (!name) { showError('qaOfficeError', 'Office Name is required.'); return; }
-        postQA({ action: 'add_office', office_code: code, office_name: name }, function (data) {
+    bindQAModal({
+        modalId: 'qaOfficeModal',
+        saveBtnId: 'qaOfficeSaveBtn',
+        errorId: 'qaOfficeError',
+        onShow: function () {
+            document.getElementById('qa_office_code').value = '';
+            document.getElementById('qa_office_name').value = '';
+        },
+        buildPayload: function () {
+            var code = document.getElementById('qa_office_code').value.trim().toUpperCase();
+            var name = document.getElementById('qa_office_name').value.trim();
+            if (!code) return { error: 'Office Code is required.' };
+            if (!name) return { error: 'Office Name is required.' };
+            return { action: 'add_office', office_code: code, office_name: name };
+        },
+        onSuccess: function (data) {
             appendOption('office_id', data.id, data.label);
             var empOfficeSel = document.getElementById('qa_emp_office_id');
             if (empOfficeSel) {
@@ -1066,49 +1114,53 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 opt.textContent = data.label;
                 empOfficeSel.appendChild(opt);
             }
-            bootstrap.Modal.getInstance(document.getElementById('qaOfficeModal')).hide();
-        }, function (err) { showError('qaOfficeError', err); });
-    });
-
-    /* ── Employee ── */
-    document.getElementById('qaEmployeeModal').addEventListener('show.bs.modal', function () {
-        clearError('qaEmployeeError');
-        document.getElementById('qa_emp_first_name').value = '';
-        document.getElementById('qa_emp_middle_name').value = '';
-        document.getElementById('qa_emp_last_name').value = '';
-        document.getElementById('qa_emp_position_title').value = '';
-        var empOfficeSel = document.getElementById('qa_emp_office_id');
-        var mainOfficeSel = document.getElementById('office_id');
-        empOfficeSel.innerHTML = '<option value="">— Select Office —</option>';
-        if (mainOfficeSel) {
-            Array.from(mainOfficeSel.options).forEach(function (opt) {
-                if (!opt.value) return;
-                var o = document.createElement('option');
-                o.value = opt.value;
-                o.textContent = opt.textContent;
-                empOfficeSel.appendChild(o);
-            });
-            empOfficeSel.value = mainOfficeSel.value || '';
         }
     });
-    document.getElementById('qaEmployeeSaveBtn').addEventListener('click', function () {
-        clearError('qaEmployeeError');
-        var first = document.getElementById('qa_emp_first_name').value.trim();
-        var last  = document.getElementById('qa_emp_last_name').value.trim();
-        if (!first) { showError('qaEmployeeError', 'First Name is required.'); return; }
-        if (!last)  { showError('qaEmployeeError', 'Last Name is required.'); return; }
-        var payload = {
-            action: 'add_employee',
-            first_name: first,
-            middle_name: document.getElementById('qa_emp_middle_name').value.trim(),
-            last_name: last,
-            position_title: document.getElementById('qa_emp_position_title').value.trim(),
-            office_id: document.getElementById('qa_emp_office_id').value
-        };
-        postQA(payload, function (data) {
+
+    bindQAModal({
+        modalId: 'qaEmployeeModal',
+        saveBtnId: 'qaEmployeeSaveBtn',
+        errorId: 'qaEmployeeError',
+        onShow: function () {
+            document.getElementById('qa_emp_first_name').value = '';
+            document.getElementById('qa_emp_middle_name').value = '';
+            document.getElementById('qa_emp_last_name').value = '';
+            document.getElementById('qa_emp_position_title').value = '';
+
+            var empOfficeSel = document.getElementById('qa_emp_office_id');
+            var mainOfficeSel = document.getElementById('office_id');
+            if (!empOfficeSel) return;
+
+            empOfficeSel.innerHTML = '<option value="">— Select Office —</option>';
+            if (mainOfficeSel) {
+                Array.from(mainOfficeSel.options).forEach(function (opt) {
+                    if (!opt.value) return;
+                    var o = document.createElement('option');
+                    o.value = opt.value;
+                    o.textContent = opt.textContent;
+                    empOfficeSel.appendChild(o);
+                });
+                empOfficeSel.value = mainOfficeSel.value || '';
+            }
+        },
+        buildPayload: function () {
+            var first = document.getElementById('qa_emp_first_name').value.trim();
+            var last = document.getElementById('qa_emp_last_name').value.trim();
+            if (!first) return { error: 'First Name is required.' };
+            if (!last) return { error: 'Last Name is required.' };
+
+            return {
+                action: 'add_employee',
+                first_name: first,
+                middle_name: document.getElementById('qa_emp_middle_name').value.trim(),
+                last_name: last,
+                position_title: document.getElementById('qa_emp_position_title').value.trim(),
+                office_id: document.getElementById('qa_emp_office_id').value
+            };
+        },
+        onSuccess: function (data) {
             appendOption('employee_id', data.id, data.label, { 'office-id': data.office_id });
-            bootstrap.Modal.getInstance(document.getElementById('qaEmployeeModal')).hide();
-        }, function (err) { showError('qaEmployeeError', err); });
+        }
     });
 
 })();

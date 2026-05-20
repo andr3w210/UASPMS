@@ -713,24 +713,110 @@ require_once __DIR__ . '/../../includes/topbar.php';
         <input type="hidden" name="cancel_reason" id="cancelPoReason" value="">
     </form>
 
+    <div class="modal fade" id="cancelPoModal" tabindex="-1" aria-labelledby="cancelPoModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cancelPoModalLabel">Cancel Purchase Order</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2" id="cancelPoModalMessage"></p>
+                    <div id="cancelPoReasonError" class="alert alert-danger py-2 px-3 d-none mb-2" role="alert"></div>
+                    <label for="cancelPoReasonInput" class="form-label">Cancellation Reason</label>
+                    <textarea id="cancelPoReasonInput" class="form-control" rows="3" placeholder="State the reason for cancellation" aria-required="true"></textarea>
+                    <div class="form-text">This action cannot be undone. The PO will no longer be receivable or editable.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Back</button>
+                    <button type="button" class="btn btn-danger" id="submitCancelPoBtn">Confirm Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
+    var cancelPoModal = null;
+    var pendingCancelPoId = 0;
+    var pendingCancelPoNumber = '';
+
+    function resetIndexValidationState() {
+        Array.from(document.querySelectorAll('form')).forEach(function (form) {
+            form.classList.remove('was-validated');
+            form.removeAttribute('data-show-required-summary');
+
+            Array.from(form.querySelectorAll('.is-invalid, .is-valid')).forEach(function (field) {
+                field.classList.remove('is-invalid', 'is-valid');
+            });
+        });
+
+        var reasonError = document.getElementById('cancelPoReasonError');
+        if (reasonError) {
+            reasonError.textContent = '';
+            reasonError.classList.add('d-none');
+        }
+    }
+
     function confirmCancelPO(id, poNumber) {
-        if (!confirm(
-            'Cancel PO No. ' + poNumber + '?\n\n' +
-            'This cannot be undone. The PO will be marked as Cancelled ' +
-            'and can no longer be received or edited.'
-        )) return;
-        var reason = prompt('Enter the reason for cancelling PO No. ' + poNumber + ':');
-        if (reason === null) return;
-        reason = reason.trim();
-        if (reason === '') {
-            alert('Cancellation reason is required.');
+        pendingCancelPoId = id;
+        pendingCancelPoNumber = poNumber;
+
+        var reasonInput = document.getElementById('cancelPoReasonInput');
+        var reasonError = document.getElementById('cancelPoReasonError');
+        var modalMessage = document.getElementById('cancelPoModalMessage');
+        if (reasonInput) {
+            reasonInput.value = '';
+        }
+        if (reasonError) {
+            reasonError.textContent = '';
+            reasonError.classList.add('d-none');
+        }
+        if (modalMessage) {
+            modalMessage.textContent = 'Cancel PO No. ' + poNumber + '?';
+        }
+
+        if (!cancelPoModal && window.bootstrap) {
+            var modalEl = document.getElementById('cancelPoModal');
+            if (modalEl) {
+                cancelPoModal = new bootstrap.Modal(modalEl);
+            }
+        }
+        if (cancelPoModal) {
+            cancelPoModal.show();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        resetIndexValidationState();
+
+        var submitBtn = document.getElementById('submitCancelPoBtn');
+        var reasonInput = document.getElementById('cancelPoReasonInput');
+        var reasonError = document.getElementById('cancelPoReasonError');
+
+        if (!submitBtn || !reasonInput) {
             return;
         }
-        document.getElementById('cancelPoId').value = id;
-        document.getElementById('cancelPoReason').value = reason;
-        document.getElementById('cancelPoForm').submit();
-    }
+
+        submitBtn.addEventListener('click', function () {
+            var reason = reasonInput.value.trim();
+            if (reason === '') {
+                if (reasonError) {
+                    reasonError.textContent = 'Cancellation reason is required.';
+                    reasonError.classList.remove('d-none');
+                }
+                reasonInput.focus();
+                return;
+            }
+
+            document.getElementById('cancelPoId').value = String(pendingCancelPoId || 0);
+            document.getElementById('cancelPoReason').value = reason;
+            document.getElementById('cancelPoForm').submit();
+        });
+
+        window.addEventListener('pageshow', function () {
+            resetIndexValidationState();
+        });
+    });
     </script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

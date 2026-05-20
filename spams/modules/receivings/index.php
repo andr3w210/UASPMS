@@ -92,6 +92,8 @@ $receivingItems = [];
 $brands = [];
 $models = [];
 $semiHighValueMin = 5000.0;
+$filterPoNumber = '';
+$filterStatus = '';
 $selectedPurchaseOrder = null;
 $selectedPurchaseOrderId = (int) ($_GET['po_id'] ?? ($_POST['purchase_order_id'] ?? 0));
 $form = [
@@ -1459,7 +1461,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 </div>
                                         </div>
 
-                                        <form method="post" id="receivingForm" data-semi-hv-min="<?php echo h(number_format($semiHighValueMin, 2, '.', '')); ?>">
+                                        <form method="post" id="receivingForm" data-semi-hv-min="<?php echo h(number_format($semiHighValueMin, 2, '.', '')); ?>" data-submit-loading="1">
                             <input type="hidden" name="action" value="save">
                             <?php echo '<input type="hidden" name="_csrf" value="' . h(csrf_token()) . '">'; ?>
                             <input type="hidden" name="purchase_order_id" value="<?php echo (int) $selectedPurchaseOrder['id']; ?>">
@@ -1776,7 +1778,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td class="text-end"><?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print IAR</a><a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="btn btn-sm btn-outline-secondary me-1" target="_blank">Final IAR by PO</a><a href="<?php echo base_url('modules/receivings/correct_receiving.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-warning">Correct</a><?php else: ?><span class="text-muted small">No items received yet</span><?php endif; ?></td>
                                 </tr>
                             <?php endforeach; else: ?>
-                                <tr><td colspan="9" class="text-center text-muted py-4">No receiving records yet.</td></tr>
+                                <tr>
+                                    <td colspan="9" class="text-center text-muted py-4">
+                                        <?php if ($filterPoNumber !== '' || $filterStatus !== ''): ?>
+                                            No receiving records matched your current filters.
+                                            <a href="<?php echo h(base_url('modules/receivings/index.php')); ?>" class="d-block mt-1">Clear filters and try again</a>
+                                        <?php else: ?>
+                                            No receiving records yet.
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -2599,8 +2610,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     alert('Unable to load PO preview.');
                     return;
                 }
-                // enrich po object with pct if present
+                // Keep list metadata as a fallback because the preview endpoint has a narrower PO payload.
                 if (data.po) {
+                    data.po.supplier = data.po.supplier || data.po.supplier_name || po.supplier || '';
+                    data.po.fund = data.po.fund || [
+                        data.po.fund_code || '',
+                        data.po.fund_name || ''
+                    ].filter(function (value) { return String(value || '').trim() !== ''; }).join(' - ') || po.fund || '';
+                    data.po.mode = data.po.mode || po.mode || '';
                     data.po.pct = po.pct || data.po.pct || 0;
                 }
                 renderPoDetail(data.po || po, data.items || []);

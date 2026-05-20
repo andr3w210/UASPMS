@@ -405,8 +405,13 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
                                     <tr>
                                         <td colspan="15" class="text-center text-muted py-5">
                                             <i class="bi bi-inbox fs-3 d-block mb-2 text-muted opacity-50"></i>
-                                            No encoded legacy assets yet.
-                                            <a href="<?php echo h(base_url('modules/property/encode_legacy_asset.php')); ?>" class="d-block mt-1">Encode the first asset</a>
+                                            <?php if ($search !== '' || $itemTypeFilter !== 'all'): ?>
+                                                No legacy assets matched your current filters.
+                                                <a href="<?php echo h(base_url('modules/property/legacy_assets.php')); ?>" class="d-block mt-1">Clear filters and try again</a>
+                                            <?php else: ?>
+                                                No encoded legacy assets yet.
+                                                <a href="<?php echo h(base_url('modules/property/encode_legacy_asset.php')); ?>" class="d-block mt-1">Encode the first asset</a>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                 <?php endif; ?>

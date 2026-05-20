@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $localUrl = normalize_access_url((string) ($_POST['local_access_url'] ?? ''));
         $sessionTimeoutMinutes = trim((string) ($_POST['session_timeout_minutes'] ?? '30'));
 
-        $appUrl = first_available_access_url($tailscaleServeUrl, $tailscaleIpUrl, $localUrl, $appUrl);
+        $appUrl = first_available_access_url($localUrl, $tailscaleServeUrl, $tailscaleIpUrl, $appUrl);
 
         if ($appUrl !== '' && !filter_var($appUrl, FILTER_VALIDATE_URL)) {
             $errors[] = 'System Access URL must be a valid URL like http://192.168.1.10 or http://server-name.';
@@ -178,18 +178,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <p class="text-muted mb-0">Set the network address used by QR links and control how long idle users stay signed in.</p>
                     </div>
 
-                    <form method="post">
+                    <form method="post" data-submit-loading="1">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <div class="mb-3">
                             <label class="form-label">Access URLs</label>
-                            <div class="form-text mb-3">Set every address the system may use. The system tries them in this order: Tailscale Serve, Tailscale IP, then Local Network. Do not add <code>/UASPMS/spams</code>; the system app path is appended automatically.</div>
+                            <div class="form-text mb-3">Set every address the system may use. The system tries them in this order: Local Network, Tailscale Serve, then Tailscale IP. Do not add <code>/UASPMS/spams</code>; the system app path is appended automatically.</div>
 
                             <div class="border rounded p-3 mb-3">
                                 <div class="d-flex align-items-start gap-2 mb-2">
                                     <div class="flex-grow-1">
-                                        <label for="tailscale_serve_url" class="form-label mb-1 fw-semibold">1. Tailscale Serve URL</label>
-                                        <input type="url" id="tailscale_serve_url" name="tailscale_serve_url" class="form-control" value="<?php echo h($tailscaleServeUrl); ?>" placeholder="http://spmu-andrew.tail985047.ts.net">
-                                        <div class="form-text">Recommended for Android phones connected through Tailscale.</div>
+                                        <label for="tailscale_serve_url" class="form-label mb-1 fw-semibold">2. Tailscale Serve URL</label>
+                                        <input type="url" id="tailscale_serve_url" name="tailscale_serve_url" class="form-control" value="<?php echo h($tailscaleServeUrl); ?>" placeholder="http://spmu-andrew.tail985047.ts.net" aria-describedby="tailscale_serve_url_help">
+                                        <div class="form-text" id="tailscale_serve_url_help">Recommended for Android phones connected through Tailscale.</div>
                                     </div>
                                 </div>
                             </div>
@@ -199,8 +199,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="border rounded p-3 h-100">
                                         <div class="d-flex align-items-start gap-2 mb-2">
                                             <div class="flex-grow-1">
-                                                <label for="tailscale_ip_url" class="form-label mb-1 fw-semibold">2. Tailscale IP URL</label>
-                                                <input type="url" id="tailscale_ip_url" name="tailscale_ip_url" class="form-control" value="<?php echo h($tailscaleIpUrl); ?>" placeholder="http://100.84.75.22">
+                                                <label for="tailscale_ip_url" class="form-label mb-1 fw-semibold">3. Tailscale IP URL</label>
+                                                <input type="url" id="tailscale_ip_url" name="tailscale_ip_url" class="form-control" value="<?php echo h($tailscaleIpUrl); ?>" placeholder="http://100.84.75.22" aria-describedby="tailscale_ip_url_help">
+                                                <div class="form-text" id="tailscale_ip_url_help">Use this when Tailscale Serve URL is unavailable.</div>
                                             </div>
                                         </div>
                                     </div>
@@ -209,9 +210,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="border rounded p-3 h-100">
                                         <div class="d-flex align-items-start gap-2 mb-2">
                                             <div class="flex-grow-1">
-                                                <label for="local_access_url" class="form-label mb-1 fw-semibold">3. Local Network URL</label>
-                                                <input type="url" id="local_access_url" name="local_access_url" class="form-control" value="<?php echo h($localUrl); ?>" placeholder="http://172.16.1.42">
-                                                <div class="form-text">Use only when phone and server PC are on the same LAN.</div>
+                                                <label for="local_access_url" class="form-label mb-1 fw-semibold">1. Local Network URL</label>
+                                                <input type="url" id="local_access_url" name="local_access_url" class="form-control" value="<?php echo h($localUrl); ?>" placeholder="http://172.16.1.42" aria-describedby="local_access_url_help">
+                                                <div class="form-text" id="local_access_url_help">Use only when phone and server PC are on the same LAN.</div>
                                             </div>
                                         </div>
                                     </div>
