@@ -138,7 +138,7 @@ foreach ($rows as $row) {
     $propertyNumber = trim((string) ($row['property_number'] ?? ''));
     $serialNumber = trim((string) ($row['serial_no'] ?? ''));
     $dateAcquiredRaw = trim((string) ($row['date_acquired'] ?? ''));
-    $dateAcquiredQr = $dateAcquiredRaw !== '' ? date('Y-m-d', strtotime($dateAcquiredRaw)) : '';
+    $dateAcquiredQr = normalize_date_string($dateAcquiredRaw);
     $displayName = trim((string) ($row['classification_name'] ?? '')) !== ''
         ? trim((string) ($row['classification_name'] ?? ''))
         : trim((string) ($row['item_description'] ?? ''));
@@ -425,7 +425,8 @@ function property_tag_shorten(string $value, int $limit): string
                 ? (string) ($item['classification_name'] ?? '')
                 : (string) ($item['item_description'] ?? 'Property Asset');
             $itemLabel = property_tag_shorten(ucwords(strtolower($displayName)), 30);
-            $dateAcquiredLabel = !empty($item['date_acquired']) ? date('m/d/Y', strtotime((string) $item['date_acquired'])) : 'N/A';
+            $dateAcquiredLabel = format_date($item['date_acquired'] ?? null, 'm/d/Y');
+            $dateAcquiredLabel = $dateAcquiredLabel !== '' ? $dateAcquiredLabel : 'N/A';
             $qrSrc = !empty($item['qr_base64'])
                 ? 'data:image/png;base64,' . $item['qr_base64']
                 : $item['qr_url'];

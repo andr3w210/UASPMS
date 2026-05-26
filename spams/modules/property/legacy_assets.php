@@ -366,7 +366,7 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
                                         <td><?php echo h(trim((($row['brand_name'] ?? '') ?: ($row['brand'] ?? '')) . ' ' . (($row['model_name'] ?? '') ?: ($row['model'] ?? '')))); ?></td>
                                         <td><?php echo h($row['office_name'] ?? ''); ?></td>
                                         <td><?php echo h(employee_display_name($row)); ?></td>
-                                        <td><?php echo h(!empty($row['acquisition_date']) ? date('M d, Y', strtotime($row['acquisition_date'])) : ''); ?></td>
+                                        <td><?php echo h(format_date($row['acquisition_date'] ?? null)); ?></td>
                                         <td><?php echo h(number_format((float) ($row['quantity'] ?? 0), 0)); ?></td>
                                         <td><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
                                         <td><?php echo h(number_format((float) ($row['acquisition_cost'] ?? 0), 2)); ?></td>

@@ -91,6 +91,64 @@ if (!$db) {
 
                 $errors[] = 'Unable to save the brand.';
             }
+        } elseif ($action === 'quick_add_model') {
+            $brandId = (int) ($_POST['brand_id'] ?? 0);
+            $modelName = trim((string) ($_POST['model_name'] ?? ''));
+            $modelDescription = trim((string) ($_POST['description'] ?? ''));
+
+            if ($brandId <= 0) {
+                $errors[] = 'Brand is required.';
+            }
+            if ($modelName === '') {
+                $errors[] = 'Model name is required.';
+            }
+
+            $brandName = '';
+            if (!$errors) {
+                $brandStmt = $db->prepare("SELECT brand_name FROM brands WHERE id = ? AND is_active = 1 LIMIT 1");
+                if ($brandStmt) {
+                    $brandStmt->bind_param('i', $brandId);
+                    $brandStmt->execute();
+                    $brandRow = $brandStmt->get_result()->fetch_assoc();
+                    $brandStmt->close();
+                    if ($brandRow) {
+                        $brandName = (string) ($brandRow['brand_name'] ?? '');
+                    }
+                }
+                if ($brandName === '') {
+                    $errors[] = 'Selected brand is not active or was not found.';
+                }
+            }
+
+            if (!$errors) {
+                $duplicateStmt = $db->prepare("SELECT id FROM models WHERE brand_id = ? AND model_name = ? LIMIT 1");
+                if ($duplicateStmt) {
+                    $duplicateStmt->bind_param('is', $brandId, $modelName);
+                    $duplicateStmt->execute();
+                    if ($duplicateStmt->get_result()->fetch_assoc()) {
+                        $errors[] = 'This model already exists for the selected brand.';
+                    }
+                    $duplicateStmt->close();
+                }
+            }
+
+            if (!$errors) {
+                $modelCode = next_module_code($db, 'models');
+                $userId = current_user_id();
+                $stmt = $db->prepare("INSERT INTO models (brand_id, model_code, model_name, description, is_active, created_by) VALUES (?, ?, ?, ?, 1, ?)");
+                if ($stmt) {
+                    $stmt->bind_param('isssi', $brandId, $modelCode, $modelName, $modelDescription, $userId);
+                    $saved = $stmt->execute();
+                    $newId = (int) $stmt->insert_id;
+                    $stmt->close();
+                    if ($saved) {
+                        write_audit_log($db, ['action' => 'insert', 'table_name' => 'models', 'record_id' => $newId, 'module_name' => 'brands', 'record_type' => 'model', 'action_name' => 'quick_add_model', 'description' => 'Quick-added model from Brands module.', 'new_values' => ['brand_id' => $brandId, 'brand_name' => $brandName, 'model_code' => $modelCode, 'model_name' => $modelName, 'description' => $modelDescription, 'is_active' => 1]]);
+                        set_flash('success', 'Model added for ' . $brandName . '.');
+                        redirect('modules/brands/index.php');
+                    }
+                }
+                $errors[] = 'Unable to add the model.';
+            }
         } elseif ($action === 'delete') {
             $recordId = (int) ($_POST['id'] ?? 0);
             $userId = current_user_id();
@@ -240,6 +298,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <i class="bi bi-pencil-square"></i> Edit
                                             </a>
                                             <?php if ((int) $brand['is_active'] === 1): ?>
+                                                <button type="button" class="btn btn-sm btn-outline-success quick-add-model-btn" data-bs-toggle="modal" data-bs-target="#quickAddModelModal" data-brand-id="<?php echo (int) $brand['id']; ?>" data-brand-name="<?php echo h($brand['brand_name']); ?>">
+                                                    <i class="bi bi-plus-circle"></i> Model
+                                                </button>
+                                            <?php endif; ?>
+                                            <?php if ((int) $brand['is_active'] === 1): ?>
                                                 <form method="post" onsubmit="return confirm('Deactivate this brand?');" class="d-inline">
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="delete">
@@ -289,6 +352,45 @@ require_once __DIR__ . '/../../includes/topbar.php';
 </div>
 </div></div>
 </section>
+<div class="modal fade" id="quickAddModelModal" tabindex="-1" aria-labelledby="quickAddModelModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post">
+                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                <input type="hidden" name="action" value="quick_add_model">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="quickAddModelModalLabel">Add Model</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Brand</label>
+                        <select class="form-select" name="brand_id" id="quickAddModelBrand" required>
+                            <option value="">Select brand</option>
+                            <?php foreach ($brands as $brand): ?>
+                                <?php if ((int) ($brand['is_active'] ?? 0) === 1): ?>
+                                    <option value="<?php echo (int) $brand['id']; ?>"><?php echo h($brand['brand_name']); ?></option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Model Name</label>
+                        <input type="text" class="form-control" name="model_name" maxlength="150" required>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" name="description" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Model</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     var recordCountMobile = document.getElementById('recordCountMobile');
@@ -307,11 +409,21 @@ document.addEventListener('DOMContentLoaded', function () {
     };
     if (typeof window.initMasterDataList === 'function') {
         window.initMasterDataList('dataTable', options);
-        return;
+    } else {
+        window.__spamsPendingMasterDataLists = window.__spamsPendingMasterDataLists || [];
+        window.__spamsPendingMasterDataLists.push(['dataTable', options]);
     }
-    window.__spamsPendingMasterDataLists = window.__spamsPendingMasterDataLists || [];
-    window.__spamsPendingMasterDataLists.push(['dataTable', options]);
+
+    document.addEventListener('click', function (event) {
+        var button = event.target.closest('.quick-add-model-btn');
+        if (!button) {
+            return;
+        }
+        var brandSelect = document.getElementById('quickAddModelBrand');
+        if (brandSelect) {
+            brandSelect.value = button.getAttribute('data-brand-id') || '';
+        }
+    });
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-

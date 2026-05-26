@@ -257,7 +257,7 @@ $signatoryDisplayName = static function (array $person): string {
     ]);
     $name = strtoupper(trim(implode(' ', $nameParts)));
     if ($suffix !== '') {
-        $name .= ' ' . $suffix;
+        $name .= ', ' . $suffix;
     }
     return $name;
 };

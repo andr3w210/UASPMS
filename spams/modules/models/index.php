@@ -103,6 +103,43 @@ if (!$db) {
 
                 $errors[] = 'Unable to save the model.';
             }
+        } elseif ($action === 'quick_add_brand') {
+            $brandName = trim((string) ($_POST['brand_name'] ?? ''));
+            $brandDescription = trim((string) ($_POST['description'] ?? ''));
+
+            if ($brandName === '') {
+                $errors[] = 'Brand name is required.';
+            }
+
+            if (!$errors) {
+                $duplicateStmt = $db->prepare("SELECT id FROM brands WHERE brand_name = ? LIMIT 1");
+                if ($duplicateStmt) {
+                    $duplicateStmt->bind_param('s', $brandName);
+                    $duplicateStmt->execute();
+                    if ($duplicateStmt->get_result()->fetch_assoc()) {
+                        $errors[] = 'Brand already exists.';
+                    }
+                    $duplicateStmt->close();
+                }
+            }
+
+            if (!$errors) {
+                $brandCode = next_module_code($db, 'brands');
+                $userId = current_user_id();
+                $stmt = $db->prepare("INSERT INTO brands (brand_code, brand_name, description, is_active, created_by) VALUES (?, ?, ?, 1, ?)");
+                if ($stmt) {
+                    $stmt->bind_param('sssi', $brandCode, $brandName, $brandDescription, $userId);
+                    $saved = $stmt->execute();
+                    $newId = (int) $stmt->insert_id;
+                    $stmt->close();
+                    if ($saved) {
+                        write_audit_log($db, ['action' => 'insert', 'table_name' => 'brands', 'record_id' => $newId, 'module_name' => 'models', 'record_type' => 'brand', 'action_name' => 'quick_add_brand', 'description' => 'Quick-added brand from Models module.', 'new_values' => ['brand_code' => $brandCode, 'brand_name' => $brandName, 'description' => $brandDescription, 'is_active' => 1]]);
+                        set_flash('success', 'Brand added. You can now select it for a model.');
+                        redirect('modules/models/index.php?brand_id=' . $newId);
+                    }
+                }
+                $errors[] = 'Unable to add the brand.';
+            }
         } elseif ($action === 'delete') {
             $recordId = (int) ($_POST['id'] ?? 0);
             $userId = current_user_id();
@@ -180,6 +217,14 @@ if (!$db) {
                 ];
             }
         }
+    } elseif ((int) ($_GET['brand_id'] ?? 0) > 0) {
+        $requestedBrandId = (int) $_GET['brand_id'];
+        foreach ($brands as $brand) {
+            if ((int) ($brand['id'] ?? 0) === $requestedBrandId) {
+                $form['brand_id'] = (string) $requestedBrandId;
+                break;
+            }
+        }
     }
 
     $result = $db->query("
@@ -195,6 +240,8 @@ if (!$db) {
     }
 }
 
+$showForm = $form['id'] > 0 || $form['brand_id'] !== '';
+
 require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
@@ -202,8 +249,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
 <section class="master-data-page"><div class="card master-data-page-card"><div class="card-body p-4 p-xl-4">
 <?php if ($errors): ?><div class="alert alert-danger mb-4"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
 <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?> mb-4"><?php echo h($flash['message']); ?></div><?php endif; ?>
-<div class="master-data-header mb-4"><div><div class="text-uppercase small text-muted fw-semibold">Master Data</div><h4 class="mb-1">Models</h4><div id="recordCount" class="text-muted small">Showing <?php echo count($models); ?> of <?php echo count($models); ?> records</div></div><div class="d-flex gap-2 flex-wrap"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/models/index.php'); ?>" class="btn btn-outline-secondary">Cancel Edit</a><?php endif; ?><button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse" aria-expanded="<?php echo $form['id'] > 0 ? 'true' : 'false'; ?>"><i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Continue Editing' : 'Add Model'; ?></button></div></div>
-<div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?> mb-4" id="formCollapse"><div class="master-data-editor"><div class="master-data-editor-header"><div><h5 class="mb-1"><?php echo $form['id'] > 0 ? 'Edit Model' : 'New Model'; ?></h5><div class="text-muted small">Manage model records and assign them to active brands.</div></div></div><form method="post" class="workspace-form-section mt-3"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>"><div class="master-data-form-layout"><div class="master-data-form-main"><div class="master-data-panel"><div class="master-data-panel-header"><div><div class="master-data-panel-kicker">Identity</div><h6 class="mb-1">Brand and Model</h6><div class="text-muted small">Connect each model to its correct brand so downstream item records stay standardized.</div></div></div><div class="master-data-panel-body"><div class="row g-3"><div class="col-md-6"><label class="form-label">Brand</label><select class="form-select" name="brand_id" required data-placeholder="Select brand"><option value="">Select brand</option><?php foreach ($brands as $brand): ?><option value="<?php echo (int) $brand['id']; ?>" <?php echo $form['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo h($brand['brand_name']); ?></option><?php endforeach; ?></select></div><div class="col-md-6"><label class="form-label">Model Code</label><input type="text" class="form-control" name="model_code" value="<?php echo h($form['id'] > 0 ? $form['model_code'] : $generatedCode); ?>" readonly><div class="form-text">Generated automatically using `MDL-YYYY-0001` format.</div></div><div class="col-md-6"><label class="form-label">Model Name</label><input type="text" class="form-control" name="model_name" value="<?php echo h($form['model_name']); ?>" maxlength="150" required></div><div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="4"><?php echo h($form['description']); ?></textarea></div></div></div></div><div class="master-data-form-actions"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/models/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Model' : 'Save Model'; ?></button></div></div><div class="master-data-form-side"><div class="master-data-panel"><div class="master-data-panel-header"><div><div class="master-data-panel-kicker">Status</div><h6 class="mb-1">Model Controls</h6></div></div><div class="master-data-panel-body"><div class="master-data-helper mb-3">Recommendation: keep one record per actual brand-model combination to avoid duplicate inventory references.</div><div class="master-data-side-list"><div class="master-data-side-item"><span>Record state</span><span class="badge <?php echo $form['is_active'] === '1' ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo $form['is_active'] === '1' ? 'Active' : 'Inactive'; ?></span></div></div><div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active model</label></div></div></div></div></div></form></div></div>
+<div class="master-data-header mb-4"><div><div class="text-uppercase small text-muted fw-semibold">Master Data</div><h4 class="mb-1">Models</h4><div id="recordCount" class="text-muted small">Showing <?php echo count($models); ?> of <?php echo count($models); ?> records</div></div><div class="d-flex gap-2 flex-wrap"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/models/index.php'); ?>" class="btn btn-outline-secondary">Cancel Edit</a><?php endif; ?><button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse" aria-expanded="<?php echo $showForm ? 'true' : 'false'; ?>"><i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Continue Editing' : 'Add Model'; ?></button></div></div>
+<div class="collapse <?php echo $showForm ? 'show' : ''; ?> mb-4" id="formCollapse"><div class="master-data-editor"><div class="master-data-editor-header"><div><h5 class="mb-1"><?php echo $form['id'] > 0 ? 'Edit Model' : 'New Model'; ?></h5><div class="text-muted small">Manage model records and assign them to active brands.</div></div></div><form method="post" class="workspace-form-section mt-3"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>"><div class="master-data-form-layout"><div class="master-data-form-main"><div class="master-data-panel"><div class="master-data-panel-header"><div><div class="master-data-panel-kicker">Identity</div><h6 class="mb-1">Brand and Model</h6><div class="text-muted small">Connect each model to its correct brand so downstream item records stay standardized.</div></div></div><div class="master-data-panel-body"><div class="row g-3"><div class="col-md-6"><label class="form-label">Brand</label><div class="input-group"><select class="form-select" name="brand_id" required data-placeholder="Select brand"><option value="">Select brand</option><?php foreach ($brands as $brand): ?><option value="<?php echo (int) $brand['id']; ?>" <?php echo $form['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo h($brand['brand_name']); ?></option><?php endforeach; ?></select><button class="btn btn-outline-success" type="button" data-bs-toggle="modal" data-bs-target="#quickAddBrandModal"><i class="bi bi-plus-circle"></i> Brand</button></div></div><div class="col-md-6"><label class="form-label">Model Code</label><input type="text" class="form-control" name="model_code" value="<?php echo h($form['id'] > 0 ? $form['model_code'] : $generatedCode); ?>" readonly><div class="form-text">Generated automatically using `MDL-YYYY-0001` format.</div></div><div class="col-md-6"><label class="form-label">Model Name</label><input type="text" class="form-control" name="model_name" value="<?php echo h($form['model_name']); ?>" maxlength="150" required></div><div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="4"><?php echo h($form['description']); ?></textarea></div></div></div></div><div class="master-data-form-actions"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/models/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Model' : 'Save Model'; ?></button></div></div><div class="master-data-form-side"><div class="master-data-panel"><div class="master-data-panel-header"><div><div class="master-data-panel-kicker">Status</div><h6 class="mb-1">Model Controls</h6></div></div><div class="master-data-panel-body"><div class="master-data-helper mb-3">Recommendation: keep one record per actual brand-model combination to avoid duplicate inventory references.</div><div class="master-data-side-list"><div class="master-data-side-item"><span>Record state</span><span class="badge <?php echo $form['is_active'] === '1' ? 'text-bg-success' : 'text-bg-secondary'; ?>"><?php echo $form['is_active'] === '1' ? 'Active' : 'Inactive'; ?></span></div></div><div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active model</label></div></div></div></div></div></form></div></div>
                 <div class="master-data-toolbar mb-3">
                     <div class="row g-3 align-items-end">
                         <div class="col-lg-6">
@@ -295,6 +342,34 @@ require_once __DIR__ . '/../../includes/topbar.php';
 </div>
 </div></div>
 </section>
+<div class="modal fade" id="quickAddBrandModal" tabindex="-1" aria-labelledby="quickAddBrandModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post">
+                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                <input type="hidden" name="action" value="quick_add_brand">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="quickAddBrandModalLabel">Add Brand</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Brand Name</label>
+                        <input type="text" class="form-control" name="brand_name" maxlength="150" required>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" name="description" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Brand</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     var recordCountMobile = document.getElementById('recordCountMobile');

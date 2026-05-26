@@ -46,6 +46,19 @@ function users_value_exists(mysqli $db, string $column, string $value, int $excl
     return $exists;
 }
 
+function users_audit_snapshot(mysqli $db, int $userId): array
+{
+    return audit_fetch_row_snapshot($db, 'users', $userId, [
+        'username',
+        'email',
+        'full_name',
+        'role_id',
+        'employee_id',
+        'office_id',
+        'is_active',
+    ]);
+}
+
 function users_generate_initial_password(int $length = 12): string
 {
     $upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -224,6 +237,7 @@ if (!$db) {
             if(!$errors){
                 $isActive=(int)$form['is_active'];
                 if($recordId>0){
+                    $auditBefore = users_audit_snapshot($db, $recordId);
                     if(trim($form['password'])!==''){
                         $passwordHash=password_hash($form['password'], PASSWORD_DEFAULT);
                         $stmt=$db->prepare("UPDATE users SET username = ?, email = ?, full_name = ?, role_id = ?, employee_id = ?, office_id = ?, password_hash = ?, is_active = ?, updated_at = NOW() WHERE id = ?");
@@ -240,6 +254,7 @@ if (!$db) {
                                     'record_type' => 'user',
                                     'action_name' => 'update_user',
                                     'description' => 'Updated user account.',
+                                    'old_values' => $auditBefore,
                                     'new_values' => [
                                         'username' => $form['username'],
                                         'email' => $form['email'],
@@ -270,6 +285,7 @@ if (!$db) {
                                     'record_type' => 'user',
                                     'action_name' => 'update_user',
                                     'description' => 'Updated user account.',
+                                    'old_values' => $auditBefore,
                                     'new_values' => [
                                         'username' => $form['username'],
                                         'email' => $form['email'],
@@ -322,6 +338,7 @@ if (!$db) {
             }
         } elseif($action==='delete'){
             $recordId=(int)($_POST['id']??0);
+            $auditBefore = users_audit_snapshot($db, $recordId);
             $stmt=$db->prepare("UPDATE users SET is_active = 0, updated_at = NOW() WHERE id = ?");
             if($stmt){
                 $stmt->bind_param('i',$recordId);
@@ -336,6 +353,7 @@ if (!$db) {
                         'record_type' => 'user',
                         'action_name' => 'deactivate_user',
                         'description' => 'Deactivated user account.',
+                        'old_values' => $auditBefore,
                         'new_values' => ['is_active' => 0],
                     ]);
                     set_flash('success','User deactivated successfully.');
@@ -345,6 +363,7 @@ if (!$db) {
             $errors[]='Unable to deactivate the user.';
         } elseif($action==='reactivate'){
             $recordId=(int)($_POST['id']??0);
+            $auditBefore = users_audit_snapshot($db, $recordId);
             $stmt=$db->prepare("UPDATE users SET is_active = 1, updated_at = NOW() WHERE id = ?");
             if($stmt){
                 $stmt->bind_param('i',$recordId);
@@ -359,6 +378,7 @@ if (!$db) {
                         'record_type' => 'user',
                         'action_name' => 'reactivate_user',
                         'description' => 'Reactivated user account.',
+                        'old_values' => $auditBefore,
                         'new_values' => ['is_active' => 1],
                     ]);
                     set_flash('success','User reactivated successfully.');
@@ -1127,8 +1147,6 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 <?php endif; ?>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-
-
 
 
 

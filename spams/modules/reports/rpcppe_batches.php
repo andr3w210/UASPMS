@@ -1600,6 +1600,11 @@ function rpcppe_fetch_live_row_by_property_number(mysqli $db, string $propertyNu
 function rpcppe_create_legacy_asset_from_excel_row(mysqli $db, array $excelRow, array $account, ?array $fund, ?array $classification, ?array $office, ?array $employee, int $userId): ?array
 {
     $propertyNumber = trim((string) ($excelRow['property_number'] ?? ''));
+    $descriptionLabel = strtoupper(trim((string) ($excelRow['description'] ?? '')));
+    if (in_array($descriptionLabel, ['SUBTOTAL', 'TOTAL', 'GRAND TOTAL'], true)) {
+        return null;
+    }
+
     $acquisitionDate = trim((string) ($excelRow['acquisition_date'] ?? ''));
     $yearValue = $acquisitionDate !== '' ? substr($acquisitionDate, 0, 4) : date('Y');
     $fundNumber = trim((string) ($excelRow['fund_number'] ?? ''));
@@ -1609,15 +1614,9 @@ function rpcppe_create_legacy_asset_from_excel_row(mysqli $db, array $excelRow, 
         $propertyNumber = generate_property_number($db, $yearValue, $fundNumber, (string) ($account['account_code'] ?? ''), $officeCode);
     }
 
-    $existing = $db->prepare("SELECT id FROM legacy_assets WHERE property_number = ? LIMIT 1");
-    if ($existing) {
-        $existing->bind_param('s', $propertyNumber);
-        $existing->execute();
-        $dup = $existing->get_result()->fetch_assoc();
-        $existing->close();
-        if ($dup) {
-            return rpcppe_fetch_live_row_by_property_number($db, $propertyNumber, date('Y-m-d'));
-        }
+    $existingLiveRow = rpcppe_fetch_live_row_by_property_number($db, $propertyNumber, date('Y-m-d'));
+    if ($existingLiveRow) {
+        return $existingLiveRow;
     }
 
     $systemReference = next_module_code($db, 'stock_items');
@@ -1636,6 +1635,9 @@ function rpcppe_create_legacy_asset_from_excel_row(mysqli $db, array $excelRow, 
     $brandName = trim((string) ($excelRow['brand'] ?? ($metadata['brand'] ?? '')));
     $modelName = trim((string) ($excelRow['model'] ?? ($metadata['model'] ?? '')));
     $serialNo = trim((string) ($excelRow['serial_no'] ?? ($metadata['serial_no'] ?? '')));
+    if ($serialNo !== '' && asset_identifier_conflict($db, 'serial_no', $serialNo, '', 0, true)) {
+        return null;
+    }
     $quantity = rpcppe_quantity_from_excel_row($excelRow);
     $unitCost = (float) ($excelRow['unit_value'] ?? 0);
     $acquisitionCost = round($quantity * $unitCost, 2);
@@ -1705,6 +1707,9 @@ function rpcppe_update_legacy_asset_from_excel_row(mysqli $db, int $legacyAssetI
     $brand = trim((string) ($excelRow['brand'] ?? ($metadata['brand'] ?? '')));
     $model = trim((string) ($excelRow['model'] ?? ($metadata['model'] ?? '')));
     $serialNo = trim((string) ($excelRow['serial_no'] ?? ($metadata['serial_no'] ?? '')));
+    if ($serialNo !== '' && asset_identifier_conflict($db, 'serial_no', $serialNo, 'legacy', $legacyAssetId, true)) {
+        $serialNo = '';
+    }
     $classificationId = isset($classification['id']) ? (int) $classification['id'] : 0;
     $itemName = trim((string) ($classification['classification_name'] ?? ($excelRow['article'] ?? '')));
     $itemNameId = rpcppe_find_or_create_item_name_id($db, $itemName);
@@ -2799,7 +2804,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         <div><?php echo h((string) ($item['office_name'] ?? 'Unassigned')); ?></div>
                                                         <div class="small text-muted"><?php echo h((string) ($item['employee_name'] ?? '')); ?></div>
                                                     </td>
-                                                    <td><?php $ad = (string) ($item['acquisition_date'] ?? ''); echo h($ad !== '' ? date('M d, Y', strtotime($ad)) : '—'); ?></td>
+                                                    <td><?php $ad = format_date($item['acquisition_date'] ?? null); echo h($ad !== '' ? $ad : '-'); ?></td>
                                                     <td class="text-end"><?php echo h(number_format((float) ($item['unit_cost'] ?? 0), 2)); ?></td>
                                                     <td>
                                                         <div class="d-flex flex-wrap gap-1">

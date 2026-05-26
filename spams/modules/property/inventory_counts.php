@@ -584,6 +584,111 @@ if ($db) {
                 $errors[] = 'Unable to close this count session.';
             }
         }
+
+        if (empty($errors) && $action === 'delete_session') {
+            $sessionId = (int) ($_POST['session_id'] ?? 0);
+
+            if ($sessionId <= 0) {
+                $errors[] = 'Invalid count session.';
+            } else {
+                $sessionStmt = $db->prepare("
+                    SELECT
+                        ics.id,
+                        ics.system_reference,
+                        ics.count_type,
+                        ics.count_date,
+                        ics.status,
+                        ics.office_id,
+                        ics.notes,
+                        o.office_name,
+                        COUNT(ici.id) AS item_count
+                    FROM inventory_count_sessions ics
+                    INNER JOIN offices o ON o.id = ics.office_id
+                    LEFT JOIN inventory_count_items ici ON ici.session_id = ics.id
+                    WHERE ics.id = ?
+                    GROUP BY ics.id, ics.system_reference, ics.count_type, ics.count_date, ics.status, ics.office_id, ics.notes, o.office_name
+                    LIMIT 1
+                ");
+
+                $sessionRow = null;
+                if ($sessionStmt) {
+                    $sessionStmt->bind_param('i', $sessionId);
+                    $sessionStmt->execute();
+                    $sessionRow = $sessionStmt->get_result()->fetch_assoc();
+                    $sessionStmt->close();
+                }
+
+                if (!$sessionRow) {
+                    $errors[] = 'Count session not found.';
+                } else {
+                    $db->begin_transaction();
+                    try {
+                        $historyStmt = $db->prepare("
+                            UPDATE asset_location_history alh
+                            LEFT JOIN inventory_count_items ici ON ici.id = alh.inventory_count_item_id
+                            SET alh.inventory_session_id = NULL,
+                                alh.inventory_count_item_id = NULL
+                            WHERE alh.inventory_session_id = ?
+                               OR ici.session_id = ?
+                        ");
+                        if ($historyStmt) {
+                            $historyStmt->bind_param('ii', $sessionId, $sessionId);
+                            $historyStmt->execute();
+                            $historyStmt->close();
+                        }
+
+                        $itemDeleteStmt = $db->prepare("DELETE FROM inventory_count_items WHERE session_id = ?");
+                        if (!$itemDeleteStmt) {
+                            throw new RuntimeException('Unable to prepare count item deletion.');
+                        }
+                        $itemDeleteStmt->bind_param('i', $sessionId);
+                        $itemDeleteStmt->execute();
+                        $deletedItems = $itemDeleteStmt->affected_rows;
+                        $itemDeleteStmt->close();
+
+                        $sessionDeleteStmt = $db->prepare("DELETE FROM inventory_count_sessions WHERE id = ? LIMIT 1");
+                        if (!$sessionDeleteStmt) {
+                            throw new RuntimeException('Unable to prepare count session deletion.');
+                        }
+                        $sessionDeleteStmt->bind_param('i', $sessionId);
+                        $sessionDeleteStmt->execute();
+                        $deletedSessions = $sessionDeleteStmt->affected_rows;
+                        $sessionDeleteStmt->close();
+
+                        if ($deletedSessions <= 0) {
+                            throw new RuntimeException('Unable to delete this count session.');
+                        }
+
+                        write_audit_log($db, [
+                            'action' => 'delete',
+                            'table_name' => 'inventory_count_sessions',
+                            'record_id' => $sessionId,
+                            'module_name' => 'inventory_counts',
+                            'record_type' => 'inventory_count_session',
+                            'action_name' => 'delete_inventory_count_session',
+                            'old_values' => [
+                                'system_reference' => $sessionRow['system_reference'] ?? '',
+                                'count_type' => $sessionRow['count_type'] ?? '',
+                                'office_id' => (int) ($sessionRow['office_id'] ?? 0),
+                                'office_name' => $sessionRow['office_name'] ?? '',
+                                'count_date' => $sessionRow['count_date'] ?? '',
+                                'status' => $sessionRow['status'] ?? '',
+                                'notes' => $sessionRow['notes'] ?? '',
+                                'item_count' => (int) ($sessionRow['item_count'] ?? $deletedItems),
+                            ],
+                            'description' => 'Deleted inventory count session and checklist items.',
+                        ]);
+
+                        $db->commit();
+                        set_flash('success', 'Inventory count session deleted.');
+                        redirect('modules/property/inventory_counts.php');
+                    } catch (Throwable $e) {
+                        $db->rollback();
+                        $errors[] = $e->getMessage();
+                    }
+                }
+            }
+        }
     }
 
     $sessionListStmt = $db->prepare("
@@ -834,6 +939,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <button type="submit" class="btn btn-outline-primary">Close Session</button>
                                 </form>
                             <?php endif; ?>
+                            <form method="post" onsubmit="return confirm('Delete this inventory count session and all checklist items? This cannot be undone.');">
+                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                <input type="hidden" name="action" value="delete_session">
+                                <input type="hidden" name="session_id" value="<?php echo (int) $selectedSession['id']; ?>">
+                                <button type="submit" class="btn btn-outline-danger">Delete</button>
+                            </form>
                         </div>
                     </div>
 
@@ -1387,5 +1498,3 @@ document.addEventListener('DOMContentLoaded', function () {
 }
 </style>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-
-

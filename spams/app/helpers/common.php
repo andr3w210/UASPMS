@@ -279,12 +279,133 @@ function is_valid_date_string(string $value, string $format = 'Y-m-d'): bool
     }
 
     $date = DateTime::createFromFormat($format, $value);
-    return $date instanceof DateTime && $date->format($format) === $value;
+    $errors = DateTime::getLastErrors();
+    if (!$date instanceof DateTime || $date->format($format) !== $value) {
+        return false;
+    }
+    if (is_array($errors) && ((int) ($errors['warning_count'] ?? 0) > 0 || (int) ($errors['error_count'] ?? 0) > 0)) {
+        return false;
+    }
+
+    $year = (int) $date->format('Y');
+    return $year >= 1900 && $year <= 2100;
+}
+
+function normalize_date_string(?string $value, int $minYear = 1900, int $maxYear = 2100): string
+{
+    $clean = trim((string) $value);
+    if ($clean === '' || $clean === '0000-00-00') {
+        return '';
+    }
+
+    $datePart = $clean;
+    if (preg_match('/^\d{4}-\d{2}-\d{2}/', $clean, $matches)) {
+        $datePart = $matches[0];
+    }
+
+    $formats = ['!Y-m-d', '!m/d/Y', '!n/j/Y', '!m-d-Y', '!n-j-Y'];
+    foreach ($formats as $format) {
+        $date = DateTime::createFromFormat($format, $datePart);
+        $errors = DateTime::getLastErrors();
+        if (!$date instanceof DateTime) {
+            continue;
+        }
+        if (is_array($errors) && ((int) ($errors['warning_count'] ?? 0) > 0 || (int) ($errors['error_count'] ?? 0) > 0)) {
+            continue;
+        }
+
+        $year = (int) $date->format('Y');
+        if ($year < $minYear || $year > $maxYear) {
+            continue;
+        }
+
+        return $date->format('Y-m-d');
+    }
+
+    if (is_numeric($clean)) {
+        $serial = (int) floor((float) $clean);
+        if ($serial > 0) {
+            $date = (new DateTimeImmutable('1899-12-30'))->modify('+' . $serial . ' days');
+            $year = (int) $date->format('Y');
+            if ($year >= $minYear && $year <= $maxYear) {
+                return $date->format('Y-m-d');
+            }
+        }
+    }
+
+    return '';
 }
 
 function is_allowed_value(string $value, array $allowed): bool
 {
     return in_array($value, $allowed, true);
+}
+
+function asset_identifier_conflict(
+    mysqli $db,
+    string $field,
+    string $value,
+    string $currentSource = '',
+    int $currentId = 0,
+    bool $includeReceivingDetails = false
+): ?array {
+    $field = $field === 'serial_no' ? 'serial_no' : 'property_number';
+    $value = trim($value);
+    if ($value === '') {
+        return null;
+    }
+
+    $checks = [
+        [
+            'source' => 'legacy',
+            'label' => 'beginning balance asset',
+            'sql' => "SELECT id FROM legacy_assets WHERE is_active = 1 AND TRIM({$field}) = ?",
+        ],
+        [
+            'source' => 'system',
+            'label' => 'system asset',
+            'sql' => "SELECT id FROM distribution_item_details WHERE TRIM({$field}) = ?",
+        ],
+    ];
+
+    if ($field === 'serial_no' && $includeReceivingDetails) {
+        $checks[] = [
+            'source' => 'receiving',
+            'label' => 'receiving detail',
+            'sql' => 'SELECT id FROM receiving_item_details WHERE TRIM(serial_no) = ?',
+        ];
+    }
+
+    foreach ($checks as $check) {
+        $sql = $check['sql'];
+        $params = [$value];
+        $types = 's';
+        if ($currentSource === $check['source'] && $currentId > 0) {
+            $sql .= ' AND id <> ?';
+            $types .= 'i';
+            $params[] = $currentId;
+        }
+        $sql .= ' LIMIT 1';
+
+        $stmt = $db->prepare($sql);
+        if (!$stmt) {
+            continue;
+        }
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if ($row) {
+            return [
+                'source' => $check['source'],
+                'label' => $check['label'],
+                'id' => (int) ($row['id'] ?? 0),
+            ];
+        }
+    }
+
+    return null;
 }
 
 function has_foreign_key_reference(mysqli $db, string $referencedTable, int $recordId, array $fallbackChecks = []): bool
@@ -346,9 +467,13 @@ function format_date(?string $value, string $format = 'M d, Y'): string
         return '';
     }
 
+    if (normalize_date_string($clean) === '') {
+        return '';
+    }
+
     $timestamp = strtotime($clean);
     if ($timestamp === false) {
-        return $clean;
+        return '';
     }
 
     return date($format, $timestamp);
@@ -1071,16 +1196,20 @@ function ensure_legacy_assets_po_number_column(mysqli $db): void
 
 function ensure_asset_location_tracking_schema(mysqli $db): void
 {
+    ensure_locations_schema($db);
+
     $db->query("ALTER TABLE distribution_item_details
         ADD COLUMN IF NOT EXISTS manual_location VARCHAR(255) NULL AFTER current_responsibility_code_id,
-        ADD COLUMN IF NOT EXISTS location_lat DECIMAL(10,7) NULL AFTER manual_location,
+        ADD COLUMN IF NOT EXISTS location_id BIGINT UNSIGNED NULL AFTER manual_location,
+        ADD COLUMN IF NOT EXISTS location_lat DECIMAL(10,7) NULL AFTER location_id,
         ADD COLUMN IF NOT EXISTS location_lng DECIMAL(10,7) NULL AFTER location_lat,
         ADD COLUMN IF NOT EXISTS location_updated_at DATETIME NULL AFTER location_lng,
         ADD COLUMN IF NOT EXISTS location_updated_by BIGINT UNSIGNED NULL AFTER location_updated_at");
 
     $db->query("ALTER TABLE legacy_assets
         ADD COLUMN IF NOT EXISTS manual_location VARCHAR(255) NULL AFTER responsibility_code_id,
-        ADD COLUMN IF NOT EXISTS location_lat DECIMAL(10,7) NULL AFTER manual_location,
+        ADD COLUMN IF NOT EXISTS location_id BIGINT UNSIGNED NULL AFTER manual_location,
+        ADD COLUMN IF NOT EXISTS location_lat DECIMAL(10,7) NULL AFTER location_id,
         ADD COLUMN IF NOT EXISTS location_lng DECIMAL(10,7) NULL AFTER location_lat,
         ADD COLUMN IF NOT EXISTS location_updated_at DATETIME NULL AFTER location_lng,
         ADD COLUMN IF NOT EXISTS location_updated_by BIGINT UNSIGNED NULL AFTER location_updated_at");
@@ -1094,9 +1223,11 @@ function ensure_asset_location_tracking_schema(mysqli $db): void
         changed_by BIGINT UNSIGNED NULL,
         change_reason VARCHAR(120) NOT NULL DEFAULT 'manual_update',
         old_manual_location VARCHAR(255) NULL,
+        old_location_id BIGINT UNSIGNED NULL,
         old_latitude DECIMAL(10,7) NULL,
         old_longitude DECIMAL(10,7) NULL,
         new_manual_location VARCHAR(255) NULL,
+        new_location_id BIGINT UNSIGNED NULL,
         new_latitude DECIMAL(10,7) NULL,
         new_longitude DECIMAL(10,7) NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1105,6 +1236,32 @@ function ensure_asset_location_tracking_schema(mysqli $db): void
         KEY idx_asset_location_history_session (inventory_session_id),
         KEY idx_asset_location_history_item (inventory_count_item_id),
         KEY idx_asset_location_history_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    if (function_exists('schema_has_column') && !schema_has_column($db, 'asset_location_history', 'old_location_id')) {
+        $db->query("ALTER TABLE asset_location_history ADD COLUMN old_location_id BIGINT UNSIGNED NULL AFTER old_manual_location");
+    }
+    if (function_exists('schema_has_column') && !schema_has_column($db, 'asset_location_history', 'new_location_id')) {
+        $db->query("ALTER TABLE asset_location_history ADD COLUMN new_location_id BIGINT UNSIGNED NULL AFTER new_manual_location");
+    }
+}
+
+function ensure_locations_schema(mysqli $db): void
+{
+    $db->query("CREATE TABLE IF NOT EXISTS locations (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        location_code VARCHAR(50) NOT NULL,
+        location_name VARCHAR(180) NOT NULL,
+        description TEXT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_by BIGINT UNSIGNED NULL,
+        updated_by BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_locations_code (location_code),
+        UNIQUE KEY uq_locations_name (location_name),
+        KEY idx_locations_active (is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
@@ -1118,7 +1275,8 @@ function update_asset_location_snapshot(
     int $changedBy = 0,
     string $changeReason = 'manual_update',
     ?int $inventorySessionId = null,
-    ?int $inventoryCountItemId = null
+    ?int $inventoryCountItemId = null,
+    ?int $locationId = null
 ): bool {
     ensure_asset_location_tracking_schema($db);
 
@@ -1127,7 +1285,7 @@ function update_asset_location_snapshot(
     }
 
     $table = $assetSource === 'legacy' ? 'legacy_assets' : 'distribution_item_details';
-    $selectStmt = $db->prepare("SELECT manual_location, location_lat, location_lng FROM {$table} WHERE id = ? LIMIT 1");
+    $selectStmt = $db->prepare("SELECT manual_location, location_id, location_lat, location_lng FROM {$table} WHERE id = ? LIMIT 1");
     if (!$selectStmt) {
         return false;
     }
@@ -1142,6 +1300,8 @@ function update_asset_location_snapshot(
 
     $manualLocation = trim($manualLocation);
     $oldManualLocation = trim((string) ($current['manual_location'] ?? ''));
+    $oldLocationId = (int) ($current['location_id'] ?? 0);
+    $locationIdValue = $locationId === null ? $oldLocationId : max(0, (int) $locationId);
     $oldLatitude = isset($current['location_lat']) ? (float) $current['location_lat'] : null;
     $oldLongitude = isset($current['location_lng']) ? (float) $current['location_lng'] : null;
 
@@ -1152,6 +1312,7 @@ function update_asset_location_snapshot(
 
     if (
         $manualLocation === $oldManualLocation
+        && $locationIdValue === $oldLocationId
         && $newLatitudeStr === $oldLatitudeStr
         && $newLongitudeStr === $oldLongitudeStr
     ) {
@@ -1160,6 +1321,7 @@ function update_asset_location_snapshot(
 
     $updateStmt = $db->prepare("UPDATE {$table}
         SET manual_location = NULLIF(?, ''),
+            location_id = NULLIF(?, 0),
             location_lat = NULLIF(?, ''),
             location_lng = NULLIF(?, ''),
             location_updated_at = NOW(),
@@ -1169,7 +1331,7 @@ function update_asset_location_snapshot(
         return false;
     }
 
-    $updateStmt->bind_param('sssii', $manualLocation, $newLatitudeStr, $newLongitudeStr, $changedBy, $assetId);
+    $updateStmt->bind_param('sissii', $manualLocation, $locationIdValue, $newLatitudeStr, $newLongitudeStr, $changedBy, $assetId);
     $saved = $updateStmt->execute();
     $updateStmt->close();
     if (!$saved) {
@@ -1178,14 +1340,14 @@ function update_asset_location_snapshot(
 
     $historyStmt = $db->prepare("INSERT INTO asset_location_history
         (asset_source, asset_id, inventory_session_id, inventory_count_item_id, changed_by, change_reason,
-         old_manual_location, old_latitude, old_longitude, new_manual_location, new_latitude, new_longitude)
+         old_manual_location, old_location_id, old_latitude, old_longitude, new_manual_location, new_location_id, new_latitude, new_longitude)
         VALUES (?, ?, NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?,
-                NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''))");
+                NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, ''), NULLIF(?, ''))");
     if ($historyStmt) {
         $sessionIdValue = max(0, (int) ($inventorySessionId ?? 0));
         $countItemIdValue = max(0, (int) ($inventoryCountItemId ?? 0));
         $historyStmt->bind_param(
-            'siiiisssssss',
+            'siiiississsiss',
             $assetSource,
             $assetId,
             $sessionIdValue,
@@ -1193,9 +1355,11 @@ function update_asset_location_snapshot(
             $changedBy,
             $changeReason,
             $oldManualLocation,
+            $oldLocationId,
             $oldLatitudeStr,
             $oldLongitudeStr,
             $manualLocation,
+            $locationIdValue,
             $newLatitudeStr,
             $newLongitudeStr
         );

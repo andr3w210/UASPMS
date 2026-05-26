@@ -393,7 +393,7 @@ $blankRows = max(0, $targetRows - count($printItems));
             <?php foreach ($printItems as $item): ?>
                 <?php $meta = itr_item_meta($item); ?>
                 <tr>
-                    <td><?php echo h(!empty($item['date_acquired']) ? date('M d, Y', strtotime((string) $item['date_acquired'])) : ''); ?></td>
+                    <td><?php echo h(format_date($item['date_acquired'] ?? null)); ?></td>
                     <td>
                         <?php echo h($item['property_number'] ?? ''); ?>
                         <?php if ($isGrouped && !empty($item['quantity']) && (int) $item['quantity'] > 1): ?>

@@ -93,6 +93,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($db && empty($errors)) {
             $userId = current_user_id();
+            $auditBefore = [
+                'app_url' => get_system_setting($db, 'app_url', ''),
+                'tailscale_serve_url' => get_system_setting($db, 'tailscale_serve_url', ''),
+                'tailscale_ip_url' => get_system_setting($db, 'tailscale_ip_url', ''),
+                'local_access_url' => get_system_setting($db, 'local_access_url', ''),
+                'session_timeout_minutes' => (int) get_system_setting($db, 'session_timeout_minutes', '30'),
+            ];
             $stmt = $db->prepare(
                 "INSERT INTO system_settings (setting_key, setting_value, updated_by)
                  VALUES (?, ?, ?)
@@ -127,6 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'module_name' => 'settings',
                             'record_type' => 'system_setting',
                             'action_name' => 'save_system_access_settings',
+                            'old_values' => $auditBefore,
                             'new_values' => [
                                 'app_url' => $appUrl,
                                 'tailscale_serve_url' => $tailscaleServeUrl,

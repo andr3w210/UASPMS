@@ -35,7 +35,7 @@ $signatoryDisplayName = static function (array $person): string {
     ]);
     $name = strtoupper(trim(implode(' ', $nameParts)));
     if ($suffix !== '') {
-        $name .= ' ' . $suffix;
+        $name .= ', ' . $suffix;
     }
     return $name;
 };
@@ -65,6 +65,9 @@ $buildPropertyRange = static function (array $propertyNumbers): string {
 };
 
 if ($db) {
+    ensure_legacy_assets_rpcppe_tracking_columns($db);
+    ensure_distribution_item_rpcppe_tracking_columns($db);
+
     $officeRes = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeRes) {
         $offices = $officeRes->fetch_all(MYSQLI_ASSOC);
@@ -188,6 +191,10 @@ if ($db) {
                  WHERE d.office_id = ?
                    AND did.is_distributed = 1
                    AND (did.is_disposed IS NULL OR did.is_disposed = 0)
+                   AND COALESCE(did.is_rpcppe_candidate, 0) = 0
+                   AND COALESCE(NULLIF(TRIM(did.rpcppe_status), ''), 'excluded') = 'excluded'
+                   AND UPPER(poi.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
+                   AND UPPER(TRIM(poi.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')
                  ORDER BY did.property_number ASC, did.id ASC"
             );
             if ($systemStmt) {
@@ -219,6 +226,10 @@ if ($db) {
                  LEFT JOIN classifications c ON c.id = la.classification_id
                  WHERE la.is_active = 1
                    AND la.item_type = 'equipment'
+                   AND COALESCE(la.is_rpcppe_candidate, 0) = 0
+                   AND COALESCE(NULLIF(TRIM(la.rpcppe_status), ''), 'excluded') = 'excluded'
+                   AND UPPER(la.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
+                   AND UPPER(TRIM(la.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')
                    AND la.office_id = ?
                  ORDER BY la.property_number ASC, la.id ASC"
             );
@@ -573,7 +584,7 @@ $blankRows = $extraRows;
                                         <div class="small text-muted"><?php echo h(count($row['property_numbers'])); ?> property no.(s)</div>
                                     <?php endif; ?>
                                 </td>
-                                <td><?php echo h(!empty($row['date_acquired']) ? date('m/d/Y', strtotime($row['date_acquired'])) : ''); ?></td>
+                                <td><?php echo h(format_date($row['date_acquired'] ?? null, 'm/d/Y')); ?></td>
                                 <td class="text-end"><?php echo h(number_format((float) ($row['line_total'] ?? 0), 2)); ?></td>
                             </tr>
                         <?php endforeach; ?>
@@ -621,11 +632,11 @@ $blankRows = $extraRows;
                     </tr>
                     <tr>
                         <td class="meta-box">
-                            <div class="meta-value"><span class="underlined-value"><?php echo h(date('m/d/Y')); ?></span></div>
+                            <div class="meta-value"><span class="underlined-value"></span></div>
                             <div class="meta-caption">Date</div>
                         </td>
                         <td class="meta-box">
-                            <div class="meta-value"><span class="underlined-value"><?php echo h(date('m/d/Y')); ?></span></div>
+                            <div class="meta-value"><span class="underlined-value"></span></div>
                             <div class="meta-caption">Date</div>
                         </td>
                     </tr>

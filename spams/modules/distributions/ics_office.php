@@ -39,7 +39,7 @@ $signatoryDisplayName = static function (array $person): string {
     ]);
     $name = strtoupper(trim(implode(' ', $nameParts)));
     if ($suffix !== '') {
-        $name .= ' ' . $suffix;
+        $name .= ', ' . $suffix;
     }
     return $name;
 };
@@ -69,6 +69,9 @@ $buildPropertyRange = static function (array $propertyNumbers): string {
 };
 
 if ($db) {
+    ensure_legacy_assets_rpcppe_tracking_columns($db);
+    ensure_distribution_item_rpcppe_tracking_columns($db);
+
     $threshold = get_active_threshold($db);
     $semiHvMin = (float) ($threshold['semi_hv_min'] ?? 5000);
     $poItemSupportsSemiType = function_exists('schema_has_column') ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type') : false;
@@ -193,7 +196,11 @@ if ($db) {
                 LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id
                 WHERE d.office_id = ?
                   AND did.is_distributed = 1
-                  AND (did.is_disposed IS NULL OR did.is_disposed = 0)";
+                  AND (did.is_disposed IS NULL OR did.is_disposed = 0)
+                  AND COALESCE(did.is_rpcppe_candidate, 0) = 0
+                  AND COALESCE(NULLIF(TRIM(did.rpcppe_status), ''), 'excluded') = 'excluded'
+                  AND UPPER(poi.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
+                  AND UPPER(TRIM(poi.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')";
             $types = 'i';
             $params = [$officeId];
             if ($semiType !== 'all') {
@@ -241,6 +248,10 @@ if ($db) {
                       LEFT JOIN classifications c ON c.id = la.classification_id
                       WHERE la.is_active = 1
                         AND la.item_type = 'semi_expendable'
+                        AND COALESCE(la.is_rpcppe_candidate, 0) = 0
+                        AND COALESCE(NULLIF(TRIM(la.rpcppe_status), ''), 'excluded') = 'excluded'
+                        AND UPPER(la.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
+                        AND UPPER(TRIM(la.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')
                         AND la.office_id = ?";
             $legacyTypes = 'i';
             $legacyParams = [$officeId];
@@ -672,11 +683,11 @@ $blankRows = $extraRows;
                     </tr>
                     <tr>
                         <td class="meta-box">
-                            <div class="meta-value"><span class="underlined-value"><?php echo h(date('m/d/Y')); ?></span></div>
+                            <div class="meta-value"><span class="underlined-value"></span></div>
                             <div class="meta-caption">Date</div>
                         </td>
                         <td class="meta-box">
-                            <div class="meta-value"><span class="underlined-value"><?php echo h(date('m/d/Y')); ?></span></div>
+                            <div class="meta-value"><span class="underlined-value"></span></div>
                             <div class="meta-caption">Date</div>
                         </td>
                     </tr>

@@ -26,7 +26,7 @@ $form = [
     'brand_id' => '',
     'model_id' => '',
     'serial_no' => '',
-    'acquisition_date' => date('Y-m-d'),
+    'acquisition_date' => '',
     'quantity' => '1',
     'unit_cost' => '',
     'office_id' => '',
@@ -189,37 +189,16 @@ if ($db) {
         }
 
         if (!$errors) {
-            $checkStmt = $db->prepare("SELECT id FROM legacy_assets WHERE property_number = ? LIMIT 1");
-            if ($checkStmt) {
-                $checkStmt->bind_param('s', $form['property_number']);
-                $checkStmt->execute();
-                $exists = $checkStmt->get_result()->fetch_assoc();
-                $checkStmt->close();
-                if ($exists) {
-                    add_validation_error($errors, 'Property number already exists in beginning balance assets.');
-                }
+            $propertyConflict = asset_identifier_conflict($db, 'property_number', $form['property_number']);
+            if ($propertyConflict) {
+                add_validation_error($errors, 'Property number already exists in ' . $propertyConflict['label'] . ' #' . $propertyConflict['id'] . '.');
             }
         }
 
         if (!$errors && $form['serial_no'] !== '') {
-            $serialStmt = $db->prepare("
-                SELECT source_name FROM (
-                    SELECT 'beginning balance' AS source_name FROM legacy_assets WHERE serial_no = ?
-                    UNION ALL
-                    SELECT 'system asset' AS source_name FROM distribution_item_details WHERE serial_no = ?
-                    UNION ALL
-                    SELECT 'receiving detail' AS source_name FROM receiving_item_details WHERE serial_no = ?
-                ) matches
-                LIMIT 1
-            ");
-            if ($serialStmt) {
-                $serialStmt->bind_param('sss', $form['serial_no'], $form['serial_no'], $form['serial_no']);
-                $serialStmt->execute();
-                $serialExists = $serialStmt->get_result()->fetch_assoc();
-                $serialStmt->close();
-                if ($serialExists) {
-                    add_validation_error($errors, 'Serial number already exists in ' . $serialExists['source_name'] . ' records.');
-                }
+            $serialConflict = asset_identifier_conflict($db, 'serial_no', $form['serial_no'], '', 0, true);
+            if ($serialConflict) {
+                add_validation_error($errors, 'Serial number already exists in ' . $serialConflict['label'] . ' #' . $serialConflict['id'] . '.');
             }
         }
 

@@ -56,6 +56,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') =
         if (!$itemRows) {
             $errors[] = 'No posted transfers were found for this document.';
         } else {
+            $batchBefore = audit_fetch_row_snapshot($db, 'transfer_batches', $batchId, [
+                'system_reference',
+                'document_type',
+                'transfer_date',
+                'source_office_id',
+                'source_employee_id',
+                'to_office_id',
+                'to_employee_id',
+                'to_responsibility_code_id',
+                'status',
+            ]);
             $blockingAssets = [];
             foreach ($itemRows as $itemRow) {
                 $stmt = null;
@@ -180,6 +191,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') =
                         'record_type' => 'transfer_batch',
                         'action_name' => 'cancel_transfer_batch',
                         'description' => 'Cancelled transfer document and restored previous accountability.',
+                        'old_values' => [
+                            'batch' => $batchBefore,
+                            'items' => array_map(static function (array $itemRow): array {
+                                return [
+                                    'id' => (int) ($itemRow['id'] ?? 0),
+                                    'property_number' => (string) ($itemRow['property_number'] ?? ''),
+                                    'source_type' => (string) ($itemRow['source_type'] ?? ''),
+                                    'status' => 'posted',
+                                ];
+                            }, $itemRows),
+                        ],
                         'new_values' => [
                             'status' => 'cancelled',
                             'cancelled_items' => count($itemRows),

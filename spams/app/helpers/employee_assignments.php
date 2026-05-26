@@ -277,6 +277,28 @@ function employee_save_assignments(mysqli $db, int $employeeId, array $rows, int
         $isOic = !empty($row['is_oic']) ? 1 : 0;
         $isPrimary = !empty($row['is_primary']) ? 1 : 0;
         $isActive = !empty($row['is_active']) ? 1 : 0;
+        $isBlank = $officeId <= 0
+            && $responsibilityCodeId <= 0
+            && $roleTitle === ''
+            && $isUnitHead === 0
+            && $isOic === 0;
+
+        if ($isBlank) {
+            if ($assignmentId > 0 && isset($existingIds[$assignmentId])) {
+                $submittedIds[$assignmentId] = true;
+                $stmt = $db->prepare("UPDATE employee_assignments SET is_active = 0, is_primary = 0, updated_by = ?, updated_at = NOW() WHERE id = ? AND employee_id = ?");
+                if (!$stmt) {
+                    return false;
+                }
+                $stmt->bind_param('iii', $userId, $assignmentId, $employeeId);
+                $ok = $stmt->execute();
+                $stmt->close();
+                if (!$ok) {
+                    return false;
+                }
+            }
+            continue;
+        }
 
         if ($assignmentId > 0 && isset($existingIds[$assignmentId])) {
             $submittedIds[$assignmentId] = true;
@@ -347,40 +369,6 @@ function employee_resolve_office_head(mysqli $db, int $officeId): array
         return [];
     }
 
-    if (employee_assignments_enabled($db)) {
-        $stmt = $db->prepare("SELECT ea.employee_id
-                              FROM employee_assignments ea
-                              WHERE ea.office_id = ? AND ea.is_active = 1 AND ea.is_unit_head = 1
-                              ORDER BY ea.is_primary DESC, ea.id ASC
-                              LIMIT 1");
-        if ($stmt) {
-            $stmt->bind_param('i', $officeId);
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc() ?: [];
-            $stmt->close();
-            $employeeId = (int) ($row['employee_id'] ?? 0);
-            if ($employeeId > 0) {
-                $stmt = $db->prepare("SELECT id, name_prefix, first_name, middle_name, last_name, suffix_name, position_title FROM employees WHERE id = ? LIMIT 1");
-                if ($stmt) {
-                    $stmt->bind_param('i', $employeeId);
-                    $stmt->execute();
-                    $head = $stmt->get_result()->fetch_assoc() ?: [];
-                    $stmt->close();
-                    if ($head) {
-                        foreach (employee_fetch_assignments($db, $employeeId, true) as $assignment) {
-                            if ((int) ($assignment['office_id'] ?? 0) === $officeId) {
-                                $head['position_title'] = $assignment['role_title'] ?? ($head['position_title'] ?? '');
-                                $head['office_name'] = $assignment['office_name'] ?? '';
-                                break;
-                            }
-                        }
-                        return $head;
-                    }
-                }
-            }
-        }
-    }
-
     $officeStmt = $db->prepare("SELECT office_head_employee_id FROM offices WHERE id = ? LIMIT 1");
     $officeHeadEmployeeId = 0;
     if ($officeStmt) {
@@ -391,31 +379,64 @@ function employee_resolve_office_head(mysqli $db, int $officeId): array
         $officeHeadEmployeeId = (int) ($officeRow['office_head_employee_id'] ?? 0);
     }
 
-    if ($officeHeadEmployeeId > 0) {
-        $stmt = $db->prepare("SELECT id, name_prefix, first_name, middle_name, last_name, suffix_name, position_title FROM employees WHERE id = ? LIMIT 1");
+    $loadHead = static function (mysqli $db, int $employeeId, int $officeId): array {
+        if ($employeeId <= 0) {
+            return [];
+        }
+
+        $stmt = $db->prepare("SELECT id, name_prefix, first_name, middle_name, last_name, suffix_name, position_title FROM employees WHERE id = ? AND is_active = 1 LIMIT 1");
         if ($stmt) {
-            $stmt->bind_param('i', $officeHeadEmployeeId);
+            $stmt->bind_param('i', $employeeId);
             $stmt->execute();
             $head = $stmt->get_result()->fetch_assoc() ?: [];
             $stmt->close();
             if ($head) {
-                $assignment = [];
-                foreach (employee_fetch_assignments($db, $officeHeadEmployeeId, true) as $row) {
-                    if ((int) ($row['office_id'] ?? 0) === $officeId) {
-                        $assignment = $row;
+                foreach (employee_fetch_assignments($db, $employeeId, true) as $assignment) {
+                    if ((int) ($assignment['office_id'] ?? 0) === $officeId) {
+                        $head['position_title'] = $assignment['role_title'] ?? ($head['position_title'] ?? '');
+                        $head['office_name'] = $assignment['office_name'] ?? '';
+                        $head['has_active_office_assignment'] = 1;
                         break;
                     }
-                }
-                if (!$assignment) {
-                    $assignment = employee_fetch_primary_assignment($db, $officeHeadEmployeeId);
-                }
-                if ($assignment) {
-                    $head['position_title'] = $assignment['role_title'] ?? ($head['position_title'] ?? '');
-                    $head['office_name'] = $assignment['office_name'] ?? '';
                 }
                 return $head;
             }
         }
+
+        return [];
+    };
+
+    if ($officeHeadEmployeeId > 0) {
+        $head = $loadHead($db, $officeHeadEmployeeId, $officeId);
+        if ($head && !empty($head['has_active_office_assignment'])) {
+            return $head;
+        }
+    }
+
+    if (employee_assignments_enabled($db)) {
+        $stmt = $db->prepare("SELECT ea.employee_id
+                              FROM employee_assignments ea
+                              WHERE ea.office_id = ? AND ea.is_active = 1
+                              ORDER BY
+                                  ea.is_unit_head DESC,
+                                  CASE WHEN LOWER(TRIM(ea.role_title)) IN ('dean', 'dean/oic', 'oic-dean', 'office head', 'head') THEN 0 ELSE 1 END,
+                                  ea.is_primary DESC,
+                                  ea.id ASC
+                              LIMIT 1");
+        if ($stmt) {
+            $stmt->bind_param('i', $officeId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc() ?: [];
+            $stmt->close();
+            $head = $loadHead($db, (int) ($row['employee_id'] ?? 0), $officeId);
+            if ($head) {
+                return $head;
+            }
+        }
+    }
+
+    if ($officeHeadEmployeeId > 0 && !empty($head)) {
+        return $head;
     }
 
     $stmt = $db->prepare(

@@ -499,7 +499,8 @@ $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
                                                                 trim((string) ($row['model'] ?? '')),
                                                                 trim((string) ($row['serial_no'] ?? '')),
                                                             ])))); ?></div>
-                                                            <div class="small text-muted">Acquired: <?php echo h(!empty($row['acquisition_date']) ? date('M d, Y', strtotime((string) $row['acquisition_date'])) : '-'); ?> | Amount: <?php echo h(number_format((float) ($row['amount'] ?? 0), 2)); ?></div>
+                                                            <?php $acquiredLabel = format_date($row['acquisition_date'] ?? null); ?>
+                                                            <div class="small text-muted">Acquired: <?php echo h($acquiredLabel !== '' ? $acquiredLabel : '-'); ?> | Amount: <?php echo h(number_format((float) ($row['amount'] ?? 0), 2)); ?></div>
                                                         </td>
                                                         <td>
                                                             <div><?php echo h($row['office_name'] ?? '-'); ?></div>
