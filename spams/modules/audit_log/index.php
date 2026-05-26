@@ -12,6 +12,7 @@ $users = [];
 $tables = [];
 $modules = [];
 $actions = [];
+$routes = [];
 $rows = [];
 $summary = [
     'total' => 0,
@@ -34,6 +35,7 @@ $filterUser = (int) ($_GET['user_id'] ?? 0);
 $filterTable = trim((string) ($_GET['table_name'] ?? ''));
 $filterModule = trim((string) ($_GET['module_name'] ?? ''));
 $filterAction = trim((string) ($_GET['action'] ?? ''));
+$filterRoute = trim((string) ($_GET['route'] ?? ''));
 $filterCategory = array_key_exists('category', $_GET)
     ? trim((string) ($_GET['category'] ?? ''))
     : 'data_change';
@@ -59,6 +61,14 @@ if ($datePreset !== '') {
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    $hasRoutePathColumn = function_exists('schema_has_column') && schema_has_column($db, 'audit_logs', 'route_path');
+    $routeExpression = $hasRoutePathColumn
+        ? "COALESCE(NULLIF(route_path, ''), JSON_UNQUOTE(JSON_EXTRACT(new_values, '$.route')))"
+        : "JSON_UNQUOTE(JSON_EXTRACT(new_values, '$.route'))";
+    $routeFilterExpression = $hasRoutePathColumn
+        ? "COALESCE(NULLIF(al.route_path, ''), JSON_UNQUOTE(JSON_EXTRACT(al.new_values, '$.route')))"
+        : "JSON_UNQUOTE(JSON_EXTRACT(al.new_values, '$.route'))";
+
     $userRes = $db->query("SELECT id, username, full_name FROM users ORDER BY username ASC");
     if ($userRes) {
         $users = $userRes->fetch_all(MYSQLI_ASSOC);
@@ -83,6 +93,22 @@ if (!$db) {
         $actions = array_map(static function ($row) {
             return (string) $row['action'];
         }, $actionRes->fetch_all(MYSQLI_ASSOC));
+    }
+
+    $routeRes = $db->query("
+        SELECT DISTINCT {$routeExpression} AS route_path
+        FROM audit_logs
+        WHERE table_name = 'request_activity'
+          AND (
+              " . ($hasRoutePathColumn ? "COALESCE(route_path, '') <> '' OR " : "") . "
+              (JSON_VALID(new_values) AND JSON_EXTRACT(new_values, '$.route') IS NOT NULL)
+          )
+        ORDER BY route_path ASC
+    ");
+    if ($routeRes) {
+        $routes = array_values(array_filter(array_map(static function ($row) {
+            return trim((string) ($row['route_path'] ?? ''));
+        }, $routeRes->fetch_all(MYSQLI_ASSOC))));
     }
 
     $where = [];
@@ -123,6 +149,12 @@ if (!$db) {
         $where[] = "al.action = ?";
         $types .= 's';
         $params[] = $filterAction;
+    }
+
+    if ($filterRoute !== '') {
+        $where[] = "al.table_name = 'request_activity' AND {$routeFilterExpression} = ?";
+        $types .= 's';
+        $params[] = $filterRoute;
     }
 
     $summaryWhere = $where;
@@ -166,6 +198,7 @@ if (!$db) {
             al.action_name,
             al.description,
             al.ip_address,
+            {$routeFilterExpression} AS route_path,
             al.created_at,
             u.username,
             u.full_name
@@ -240,7 +273,7 @@ if (!$db) {
             header('Content-Type: text/csv; charset=utf-8');
             header('Content-Disposition: attachment; filename="' . $exportFilename . '"');
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['When', 'User', 'Module', 'Action', 'Action Name', 'Table', 'Record ID', 'Description', 'Changes']);
+            fputcsv($out, ['When', 'User', 'Module', 'Action', 'Action Name', 'Table', 'Record ID', 'Route', 'Description', 'Changes']);
             while ($row = $res->fetch_assoc()) {
                 fputcsv($out, [
                     date('Y-m-d H:i:s', strtotime((string) $row['created_at'])),
@@ -250,6 +283,7 @@ if (!$db) {
                     $row['action_name'] ?? '',
                     $row['table_name'],
                     $row['record_id'],
+                    $row['route_path'] ?? '',
                     $row['description'] ?? '',
                     audit_log_change_text($row['old_values'] ?? null, $row['new_values'] ?? null),
                 ]);
@@ -444,6 +478,7 @@ function build_page_url(array $overrides = []): string
         'table_name' => $_GET['table_name'] ?? '',
         'module_name' => $_GET['module_name'] ?? '',
         'action' => $_GET['action'] ?? '',
+        'route' => $_GET['route'] ?? '',
         'category' => $_GET['category'] ?? '',
         'q' => $_GET['q'] ?? '',
     ];
@@ -589,6 +624,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <div class="col-md-6 col-xl-4">
+                            <label class="form-label">Route</label>
+                            <select class="form-select" name="route">
+                                <option value="">All routes</option>
+                                <?php foreach ($routes as $route): ?>
+                                    <option value="<?php echo h($route); ?>" <?php echo $filterRoute === $route ? 'selected' : ''; ?>><?php echo h($route); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                         <div class="col-md-3 col-xl-2">
                             <label class="form-label">Start Date</label>
                             <input type="hidden" name="date_preset" value="">
@@ -598,7 +642,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <label class="form-label">End Date</label>
                             <input type="date" class="form-control" name="end_date" value="<?php echo h($endDate); ?>">
                         </div>
-                        <div class="col-md-6 col-xl-8">
+                        <div class="col-md-6 col-xl-4">
                             <div class="d-grid gap-2 d-sm-flex justify-content-xl-end">
                             <button type="submit" class="btn btn-primary">
                                 <i class="bi bi-funnel me-1"></i>Apply Filters
@@ -634,6 +678,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <?php $changes = audit_log_change_pairs($row['old_values'] ?? null, $row['new_values'] ?? null); ?>
                                     <?php $category = audit_log_category_for_action((string) $row['action']); ?>
                                     <?php $displayUser = trim((string) (($row['full_name'] ?? '') !== '' ? $row['full_name'] : ($row['username'] ?? 'System'))); ?>
+                                    <?php $routePath = trim((string) ($row['route_path'] ?? '')); ?>
                                     <tr>
                                         <td class="align-top">
                                             <div class="fw-semibold"><?php echo h(date('M d, Y', strtotime((string) $row['created_at']))); ?></div>
@@ -674,6 +719,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <?php if (!empty($row['description'])): ?>
                                                 <div class="mb-2"><?php echo h((string) $row['description']); ?></div>
                                             <?php endif; ?>
+                                            <?php if ($routePath !== ''): ?>
+                                                <div class="text-muted small mb-2">Route: <?php echo h($routePath); ?></div>
+                                            <?php endif; ?>
                                             <details>
                                                 <summary class="small fw-semibold" style="cursor:pointer;">
                                                     <?php if ($changes): ?>
@@ -686,17 +734,21 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 </summary>
                                                 <div class="mt-2 border rounded-2 p-3 bg-light">
                                                     <div class="row g-2 mb-3">
-                                                        <div class="col-md-4">
+                                                        <div class="col-md-3">
                                                             <div class="small text-muted">Category</div>
                                                             <div class="fw-semibold small"><?php echo h($category['label']); ?></div>
                                                         </div>
-                                                        <div class="col-md-4">
+                                                        <div class="col-md-3">
                                                             <div class="small text-muted">Action Name</div>
                                                             <div class="small"><?php echo h((string) ($row['action_name'] ?? '')); ?></div>
                                                         </div>
-                                                        <div class="col-md-4">
+                                                        <div class="col-md-3">
                                                             <div class="small text-muted">IP Address</div>
                                                             <div class="small"><?php echo h((string) ($row['ip_address'] ?? '')); ?></div>
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <div class="small text-muted">Route</div>
+                                                            <div class="small"><?php echo h($routePath); ?></div>
                                                         </div>
                                                     </div>
 

@@ -18,9 +18,15 @@ $row = null;
 $inventoryMatch = null;
 $inventoryConflict = false;
 $latestInventoryCheck = null;
-$canManageAssetUpdates = user_has_any_role('Administrator', 'Supply Officer', 'Property Officer');
+$propertyLookupAmbiguous = false;
+$isAdministrator = user_has_any_role('Administrator');
+$canUseAnnualMobileUpdate = user_has_any_role('Supply Officer', 'Property Officer', 'Property Custodian');
+$hasActiveAnnualInventory = false;
+$canManageAssetUpdates = false;
 $officeOptions = [];
 $employeeOptions = [];
+$locationOptions = [];
+$selectedLocationId = 0;
 
 function employee_display_name_from_row(array $row): string
 {
@@ -48,7 +54,8 @@ function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $
                     r.ris_no, r.received_date,
                     po.po_number,
                     s.supplier_name,
-                    did.brand, did.model, did.serial_no, did.qr_tag_code,
+                    did.brand, did.model, did.serial_no, did.qr_tag_code, did.location_id, did.manual_location,
+                    loc.location_code, loc.location_name,
                     d.document_no, d.document_type, d.distribution_date,
                     COALESCE(did.current_office_id, d.office_id) AS office_id,
                     o.office_name,
@@ -73,6 +80,7 @@ function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $
              LEFT JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
              LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
              LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
+             LEFT JOIN locations loc ON loc.id = did.location_id
              WHERE did.id = ?
              LIMIT 1"
         );
@@ -90,7 +98,8 @@ function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $
             "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
                     la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
                     '' AS ris_no, la.acquisition_date AS received_date, la.po_number, '' AS supplier_name,
-                    la.brand, la.model, la.serial_no, la.qr_tag_code, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
+                    la.brand, la.model, la.serial_no, la.qr_tag_code, la.location_id, la.manual_location,
+                    loc.location_code, loc.location_name, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
                     la.acquisition_date AS distribution_date, la.office_id,
                     o.office_name, la.employee_id,
                     e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
@@ -103,6 +112,7 @@ function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $
              LEFT JOIN account_codes ac ON ac.id = la.account_code_id
              LEFT JOIN offices o ON o.id = la.office_id
              LEFT JOIN employees e ON e.id = la.employee_id
+             LEFT JOIN locations loc ON loc.id = la.location_id
              WHERE la.id = ?
              LIMIT 1"
         );
@@ -120,6 +130,8 @@ function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $
 
 function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
 {
+    global $propertyLookupAmbiguous;
+
     $ref = trim($ref);
     if ($ref === '') {
         return null;
@@ -134,7 +146,8 @@ function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
                 r.ris_no, r.received_date,
                 po.po_number,
                 s.supplier_name,
-                did.brand, did.model, did.serial_no, did.qr_tag_code,
+                did.brand, did.model, did.serial_no, did.qr_tag_code, did.location_id, did.manual_location,
+                loc.location_code, loc.location_name,
                 d.document_no, d.document_type, d.distribution_date,
                 COALESCE(did.current_office_id, d.office_id) AS office_id,
                 o.office_name,
@@ -160,11 +173,12 @@ function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
          LEFT JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
          LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
          LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
-         WHERE did.property_number = ? OR si.system_reference = ? OR did.serial_no = ?
+         LEFT JOIN locations loc ON loc.id = did.location_id
+         WHERE did.property_number = ? OR si.system_reference = ?
          LIMIT 1"
     );
     if ($stmt) {
-        $stmt->bind_param('sss', $ref, $ref, $ref);
+        $stmt->bind_param('ss', $ref, $ref);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc() ?: null;
         $stmt->close();
@@ -177,7 +191,8 @@ function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
         "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
                 la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
                 '' AS ris_no, la.acquisition_date AS received_date, la.po_number, '' AS supplier_name,
-                la.brand, la.model, la.serial_no, la.qr_tag_code, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
+                la.brand, la.model, la.serial_no, la.qr_tag_code, la.location_id, la.manual_location,
+                loc.location_code, loc.location_name, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
                 la.acquisition_date AS distribution_date, la.office_id,
                 o.office_name, la.employee_id,
                 e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
@@ -190,16 +205,128 @@ function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
          LEFT JOIN account_codes ac ON ac.id = la.account_code_id
          LEFT JOIN offices o ON o.id = la.office_id
          LEFT JOIN employees e ON e.id = la.employee_id
-         WHERE la.property_number = ? OR la.serial_no = ?
+         LEFT JOIN locations loc ON loc.id = la.location_id
+         WHERE la.is_active = 1
+           AND la.property_number = ?
          LIMIT 1"
     );
     if ($legacyStmt) {
-        $legacyStmt->bind_param('ss', $ref, $ref);
+        $legacyStmt->bind_param('s', $ref);
         $legacyStmt->execute();
         $row = $legacyStmt->get_result()->fetch_assoc() ?: null;
         $legacyStmt->close();
         if ($row) {
             return $row;
+        }
+    }
+
+    $serialCountStmt = $db->prepare(
+        "SELECT COUNT(*) AS match_count
+         FROM (
+             SELECT did.id
+             FROM distribution_item_details did
+             WHERE TRIM(did.serial_no) = ?
+             UNION ALL
+             SELECT la.id
+             FROM legacy_assets la
+             WHERE la.is_active = 1
+               AND TRIM(la.serial_no) = ?
+         ) serial_matches"
+    );
+    $serialMatches = 0;
+    if ($serialCountStmt) {
+        $serialCountStmt->bind_param('ss', $ref, $ref);
+        $serialCountStmt->execute();
+        $countRow = $serialCountStmt->get_result()->fetch_assoc() ?: [];
+        $serialCountStmt->close();
+        $serialMatches = (int) ($countRow['match_count'] ?? 0);
+    }
+    if ($serialMatches > 1) {
+        $propertyLookupAmbiguous = true;
+        return null;
+    }
+
+    if ($serialMatches === 1) {
+        $serialStmt = $db->prepare(
+            "SELECT si.system_reference, did.property_number, si.item_description, si.item_type, si.unit_cost, si.quantity_received,
+                    poi.item_description AS original_description,
+                    c.classification_name,
+                    ac.account_code, ac.account_name,
+                    u.uom_name,
+                    r.ris_no, r.received_date,
+                    po.po_number,
+                    s.supplier_name,
+                    did.brand, did.model, did.serial_no, did.qr_tag_code, did.location_id, did.manual_location,
+                    loc.location_code, loc.location_name,
+                    d.document_no, d.document_type, d.distribution_date,
+                    COALESCE(did.current_office_id, d.office_id) AS office_id,
+                    o.office_name,
+                    COALESCE(did.current_employee_id, d.employee_id) AS employee_id,
+                    e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
+                    '' AS condition_status,
+                    did.id AS distribution_item_detail_id,
+                    0 AS legacy_asset_id,
+                    'system' AS source_type
+             FROM distribution_item_details did
+             LEFT JOIN receiving_item_details rid ON rid.id = did.receiving_item_detail_id
+             LEFT JOIN stock_items si ON si.id = rid.stock_item_id
+             LEFT JOIN receiving_items ri ON ri.id = rid.receiving_item_id
+             LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+             LEFT JOIN classifications c ON c.id = COALESCE(poi.classification_id, si.classification_id)
+             LEFT JOIN account_codes ac ON ac.id = COALESCE(poi.account_code_id, si.account_code_id)
+             LEFT JOIN unit_of_measures u ON u.id = COALESCE(poi.unit_of_measure_id, si.unit_of_measure_id)
+             LEFT JOIN receivings r ON r.id = COALESCE(ri.receiving_id, si.receiving_id)
+             LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+             LEFT JOIN suppliers s ON s.id = po.supplier_id
+             LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
+             LEFT JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
+             LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
+             LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
+             LEFT JOIN locations loc ON loc.id = did.location_id
+             WHERE TRIM(did.serial_no) = ?
+             LIMIT 1"
+        );
+        if ($serialStmt) {
+            $serialStmt->bind_param('s', $ref);
+            $serialStmt->execute();
+            $row = $serialStmt->get_result()->fetch_assoc() ?: null;
+            $serialStmt->close();
+            if ($row) {
+                return $row;
+            }
+        }
+
+        $legacySerialStmt = $db->prepare(
+            "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
+                    la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
+                    '' AS ris_no, la.acquisition_date AS received_date, la.po_number, '' AS supplier_name,
+                    la.brand, la.model, la.serial_no, la.qr_tag_code, la.location_id, la.manual_location,
+                    loc.location_code, loc.location_name, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
+                    la.acquisition_date AS distribution_date, la.office_id,
+                    o.office_name, la.employee_id,
+                    e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
+                    la.condition_status,
+                    0 AS distribution_item_detail_id,
+                    la.id AS legacy_asset_id,
+                    'legacy' AS source_type
+             FROM legacy_assets la
+             LEFT JOIN classifications c ON c.id = la.classification_id
+             LEFT JOIN account_codes ac ON ac.id = la.account_code_id
+             LEFT JOIN offices o ON o.id = la.office_id
+             LEFT JOIN employees e ON e.id = la.employee_id
+             LEFT JOIN locations loc ON loc.id = la.location_id
+             WHERE la.is_active = 1
+               AND TRIM(la.serial_no) = ?
+             LIMIT 1"
+        );
+        if ($legacySerialStmt) {
+            $legacySerialStmt->bind_param('s', $ref);
+            $legacySerialStmt->execute();
+            $row = $legacySerialStmt->get_result()->fetch_assoc() ?: null;
+            $legacySerialStmt->close();
+            if ($row) {
+                return $row;
+            }
         }
     }
 
@@ -268,6 +395,47 @@ function find_active_inventory_match(mysqli $db, string $propertyNumber, int $of
     return $matches;
 }
 
+function property_scan_has_active_annual_inventory(mysqli $db): bool
+{
+    $stmt = $db->prepare("SELECT id FROM inventory_count_sessions WHERE status = 'open' AND count_type = 'annual' LIMIT 1");
+    if (!$stmt) {
+        return false;
+    }
+
+    $stmt->execute();
+    $hasActiveAnnual = (bool) $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    return $hasActiveAnnual;
+}
+
+function property_scan_location_code_from_name(mysqli $db, string $locationName): string
+{
+    $base = strtoupper(trim((string) preg_replace('/[^A-Za-z0-9]+/', '-', $locationName), '-'));
+    if ($base === '') {
+        $base = 'LOC';
+    }
+    $base = substr($base, 0, 42);
+    $code = $base;
+    $suffix = 1;
+
+    while (true) {
+        $stmt = $db->prepare("SELECT id FROM locations WHERE location_code = ? LIMIT 1");
+        if (!$stmt) {
+            return $code;
+        }
+        $stmt->bind_param('s', $code);
+        $stmt->execute();
+        $duplicate = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$duplicate) {
+            return $code;
+        }
+        $suffix++;
+        $code = substr($base, 0, 42 - strlen((string) $suffix)) . '-' . $suffix;
+    }
+}
+
 function find_latest_inventory_check(mysqli $db, string $propertyNumber): ?array
 {
     $propertyNumber = trim($propertyNumber);
@@ -332,22 +500,110 @@ function load_primary_asset_photo(mysqli $db, string $assetSource, int $assetId)
 }
 
 if ($db) {
+    ensure_asset_location_tracking_schema($db);
     $row = load_property_lookup_row($db, $ref);
+
+    if ($row) {
+        $propertyNumber = trim((string) ($row['property_number'] ?? $row['system_reference'] ?? ''));
+        $officeId = (int) ($row['office_id'] ?? 0);
+        $matches = find_active_inventory_match($db, $propertyNumber, $officeId);
+        $hasActiveAnnualInventory = property_scan_has_active_annual_inventory($db);
+        $canManageAssetUpdates = $isAdministrator || ($canUseAnnualMobileUpdate && $hasActiveAnnualInventory);
+        $selectedLocationId = (int) ($_GET['new_location_id'] ?? ($row['location_id'] ?? 0));
+    }
+
+    if ($row && $_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') === 'quick_add_location') {
+        if (!csrf_verify()) {
+            $errors[] = 'Invalid CSRF token.';
+        } elseif (!$canManageAssetUpdates) {
+            $errors[] = 'Location quick add is available only during an active annual inventory, unless you are an administrator.';
+        } else {
+            $locationName = trim((string) ($_POST['location_name'] ?? ''));
+            $locationCode = $locationName !== '' ? property_scan_location_code_from_name($db, $locationName) : '';
+            $locationDescription = trim((string) ($_POST['description'] ?? ''));
+
+            if ($locationName === '') {
+                $errors[] = 'Location name is required.';
+            }
+
+            if (empty($errors)) {
+                $dupStmt = $db->prepare("SELECT id FROM locations WHERE location_name = ? LIMIT 1");
+                if ($dupStmt) {
+                    $dupStmt->bind_param('s', $locationName);
+                    $dupStmt->execute();
+                    $duplicateLocation = $dupStmt->get_result()->fetch_assoc();
+                    $dupStmt->close();
+                    if ($duplicateLocation) {
+                        $errors[] = 'Location name already exists.';
+                    }
+                }
+            }
+
+            if (empty($errors)) {
+                $stmt = $db->prepare("INSERT INTO locations (location_code, location_name, description, is_active, created_by) VALUES (?, ?, ?, 1, ?)");
+                if ($stmt) {
+                    $userId = (int) current_user_id();
+                    $stmt->bind_param('sssi', $locationCode, $locationName, $locationDescription, $userId);
+                    $saved = $stmt->execute();
+                    $newLocationId = (int) $stmt->insert_id;
+                    $stmt->close();
+                    if ($saved) {
+                        if (function_exists('write_audit_log')) {
+                            write_audit_log($db, [
+                                'action' => 'insert',
+                                'table_name' => 'locations',
+                                'record_id' => $newLocationId,
+                                'module_name' => 'property_scan',
+                                'record_type' => 'location',
+                                'action_name' => 'quick_add_location',
+                                'description' => 'Quick-added location from QR asset page.',
+                                'new_values' => [
+                                    'location_code' => $locationCode,
+                                    'location_name' => $locationName,
+                                    'description' => $locationDescription,
+                                ],
+                            ]);
+                        }
+                        set_flash('success', 'Location added. Review the mobile update and save it to apply this location to the asset.');
+                        redirect('modules/property/scan.php?ref=' . urlencode($ref) . '&new_location_id=' . $newLocationId);
+                    }
+                }
+                $errors[] = 'Unable to add the location.';
+            }
+        }
+    }
 
     if ($row && $_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') === 'update_asset_profile') {
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
         } elseif (!$canManageAssetUpdates) {
-            $errors[] = 'You are not allowed to update asset assignment from this page.';
+            $errors[] = 'Mobile updates are available only during an active annual inventory, unless you are an administrator.';
         } else {
             $sourceType = (string) ($row['source_type'] ?? 'system');
             $newOfficeId = (int) ($_POST['office_id'] ?? 0);
             $newEmployeeId = (int) ($_POST['employee_id'] ?? 0);
+            $newLocationId = (int) ($_POST['location_id'] ?? 0);
+            $newManualLocation = '';
             $newConditionStatus = strtolower(trim((string) ($_POST['condition_status'] ?? '')));
             $mobileNote = trim((string) ($_POST['mobile_note'] ?? ''));
 
             if ($newOfficeId <= 0) {
                 $errors[] = 'Select an office assignment.';
+            }
+
+            if ($newLocationId > 0) {
+                $locationStmt = $db->prepare("SELECT location_name FROM locations WHERE id = ? AND is_active = 1 LIMIT 1");
+                if ($locationStmt) {
+                    $locationStmt->bind_param('i', $newLocationId);
+                    $locationStmt->execute();
+                    $locationRow = $locationStmt->get_result()->fetch_assoc();
+                    $locationStmt->close();
+                    if (!$locationRow) {
+                        $errors[] = 'Selected location is invalid.';
+                    } else {
+                        $newManualLocation = trim((string) ($locationRow['location_name'] ?? ''));
+                    }
+                }
             }
 
             $allowedConditions = ['good', 'fair', 'needs_repair', 'unserviceable', 'disposed'];
@@ -383,6 +639,9 @@ if ($db) {
                         $stmt->bind_param('iissssi', $newOfficeId, $newEmployeeId, $newConditionStatus, $noteLine, $noteLine, $noteLine, $legacyId);
                         $stmt->execute();
                         $stmt->close();
+                        if (!update_asset_location_snapshot($db, 'legacy', $legacyId, $newManualLocation, null, null, $userId, 'mobile_qr_update', null, null, $newLocationId)) {
+                            throw new RuntimeException('Unable to update asset location.');
+                        }
                     } else {
                         $detailId = (int) ($row['distribution_item_detail_id'] ?? 0);
                         $noteLine = $mobileNote !== '' ? 'Mobile update: ' . $mobileNote : '';
@@ -425,6 +684,9 @@ if ($db) {
                         }
                         $stmt->execute();
                         $stmt->close();
+                        if (!update_asset_location_snapshot($db, 'system', $detailId, $newManualLocation, null, null, $userId, 'mobile_qr_update', null, null, $newLocationId)) {
+                            throw new RuntimeException('Unable to update asset location.');
+                        }
                     }
 
                     if (function_exists('write_audit_log')) {
@@ -438,11 +700,14 @@ if ($db) {
                             'old_values' => [
                                 'office_id' => (int) ($row['office_id'] ?? 0),
                                 'employee_id' => (int) ($row['employee_id'] ?? 0),
+                                'location_id' => (int) ($row['location_id'] ?? 0),
                                 'condition_status' => (string) ($row['condition_status'] ?? ''),
                             ],
                             'new_values' => [
                                 'office_id' => $newOfficeId,
                                 'employee_id' => $newEmployeeId,
+                                'location_id' => $newLocationId,
+                                'manual_location' => $newManualLocation,
                                 'condition_status' => $newConditionStatus,
                                 'mobile_note' => $mobileNote,
                                 'property_reference' => $assetRef,
@@ -623,11 +888,15 @@ if ($db) {
             if ($employeeRes) {
                 $employeeOptions = $employeeRes->fetch_all(MYSQLI_ASSOC);
             }
+
+            $locationRes = $db->query("SELECT id, location_code, location_name FROM locations WHERE is_active = 1 ORDER BY location_name ASC");
+            if ($locationRes) {
+                $locationOptions = $locationRes->fetch_all(MYSQLI_ASSOC);
+            }
         }
 
         $propertyNumber = trim((string) ($row['property_number'] ?? $row['system_reference'] ?? ''));
         $officeId = (int) ($row['office_id'] ?? 0);
-        $matches = find_active_inventory_match($db, $propertyNumber, $officeId);
         $latestInventoryCheck = find_latest_inventory_check($db, $propertyNumber);
         if (count($matches) === 1) {
             $inventoryMatch = $matches[0];
@@ -645,8 +914,13 @@ if (!$row) {
     <div class="container py-4">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title">Property not found</h5>
-                <p class="card-text">Reference: <?php echo h($ref); ?></p>
+                <h5 class="card-title"><?php echo $propertyLookupAmbiguous ? 'Duplicate serial number' : 'Property not found'; ?></h5>
+                <?php if ($propertyLookupAmbiguous): ?>
+                    <p class="card-text">Serial number <?php echo h($ref); ?> belongs to more than one active asset. Search by property number instead to avoid opening the wrong record.</p>
+                    <a href="<?php echo h(base_url('modules/property/index.php?serial_no=' . urlencode($ref))); ?>" class="btn btn-sm btn-primary">Review Matching Assets</a>
+                <?php else: ?>
+                    <p class="card-text">Reference: <?php echo h($ref); ?></p>
+                <?php endif; ?>
                 <a href="javascript:history.back()" class="btn btn-sm btn-secondary">Back</a>
             </div>
         </div>
@@ -756,10 +1030,11 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Brand / Model</div><div><?php echo h($brandModel !== '' ? $brandModel : 'Not recorded'); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Serial Number</div><div><?php echo h((string) ($row['serial_no'] ?? '') !== '' ? (string) $row['serial_no'] : 'Not recorded'); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Unit Cost</div><div><?php echo isset($row['unit_cost']) ? h(number_format((float) $row['unit_cost'], 2)) : '-'; ?></div></div></div>
-                    <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Date Acquired</div><div><?php echo h(!empty($row['received_date']) ? date('M d, Y', strtotime((string) $row['received_date'])) : ''); ?></div></div></div>
+                    <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Date Acquired</div><div><?php echo h(format_date($row['received_date'] ?? null)); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Supplier</div><div><?php echo h((string) ($row['supplier_name'] ?? '') !== '' ? (string) $row['supplier_name'] : 'Not recorded'); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">PO Number</div><div><?php echo h((string) ($row['po_number'] ?? '') !== '' ? (string) $row['po_number'] : 'Not recorded'); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Condition Status</div><div><?php echo h($row['condition_status'] !== '' ? ucwords(str_replace('_', ' ', (string) $row['condition_status'])) : 'Not recorded'); ?></div></div></div>
+                    <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Location</div><div><?php echo h(trim((string) ($row['location_name'] ?? '')) !== '' ? (string) $row['location_name'] : (trim((string) ($row['manual_location'] ?? '')) !== '' ? (string) $row['manual_location'] : 'Not recorded')); ?></div><?php if (!empty($row['location_code'])): ?><div class="small text-muted"><?php echo h((string) $row['location_code']); ?></div><?php endif; ?></div></div>
                 </div>
             </div>
         </div>
@@ -816,6 +1091,22 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Location</label>
+                            <input type="search" class="form-control mb-2" id="locationSearchInput" placeholder="Search location">
+                            <select class="form-select" name="location_id" id="locationSelect">
+                                <option value="0">Unassigned</option>
+                                <?php foreach ($locationOptions as $locationOption): ?>
+                                    <?php $locationId = (int) ($locationOption['id'] ?? 0); ?>
+                                    <?php $locationName = trim((string) ($locationOption['location_name'] ?? '')); ?>
+                                    <?php $locationSearch = trim((string) ($locationOption['location_code'] ?? '') . ' ' . $locationName); ?>
+                                    <option value="<?php echo $locationId; ?>" data-search="<?php echo h(strtolower($locationSearch)); ?>" <?php echo $selectedLocationId === $locationId ? 'selected' : ''; ?>><?php echo h($locationName); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#quickAddLocationModal">Quick Add Location</button>
+                            </div>
+                        </div>
                         <div class="col-12">
                             <label class="form-label">Field Note (optional)</label>
                             <input type="text" class="form-control" name="mobile_note" maxlength="255" placeholder="Location update, condition observation, or accountability note">
@@ -824,6 +1115,38 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                             <button type="submit" class="btn btn-primary">Save Mobile Update</button>
                         </div>
                     </form>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($canManageAssetUpdates): ?>
+            <div class="modal fade" id="quickAddLocationModal" tabindex="-1" aria-labelledby="quickAddLocationModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <form method="post">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="quickAddLocationModalLabel">Quick Add Location</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                <input type="hidden" name="action" value="quick_add_location">
+                                <div class="mb-3">
+                                    <label class="form-label">Location Name</label>
+                                    <input type="text" class="form-control" name="location_name" maxlength="180" required>
+                                    <div class="form-text">Location code is generated automatically from the name.</div>
+                                </div>
+                                <div>
+                                    <label class="form-label">Description</label>
+                                    <textarea class="form-control" name="description" rows="3"></textarea>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-primary">Add Location</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         <?php endif; ?>
@@ -927,6 +1250,32 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
             </div>
         </div>
     </div>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var searchInput = document.getElementById('locationSearchInput');
+        var select = document.getElementById('locationSelect');
+        if (!searchInput || !select) {
+            return;
+        }
+
+        var options = Array.prototype.slice.call(select.options).map(function (option) {
+            return {
+                option: option,
+                text: (option.textContent || '').toLowerCase(),
+                search: (option.getAttribute('data-search') || option.textContent || '').toLowerCase()
+            };
+        });
+
+        searchInput.addEventListener('input', function () {
+            var needle = searchInput.value.trim().toLowerCase();
+            options.forEach(function (entry) {
+                var isDefault = entry.option.value === '0';
+                entry.option.hidden = !isDefault && needle !== '' && entry.search.indexOf(needle) === -1;
+            });
+        });
+    });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 

@@ -99,6 +99,13 @@ function transfer_post_asset(
     $fromOfficeId = (int) ($asset['current_office_id'] ?? 0);
     $fromEmployeeId = (int) ($asset['current_employee_id'] ?? 0);
     $fromRcId = (int) ($asset['current_rc_id'] ?? 0);
+    $auditBefore = [
+        'source_type' => $sourceType,
+        'property_number' => $propertyNumber,
+        'office_id' => $fromOfficeId,
+        'employee_id' => $fromEmployeeId,
+        'responsibility_code_id' => $fromRcId,
+    ];
 
     $stmt = $db->prepare("INSERT INTO asset_transfers (system_reference, transfer_date, source_type, distribution_item_detail_id, legacy_asset_id, batch_id, property_number, from_office_id, from_employee_id, from_responsibility_code_id, to_office_id, to_employee_id, to_responsibility_code_id, reason, remarks, created_by) VALUES (?, ?, ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), ?, ?, ?)");
     if (!$stmt) {
@@ -140,18 +147,16 @@ function transfer_post_asset(
         'module_name' => 'transfers',
         'record_type' => 'asset_transfer',
         'action_name' => 'post_transfer',
+        'old_values' => $auditBefore,
         'new_values' => [
             'system_reference' => $ref,
             'transfer_date' => $transferDate,
             'source_type' => $sourceType,
             'property_number' => $propertyNumber,
             'batch_id' => $batchId,
-            'from_office_id' => $fromOfficeId,
-            'from_employee_id' => $fromEmployeeId,
-            'from_responsibility_code_id' => $fromRcId,
-            'to_office_id' => $toOfficeId,
-            'to_employee_id' => $toEmployeeId,
-            'to_responsibility_code_id' => $toRcId,
+            'office_id' => $toOfficeId,
+            'employee_id' => $toEmployeeId,
+            'responsibility_code_id' => $toRcId,
         ],
         'description' => 'Posted transfer of accountability.',
     ]);

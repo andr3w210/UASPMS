@@ -97,12 +97,13 @@ function cli_derive_acquisition_date(string $acquisitionDate, string $propertyNu
 {
     $acquisitionDate = cli_clean_optional_value($acquisitionDate);
     if ($acquisitionDate !== '') {
-        return $acquisitionDate;
+        return normalize_date_string($acquisitionDate);
     }
 
     if (preg_match('/^\s*(\d{4})[-.]/', $propertyNumber, $matches)) {
         $year = (int) $matches[1];
-        if ($year >= 1900 && $year <= 2100) {
+        $latestSafeLegacyYear = ((int) date('Y')) - 2;
+        if ($year >= 1900 && $year <= $latestSafeLegacyYear) {
             return sprintf('%04d-01-01', $year);
         }
     }
@@ -1008,6 +1009,8 @@ $inserted = 0;
 $updated = 0;
 $skipped = 0;
 $failures = [];
+$seenPropertyNumbers = [];
+$seenSerialNumbers = [];
 
 try {
     for ($i = 1; $i < count($rows); $i++) {
@@ -1069,6 +1072,22 @@ try {
         }
 
         $sourcePropertyNumber = $row['property_number'];
+        if ($sourcePropertyNumber !== '') {
+            $propertyKey = strtoupper($sourcePropertyNumber);
+            if (isset($seenPropertyNumbers[$propertyKey])) {
+                $row['errors'][] = 'Property number duplicates row ' . $seenPropertyNumbers[$propertyKey] . ' in this file.';
+            } else {
+                $seenPropertyNumbers[$propertyKey] = $row['source_row'];
+            }
+        }
+        if ($row['serial_no'] !== '') {
+            $serialKey = strtoupper($row['serial_no']);
+            if (isset($seenSerialNumbers[$serialKey])) {
+                $row['errors'][] = 'Serial number duplicates row ' . $seenSerialNumbers[$serialKey] . ' in this file.';
+            } else {
+                $seenSerialNumbers[$serialKey] = $row['source_row'];
+            }
+        }
 
         $account = $maps['account'][cli_norm($row['account_code'])] ?? null;
         $classification = null;
@@ -1164,6 +1183,20 @@ try {
         $modelName = $model['model_name'] ?? $row['model'];
 
         $existingId = cli_find_existing_legacy_asset_id($db, (int) $row['legacy_id'], $row['system_reference_input'], $sourcePropertyNumber);
+        $propertyConflict = asset_identifier_conflict($db, 'property_number', $row['property_number'], 'legacy', $existingId);
+        if ($propertyConflict) {
+            $skipped++;
+            $failures[] = 'Row ' . $row['source_row'] . ': Property number already exists in ' . $propertyConflict['label'] . ' #' . $propertyConflict['id'] . '.';
+            continue;
+        }
+        if ($row['serial_no'] !== '') {
+            $serialConflict = asset_identifier_conflict($db, 'serial_no', $row['serial_no'], 'legacy', $existingId, true);
+            if ($serialConflict) {
+                $skipped++;
+                $failures[] = 'Row ' . $row['source_row'] . ': Serial number already exists in ' . $serialConflict['label'] . ' #' . $serialConflict['id'] . '.';
+                continue;
+            }
+        }
         if ($existingId > 0) {
             $update->bind_param(
                 'ssssiiiiiissssiddiiissi',

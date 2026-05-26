@@ -19,16 +19,16 @@ $returnRows = [];
 $disposalRows = [];
 $latestInventoryCheck = null;
 $brandOptions = [];
+$brandQuickAddOptions = [];
 $modelOptions = [];
 $accountCodeOptions = [];
 $fundOptions = [];
-$officeLocationPins = [];
+$locationOptions = [];
 $assetOfficeId = 0;
-$assetOfficePin = null;
+$resolvedLocationId = 0;
 $resolvedManualLocation = '';
 $resolvedLocationLat = null;
 $resolvedLocationLng = null;
-$resolvedLocationSource = 'asset';
 
 if (!in_array($source, ['system', 'legacy'], true) || $id <= 0) {
     http_response_code(404);
@@ -163,14 +163,29 @@ if (!$db) {
 }
 
 ensure_asset_location_tracking_schema($db);
-ensure_office_location_pin_schema($db);
 
-$brandRes = $db->query("SELECT brand_name FROM brands WHERE is_active = 1 ORDER BY brand_name ASC");
+$locationRes = $db->query("SELECT id, location_code, location_name, description FROM locations WHERE is_active = 1 ORDER BY location_name ASC");
+if ($locationRes instanceof mysqli_result) {
+    while ($row = $locationRes->fetch_assoc()) {
+        $locationOptions[] = [
+            'id' => (int) ($row['id'] ?? 0),
+            'location_code' => (string) ($row['location_code'] ?? ''),
+            'location_name' => (string) ($row['location_name'] ?? ''),
+            'description' => (string) ($row['description'] ?? ''),
+        ];
+    }
+}
+
+$brandRes = $db->query("SELECT id, brand_name FROM brands WHERE is_active = 1 ORDER BY brand_name ASC");
 if ($brandRes instanceof mysqli_result) {
     while ($row = $brandRes->fetch_assoc()) {
         $name = trim((string) ($row['brand_name'] ?? ''));
         if ($name !== '') {
             $brandOptions[] = $name;
+            $brandQuickAddOptions[] = [
+                'id' => (int) ($row['id'] ?? 0),
+                'label' => $name,
+            ];
         }
     }
 }
@@ -220,8 +235,12 @@ if ($source === 'system') {
             did.current_employee_id,
             did.current_responsibility_code_id,
             did.manual_location,
+            did.location_id,
             did.location_lat,
             did.location_lng,
+            loc.location_code,
+            loc.location_name,
+            loc.description AS location_description,
             poi.item_type,
             poi.item_description,
             c.classification_name,
@@ -281,6 +300,7 @@ if ($source === 'system') {
         LEFT JOIN offices curr_o ON curr_o.id = did.current_office_id
         LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id
         LEFT JOIN responsibility_codes curr_rc ON curr_rc.id = did.current_responsibility_code_id
+        LEFT JOIN locations loc ON loc.id = did.location_id
         WHERE did.id = ?
           AND poi.item_type IN ('equipment', 'semi_expendable')
         LIMIT 1
@@ -304,8 +324,12 @@ if ($source === 'system') {
             la.account_code_id,
             la.fund_id,
             la.manual_location,
+            la.location_id,
             la.location_lat,
             la.location_lng,
+            loc.location_code,
+            loc.location_name,
+            loc.description AS location_description,
             la.brand,
             la.model,
             la.serial_no,
@@ -339,6 +363,7 @@ if ($source === 'system') {
         LEFT JOIN offices o ON o.id = la.office_id
         LEFT JOIN employees e ON e.id = la.employee_id
         LEFT JOIN responsibility_codes rc ON rc.id = la.responsibility_code_id
+        LEFT JOIN locations loc ON loc.id = la.location_id
         WHERE la.id = ?
           AND la.is_active = 1
           AND la.item_type IN ('equipment', 'semi_expendable')
@@ -357,36 +382,19 @@ if ($asset) {
     $assetOfficeId = $source === 'system'
         ? (int) ($asset['current_office_id'] ?? 0)
         : (int) ($asset['office_id'] ?? 0);
-    $assetOfficePin = get_office_location_pin($db, $assetOfficeId);
 
-    $pinStmt = $db->prepare("SELECT olp.office_id, olp.office_name_snapshot, olp.manual_location, olp.location_lat, olp.location_lng,
-                                    o.office_name
-                             FROM office_location_pins olp
-                             LEFT JOIN offices o ON o.id = olp.office_id");
-    if ($pinStmt) {
-        $pinStmt->execute();
-        $officeLocationPins = $pinStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $pinStmt->close();
-    }
-
+    $resolvedLocationId = (int) ($asset['location_id'] ?? 0);
     $resolvedManualLocation = trim((string) ($asset['manual_location'] ?? ''));
-    if ($resolvedManualLocation === '' && $assetOfficePin && !empty($assetOfficePin['manual_location'])) {
-        $resolvedManualLocation = trim((string) $assetOfficePin['manual_location']);
-        $resolvedLocationSource = 'office';
+    if ($resolvedManualLocation === '' && !empty($asset['location_name'])) {
+        $resolvedManualLocation = trim((string) $asset['location_name']);
     }
 
     if (isset($asset['location_lat']) && $asset['location_lat'] !== null && $asset['location_lat'] !== '') {
         $resolvedLocationLat = (float) $asset['location_lat'];
-    } elseif ($assetOfficePin && isset($assetOfficePin['location_lat']) && $assetOfficePin['location_lat'] !== null && $assetOfficePin['location_lat'] !== '') {
-        $resolvedLocationLat = (float) $assetOfficePin['location_lat'];
-        $resolvedLocationSource = 'office';
     }
 
     if (isset($asset['location_lng']) && $asset['location_lng'] !== null && $asset['location_lng'] !== '') {
         $resolvedLocationLng = (float) $asset['location_lng'];
-    } elseif ($assetOfficePin && isset($assetOfficePin['location_lng']) && $assetOfficePin['location_lng'] !== null && $assetOfficePin['location_lng'] !== '') {
-        $resolvedLocationLng = (float) $assetOfficePin['location_lng'];
-        $resolvedLocationSource = 'office';
     }
 }
 
@@ -394,8 +402,6 @@ if (!$asset) {
     http_response_code(404);
     exit('Asset not found.');
 }
-
-$hasResolvedPin = $resolvedLocationLat !== null && $resolvedLocationLng !== null;
 
 $canManagePhotos = asset_view_can_manage_photos();
 $canEditDetails = asset_view_can_edit_details();
@@ -418,12 +424,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         $brand = trim((string) ($_POST['brand'] ?? ''));
         $model = trim((string) ($_POST['model'] ?? ''));
         $serialNo = trim((string) ($_POST['serial_no'] ?? ''));
-        $manualLocation = trim((string) ($_POST['manual_location'] ?? ($asset['manual_location'] ?? '')));
-        $locationLat = asset_view_parse_coordinate((string) ($_POST['location_lat'] ?? ''), -90, 90);
-        $locationLng = asset_view_parse_coordinate((string) ($_POST['location_lng'] ?? ''), -180, 180);
-        $locationLatRaw = trim((string) ($_POST['location_lat'] ?? ''));
-        $locationLngRaw = trim((string) ($_POST['location_lng'] ?? ''));
-        $saveOfficePin = isset($_POST['save_office_pin']) && (string) $_POST['save_office_pin'] === '1';
+        $locationIdInput = (int) ($_POST['location_id'] ?? 0);
+        $manualLocation = '';
+        $locationLat = null;
+        $locationLng = null;
         $accountCodeIdInput = (int) ($_POST['account_code_id'] ?? 0);
         $fundIdInput = (int) ($_POST['fund_id'] ?? 0);
 
@@ -431,24 +435,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             set_flash('error', 'Property number is required.');
             redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
         }
-        if ($locationLatRaw !== '' && $locationLat === null) {
-            set_flash('error', 'Latitude must be a number between -90 and 90.');
+        $propertyConflict = asset_identifier_conflict($db, 'property_number', $propertyNumber, $source, $id);
+        if ($propertyConflict) {
+            set_flash('error', 'Property number already exists in ' . $propertyConflict['label'] . ' #' . $propertyConflict['id'] . '.');
             redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
         }
-        if ($locationLngRaw !== '' && $locationLng === null) {
-            set_flash('error', 'Longitude must be a number between -180 and 180.');
-            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        if ($serialNo !== '') {
+            $serialConflict = asset_identifier_conflict($db, 'serial_no', $serialNo, $source, $id);
+            if ($serialConflict) {
+                set_flash('error', 'Serial number already exists in ' . $serialConflict['label'] . ' #' . $serialConflict['id'] . '.');
+                redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+            }
         }
 
-        if (($locationLat === null || $locationLng === null) && $assetOfficePin) {
-            if ($locationLat === null && isset($assetOfficePin['location_lat'])) {
-                $locationLat = (float) $assetOfficePin['location_lat'];
-            }
-            if ($locationLng === null && isset($assetOfficePin['location_lng'])) {
-                $locationLng = (float) $assetOfficePin['location_lng'];
-            }
-            if ($manualLocation === '' && !empty($assetOfficePin['manual_location'])) {
-                $manualLocation = trim((string) $assetOfficePin['manual_location']);
+        if ($locationIdInput > 0) {
+            $locationStmt = $db->prepare("SELECT location_code, location_name FROM locations WHERE id = ? AND is_active = 1 LIMIT 1");
+            if ($locationStmt) {
+                $locationStmt->bind_param('i', $locationIdInput);
+                $locationStmt->execute();
+                $locationRow = $locationStmt->get_result()->fetch_assoc();
+                $locationStmt->close();
+                if (!$locationRow) {
+                    set_flash('error', 'Selected location is invalid.');
+                    redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+                }
+                $manualLocation = trim((string) ($locationRow['location_name'] ?? ''));
             }
         }
 
@@ -506,22 +517,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                     $locationLat,
                     $locationLng,
                     (int) $userId,
-                    'asset_details_edit'
+                    'asset_details_edit',
+                    null,
+                    null,
+                    $locationIdInput
                 );
-            }
-
-            if ($saved) {
-                if ($saveOfficePin && $assetOfficeId > 0 && $locationLat !== null && $locationLng !== null) {
-                    $saved = upsert_office_location_pin(
-                        $db,
-                        $assetOfficeId,
-                        (string) ($asset['office_name'] ?? ''),
-                        $manualLocation,
-                        $locationLat,
-                        $locationLng,
-                        (int) $userId
-                    );
-                }
             }
 
             if ($saved) {
@@ -534,14 +534,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                     'record_type' => 'asset',
                     'action_name' => 'edit_asset_details',
                     'description' => 'Updated asset details from Asset Details page.',
+                    'old_values' => [
+                        'property_number' => $asset['property_number'] ?? null,
+                        'brand' => $asset['brand'] ?? null,
+                        'model' => $asset['model'] ?? null,
+                        'serial_no' => $asset['serial_no'] ?? null,
+                        'location_id' => $asset['location_id'] ?? null,
+                        'manual_location' => $asset['manual_location'] ?? null,
+                    ],
                     'new_values' => [
                         'property_number' => $propertyNumber,
                         'brand' => $brand,
                         'model' => $model,
                         'serial_no' => $serialNo,
+                        'location_id' => $locationIdInput,
                         'manual_location' => $manualLocation,
-                        'location_lat' => $locationLat,
-                        'location_lng' => $locationLng,
                     ],
                 ]);
                 set_flash('success', 'Asset details updated successfully.');
@@ -554,7 +561,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         }
 
         $description = trim((string) ($_POST['item_description'] ?? ''));
-        $acquisitionDate = trim((string) ($_POST['acquisition_date'] ?? ''));
+        $rawAcquisitionDate = trim((string) ($_POST['acquisition_date'] ?? ''));
+        $acquisitionDate = normalize_date_string($rawAcquisitionDate);
+        if ($rawAcquisitionDate !== '' && $acquisitionDate === '') {
+            set_flash('error', 'Acquisition date must be a valid date from 1900 to 2100.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
         $quantity = max(1, (int) ($_POST['quantity'] ?? 1));
         $unitCostInput = trim((string) ($_POST['unit_cost'] ?? '0'));
         $amountInput = trim((string) ($_POST['acquisition_cost'] ?? ''));
@@ -610,20 +622,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             $saved = $stmt->execute();
             $stmt->close();
             if ($saved) {
-                if ($saveOfficePin && $assetOfficeId > 0 && $locationLat !== null && $locationLng !== null) {
-                    $saved = upsert_office_location_pin(
-                        $db,
-                        $assetOfficeId,
-                        (string) ($asset['office_name'] ?? ''),
-                        $manualLocation,
-                        $locationLat,
-                        $locationLng,
-                        (int) current_user_id()
-                    );
-                }
-            }
-
-            if ($saved) {
                 update_asset_location_snapshot(
                     $db,
                     'legacy',
@@ -632,7 +630,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                     $locationLat,
                     $locationLng,
                     (int) current_user_id(),
-                    'asset_details_edit'
+                    'asset_details_edit',
+                    null,
+                    null,
+                    $locationIdInput
                 );
                 write_audit_log($db, [
                     'action' => 'update',
@@ -642,6 +643,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                     'record_type' => 'legacy_asset',
                     'action_name' => 'edit_asset_details',
                     'description' => 'Updated legacy asset details from Asset Details page.',
+                    'old_values' => [
+                        'property_number' => $asset['property_number'] ?? null,
+                        'item_description' => $asset['item_description'] ?? null,
+                        'brand' => $asset['brand'] ?? null,
+                        'model' => $asset['model'] ?? null,
+                        'serial_no' => $asset['serial_no'] ?? null,
+                        'acquisition_date' => $asset['acquisition_date'] ?? null,
+                        'account_code_id' => $asset['account_code_id'] ?? null,
+                        'fund_id' => $asset['fund_id'] ?? null,
+                        'quantity' => $asset['quantity'] ?? null,
+                        'unit_cost' => $asset['unit_cost'] ?? null,
+                        'acquisition_cost' => $asset['acquisition_cost'] ?? null,
+                        'condition_status' => $asset['condition_status'] ?? null,
+                        'remarks' => $asset['remarks'] ?? null,
+                        'location_id' => $asset['location_id'] ?? null,
+                        'manual_location' => $asset['manual_location'] ?? null,
+                    ],
                     'new_values' => [
                         'property_number' => $propertyNumber,
                         'item_description' => $description,
@@ -656,9 +674,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'acquisition_cost' => $acquisitionCost,
                         'condition_status' => $conditionStatus,
                         'remarks' => $remarksInput,
+                        'location_id' => $locationIdInput,
                         'manual_location' => $manualLocation,
-                        'location_lat' => $locationLat,
-                        'location_lng' => $locationLng,
                     ],
                 ]);
                 set_flash('success', 'Asset details updated successfully.');
@@ -1194,11 +1211,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="d-flex flex-wrap gap-2">
                         <?php $assetKey = $source . ':' . (int) $id; ?>
                         <a href="<?php echo base_url('modules/property/index.php'); ?>" class="btn btn-outline-secondary btn-sm">Back to Registry</a>
-                        <?php if ($canEditDetails && !$hasResolvedPin): ?>
-                            <button type="button" class="btn btn-warning btn-sm js-add-pin-btn" title="No pin saved yet for this asset.">
-                                Add Pin
-                            </button>
-                        <?php endif; ?>
                         <div class="dropdown">
                             <button class="btn btn-dark btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                                 Actions
@@ -1311,43 +1323,37 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label">Brand</label>
-                                        <input type="text" name="brand" class="form-control" list="assetBrandOptions" value="<?php echo h((string) ($asset['brand'] ?? '')); ?>" placeholder="Type or select brand">
+                                        <div class="input-group">
+                                            <input type="text" id="asset_brand" name="brand" class="form-control" list="assetBrandOptions" value="<?php echo h((string) ($asset['brand'] ?? '')); ?>" placeholder="Type or select brand">
+                                            <button type="button" class="btn btn-outline-success" id="assetAddBrandBtn"><i class="bi bi-plus-circle"></i> Brand</button>
+                                        </div>
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label">Model</label>
-                                        <input type="text" name="model" class="form-control" list="assetModelOptions" value="<?php echo h((string) ($asset['model'] ?? '')); ?>" placeholder="Type or select model">
+                                        <div class="input-group">
+                                            <input type="text" id="asset_model" name="model" class="form-control" list="assetModelOptions" value="<?php echo h((string) ($asset['model'] ?? '')); ?>" placeholder="Type or select model">
+                                            <button type="button" class="btn btn-outline-success" id="assetAddModelBtn"><i class="bi bi-plus-circle"></i> Model</button>
+                                        </div>
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label">Serial No.</label>
                                         <input type="text" name="serial_no" class="form-control" value="<?php echo h((string) ($asset['serial_no'] ?? '')); ?>">
                                     </div>
-                                    <input type="hidden" name="manual_location" value="<?php echo h($resolvedManualLocation); ?>">
-                                    <input type="hidden" name="location_lat" value="<?php echo h($resolvedLocationLat !== null ? number_format((float) $resolvedLocationLat, 7, '.', '') : ''); ?>">
-                                    <input type="hidden" name="location_lng" value="<?php echo h($resolvedLocationLng !== null ? number_format((float) $resolvedLocationLng, 7, '.', '') : ''); ?>">
-                                    <div class="col-12">
-                                        <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" id="saveOfficePin" name="save_office_pin" value="1" <?php echo $assetOfficeId > 0 ? 'checked' : ''; ?>>
-                                            <label class="form-check-label" for="saveOfficePin">Save this pin as the default location for <?php echo h((string) ($asset['office_name'] ?? 'this office')); ?></label>
-                                        </div>
-                                        <div class="small text-muted">When enabled, future assets under the same office can auto-use this pin even when offline.</div>
-                                    </div>
-                                    <div class="col-12">
-                                        <div class="border rounded-3 p-3 bg-light-subtle">
-                                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-                                                <div>
-                                                    <div class="fw-semibold">University of Antique Map Picker</div>
-                                                    <div class="text-muted small">Click anywhere on the map or drag the pin to set latitude and longitude.</div>
-                                                </div>
-                                                <div class="d-flex gap-2">
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="uaMapRecenter">Recenter</button>
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="uaMapToggle">Expand</button>
-                                                </div>
-                                            </div>
-                                            <div id="uaLocationMap" style="height: 460px; border-radius: 0.5rem;"></div>
-                                            <div class="small mt-2">
-                                                <a id="uaOpenInBrowser" href="#" target="_blank" rel="noopener">Open selected pin in browser</a>
-                                            </div>
-                                        </div>
+                                    <div class="col-md-8">
+                                        <label class="form-label">Location</label>
+                                        <select name="location_id" class="form-select" data-placeholder="Select location">
+                                            <option value="0">Unassigned</option>
+                                            <?php foreach ($locationOptions as $option): ?>
+                                                <?php $optionId = (int) ($option['id'] ?? 0); ?>
+                                                <?php $label = trim(($option['location_code'] ?? '') . ' - ' . ($option['location_name'] ?? '')); ?>
+                                                <option value="<?php echo h((string) $optionId); ?>" <?php echo $optionId > 0 && $optionId === $resolvedLocationId ? 'selected' : ''; ?>>
+                                                    <?php echo h($label); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <?php if (!$locationOptions): ?>
+                                            <div class="form-text">Add locations first in System Setup > Locations.</div>
+                                        <?php endif; ?>
                                     </div>
 
                                     <?php if ($source === 'legacy'): ?>
@@ -1385,7 +1391,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </div>
                                         <div class="col-md-3">
                                             <label class="form-label">Acquisition Date</label>
-                                            <input type="date" name="acquisition_date" class="form-control" value="<?php echo h((string) ($asset['acquisition_date'] ?? '')); ?>">
+                                            <input type="date" name="acquisition_date" class="form-control" value="<?php echo h(normalize_date_string((string) ($asset['acquisition_date'] ?? ''))); ?>">
                                         </div>
                                         <div class="col-md-3">
                                             <label class="form-label">Quantity</label>
@@ -1449,6 +1455,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                     <div class="col-md-3">
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                            <div class="text-muted small">Location</div>
+                            <div class="fw-semibold"><?php echo h($resolvedManualLocation !== '' ? $resolvedManualLocation : 'Unassigned'); ?></div>
+                            <?php if (!empty($asset['location_code'])): ?>
+                                <div class="small text-muted"><?php echo h((string) $asset['location_code']); ?></div>
+                            <?php endif; ?>
+                            <?php if (!empty($asset['location_description'])): ?>
+                                <div class="small text-muted mt-1"><?php echo h((string) $asset['location_description']); ?></div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                             <div class="text-muted small">Accountable Person</div>
                             <div class="fw-semibold"><?php echo h($accountableName !== '' ? $accountableName : 'Unassigned'); ?></div>
                         </div>
@@ -1463,35 +1481,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <div class="fw-semibold">Not checked yet</div>
                                 <div class="small text-muted">No completed inventory check recorded.</div>
                             <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-                <div class="row g-3 mb-4">
-                    <div class="col-12">
-                        <div class="card border-0 shadow-sm">
-                            <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                                <h6 class="mb-0">Office Pin Map Preview</h6>
-                                <span class="badge text-bg-light"><?php echo h($asset['office_name'] ?? 'No Office'); ?></span>
-                            </div>
-                            <div class="card-body">
-                                <div id="uaLocationPreviewMap"
-                                     data-lat="<?php echo h($resolvedLocationLat !== null ? number_format((float) $resolvedLocationLat, 7, '.', '') : ''); ?>"
-                                     data-lng="<?php echo h($resolvedLocationLng !== null ? number_format((float) $resolvedLocationLng, 7, '.', '') : ''); ?>"
-                                     style="height: 360px; border-radius: 0.5rem;"
-                                     class="position-relative border bg-light"></div>
-                                <div class="small text-muted mt-2">Shows the saved asset pin, or office default pin when asset-specific coordinates are blank.</div>
-                                <?php if ($canEditDetails && !$hasResolvedPin): ?>
-                                    <div class="alert alert-warning py-2 px-3 mt-3 mb-2">
-                                        Pin not available for this asset yet.
-                                    </div>
-                                    <button type="button" class="btn btn-warning btn-sm js-add-pin-btn">
-                                        Add Pin Now
-                                    </button>
-                                <?php endif; ?>
-                                <div class="small mt-1">
-                                    <a id="uaPreviewOpenInBrowser" href="#" target="_blank" rel="noopener">Open preview pin in browser</a>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -1556,7 +1545,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <div class="text-muted small mb-3">Add clear equipment or semi-expendable photos for verification, audit support, and physical inventory reference.</div>
                                                 <div class="mb-3">
                                                     <label class="form-label">Asset Photo</label>
-                                                    <input type="file" class="form-control" name="asset_photo" accept="image/jpeg,image/png,image/gif,image/webp" required>
+                                                    <input type="file" class="form-control" name="asset_photo" accept="image/*" capture="environment" required>
                                                 </div>
                                                 <div class="mb-3">
                                                     <label class="form-label">Caption</label>
@@ -1635,6 +1624,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div><?php echo h($accountableName !== '' ? $accountableName : 'Unassigned'); ?></div>
                                     <div class="text-muted small"><?php echo h($asset['position_title'] ?? ''); ?><?php echo !empty($asset['rc_code']) ? ' | ' . h($asset['rc_code']) : ''; ?></div>
                                 </div>
+                                <div class="mb-3">
+                                    <div class="small text-muted">Location Details</div>
+                                    <div class="fw-semibold"><?php echo h($resolvedManualLocation !== '' ? $resolvedManualLocation : 'Unassigned'); ?></div>
+                                    <?php if (!empty($asset['location_code'])): ?>
+                                        <div class="text-muted small">Code: <?php echo h((string) $asset['location_code']); ?></div>
+                                    <?php endif; ?>
+                                    <?php if (!empty($asset['location_description'])): ?>
+                                        <div class="text-muted small mt-1"><?php echo h((string) $asset['location_description']); ?></div>
+                                    <?php endif; ?>
+                                </div>
                                 <?php if ($latestInventoryCheck): ?>
                                     <div class="mb-3">
                                         <div class="small text-muted">Latest Inventory Check</div>
@@ -1645,13 +1644,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <?php if ($source === 'system'): ?>
                                     <div class="mb-2"><span class="text-muted small d-block">Purchase Order</span><?php echo h($asset['po_number'] ?? ''); ?></div>
                                     <div class="mb-2"><span class="text-muted small d-block">Supplier</span><?php echo h($asset['supplier_name'] ?? ''); ?></div>
-                                    <div class="mb-2"><span class="text-muted small d-block">Received</span><?php echo h(!empty($asset['received_date']) ? date('M d, Y', strtotime((string) $asset['received_date'])) : ''); ?></div>
+                                    <div class="mb-2"><span class="text-muted small d-block">Received</span><?php echo h(format_date($asset['received_date'] ?? null)); ?></div>
                                     <div class="mb-2"><span class="text-muted small d-block">Receiving Reference</span><?php echo h(trim(implode(' / ', array_filter([$asset['receiving_reference'] ?? '', $asset['ris_no'] ?? ''])))); ?></div>
                                     <div class="mb-2"><span class="text-muted small d-block"><?php echo h(strtoupper((string) ($asset['document_type'] ?? ''))); ?> Reference</span><?php echo h($asset['document_no'] ?? ''); ?></div>
                                     <div class="mb-2"><span class="text-muted small d-block">Unit Cost</span><?php echo h(number_format((float) ($asset['unit_cost'] ?? 0), 2)); ?></div>
                                 <?php else: ?>
                                     <div class="mb-2"><span class="text-muted small d-block">Beginning Balance Reference</span><?php echo h($asset['system_reference'] ?? ''); ?></div>
-                                    <div class="mb-2"><span class="text-muted small d-block">Acquisition Date</span><?php echo h(!empty($asset['acquisition_date']) ? date('M d, Y', strtotime((string) ($asset['acquisition_date'] ?? ''))) : ''); ?></div>
+                                    <div class="mb-2"><span class="text-muted small d-block">Acquisition Date</span><?php echo h(format_date($asset['acquisition_date'] ?? null)); ?></div>
                                     <div class="mb-2"><span class="text-muted small d-block">Quantity</span><?php echo h(number_format((float) ($asset['quantity'] ?? 0), 0)); ?></div>
                                     <div class="mb-2"><span class="text-muted small d-block">Unit Cost</span><?php echo h(number_format((float) ($asset['unit_cost'] ?? 0), 2)); ?></div>
                                     <div class="mb-2"><span class="text-muted small d-block">Total Cost</span><?php echo h(number_format((float) ($asset['acquisition_cost'] ?? 0), 2)); ?></div>
@@ -1680,7 +1679,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <?php if ($timeline): ?>
                                         <?php foreach ($timeline as $entry): ?>
                                             <tr>
-                                                <td><?php echo h(!empty($entry['date']) ? date('M d, Y', strtotime((string) $entry['date'])) : ''); ?></td>
+                                                <td><?php echo h(format_date($entry['date'] ?? null)); ?></td>
                                                 <td><?php echo h($entry['event'] ?? ''); ?></td>
                                                 <td><?php echo h($entry['reference'] ?? ''); ?></td>
                                                 <td><?php echo h($entry['details'] ?? ''); ?></td>
@@ -1859,213 +1858,110 @@ require_once __DIR__ . '/../../includes/topbar.php';
     </div>
 </section>
 
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
-<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" crossorigin="" onerror="this.onerror=null;this.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    var mapEl = document.getElementById('uaLocationMap');
-    if (!mapEl) {
-        return;
-    }
+    var quickAddEndpoint = <?php echo json_encode(base_url('modules/property/legacy_assets_quickadd.php')); ?>;
+    var csrfToken = <?php echo json_encode(csrf_token()); ?>;
+    var brandInput = document.getElementById('asset_brand');
+    var modelInput = document.getElementById('asset_model');
+    var brandDatalist = document.getElementById('assetBrandOptions');
+    var modelDatalist = document.getElementById('assetModelOptions');
+    var brandsByName = {};
+    <?php foreach ($brandQuickAddOptions as $brandOption): ?>
+    brandsByName[<?php echo json_encode(strtolower((string) $brandOption['label'])); ?>] = <?php echo json_encode($brandOption, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+    <?php endforeach; ?>
 
-    if (typeof window.L === 'undefined') {
-        mapEl.classList.add('d-flex', 'align-items-center', 'justify-content-center', 'bg-light', 'border');
-        mapEl.textContent = 'Map failed to load. Check internet connection and refresh the page.';
-        return;
-    }
-
-    var latInput = document.querySelector('input[name="location_lat"]');
-    var lngInput = document.querySelector('input[name="location_lng"]');
-    var openInBrowserLink = document.getElementById('uaOpenInBrowser');
-    var recenterBtn = document.getElementById('uaMapRecenter');
-    var toggleBtn = document.getElementById('uaMapToggle');
-    var officePins = <?php echo json_encode($officeLocationPins, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> || [];
-
-    if (!latInput || !lngInput) {
-        return;
-    }
-
-    var uaLat = 10.7904, uaLng = 122.0078;
-    var initialLat = parseFloat(latInput.value);
-    var initialLng = parseFloat(lngInput.value);
-    if (Number.isNaN(initialLat) || initialLat < -90 || initialLat > 90) { initialLat = uaLat; }
-    if (Number.isNaN(initialLng) || initialLng < -180 || initialLng > 180) { initialLng = uaLng; }
-
-    var map = L.map(mapEl, { center: [initialLat, initialLng], zoom: 18 });
-    var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 20
-    });
-    var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri'
-    });
-    streetLayer.addTo(map);
-    L.control.layers(
-        {
-            'Street': streetLayer,
-            'Satellite': satelliteLayer
-        },
-        null,
-        { collapsed: false }
-    ).addTo(map);
-
-    var leafletMarker = L.marker([initialLat, initialLng], { draggable: true }).addTo(map);
-
-    function refreshMapSize() {
-        setTimeout(function () {
-            map.invalidateSize();
-        }, 150);
-    }
-
-    refreshMapSize();
-    window.addEventListener('load', refreshMapSize);
-    document.addEventListener('shown.bs.tab', refreshMapSize);
-    document.addEventListener('shown.bs.collapse', refreshMapSize);
-    document.addEventListener('shown.bs.modal', refreshMapSize);
-
-    function syncInputs(latlng) {
-        latInput.value = Number(latlng.lat).toFixed(7);
-        lngInput.value = Number(latlng.lng).toFixed(7);
-        if (openInBrowserLink) {
-            openInBrowserLink.href = 'https://www.google.com/maps?q=' + encodeURIComponent(latInput.value + ',' + lngInput.value);
+    function appendDatalistOption(datalist, value) {
+        if (!datalist || !value) {
+            return;
+        }
+        var exists = Array.prototype.some.call(datalist.options, function (option) {
+            return option.value.toLowerCase() === value.toLowerCase();
+        });
+        if (!exists) {
+            var option = document.createElement('option');
+            option.value = value;
+            datalist.appendChild(option);
         }
     }
-    syncInputs(leafletMarker.getLatLng());
 
-    leafletMarker.on('dragend', function () { syncInputs(leafletMarker.getLatLng()); });
-    map.on('click', function (e) { leafletMarker.setLatLng(e.latlng); syncInputs(e.latlng); });
-
-    function normalizeText(value) {
-        return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-    }
-
-    function findMatchingOfficePin(text) {
-        var needle = normalizeText(text);
-        if (!needle) {
-            return null;
-        }
-
-        for (var i = 0; i < officePins.length; i++) {
-            var row = officePins[i] || {};
-            var officeName = normalizeText(row.office_name || row.office_name_snapshot || '');
-            var manualLocation = normalizeText(row.manual_location || '');
-            if (!officeName && !manualLocation) {
-                continue;
+    function postQuickAdd(payload) {
+        payload._csrf = csrfToken;
+        return fetch(quickAddEndpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-Token': csrfToken
+            },
+            body: new URLSearchParams(payload).toString()
+        }).then(function (response) {
+            return response.json();
+        }).then(function (data) {
+            if (!data.success) {
+                throw new Error(data.error || 'Unable to save record.');
             }
-            if (
-                (officeName && (needle === officeName || needle.indexOf(officeName) >= 0 || officeName.indexOf(needle) >= 0))
-                || (manualLocation && (needle === manualLocation || needle.indexOf(manualLocation) >= 0 || manualLocation.indexOf(needle) >= 0))
-            ) {
-                return row;
-            }
-        }
-
-        return null;
-    }
-
-    function applyOfficePinFromText(text) {
-        var pin = findMatchingOfficePin(text);
-        if (!pin) { return; }
-        var lat = parseFloat(pin.location_lat);
-        var lng = parseFloat(pin.location_lng);
-        if (Number.isNaN(lat) || Number.isNaN(lng)) { return; }
-        leafletMarker.setLatLng([lat, lng]);
-        map.setView([lat, lng], 18);
-        syncInputs({ lat: lat, lng: lng });
-    }
-
-    if (recenterBtn) {
-        recenterBtn.addEventListener('click', function () {
-            map.setView([uaLat, uaLng], 18);
-            leafletMarker.setLatLng([uaLat, uaLng]);
-            syncInputs({ lat: uaLat, lng: uaLng });
+            return data;
         });
     }
 
-    if (toggleBtn) {
-        toggleBtn.addEventListener('click', function () {
-            var expanded = mapEl.style.height === '70vh';
-            mapEl.style.height = expanded ? '460px' : '70vh';
-            toggleBtn.textContent = expanded ? 'Expand' : 'Collapse';
-            refreshMapSize();
-        });
-    }
-
-    if (!latInput.value || !lngInput.value) {
-        applyOfficePinFromText('<?php echo h((string) ($asset['office_name'] ?? '')); ?>');
-    }
-
-    var addPinButtons = document.querySelectorAll('.js-add-pin-btn');
-    var editPanel = document.getElementById('assetEditPanel');
-    addPinButtons.forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            if (editPanel && typeof window.bootstrap !== 'undefined' && window.bootstrap.Collapse) {
-                window.bootstrap.Collapse.getOrCreateInstance(editPanel, { toggle: false }).show();
+    function resolveBrandId(name) {
+        var key = String(name || '').trim().toLowerCase();
+        if (!key) {
+            return Promise.reject(new Error('Enter a brand first.'));
+        }
+        if (brandsByName[key]) {
+            if (brandInput) {
+                brandInput.value = brandsByName[key].label;
             }
-            setTimeout(function () {
-                mapEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                refreshMapSize();
-            }, 250);
+            return Promise.resolve(brandsByName[key].id);
+        }
+        return postQuickAdd({ action: 'add_brand', brand_name: name }).then(function (data) {
+            brandsByName[String(data.label || name).trim().toLowerCase()] = { id: data.id, label: data.label || name };
+            appendDatalistOption(brandDatalist, data.label || name);
+            if (brandInput) {
+                brandInput.value = data.label || name;
+            }
+            return data.id;
         });
-    });
-});
-</script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    var previewEl = document.getElementById('uaLocationPreviewMap');
-    var previewOpenInBrowserLink = document.getElementById('uaPreviewOpenInBrowser');
-    if (!previewEl) { return; }
-
-    if (typeof window.L === 'undefined') {
-        previewEl.classList.add('d-flex', 'align-items-center', 'justify-content-center', 'bg-light', 'border');
-        previewEl.textContent = 'Map preview unavailable (Leaflet failed to load).';
-        return;
     }
 
-    var uaLat = 10.7904, uaLng = 122.0078;
-    var lat = parseFloat(previewEl.getAttribute('data-lat') || '');
-    var lng = parseFloat(previewEl.getAttribute('data-lng') || '');
-    if (Number.isNaN(lat) || lat < -90 || lat > 90) { lat = uaLat; }
-    if (Number.isNaN(lng) || lng < -180 || lng > 180) { lng = uaLng; }
-
-    var previewMap = L.map(previewEl, {
-        center: [lat, lng],
-        zoom: 18,
-        zoomControl: false,
-        attributionControl: true
-    });
-
-    var previewStreetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 20
-    });
-    var previewSatelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri'
-    });
-    previewStreetLayer.addTo(previewMap);
-    L.control.layers(
-        {
-            'Street': previewStreetLayer,
-            'Satellite': previewSatelliteLayer
-        },
-        null,
-        { collapsed: false }
-    ).addTo(previewMap);
-
-    L.marker([lat, lng]).addTo(previewMap);
-
-    if (previewOpenInBrowserLink) {
-        previewOpenInBrowserLink.href = 'https://www.google.com/maps?q=' + encodeURIComponent(lat.toFixed(7) + ',' + lng.toFixed(7));
+    var addBrandBtn = document.getElementById('assetAddBrandBtn');
+    if (addBrandBtn && brandInput) {
+        addBrandBtn.addEventListener('click', function () {
+            var name = window.prompt('Brand name', brandInput.value.trim());
+            if (!name || !name.trim()) {
+                return;
+            }
+            resolveBrandId(name.trim()).catch(function (error) {
+                window.alert(error.message);
+            });
+        });
     }
 
-    setTimeout(function () {
-        previewMap.invalidateSize();
-    }, 150);
-});
-</script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
+    var addModelBtn = document.getElementById('assetAddModelBtn');
+    if (addModelBtn && brandInput && modelInput) {
+        addModelBtn.addEventListener('click', function () {
+            var brandName = brandInput.value.trim();
+            if (!brandName) {
+                window.alert('Enter or quick-add a brand first.');
+                brandInput.focus();
+                return;
+            }
+            var modelName = window.prompt('Model name', modelInput.value.trim());
+            if (!modelName || !modelName.trim()) {
+                return;
+            }
+            resolveBrandId(brandName).then(function (brandId) {
+                return postQuickAdd({ action: 'add_model', brand_id: brandId, model_name: modelName.trim() });
+            }).then(function (data) {
+                appendDatalistOption(modelDatalist, data.label || modelName.trim());
+                modelInput.value = data.label || modelName.trim();
+            }).catch(function (error) {
+                window.alert(error.message);
+            });
+        });
+    }
+
     if (!window.SPAMS || typeof window.SPAMS.setupRequiredSummaryValidation !== 'function') {
         return;
     }

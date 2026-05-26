@@ -3,6 +3,7 @@
 if (!defined('AUDIT_AUTO_LOG_DISABLED_ROUTES')) {
     define('AUDIT_AUTO_LOG_DISABLED_ROUTES', [
         'modules/audit_log/index.php',
+        'modules/messages/poll.php',
     ]);
 }
 
@@ -20,6 +21,7 @@ function write_audit_log(mysqli $db, array $entry): bool
     $actionName = trim((string) ($entry['action_name'] ?? ''));
     $description = trim((string) ($entry['description'] ?? ''));
     $ipAddress = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    $routePath = trim((string) ($entry['route_path'] ?? ''));
 
     if ($tableName === '') {
         return false;
@@ -39,37 +41,107 @@ function write_audit_log(mysqli $db, array $entry): bool
     $actionName = $actionName !== '' ? $actionName : null;
     $description = $description !== '' ? $description : null;
     $recordId = ($recordId !== null && $recordId !== '') ? $recordId : null;
+    $routePath = $routePath !== '' ? $routePath : null;
 
-    $stmt = $db->prepare("
-        INSERT INTO audit_logs
-            (user_id, action, table_name, record_id, old_values, new_values, module_name, record_type, action_name, description, ip_address, created_at)
-        VALUES
-            (NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-    ");
+    $hasRoutePathColumn = function_exists('schema_has_column') && schema_has_column($db, 'audit_logs', 'route_path');
+    if ($hasRoutePathColumn) {
+        $stmt = $db->prepare("
+            INSERT INTO audit_logs
+                (user_id, action, table_name, record_id, old_values, new_values, module_name, record_type, action_name, description, ip_address, route_path, created_at)
+            VALUES
+                (NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+    } else {
+        $stmt = $db->prepare("
+            INSERT INTO audit_logs
+                (user_id, action, table_name, record_id, old_values, new_values, module_name, record_type, action_name, description, ip_address, created_at)
+            VALUES
+                (NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+    }
 
     if (!$stmt) {
         return false;
     }
 
-    $stmt->bind_param(
-        'issssssssss',
-        $userId,
-        $action,
-        $tableName,
-        $recordId,
-        $oldValues,
-        $newValues,
-        $moduleName,
-        $recordType,
-        $actionName,
-        $description,
-        $ipAddress
-    );
+    if ($hasRoutePathColumn) {
+        $stmt->bind_param(
+            'isssssssssss',
+            $userId,
+            $action,
+            $tableName,
+            $recordId,
+            $oldValues,
+            $newValues,
+            $moduleName,
+            $recordType,
+            $actionName,
+            $description,
+            $ipAddress,
+            $routePath
+        );
+    } else {
+        $stmt->bind_param(
+            'issssssssss',
+            $userId,
+            $action,
+            $tableName,
+            $recordId,
+            $oldValues,
+            $newValues,
+            $moduleName,
+            $recordType,
+            $actionName,
+            $description,
+            $ipAddress
+        );
+    }
 
     $ok = $stmt->execute();
     $stmt->close();
 
     return $ok;
+}
+
+function audit_fetch_row_snapshot(mysqli $db, string $tableName, $recordId, array $columns, string $idColumn = 'id'): array
+{
+    $isIdentifier = static function (string $identifier): bool {
+        return (bool) preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $identifier);
+    };
+
+    if (!$isIdentifier($tableName) || !$isIdentifier($idColumn) || $columns === []) {
+        return [$idColumn => $recordId];
+    }
+
+    $safeColumns = [];
+    foreach ($columns as $column) {
+        $column = trim((string) $column);
+        if ($column !== '' && $isIdentifier($column)) {
+            $safeColumns[] = $column;
+        }
+    }
+
+    if ($safeColumns === []) {
+        return [$idColumn => $recordId];
+    }
+
+    $selectColumns = implode(', ', array_map(static function (string $column): string {
+        return '`' . $column . '`';
+    }, $safeColumns));
+
+    $sql = "SELECT {$selectColumns} FROM `{$tableName}` WHERE `{$idColumn}` = ? LIMIT 1";
+    $stmt = $db->prepare($sql);
+    if (!$stmt) {
+        return [$idColumn => $recordId];
+    }
+
+    $recordIdValue = (string) $recordId;
+    $stmt->bind_param('s', $recordIdValue);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    return is_array($row) ? $row : [$idColumn => $recordId];
 }
 
 function audit_normalize_route_path(): string
@@ -152,6 +224,7 @@ function audit_auto_log_request(mysqli $db): bool
         'record_type' => 'route',
         'action_name' => $isGet ? 'view_page' : 'submit_request',
         'description' => ($isGet ? 'Viewed ' : 'Submitted request to ') . $routePath . '.',
+        'route_path' => $routePath,
         'new_values' => $newValues,
     ]);
 }

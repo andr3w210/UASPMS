@@ -106,7 +106,9 @@ if ($db) {
             LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id
             WHERE poi.item_type IN ('equipment', 'semi_expendable')
               AND did.is_distributed = 1
-              AND (did.is_disposed IS NULL OR did.is_disposed = 0)";
+              AND (did.is_disposed IS NULL OR did.is_disposed = 0)
+              AND UPPER(poi.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
+              AND UPPER(TRIM(poi.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')";
 
         if ($officeId > 0) {
             $systemSql .= " AND COALESCE(did.current_office_id, d.office_id) = ?";
@@ -214,8 +216,8 @@ if ($db) {
             LEFT JOIN offices o ON o.id = la.office_id
             LEFT JOIN employees e ON e.id = la.employee_id
             WHERE la.is_active = 1
-              AND la.item_description NOT LIKE 'RPCPPE Reconciliation Adjustment %'
-              AND la.item_description NOT LIKE 'RPCPPE 2025 Reconciliation Adjustment %'
+              AND UPPER(la.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
+              AND UPPER(TRIM(la.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')
               AND la.item_type IN ('equipment', 'semi_expendable')";
 
         if ($officeId > 0) {
@@ -783,8 +785,9 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                     $sourceLabel = registry_source_label((string) ($row['source_type'] ?? 'system'));
                                     $detailId = (int) ($row['detail_id'] ?? 0);
                                     $amountValue = (float) ($row['amount'] ?? 0);
-                                    $dateAcquiredLabel = !empty($row['date_acquired']) ? date('M d, Y', strtotime((string) $row['date_acquired'])) : '-';
-                                    $recordDateLabel = !empty($row['record_date']) ? date('M d, Y', strtotime((string) $row['record_date'])) : '';
+                                    $dateAcquiredLabel = format_date($row['date_acquired'] ?? null);
+                                    $dateAcquiredLabel = $dateAcquiredLabel !== '' ? $dateAcquiredLabel : '-';
+                                    $recordDateLabel = format_date($row['record_date'] ?? null);
                                     $rpcppeLabel = ($row['source_type'] ?? '') === 'legacy'
                                         ? rpcppe_status_label((string) ($row['rpcppe_status'] ?? 'excluded'))
                                         : 'System Asset';

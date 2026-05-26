@@ -102,12 +102,13 @@ function li_derive_acquisition_date(string $acquisitionDate, string $propertyNum
 {
     $acquisitionDate = li_clean_optional_value($acquisitionDate);
     if ($acquisitionDate !== '') {
-        return $acquisitionDate;
+        return normalize_date_string($acquisitionDate);
     }
 
     if (preg_match('/^\s*(\d{4})[-.]/', $propertyNumber, $matches)) {
         $year = (int) $matches[1];
-        if ($year >= 1900 && $year <= 2100) {
+        $latestSafeLegacyYear = ((int) date('Y')) - 2;
+        if ($year >= 1900 && $year <= $latestSafeLegacyYear) {
             return sprintf('%04d-01-01', $year);
         }
     }
@@ -473,6 +474,8 @@ if (!$db) {
                         }
                         if (!$errors) {
                             $parsed = [];
+                            $seenPropertyNumbers = [];
+                            $seenSerialNumbers = [];
                             $userId = current_user_id();
                             for ($i = 1; $i < count($rows); $i++) {
                                 $src = $rows[$i];
@@ -549,12 +552,29 @@ if (!$db) {
                                 if ($employee && $office && (int) ($employee['office_id'] ?? 0) !== (int) $office['id']) $r['errors'][] = 'Employee does not belong to office.';
                                 if ($rc && $office && (int) ($rc['office_id'] ?? 0) !== (int) $office['id']) $r['errors'][] = 'RC does not belong to office.';
 
-                                $dup = $r['property_number'] !== '' ? $db->prepare("SELECT id FROM legacy_assets WHERE property_number = ? LIMIT 1") : null;
-                                if ($dup) {
-                                    $dup->bind_param('s', $r['property_number']);
-                                    $dup->execute();
-                                    if ($dup->get_result()->fetch_assoc()) $r['errors'][] = 'Property number already exists.';
-                                    $dup->close();
+                                if ($r['property_number'] !== '') {
+                                    $propertyKey = strtoupper($r['property_number']);
+                                    if (isset($seenPropertyNumbers[$propertyKey])) {
+                                        $r['errors'][] = 'Property number duplicates row ' . $seenPropertyNumbers[$propertyKey] . ' in this file.';
+                                    } else {
+                                        $seenPropertyNumbers[$propertyKey] = $r['source_row'];
+                                    }
+                                    $propertyConflict = asset_identifier_conflict($db, 'property_number', $r['property_number']);
+                                    if ($propertyConflict) {
+                                        $r['errors'][] = 'Property number already exists in ' . $propertyConflict['label'] . ' #' . $propertyConflict['id'] . '.';
+                                    }
+                                }
+                                if ($r['serial_no'] !== '') {
+                                    $serialKey = strtoupper($r['serial_no']);
+                                    if (isset($seenSerialNumbers[$serialKey])) {
+                                        $r['errors'][] = 'Serial number duplicates row ' . $seenSerialNumbers[$serialKey] . ' in this file.';
+                                    } else {
+                                        $seenSerialNumbers[$serialKey] = $r['source_row'];
+                                    }
+                                    $serialConflict = asset_identifier_conflict($db, 'serial_no', $r['serial_no'], '', 0, true);
+                                    if ($serialConflict) {
+                                        $r['errors'][] = 'Serial number already exists in ' . $serialConflict['label'] . ' #' . $serialConflict['id'] . '.';
+                                    }
                                 }
 
                                 $r['classification_id'] = $classification['id'] ?? null;

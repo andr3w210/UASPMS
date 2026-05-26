@@ -263,7 +263,7 @@ $signatoryDisplayName = static function (array $person): string {
     ]);
     $name = strtoupper(trim(implode(' ', $nameParts)));
     if ($suffix !== '') {
-        $name .= ' ' . $suffix;
+        $name .= ', ' . $suffix;
     }
     return $name;
 };
@@ -479,7 +479,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                                 <?php echo h($it['property_number'] ?? ''); ?>
                             <?php endif; ?>
                         </td>
-                        <td><?php echo h(!empty($it['date_acquired']) ? date('m/d/Y', strtotime($it['date_acquired'])) : ''); ?></td>
+                        <td><?php echo h(format_date($it['date_acquired'] ?? null, 'm/d/Y')); ?></td>
                         <td class="text-end"><?php echo h(number_format($amount,2)); ?></td>
                     </tr>
                     <?php endforeach; ?>
@@ -619,7 +619,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                                 <?php echo h($it['property_number'] ?? ''); ?>
                             <?php endif; ?>
                         </td>
-                        <td><?php echo h(!empty($it['date_acquired']) ? date('m/d/Y', strtotime($it['date_acquired'])) : ''); ?></td>
+                        <td><?php echo h(format_date($it['date_acquired'] ?? null, 'm/d/Y')); ?></td>
                         <td class="text-end"><?php echo h(number_format($amount,2)); ?></td>
                     </tr>
                     <?php endforeach; ?>

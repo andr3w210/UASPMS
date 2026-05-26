@@ -142,6 +142,7 @@ $menuGroups = [
         'roles' => ['Administrator'],
         'items' => [
             ['label' => 'Offices', 'path' => 'modules/offices/index.php', 'needle' => '/offices/', 'icon' => 'bi bi-building', 'roles' => ['Administrator']],
+            ['label' => 'Locations', 'path' => 'modules/locations/index.php', 'needle' => '/locations/', 'icon' => 'bi bi-geo-alt', 'roles' => ['Administrator']],
             ['label' => 'Responsibility Codes', 'path' => 'modules/responsibility_codes/index.php', 'needle' => '/responsibility_codes/', 'icon' => 'bi bi-upc-scan', 'roles' => ['Administrator']],
             ['label' => 'Suppliers', 'path' => 'modules/suppliers/index.php', 'needle' => '/suppliers/', 'icon' => 'bi bi-truck', 'roles' => ['Administrator']],
             ['label' => 'Funds', 'path' => 'modules/funds/index.php', 'needle' => '/funds/', 'icon' => 'bi bi-wallet2', 'roles' => ['Administrator']],

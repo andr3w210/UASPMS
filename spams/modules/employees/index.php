@@ -113,6 +113,32 @@ function employees_normalize_status(string $status): string
     return preg_replace('/\s+/', ' ', trim($status)) ?? '';
 }
 
+function employees_audit_snapshot(mysqli $db, int $employeeId): array
+{
+    $columns = [
+        'employee_no',
+        'name_prefix',
+        'first_name',
+        'middle_name',
+        'last_name',
+        'suffix_name',
+        'email',
+        'photo_path',
+        'office_id',
+        'responsibility_code_id',
+        'position_title',
+        'employment_status',
+        'is_unit_head',
+        'is_active',
+    ];
+
+    if (schema_has_column($db, 'employees', 'is_driver')) {
+        $columns[] = 'is_driver';
+    }
+
+    return audit_fetch_row_snapshot($db, 'employees', $employeeId, $columns);
+}
+
 $db = db();
 $page_title = 'Employees';
 $flash = get_flash();
@@ -185,9 +211,6 @@ if (!$db) {
                 if (!$primaryAssignment && !empty($assignmentFormRows)) {
                     $primaryAssignment = $assignmentFormRows[0];
                 }
-                if (empty($assignmentFormRows)) {
-                    $assignmentFormRows = [employee_assignment_empty_row()];
-                }
                 $form['office_id'] = (string) ($primaryAssignment['office_id'] ?? '');
                 $form['responsibility_code_id'] = (string) ($primaryAssignment['responsibility_code_id'] ?? '');
                 $form['position_title'] = (string) ($primaryAssignment['role_title'] ?? '');
@@ -250,6 +273,7 @@ if (!$db) {
                 }
 
                 if($recordId>0){
+                    $auditBefore = employees_audit_snapshot($db, $recordId);
                     $updateSql = $hasDriverColumn
                         ? "UPDATE employees SET employee_no = ?, name_prefix = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, photo_path = ?, department_id = NULL, office_id = ?, responsibility_code_id = ?, position_title = ?, employment_status = ?, is_unit_head = ?, is_driver = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?"
                         : "UPDATE employees SET employee_no = ?, name_prefix = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, photo_path = ?, department_id = NULL, office_id = ?, responsibility_code_id = ?, position_title = ?, employment_status = ?, is_unit_head = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?";
@@ -282,6 +306,7 @@ if (!$db) {
                                 'record_type' => 'employee',
                                 'action_name' => 'update_employee',
                                 'description' => 'Updated employee record.',
+                                'old_values' => $auditBefore,
                                 'new_values' => [
                                     'employee_no' => $form['employee_no'],
                                     'name_prefix' => $form['name_prefix'],
@@ -376,6 +401,7 @@ if (!$db) {
         } elseif($action==='delete'){
             $recordId=(int)($_POST['id']??0);
             $userId=current_user_id();
+            $auditBefore = employees_audit_snapshot($db, $recordId);
             $stmt=$db->prepare("UPDATE employees SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
             if($stmt){
                 $stmt->bind_param('ii',$userId,$recordId);
@@ -398,6 +424,7 @@ if (!$db) {
                         'record_type' => 'employee',
                         'action_name' => 'deactivate_employee',
                         'description' => 'Deactivated employee record.',
+                        'old_values' => $auditBefore,
                         'new_values' => ['is_active' => 0],
                     ]);
                     set_flash('success','Employee deactivated successfully.');
@@ -408,6 +435,7 @@ if (!$db) {
         } elseif($action==='reactivate'){
             $recordId=(int)($_POST['id']??0);
             $userId=current_user_id();
+            $auditBefore = employees_audit_snapshot($db, $recordId);
             $stmt=$db->prepare("UPDATE employees SET is_active = 1, updated_by = ?, updated_at = NOW() WHERE id = ?");
             if($stmt){
                 $stmt->bind_param('ii',$userId,$recordId);
@@ -422,6 +450,7 @@ if (!$db) {
                         'record_type' => 'employee',
                         'action_name' => 'reactivate_employee',
                         'description' => 'Reactivated employee record.',
+                        'old_values' => $auditBefore,
                         'new_values' => ['is_active' => 1],
                     ]);
                     set_flash('success','Employee reactivated successfully.');
@@ -499,7 +528,7 @@ if (!$db) {
             if($record){
                 $form=['id'=>(int)$record['id'],'employee_no'=>$record['employee_no'],'name_prefix'=>$record['name_prefix']??'','first_name'=>$record['first_name'],'middle_name'=>$record['middle_name']??'','last_name'=>$record['last_name'],'suffix_name'=>$record['suffix_name']??'','email'=>$record['email']??'','photo_path'=>$record['photo_path']??'','office_id'=>(string)($record['office_id']??''),'responsibility_code_id'=>(string)($record['responsibility_code_id']??''),'position_title'=>$record['position_title']??'','employment_status'=>$record['employment_status']??'','is_unit_head'=>(string)(int)$record['is_unit_head'],'is_driver'=>(string)(int)($record['is_driver']??0),'is_active'=>(string)(int)$record['is_active']];
                 if ($assignmentsEnabled) {
-                    $assignmentFormRows = employee_fetch_assignments($db, $recordId, false);
+                    $assignmentFormRows = employee_fetch_assignments($db, $recordId, true);
                     if (!$assignmentFormRows) {
                         $assignmentFormRows = [employee_assignment_empty_row()];
                     } else {

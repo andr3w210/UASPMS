@@ -105,14 +105,15 @@ switch ($action) {
             $dup->close();
         }
 
-        $stmt = $db->prepare('INSERT INTO brands (brand_name, is_active, created_by) VALUES (?, 1, ?)');
+        $brandCode = next_module_code($db, 'brands');
+        $stmt = $db->prepare('INSERT INTO brands (brand_code, brand_name, is_active, created_by) VALUES (?, ?, 1, ?)');
         if (!$stmt) { qa_json(false, ['error' => 'Failed to prepare insert.']); }
-        $stmt->bind_param('si', $bname, $userId);
+        $stmt->bind_param('ssi', $brandCode, $bname, $userId);
         $stmt->execute();
         $id = (int) $stmt->insert_id;
         $stmt->close();
 
-        qa_json(true, ['id' => $id, 'label' => $bname, 'brand_id' => $id]);
+        qa_json(true, ['id' => $id, 'label' => $bname, 'brand_id' => $id, 'code' => $brandCode]);
     }
 
     // ── Model ─────────────────────────────────────────────────────
@@ -133,14 +134,15 @@ switch ($action) {
             $dup->close();
         }
 
-        $stmt = $db->prepare('INSERT INTO models (model_name, brand_id, is_active, created_by) VALUES (?, ?, 1, ?)');
+        $modelCode = next_module_code($db, 'models');
+        $stmt = $db->prepare('INSERT INTO models (model_code, model_name, brand_id, is_active, created_by) VALUES (?, ?, ?, 1, ?)');
         if (!$stmt) { qa_json(false, ['error' => 'Failed to prepare insert.']); }
-        $stmt->bind_param('sii', $mname, $brandId, $userId);
+        $stmt->bind_param('ssii', $modelCode, $mname, $brandId, $userId);
         $stmt->execute();
         $id = (int) $stmt->insert_id;
         $stmt->close();
 
-        qa_json(true, ['id' => $id, 'label' => $mname, 'brand_id' => $brandId]);
+        qa_json(true, ['id' => $id, 'label' => $mname, 'brand_id' => $brandId, 'code' => $modelCode]);
     }
 
     // ── Office ────────────────────────────────────────────────────
