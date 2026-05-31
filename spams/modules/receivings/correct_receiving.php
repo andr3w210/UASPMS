@@ -190,7 +190,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'zero_
                 throw new RuntimeException('Receiving item not found.');
             }
 
-            $distributionStmt = $db->prepare('SELECT COUNT(*) AS cnt FROM distribution_items WHERE receiving_item_id = ?');
+            $distributionStmt = $db->prepare(
+                "SELECT COUNT(DISTINCT did.id) AS cnt
+                 FROM distribution_items di
+                 INNER JOIN distributions d ON d.id = di.distribution_id
+                 INNER JOIN distribution_item_details did ON did.distribution_item_id = di.id
+                 WHERE di.receiving_item_id = ?
+                   AND d.status = 'posted'
+                   AND did.is_distributed = 1"
+            );
             if (!$distributionStmt) {
                 throw new RuntimeException('Unable to check distribution dependencies.');
             }
@@ -278,15 +286,24 @@ $itemStmt = $db->prepare(
         ri.quantity_accepted,
         ri.quantity_rejected,
         ri.line_total,
-        poi.item_no,
+        poi.line_no AS item_no,
         poi.item_description,
-        poi.unit,
+        COALESCE(u.uom_name, u.abbreviation, '') AS unit,
         poi.unit_cost,
-        COALESCE((SELECT COUNT(*) FROM distribution_items di WHERE di.receiving_item_id = ri.id), 0) AS distribution_count,
+        COALESCE((
+            SELECT COUNT(DISTINCT did.id)
+            FROM distribution_items di
+            INNER JOIN distributions d ON d.id = di.distribution_id
+            INNER JOIN distribution_item_details did ON did.distribution_item_id = di.id
+            WHERE di.receiving_item_id = ri.id
+              AND d.status = 'posted'
+              AND did.is_distributed = 1
+        ), 0) AS distribution_count,
         COALESCE((SELECT SUM(si.quantity_issued) FROM stock_items si WHERE si.receiving_item_id = ri.id), 0) AS issued_qty,
         COALESCE((SELECT COUNT(*) FROM stock_items s2 WHERE s2.receiving_item_id = ri.id), 0) AS stock_count
      FROM receiving_items ri
      INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+     LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id
      WHERE ri.receiving_id = ?
      ORDER BY ri.id ASC"
 );
@@ -325,11 +342,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     </div>
 
-    <?php if (!empty($flash['success'])): ?>
-        <div class="alert alert-success"><?php echo h($flash['success']); ?></div>
-    <?php endif; ?>
-    <?php if (!empty($flash['error'])): ?>
-        <div class="alert alert-danger"><?php echo h($flash['error']); ?></div>
+    <?php if ($flash): ?>
+        <div class="alert alert-<?php echo ($flash['type'] ?? '') === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message'] ?? ''); ?></div>
     <?php endif; ?>
 
     <?php if ($errors): ?>
@@ -390,6 +404,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </form>
                                     <?php else: ?>
                                         <span class="badge text-bg-secondary">Locked</span>
+                                        <div class="small text-muted mt-1">
+                                            <?php if ((int) $item['distribution_count'] > 0): ?>
+                                                Cancel the related distribution first.
+                                            <?php elseif ((float) $item['issued_qty'] > 0.0001): ?>
+                                                This line already has issued stock.
+                                            <?php endif; ?>
+                                        </div>
                                     <?php endif; ?>
                                 </td>
                             </tr>

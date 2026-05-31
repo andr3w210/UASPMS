@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/employee_assignments.php';
 require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $db = db();
@@ -8,6 +9,7 @@ $flash = get_flash();
 $errors = [];
 $offices = [];
 $employees = [];
+$employeeOfficeMap = [];
 $responsibilityCodes = [];
 $assets = [];
 $transfers = [];
@@ -79,6 +81,131 @@ function transfer_name(array $row, string $prefix = ''): string
     ])));
 }
 
+function transfer_employee_is_active(array $employees, int $employeeId): bool
+{
+    foreach ($employees as $employee) {
+        if ((int) ($employee['id'] ?? 0) === $employeeId) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function transfer_employee_office_ids(array $employee, array $employeeOfficeMap): array
+{
+    $employeeId = (int) ($employee['id'] ?? 0);
+    $officeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['office_ids'] ?? []));
+    if (!$officeIds && !empty($employee['office_id'])) {
+        $officeIds = [(int) $employee['office_id']];
+    }
+
+    return array_values(array_unique(array_filter($officeIds, static fn(int $officeId): bool => $officeId > 0)));
+}
+
+function transfer_employee_unit_head_office_ids(array $employee, array $employeeOfficeMap): array
+{
+    $employeeId = (int) ($employee['id'] ?? 0);
+    $officeIds = array_map('intval', (array) ($employeeOfficeMap[$employeeId]['unit_head_office_ids'] ?? []));
+    if (!$officeIds && !empty($employee['office_id']) && (int) ($employee['is_unit_head'] ?? 0) === 1) {
+        $officeIds = [(int) $employee['office_id']];
+    }
+
+    return array_values(array_unique(array_filter($officeIds, static fn(int $officeId): bool => $officeId > 0)));
+}
+
+function transfer_ensure_employee_office_assignment(mysqli $db, int $employeeId, int $officeId, int $responsibilityCodeId, int $userId): void
+{
+    if ($employeeId <= 0 || $officeId <= 0) {
+        return;
+    }
+
+    $employeeStmt = $db->prepare("SELECT position_title FROM employees WHERE id = ? AND is_active = 1 LIMIT 1");
+    if (!$employeeStmt) {
+        throw new RuntimeException('Unable to validate accountable employee.');
+    }
+    $employeeStmt->bind_param('i', $employeeId);
+    $employeeStmt->execute();
+    $employee = $employeeStmt->get_result()->fetch_assoc();
+    $employeeStmt->close();
+    if (!$employee) {
+        throw new RuntimeException('Selected accountable employee is invalid.');
+    }
+
+    if (!employee_assignments_enabled($db)) {
+        $stmt = $db->prepare("UPDATE employees SET office_id = ?, responsibility_code_id = NULLIF(?, 0), updated_at = NOW() WHERE id = ? AND is_active = 1");
+        if (!$stmt) {
+            throw new RuntimeException('Unable to prepare employee office update.');
+        }
+        $stmt->bind_param('iii', $officeId, $responsibilityCodeId, $employeeId);
+        if (!$stmt->execute()) {
+            $err = $stmt->error;
+            $stmt->close();
+            throw new RuntimeException('Unable to update employee office: ' . $err);
+        }
+        $stmt->close();
+        return;
+    }
+
+    $activeAssignmentCount = 0;
+    $countStmt = $db->prepare("SELECT COUNT(*) AS total FROM employee_assignments WHERE employee_id = ? AND is_active = 1");
+    if ($countStmt) {
+        $countStmt->bind_param('i', $employeeId);
+        $countStmt->execute();
+        $countRow = $countStmt->get_result()->fetch_assoc() ?: [];
+        $countStmt->close();
+        $activeAssignmentCount = (int) ($countRow['total'] ?? 0);
+    }
+    $makePrimary = $activeAssignmentCount === 0 ? 1 : 0;
+    $roleTitle = trim((string) ($employee['position_title'] ?? ''));
+    if ($roleTitle === '') {
+        $roleTitle = 'Accountable Officer';
+    }
+
+    $existingStmt = $db->prepare("SELECT id FROM employee_assignments WHERE employee_id = ? AND office_id = ? ORDER BY is_active DESC, id ASC LIMIT 1");
+    if (!$existingStmt) {
+        throw new RuntimeException('Unable to check employee office assignment.');
+    }
+    $existingStmt->bind_param('ii', $employeeId, $officeId);
+    $existingStmt->execute();
+    $existing = $existingStmt->get_result()->fetch_assoc();
+    $existingStmt->close();
+
+    if ($existing) {
+        $assignmentId = (int) ($existing['id'] ?? 0);
+        if ($responsibilityCodeId > 0) {
+            $stmt = $db->prepare("UPDATE employee_assignments SET is_active = 1, end_date = NULL, responsibility_code_id = ?, role_title = CASE WHEN TRIM(role_title) = '' THEN ? ELSE role_title END, is_primary = GREATEST(is_primary, ?), updated_by = ?, updated_at = NOW(), start_date = COALESCE(start_date, CURDATE()) WHERE id = ? AND employee_id = ?");
+            if (!$stmt) {
+                throw new RuntimeException('Unable to prepare employee assignment update.');
+            }
+            $stmt->bind_param('isiiii', $responsibilityCodeId, $roleTitle, $makePrimary, $userId, $assignmentId, $employeeId);
+        } else {
+            $stmt = $db->prepare("UPDATE employee_assignments SET is_active = 1, end_date = NULL, role_title = CASE WHEN TRIM(role_title) = '' THEN ? ELSE role_title END, is_primary = GREATEST(is_primary, ?), updated_by = ?, updated_at = NOW(), start_date = COALESCE(start_date, CURDATE()) WHERE id = ? AND employee_id = ?");
+            if (!$stmt) {
+                throw new RuntimeException('Unable to prepare employee assignment update.');
+            }
+            $stmt->bind_param('siiii', $roleTitle, $makePrimary, $userId, $assignmentId, $employeeId);
+        }
+    } else {
+        $stmt = $db->prepare("INSERT INTO employee_assignments (employee_id, office_id, responsibility_code_id, role_title, is_unit_head, is_oic, is_primary, is_active, start_date, created_by, updated_by) VALUES (?, ?, NULLIF(?, 0), ?, 0, 0, ?, 1, CURDATE(), ?, ?)");
+        if (!$stmt) {
+            throw new RuntimeException('Unable to prepare employee assignment insert.');
+        }
+        $stmt->bind_param('iiisiii', $employeeId, $officeId, $responsibilityCodeId, $roleTitle, $makePrimary, $userId, $userId);
+    }
+
+    if (!$stmt->execute()) {
+        $err = $stmt->error;
+        $stmt->close();
+        throw new RuntimeException('Unable to save employee office assignment: ' . $err);
+    }
+    $stmt->close();
+
+    if ($makePrimary === 1) {
+        employee_sync_legacy_assignment_fields($db, $employeeId);
+    }
+}
+
 function transfer_post_asset(
     mysqli $db,
     array $asset,
@@ -139,6 +266,8 @@ function transfer_post_asset(
         throw new RuntimeException('Unable to update asset accountability: ' . $err);
     }
     $stmt->close();
+
+    transfer_ensure_employee_office_assignment($db, $toEmployeeId, $toOfficeId, $toRcId, $userId);
 
     write_audit_log($db, [
         'action' => 'insert',
@@ -246,6 +375,30 @@ if (!$db) {
     if ($res) $offices = $res->fetch_all(MYSQLI_ASSOC);
     $res = $db->query("SELECT id, office_id, employee_no, first_name, middle_name, last_name, suffix_name, position_title, is_unit_head FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
     if ($res) $employees = $res->fetch_all(MYSQLI_ASSOC);
+    if (employee_assignments_enabled($db)) {
+        $assignmentResult = $db->query("SELECT employee_id, office_id, is_primary, is_unit_head FROM employee_assignments WHERE is_active = 1 ORDER BY employee_id ASC, is_primary DESC, id ASC");
+        if ($assignmentResult) {
+            foreach ($assignmentResult->fetch_all(MYSQLI_ASSOC) as $assignmentRow) {
+                $employeeId = (int) ($assignmentRow['employee_id'] ?? 0);
+                $officeId = (int) ($assignmentRow['office_id'] ?? 0);
+                if ($employeeId <= 0 || $officeId <= 0) {
+                    continue;
+                }
+                if (!isset($employeeOfficeMap[$employeeId])) {
+                    $employeeOfficeMap[$employeeId] = [
+                        'office_ids' => [],
+                        'unit_head_office_ids' => [],
+                    ];
+                }
+                if (!in_array($officeId, $employeeOfficeMap[$employeeId]['office_ids'], true)) {
+                    $employeeOfficeMap[$employeeId]['office_ids'][] = $officeId;
+                }
+                if ((int) ($assignmentRow['is_unit_head'] ?? 0) === 1 && !in_array($officeId, $employeeOfficeMap[$employeeId]['unit_head_office_ids'], true)) {
+                    $employeeOfficeMap[$employeeId]['unit_head_office_ids'][] = $officeId;
+                }
+            }
+        }
+    }
     $res = $db->query("SELECT id, office_id, code, description FROM responsibility_codes WHERE is_active = 1 ORDER BY code ASC");
     if ($res) $responsibilityCodes = $res->fetch_all(MYSQLI_ASSOC);
 
@@ -361,9 +514,9 @@ if (!$db) {
             }
 
             if ($toEmployeeId > 0) {
-                $ok = false;
-                foreach ($employees as $employee) if ((int) $employee['id'] === $toEmployeeId) $ok = (int) ($employee['office_id'] ?? 0) === $toOfficeId;
-                if (!$ok) $errors[] = 'Selected accountable employee does not belong to the chosen office.';
+                if (!transfer_employee_is_active($employees, $toEmployeeId)) {
+                    $errors[] = 'Selected accountable employee is invalid.';
+                }
             }
             if ($toRcId > 0) {
                 $ok = false;
@@ -416,9 +569,9 @@ if (!$db) {
             }
 
             if ($toEmployeeId > 0) {
-                $ok = false;
-                foreach ($employees as $employee) if ((int) $employee['id'] === $toEmployeeId) $ok = (int) ($employee['office_id'] ?? 0) === $toOfficeId;
-                if (!$ok) $errors[] = 'Selected new accountable employee does not belong to the chosen receiving office.';
+                if (!transfer_employee_is_active($employees, $toEmployeeId)) {
+                    $errors[] = 'Selected new accountable employee is invalid.';
+                }
             }
             if ($toRcId > 0) {
                 $ok = false;
@@ -426,11 +579,8 @@ if (!$db) {
                 if (!$ok) $errors[] = 'Selected new responsibility code does not belong to the chosen receiving office.';
             }
 
-            $bulkCandidates = array_values(array_filter($assets, static function (array $asset) use ($sourceOfficeId, $sourceEmployeeId): bool {
+            $bulkCandidates = array_values(array_filter($assets, static function (array $asset) use ($sourceOfficeId): bool {
                 if ((int) ($asset['current_office_id'] ?? 0) !== $sourceOfficeId) {
-                    return false;
-                }
-                if ($sourceEmployeeId > 0 && (int) ($asset['current_employee_id'] ?? 0) !== $sourceEmployeeId) {
                     return false;
                 }
                 return true;
@@ -519,9 +669,9 @@ if (!$db) {
             $toRcId = (int) ($searchForm['to_responsibility_code_id'] ?: 0);
 
             if ($toEmployeeId > 0) {
-                $ok = false;
-                foreach ($employees as $employee) if ((int) $employee['id'] === $toEmployeeId) $ok = (int) ($employee['office_id'] ?? 0) === $toOfficeId;
-                if (!$ok) $errors[] = 'Selected new accountable employee does not belong to the chosen receiving office.';
+                if (!transfer_employee_is_active($employees, $toEmployeeId)) {
+                    $errors[] = 'Selected new accountable employee is invalid.';
+                }
             }
             if ($toRcId > 0) {
                 $ok = false;
@@ -716,11 +866,8 @@ $bulkForm['source_office_id'] = $bulkSourceOfficeId > 0 ? (string) $bulkSourceOf
 $bulkForm['source_employee_id'] = $bulkSourceEmployeeId > 0 ? (string) $bulkSourceEmployeeId : $bulkForm['source_employee_id'];
 
 if ($bulkSourceOfficeId > 0) {
-    $bulkPreviewAssets = array_values(array_filter($assets, static function (array $asset) use ($bulkSourceOfficeId, $bulkSourceEmployeeId): bool {
+    $bulkPreviewAssets = array_values(array_filter($assets, static function (array $asset) use ($bulkSourceOfficeId): bool {
         if ((int) ($asset['current_office_id'] ?? 0) !== $bulkSourceOfficeId) {
-            return false;
-        }
-        if ($bulkSourceEmployeeId > 0 && (int) ($asset['current_employee_id'] ?? 0) !== $bulkSourceEmployeeId) {
             return false;
         }
         return true;
@@ -779,15 +926,111 @@ require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 <style>
+.transfer-shell {
+    display: grid;
+    gap: 1rem;
+}
+
+.transfer-hero {
+    align-items: center;
+    background: linear-gradient(135deg, rgba(13, 110, 253, .08), rgba(25, 135, 84, .08));
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    padding: 1rem;
+}
+
+.transfer-mode-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.transfer-mode-card {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    color: var(--bs-body-color);
+    display: flex;
+    gap: 0.75rem;
+    min-height: 5.25rem;
+    padding: 0.9rem;
+    text-decoration: none;
+    transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.transfer-mode-card:hover,
+.transfer-mode-card.active {
+    border-color: rgba(13, 110, 253, .55);
+    box-shadow: 0 0.35rem 1rem rgba(13, 110, 253, .08);
+    color: var(--bs-body-color);
+    transform: translateY(-1px);
+}
+
+.transfer-mode-card.active {
+    background: rgba(13, 110, 253, .06);
+}
+
+.transfer-mode-icon {
+    align-items: center;
+    background: var(--bs-primary-bg-subtle);
+    border-radius: 0.5rem;
+    color: var(--bs-primary);
+    display: inline-flex;
+    flex: 0 0 2.4rem;
+    height: 2.4rem;
+    justify-content: center;
+    width: 2.4rem;
+}
+
+.transfer-mode-title {
+    display: block;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.transfer-mode-copy {
+    color: var(--bs-secondary-color);
+    display: block;
+    font-size: 0.78rem;
+    line-height: 1.3;
+    margin-top: 0.25rem;
+}
+
+.transfer-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.transfer-step {
+    align-items: center;
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 999px;
+    color: var(--bs-secondary-color);
+    display: inline-flex;
+    font-size: 0.8rem;
+    font-weight: 600;
+    gap: 0.35rem;
+    padding: 0.35rem 0.7rem;
+}
+
+.transfer-step.active {
+    background: var(--bs-primary-bg-subtle);
+    border-color: rgba(13, 110, 253, .35);
+    color: var(--bs-primary);
+}
+
 .transfer-filter-card,
 .transfer-summary-card,
 .transfer-panel {
     border: 1px solid var(--bs-border-color);
-    border-radius: 1rem;
+    border-radius: 0.5rem;
 }
 
 .transfer-filter-card {
-    background: var(--bs-secondary-bg);
+    background: #fff;
     padding: 1rem;
 }
 
@@ -798,7 +1041,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 }
 
 .transfer-summary-card {
-    background: rgba(255,255,255,.7);
+    background: #fff;
     padding: 1rem;
 }
 
@@ -809,15 +1052,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
 }
 
 .transfer-panel-title {
+    align-items: center;
+    display: flex;
     font-size: 0.95rem;
     font-weight: 700;
+    gap: 0.45rem;
     margin-bottom: 0.85rem;
 }
 
 .transfer-current-copy {
     background: var(--bs-secondary-bg);
     border: 1px dashed var(--bs-border-color);
-    border-radius: 0.85rem;
+    border-radius: 0.5rem;
     padding: 0.9rem;
 }
 
@@ -841,6 +1087,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
 }
 
 @media (max-width: 991.98px) {
+    .transfer-hero {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .transfer-mode-grid,
     .transfer-summary-grid {
         grid-template-columns: 1fr;
     }
@@ -850,23 +1102,60 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                    <div>
-                        <h5 class="card-title mb-0">Transfer of Accountability</h5>
-                        <div class="small text-muted">Use direct transfer for one asset or office turnover for bulk accountability changes.</div>
+                <div class="transfer-shell mb-4">
+                    <div class="transfer-hero">
+                        <div>
+                            <h5 class="card-title mb-1">Transfer of Accountability</h5>
+                            <div class="small text-muted">Move assets to a new office, accountable employee, and responsibility code.</div>
+                        </div>
+                        <span class="badge text-bg-light">
+                            <?php if ($transferMode === 'bulk'): ?>
+                                <?php echo count($bulkPreviewAssets); ?> matched asset(s)
+                            <?php elseif ($transferMode === 'search'): ?>
+                                <?php echo count($searchPreviewAssets); ?> matched asset(s)
+                            <?php else: ?>
+                                <span id="filteredAssetCount"><?php echo count($assets); ?></span> asset(s)
+                            <?php endif; ?>
+                        </span>
                     </div>
-                    <span class="badge text-bg-light">
-                        <?php if ($transferMode === 'bulk'): ?>
-                            <?php echo count($bulkPreviewAssets); ?> matched asset(s)
+                    <div class="transfer-mode-grid">
+                        <a class="transfer-mode-card <?php echo $transferMode === 'direct' ? 'active' : ''; ?>" href="<?php echo base_url('modules/transfers/index.php?mode=direct'); ?>">
+                            <span class="transfer-mode-icon"><i class="bi bi-arrow-left-right"></i></span>
+                            <span>
+                                <span class="transfer-mode-title">One Asset</span>
+                                <span class="transfer-mode-copy">Post one equipment or semi-expendable item.</span>
+                            </span>
+                        </a>
+                        <a class="transfer-mode-card <?php echo $transferMode === 'search' ? 'active' : ''; ?>" href="<?php echo base_url('modules/transfers/index.php?mode=search'); ?>">
+                            <span class="transfer-mode-icon"><i class="bi bi-search"></i></span>
+                            <span>
+                                <span class="transfer-mode-title">Select Assets</span>
+                                <span class="transfer-mode-copy">Search and transfer selected matching records.</span>
+                            </span>
+                        </a>
+                        <a class="transfer-mode-card <?php echo $transferMode === 'bulk' ? 'active' : ''; ?>" href="<?php echo base_url('modules/transfers/index.php?mode=bulk'); ?>">
+                            <span class="transfer-mode-icon"><i class="bi bi-building-check"></i></span>
+                            <span>
+                                <span class="transfer-mode-title">Office Turnover</span>
+                                <span class="transfer-mode-copy">Move office assets to a new accountable person.</span>
+                            </span>
+                        </a>
+                    </div>
+                    <div class="transfer-steps">
+                        <?php if ($transferMode === 'direct'): ?>
+                            <span class="transfer-step active"><i class="bi bi-1-circle"></i> Pick Asset</span>
+                            <span class="transfer-step active"><i class="bi bi-2-circle"></i> Set New Accountability</span>
+                            <span class="transfer-step"><i class="bi bi-3-circle"></i> Post</span>
+                        <?php elseif ($transferMode === 'bulk'): ?>
+                            <span class="transfer-step active"><i class="bi bi-1-circle"></i> Choose Office</span>
+                            <span class="transfer-step active"><i class="bi bi-2-circle"></i> Review Assets</span>
+                            <span class="transfer-step"><i class="bi bi-3-circle"></i> Post Turnover</span>
                         <?php else: ?>
-                            <span id="filteredAssetCount"><?php echo count($assets); ?></span> asset(s)
+                            <span class="transfer-step active"><i class="bi bi-1-circle"></i> Search</span>
+                            <span class="transfer-step active"><i class="bi bi-2-circle"></i> Select Assets</span>
+                            <span class="transfer-step"><i class="bi bi-3-circle"></i> Post Transfer</span>
                         <?php endif; ?>
-                    </span>
-                </div>
-                <div class="nav nav-pills gap-2 mb-4">
-                    <a class="btn <?php echo $transferMode === 'direct' ? 'btn-primary' : 'btn-outline-primary'; ?>" href="<?php echo base_url('modules/transfers/index.php?mode=direct'); ?>">Direct Transfer</a>
-                    <a class="btn <?php echo $transferMode === 'search' ? 'btn-primary' : 'btn-outline-primary'; ?>" href="<?php echo base_url('modules/transfers/index.php?mode=search'); ?>">Search Assets</a>
-                    <a class="btn <?php echo $transferMode === 'bulk' ? 'btn-primary' : 'btn-outline-primary'; ?>" href="<?php echo base_url('modules/transfers/index.php?mode=bulk'); ?>">Office Turnover</a>
+                    </div>
                 </div>
 
                 <?php if ($flash): ?><div class="alert alert-success"><?php echo h($flash['message']); ?></div><?php endif; ?>
@@ -877,7 +1166,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="row g-3 align-items-end">
                         <div class="col-lg-5">
                             <label class="form-label mb-0">Search Asset</label>
-                            <select name="asset_key" id="asset_key" class="form-select" data-placeholder="Search property no., serial no., description, brand, model, office, employee..." required>
+                            <select name="asset_key" id="asset_key" class="form-select" data-placeholder="Search property no., serial no., description, brand, model, office, employee..." form="directTransferForm" required>
                                 <option value="">Search asset</option>
                                 <?php foreach ($assets as $asset): ?>
                                     <?php
@@ -940,7 +1229,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </select>
                         </div>
                         <div class="col-md-4 col-lg-2 d-grid">
-                            <button type="button" id="assetFilterClear" class="btn btn-outline-secondary">Clear Filters</button>
+                            <button type="button" id="assetFilterClear" class="btn btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Clear</button>
                         </div>
                         <div class="col-lg-2">
                             <div class="small text-muted">Use one searchable asset field only.</div>
@@ -962,7 +1251,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="fs-4 fw-semibold"><?php echo h(number_format(count(array_filter($assets, static fn($asset) => ($asset['source_type'] ?? '') === 'legacy')))); ?></div>
                     </div>
                 </div>
-                <form method="post">
+                <form method="post" id="directTransferForm">
                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                     <input type="hidden" name="action" value="direct_transfer">
                     <input type="hidden" name="mode" value="direct">
@@ -979,7 +1268,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="row g-3 mb-4">
                         <div class="col-lg-4">
                             <div class="transfer-panel">
-                                <div class="transfer-panel-title">Current Accountability</div>
+                                <div class="transfer-panel-title"><i class="bi bi-person-lines-fill text-primary"></i> Current Accountability</div>
                                 <div class="transfer-current-copy" id="currentAssignmentCard">
                                     <span class="label">Property / Asset</span>
                                     <div class="value" id="currentAssetName">Select an asset</div>
@@ -994,7 +1283,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="col-lg-8">
                             <div class="transfer-panel">
-                                <div class="transfer-panel-title">New Accountability</div>
+                                <div class="transfer-panel-title"><i class="bi bi-person-check text-success"></i> New Accountability</div>
                                 <div class="row g-3">
                                     <div class="col-md-4">
                                         <label class="form-label">New Office</label>
@@ -1008,7 +1297,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <select name="to_employee_id" id="to_employee_id" class="form-select" data-placeholder="Select employee">
                                             <option value="">Select employee</option>
                                             <?php foreach ($employees as $employee): ?>
-                                                <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>" <?php echo $form['to_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
+                                                <?php
+                                                $employeeOfficeIds = transfer_employee_office_ids($employee, $employeeOfficeMap);
+                                                $employeeUnitHeadOfficeIds = transfer_employee_unit_head_office_ids($employee, $employeeOfficeMap);
+                                                ?>
+                                                <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-office-ids="<?php echo h(implode(',', $employeeOfficeIds)); ?>" data-unit-head-office-ids="<?php echo h(implode(',', $employeeUnitHeadOfficeIds)); ?>" data-is-unit-head="<?php echo (!empty($employeeUnitHeadOfficeIds) || (int) ($employee['is_unit_head'] ?? 0) === 1) ? '1' : '0'; ?>" <?php echo $form['to_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
                                                     <?php echo h(transfer_name($employee) . ' - ' . ($employee['employee_no'] ?? '') . (!empty($employee['position_title']) ? ' (' . $employee['position_title'] . ')' : '')); ?>
                                                 </option>
                                             <?php endforeach; ?>
@@ -1034,7 +1327,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
                     <div class="d-flex justify-content-end transfer-form-actions">
-                        <button type="submit" class="btn btn-primary">Post Transfer</button>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check2-circle me-1"></i>Post Transfer</button>
                     </div>
                 </form>
                 <?php elseif ($transferMode === 'bulk'): ?>
@@ -1051,11 +1344,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </select>
                         </div>
                         <div class="col-lg-3 col-md-6">
-                            <label class="form-label mb-0">Current Accountable Employee</label>
+                            <label class="form-label mb-0">Outgoing Office Head</label>
                             <select name="source_employee_id" class="form-select" data-placeholder="All employees">
-                                <option value="">All employees in office</option>
+                                <option value="">Not specified</option>
                                 <?php foreach ($employees as $employee): ?>
-                                    <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" <?php echo $bulkForm['source_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
+                                    <?php $employeeOfficeIds = transfer_employee_office_ids($employee, $employeeOfficeMap); ?>
+                                    <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-office-ids="<?php echo h(implode(',', $employeeOfficeIds)); ?>" <?php echo $bulkForm['source_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
                                         <?php echo h(transfer_name($employee) . ' - ' . ($employee['employee_no'] ?? '')); ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -1063,11 +1357,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="col-lg-4 col-md-6">
                             <div class="small text-muted border rounded-3 px-3 py-2 bg-white">
-                                Office turnover previews all accountable assets in the selected office, including both equipment and semi-expendable items.
+                                Office turnover includes all equipment and semi-expendable assets currently assigned to the office. The outgoing head is saved for document context only.
                             </div>
                         </div>
                         <div class="col-lg-2 col-md-6 d-grid">
-                            <button type="submit" class="btn btn-outline-primary">Load Preview</button>
+                            <button type="submit" class="btn btn-outline-primary"><i class="bi bi-list-check me-1"></i>Load Preview</button>
                         </div>
                     </div>
                 </form>
@@ -1090,7 +1384,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <div class="row g-3">
                     <div class="col-xl-5">
                             <div class="transfer-panel">
-                                <div class="transfer-panel-title">New Accountability for Selected Office Assets</div>
+                                <div class="transfer-panel-title"><i class="bi bi-person-check text-success"></i> New Accountability</div>
                             <form method="post" id="bulkTransferForm">
                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                 <input type="hidden" name="action" value="bulk_transfer">
@@ -1114,7 +1408,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <select name="to_employee_id" id="bulk_to_employee_id" class="form-select" data-placeholder="Select employee">
                                             <option value="">Select employee</option>
                                             <?php foreach ($employees as $employee): ?>
-                                                <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>" <?php echo $bulkForm['to_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
+                                                <?php
+                                                $employeeOfficeIds = transfer_employee_office_ids($employee, $employeeOfficeMap);
+                                                $employeeUnitHeadOfficeIds = transfer_employee_unit_head_office_ids($employee, $employeeOfficeMap);
+                                                ?>
+                                                <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-office-ids="<?php echo h(implode(',', $employeeOfficeIds)); ?>" data-unit-head-office-ids="<?php echo h(implode(',', $employeeUnitHeadOfficeIds)); ?>" data-is-unit-head="<?php echo (!empty($employeeUnitHeadOfficeIds) || (int) ($employee['is_unit_head'] ?? 0) === 1) ? '1' : '0'; ?>" <?php echo $bulkForm['to_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
                                                     <?php echo h(transfer_name($employee) . ' - ' . ($employee['employee_no'] ?? '') . (!empty($employee['position_title']) ? ' (' . $employee['position_title'] . ')' : '')); ?>
                                                 </option>
                                             <?php endforeach; ?>
@@ -1141,7 +1439,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </div>
                                 </div>
                                 <div class="d-flex justify-content-end transfer-form-actions">
-                                    <button type="submit" class="btn btn-primary" <?php echo $bulkPreviewAssets ? '' : 'disabled'; ?>>Post Bulk Transfer</button>
+                                    <button type="submit" class="btn btn-primary" <?php echo $bulkPreviewAssets ? '' : 'disabled'; ?>><i class="bi bi-check2-circle me-1"></i>Post Turnover</button>
                                 </div>
                             </form>
                         </div>
@@ -1149,7 +1447,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-xl-7">
                         <div class="transfer-panel">
                             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-                                <div class="transfer-panel-title mb-0">Bulk Transfer Preview</div>
+                                <div class="transfer-panel-title mb-0"><i class="bi bi-list-check text-primary"></i> Assets to Transfer</div>
                                 <div class="d-flex align-items-center gap-2 flex-wrap">
                                     <div class="form-check mb-0">
                                         <input class="form-check-input" type="checkbox" id="bulkSelectAll" <?php echo $bulkPreviewAssets ? 'checked' : ''; ?>>
@@ -1158,7 +1456,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <span class="badge text-bg-light"><span id="bulkSelectedCount"><?php echo count($bulkPreviewAssets); ?></span> selected</span>
                                 </div>
                             </div>
-                            <div class="small text-muted mb-3">This preview includes all equipment and semi-expendable assets currently accountable to the selected office and optional current accountable employee filter. Uncheck any asset you do not want to transfer.</div>
+                            <div class="small text-muted mb-3">This preview includes all equipment and semi-expendable assets currently accountable to the selected office, including legacy and system PAR/ICS records. Uncheck any asset you do not want to transfer.</div>
                             <div class="table-responsive mobile-table-frame">
                                 <table class="table table-sm align-middle">
                                     <thead>
@@ -1171,7 +1469,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php if ($bulkPreviewAssets): foreach (array_slice($bulkPreviewAssets, 0, 100) as $asset): ?>
+                                        <?php if ($bulkPreviewAssets): foreach ($bulkPreviewAssets as $asset): ?>
                                             <tr>
                                                 <td>
                                                     <input
@@ -1200,9 +1498,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </tbody>
                                 </table>
                             </div>
-                            <?php if (count($bulkPreviewAssets) > 100): ?>
-                                <div class="small text-muted mt-2">Showing first 100 of <?php echo count($bulkPreviewAssets); ?> asset(s) in the preview. Posting still applies to the full filtered set.</div>
-                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -1245,14 +1540,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <select name="search_current_employee_id" id="search_current_employee_id" class="form-select" data-placeholder="All employees">
                                 <option value="">All employees</option>
                                 <?php foreach ($employees as $employee): ?>
-                                    <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" <?php echo $searchForm['current_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
+                                    <?php $employeeOfficeIds = transfer_employee_office_ids($employee, $employeeOfficeMap); ?>
+                                    <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-office-ids="<?php echo h(implode(',', $employeeOfficeIds)); ?>" <?php echo $searchForm['current_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
                                         <?php echo h(transfer_name($employee) . ' - ' . ($employee['employee_no'] ?? '')); ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="col-lg-2 col-md-6 d-grid">
-                            <button type="submit" class="btn btn-outline-primary">Load Results</button>
+                            <button type="submit" class="btn btn-outline-primary"><i class="bi bi-search me-1"></i>Load Results</button>
                         </div>
                     </div>
                 </form>
@@ -1275,7 +1571,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <div class="row g-3">
                     <div class="col-xl-5">
                         <div class="transfer-panel">
-                            <div class="transfer-panel-title">New Accountability for Selected Search Results</div>
+                            <div class="transfer-panel-title"><i class="bi bi-person-check text-success"></i> New Accountability</div>
                             <form method="post" id="searchTransferForm">
                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                 <input type="hidden" name="action" value="search_transfer">
@@ -1302,7 +1598,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <select name="to_employee_id" id="search_to_employee_id" class="form-select" data-placeholder="Select employee">
                                             <option value="">Select employee</option>
                                             <?php foreach ($employees as $employee): ?>
-                                                <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>" <?php echo $searchForm['to_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
+                                                <?php
+                                                $employeeOfficeIds = transfer_employee_office_ids($employee, $employeeOfficeMap);
+                                                $employeeUnitHeadOfficeIds = transfer_employee_unit_head_office_ids($employee, $employeeOfficeMap);
+                                                ?>
+                                                <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-office-ids="<?php echo h(implode(',', $employeeOfficeIds)); ?>" data-unit-head-office-ids="<?php echo h(implode(',', $employeeUnitHeadOfficeIds)); ?>" data-is-unit-head="<?php echo (!empty($employeeUnitHeadOfficeIds) || (int) ($employee['is_unit_head'] ?? 0) === 1) ? '1' : '0'; ?>" <?php echo $searchForm['to_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
                                                     <?php echo h(transfer_name($employee) . ' - ' . ($employee['employee_no'] ?? '') . (!empty($employee['position_title']) ? ' (' . $employee['position_title'] . ')' : '')); ?>
                                                 </option>
                                             <?php endforeach; ?>
@@ -1329,7 +1629,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </div>
                                 </div>
                                 <div class="d-flex justify-content-end transfer-form-actions">
-                                    <button type="submit" class="btn btn-primary" <?php echo $searchPreviewAssets ? '' : 'disabled'; ?>>Post Search Transfer</button>
+                                    <button type="submit" class="btn btn-primary" <?php echo $searchPreviewAssets ? '' : 'disabled'; ?>><i class="bi bi-check2-circle me-1"></i>Post Transfer</button>
                                 </div>
                             </form>
                         </div>
@@ -1337,7 +1637,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-xl-7">
                         <div class="transfer-panel">
                             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-                                <div class="transfer-panel-title mb-0">Search Results Preview</div>
+                                <div class="transfer-panel-title mb-0"><i class="bi bi-list-check text-primary"></i> Assets to Transfer</div>
                                 <div class="d-flex align-items-center gap-2 flex-wrap">
                                     <div class="form-check mb-0">
                                         <input class="form-check-input" type="checkbox" id="searchSelectAll" <?php echo $searchPreviewAssets ? 'checked' : ''; ?>>
@@ -1359,7 +1659,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php if ($searchPreviewAssets): foreach (array_slice($searchPreviewAssets, 0, 150) as $asset): ?>
+                                        <?php if ($searchPreviewAssets): foreach ($searchPreviewAssets as $asset): ?>
                                             <tr>
                                                 <td>
                                                     <input
@@ -1388,9 +1688,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </tbody>
                                 </table>
                             </div>
-                            <?php if (count($searchPreviewAssets) > 150): ?>
-                                <div class="small text-muted mt-2">Showing first 150 of <?php echo count($searchPreviewAssets); ?> matched asset(s). Posting still applies only to the selected checked rows in the current result set.</div>
-                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -1594,6 +1891,20 @@ document.addEventListener('DOMContentLoaded', function () {
     var searchSelectAllTable = document.getElementById('searchSelectAllTable');
     var searchSelectedCount = document.getElementById('searchSelectedCount');
     function refreshSelect(select) { if (window.SPAMS && window.SPAMS.refreshSelect2) window.SPAMS.refreshSelect2(select); }
+    function optionOfficeIds(option) {
+        var ids = (option.getAttribute('data-office-ids') || '').split(',').map(function (value) {
+            return value.trim();
+        }).filter(Boolean);
+        if (!ids.length && option.getAttribute('data-office-id')) {
+            ids.push(option.getAttribute('data-office-id'));
+        }
+        return ids;
+    }
+    function optionUnitHeadOfficeIds(option) {
+        return (option.getAttribute('data-unit-head-office-ids') || '').split(',').map(function (value) {
+            return value.trim();
+        }).filter(Boolean);
+    }
     function applyAssetFilter() {
         if (!assetSelect) return;
         var source = assetFilterSource?.value || '';
@@ -1656,20 +1967,20 @@ document.addEventListener('DOMContentLoaded', function () {
     function findUnitHead(select, officeId) {
         if (!select) return null;
         return Array.prototype.find.call(select.options, function (option) {
-            return option.value && option.getAttribute('data-office-id') === officeId && option.getAttribute('data-is-unit-head') === '1';
+            return option.value && optionUnitHeadOfficeIds(option).indexOf(officeId) !== -1;
         }) || null;
     }
-    function filterEmployeeOptions(select, officeId, autoSelect) {
+    function filterEmployeeOptions(select, officeId, autoSelect, allowCrossOffice) {
         if (!select) return;
         var stillValid = false;
         Array.prototype.forEach.call(select.options, function (option) {
             if (!option.value) { option.hidden = false; return; }
-            var matches = !officeId || option.getAttribute('data-office-id') === officeId;
+            var matches = allowCrossOffice || !officeId || optionOfficeIds(option).indexOf(officeId) !== -1;
             option.hidden = !matches;
             if (matches && option.value === select.value) stillValid = true;
         });
         if (!stillValid) select.value = '';
-        if (autoSelect && officeId) {
+        if (autoSelect && officeId && !select.value) {
             var unitHead = findUnitHead(select, officeId);
             if (unitHead) select.value = unitHead.value;
         }
@@ -1691,31 +2002,31 @@ document.addEventListener('DOMContentLoaded', function () {
         refreshSelect(select);
     }
     if (officeSelect) {
-        officeSelect.addEventListener('change', function () { filterEmployeeOptions(employeeSelect, officeSelect.value, true); filterRcOptions(rcSelect, officeSelect.value, true); });
-        if (window.jQuery) window.jQuery(officeSelect).on('select2:select select2:clear', function () { filterEmployeeOptions(employeeSelect, officeSelect.value, true); filterRcOptions(rcSelect, officeSelect.value, true); });
-        filterEmployeeOptions(employeeSelect, officeSelect.value, true);
+        officeSelect.addEventListener('change', function () { filterEmployeeOptions(employeeSelect, officeSelect.value, true, true); filterRcOptions(rcSelect, officeSelect.value, true); });
+        if (window.jQuery) window.jQuery(officeSelect).on('select2:select select2:clear', function () { filterEmployeeOptions(employeeSelect, officeSelect.value, true, true); filterRcOptions(rcSelect, officeSelect.value, true); });
+        filterEmployeeOptions(employeeSelect, officeSelect.value, true, true);
         filterRcOptions(rcSelect, officeSelect.value, true);
     }
     if (bulkSourceOfficeSelect && bulkSourceEmployeeSelect) {
-        bulkSourceOfficeSelect.addEventListener('change', function () { filterEmployeeOptions(bulkSourceEmployeeSelect, bulkSourceOfficeSelect.value, false); });
-        if (window.jQuery) window.jQuery(bulkSourceOfficeSelect).on('select2:select select2:clear', function () { filterEmployeeOptions(bulkSourceEmployeeSelect, bulkSourceOfficeSelect.value, false); });
-        filterEmployeeOptions(bulkSourceEmployeeSelect, bulkSourceOfficeSelect.value, false);
+        bulkSourceOfficeSelect.addEventListener('change', function () { filterEmployeeOptions(bulkSourceEmployeeSelect, bulkSourceOfficeSelect.value, false, false); });
+        if (window.jQuery) window.jQuery(bulkSourceOfficeSelect).on('select2:select select2:clear', function () { filterEmployeeOptions(bulkSourceEmployeeSelect, bulkSourceOfficeSelect.value, false, false); });
+        filterEmployeeOptions(bulkSourceEmployeeSelect, bulkSourceOfficeSelect.value, false, false);
     }
     if (bulkOfficeSelect) {
-        bulkOfficeSelect.addEventListener('change', function () { filterEmployeeOptions(bulkEmployeeSelect, bulkOfficeSelect.value, true); filterRcOptions(bulkRcSelect, bulkOfficeSelect.value, true); });
-        if (window.jQuery) window.jQuery(bulkOfficeSelect).on('select2:select select2:clear', function () { filterEmployeeOptions(bulkEmployeeSelect, bulkOfficeSelect.value, true); filterRcOptions(bulkRcSelect, bulkOfficeSelect.value, true); });
-        filterEmployeeOptions(bulkEmployeeSelect, bulkOfficeSelect.value, true);
+        bulkOfficeSelect.addEventListener('change', function () { filterEmployeeOptions(bulkEmployeeSelect, bulkOfficeSelect.value, true, true); filterRcOptions(bulkRcSelect, bulkOfficeSelect.value, true); });
+        if (window.jQuery) window.jQuery(bulkOfficeSelect).on('select2:select select2:clear', function () { filterEmployeeOptions(bulkEmployeeSelect, bulkOfficeSelect.value, true, true); filterRcOptions(bulkRcSelect, bulkOfficeSelect.value, true); });
+        filterEmployeeOptions(bulkEmployeeSelect, bulkOfficeSelect.value, true, true);
         filterRcOptions(bulkRcSelect, bulkOfficeSelect.value, true);
     }
     if (searchOfficeFilterSelect && searchEmployeeFilterSelect) {
-        searchOfficeFilterSelect.addEventListener('change', function () { filterEmployeeOptions(searchEmployeeFilterSelect, searchOfficeFilterSelect.value, false); });
-        if (window.jQuery) window.jQuery(searchOfficeFilterSelect).on('select2:select select2:clear', function () { filterEmployeeOptions(searchEmployeeFilterSelect, searchOfficeFilterSelect.value, false); });
-        filterEmployeeOptions(searchEmployeeFilterSelect, searchOfficeFilterSelect.value, false);
+        searchOfficeFilterSelect.addEventListener('change', function () { filterEmployeeOptions(searchEmployeeFilterSelect, searchOfficeFilterSelect.value, false, false); });
+        if (window.jQuery) window.jQuery(searchOfficeFilterSelect).on('select2:select select2:clear', function () { filterEmployeeOptions(searchEmployeeFilterSelect, searchOfficeFilterSelect.value, false, false); });
+        filterEmployeeOptions(searchEmployeeFilterSelect, searchOfficeFilterSelect.value, false, false);
     }
     if (searchOfficeSelect) {
-        searchOfficeSelect.addEventListener('change', function () { filterEmployeeOptions(searchEmployeeSelect, searchOfficeSelect.value, true); filterRcOptions(searchRcSelect, searchOfficeSelect.value, true); });
-        if (window.jQuery) window.jQuery(searchOfficeSelect).on('select2:select select2:clear', function () { filterEmployeeOptions(searchEmployeeSelect, searchOfficeSelect.value, true); filterRcOptions(searchRcSelect, searchOfficeSelect.value, true); });
-        filterEmployeeOptions(searchEmployeeSelect, searchOfficeSelect.value, true);
+        searchOfficeSelect.addEventListener('change', function () { filterEmployeeOptions(searchEmployeeSelect, searchOfficeSelect.value, true, true); filterRcOptions(searchRcSelect, searchOfficeSelect.value, true); });
+        if (window.jQuery) window.jQuery(searchOfficeSelect).on('select2:select select2:clear', function () { filterEmployeeOptions(searchEmployeeSelect, searchOfficeSelect.value, true, true); filterRcOptions(searchRcSelect, searchOfficeSelect.value, true); });
+        filterEmployeeOptions(searchEmployeeSelect, searchOfficeSelect.value, true, true);
         filterRcOptions(searchRcSelect, searchOfficeSelect.value, true);
     }
     if (assetFilterSource) assetFilterSource.addEventListener('change', applyAssetFilter);

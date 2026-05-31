@@ -2,12 +2,59 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_role('Administrator', 'Supply Officer', 'Property Officer', 'Property Custodian');
 
+// Global request debug: log minimal request info to help diagnose upload issues.
+try {
+    $reqLogPath = APP_ROOT . 'logs/upload_debug.log';
+    $summary = [
+        'time' => date('c'),
+        'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'uri' => $_SERVER['REQUEST_URI'] ?? '',
+        'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? '',
+        'content_length' => $_SERVER['CONTENT_LENGTH'] ?? null,
+        'post_keys' => array_keys($_POST),
+        'files_keys' => array_keys($_FILES),
+    ];
+    // Attempt to capture raw input for POSTs (note: may be binary for file uploads)
+    if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $raw = @file_get_contents('php://input');
+        if ($raw !== false && strlen($raw) > 0 && strlen($raw) < 2000) {
+            $summary['raw'] = substr($raw, 0, 2000);
+        }
+    }
+    @file_put_contents($reqLogPath, json_encode($summary) . PHP_EOL, FILE_APPEND | LOCK_EX);
+} catch (Throwable $_) {
+    // ignore
+}
+
 $ref = trim((string) ($_GET['ref'] ?? ''));
+// If no ref provided, show a small manual lookup form so users can enter a serial/property number.
 if ($ref === '') {
     ?><!doctype html>
-    <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Property Lookup</title></head><body>
-    <div style="padding:16px;font-family:Arial, sans-serif;">Property not found for blank reference.</div>
-    </body></html><?php
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Property Lookup</title>
+        <style>
+            body{font-family:Arial, sans-serif;padding:20px;background:#f8f9fa}
+            .card{background:#fff;border:1px solid #ddd;padding:16px;border-radius:6px;max-width:720px;margin:24px auto}
+            input[type=text]{width:100%;padding:8px;margin:8px 0;border:1px solid #ccc;border-radius:4px}
+            button{background:#007bff;color:#fff;padding:8px 12px;border:none;border-radius:4px}
+            .hint{color:#666;font-size:0.9em}
+        </style>
+    </head>
+    <body>
+    <div class="card">
+        <h2>Lookup Asset</h2>
+        <p class="hint">Enter a property number or serial number and press Lookup.</p>
+        <form method="get" action="">
+            <label for="ref">Property number or Serial</label>
+            <input id="ref" name="ref" type="text" placeholder="e.g. 2018-01-05.020-001 or G618M550098" autocomplete="off">
+            <div style="margin-top:8px"><button type="submit">Lookup</button></div>
+        </form>
+    </div>
+    </body>
+    </html><?php
     exit;
 }
 
@@ -731,6 +778,20 @@ if ($db) {
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
         } else {
+            // Debug: log incoming POST and FILES to help diagnose upload failures
+            try {
+                $logData = [
+                    'time' => date('c'),
+                    'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? '',
+                    'content_length' => $_SERVER['CONTENT_LENGTH'] ?? null,
+                    'post_keys' => array_keys($_POST),
+                    'files_keys' => array_keys($_FILES),
+                    'files_summary' => array_map(function($f){ return [ 'name'=>($f['name']??''), 'error'=>($f['error']??null), 'tmp_name'=>($f['tmp_name']??''), 'size'=>($f['size']??null) ]; }, $_FILES),
+                ];
+                @file_put_contents(APP_ROOT . 'logs/upload_debug.log', json_encode($logData) . PHP_EOL, FILE_APPEND | LOCK_EX);
+            } catch (Throwable $e) {
+                // Ignore logging errors
+            }
             $propertyNumber = trim((string) ($row['property_number'] ?? $row['system_reference'] ?? ''));
             $officeId = (int) ($row['office_id'] ?? 0);
             $matches = find_active_inventory_match($db, $propertyNumber, $officeId);
@@ -739,10 +800,12 @@ if ($db) {
                 $errors[] = 'This asset does not have exactly one open inventory session match, so it cannot be marked as found from this page.';
             } else {
                 $match = $matches[0];
-                $uploadedProofFile = ($_FILES['camera_photo']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
-                    ? ($_FILES['camera_photo'] ?? [])
-                    : ($_FILES['proof_photo'] ?? []);
-                $photoRoot = $db ? trim(get_system_setting($db, 'inventory_photo_root', 'inventory_counts')) : 'inventory_counts';
+                // Use single input `proof_photo` for uploads from mobile/webview.
+                $uploadedProofFile = ($_FILES['proof_photo']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
+                    ? ($_FILES['proof_photo'] ?? [])
+                    : [];
+                // Use a single uploads folder for asset photos. Default to 'assets'.
+                $photoRoot = $db ? trim(get_system_setting($db, 'inventory_photo_root', 'assets')) : 'assets';
                 $photoRoot = trim(str_replace(['..', '\\'], ['', '/'], $photoRoot), " /\t\n\r\0\x0B");
                 if ($photoRoot === '') {
                     $photoRoot = 'inventory_counts';
@@ -1227,14 +1290,9 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                     <input type="hidden" name="action" value="mark_found">
                                     <div>
-                                        <label for="camera_photo" class="form-label">Open Camera</label>
-                                        <input type="file" class="form-control" id="camera_photo" name="camera_photo" accept="image/*" capture="environment">
-                                        <div class="form-text">On mobile, this opens the rear camera when the browser supports direct capture.</div>
-                                    </div>
-                                    <div>
-                                        <label for="proof_photo" class="form-label">Upload Photo</label>
-                                        <input type="file" class="form-control" id="proof_photo" name="proof_photo" accept="image/jpeg,image/png,image/webp,image/gif">
-                                        <div class="form-text">Optional. JPG, PNG, GIF, or WEBP up to 5 MB.</div>
+                                        <label for="proof_photo" class="form-label">Photo (tap to open camera or choose file)</label>
+                                        <input type="file" class="form-control" id="proof_photo" name="proof_photo" accept="image/*" capture="environment">
+                                        <div class="form-text">Tap to open the camera on mobile or choose an existing image. JPG, PNG, GIF, or WEBP up to 5 MB.</div>
                                     </div>
                                     <button type="submit" class="btn btn-primary btn-lg"><?php echo ($inventoryMatch['status'] ?? '') === 'found' ? 'Save Proof Photo' : 'Mark as Found'; ?></button>
                                     <?php if ($inventoryUrl !== ''): ?>

@@ -22,6 +22,11 @@ function receiving_blank_detail(): array
     return ['brand_id' => '', 'model_id' => '', 'brand' => '', 'model' => '', 'serial_no' => '', 'remarks' => '', 'no_brand_model' => '0', 'no_serial_no' => '0', 'no_remarks' => '0'];
 }
 
+function receiving_can_cancel(): bool
+{
+    return user_has_any_role('Administrator');
+}
+
 function receiving_normalize_details($rows): array
 {
     $details = [];
@@ -118,6 +123,144 @@ if (!$db) {
     $semiHighValueMin = (float) ($activeThreshold['semi_hv_min'] ?? 5000);
     $form['system_reference'] = preview_module_code($db, 'receivings');
     $form['ris_no'] = preview_ris_number($db, $form['received_date']);
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'cancel_receiving') {
+        if (!receiving_can_cancel()) {
+            $errors[] = 'Only administrators can cancel receiving records.';
+        }
+        if (!csrf_verify()) {
+            $errors[] = 'Invalid CSRF token.';
+        }
+
+        $cancelReceivingId = (int) ($_POST['receiving_id'] ?? 0);
+        $cancelReason = trim((string) ($_POST['cancel_reason'] ?? ''));
+        if ($cancelReceivingId <= 0) {
+            $errors[] = 'Select a receiving record to cancel.';
+        }
+        if ($cancelReason === '') {
+            $errors[] = 'Cancellation reason is required.';
+        }
+
+        if (!$errors) {
+            $db->begin_transaction();
+            try {
+                $headerStmt = $db->prepare("SELECT id, purchase_order_id, system_reference, status FROM receivings WHERE id = ? FOR UPDATE");
+                if (!$headerStmt) {
+                    throw new RuntimeException('Unable to prepare receiving cancellation lookup.');
+                }
+                $headerStmt->bind_param('i', $cancelReceivingId);
+                $headerStmt->execute();
+                $receivingHeader = $headerStmt->get_result()->fetch_assoc() ?: null;
+                $headerStmt->close();
+
+                if (!$receivingHeader) {
+                    throw new RuntimeException('Receiving record not found.');
+                }
+                if (($receivingHeader['status'] ?? '') === 'cancelled') {
+                    throw new RuntimeException('This receiving record is already cancelled.');
+                }
+
+                $dependencyStmt = $db->prepare("
+                    SELECT
+                        COUNT(DISTINCT CASE WHEN rid.is_distributed = 1 THEN rid.id END) AS distributed_count,
+                        COALESCE(SUM(si.quantity_issued), 0) AS issued_qty,
+                        COUNT(DISTINCT ii.id) AS issuance_count,
+                        COUNT(DISTINCT CASE
+                            WHEN sm.reference_type <> 'receiving'
+                              OR sm.reference_type IS NULL
+                              OR sm.reference_id <> ?
+                            THEN sm.id
+                        END) AS other_movement_count
+                    FROM receiving_items ri
+                    LEFT JOIN receiving_item_details rid ON rid.receiving_item_id = ri.id
+                    LEFT JOIN stock_items si ON si.receiving_item_id = ri.id
+                    LEFT JOIN issuance_items ii ON ii.stock_item_id = si.id
+                    LEFT JOIN stock_movements sm ON sm.stock_item_id = si.id
+                    WHERE ri.receiving_id = ?
+                ");
+                if (!$dependencyStmt) {
+                    throw new RuntimeException('Unable to check receiving dependencies.');
+                }
+                $dependencyStmt->bind_param('ii', $cancelReceivingId, $cancelReceivingId);
+                $dependencyStmt->execute();
+                $dependency = $dependencyStmt->get_result()->fetch_assoc() ?: [];
+                $dependencyStmt->close();
+
+                if ((int) ($dependency['distributed_count'] ?? 0) > 0) {
+                    throw new RuntimeException('This receiving has items already distributed. Cancel the related distribution first.');
+                }
+                if ((float) ($dependency['issued_qty'] ?? 0) > 0.0001 || (int) ($dependency['issuance_count'] ?? 0) > 0) {
+                    throw new RuntimeException('This receiving has stock already issued. Cancel or correct the related issuance first.');
+                }
+                if ((int) ($dependency['other_movement_count'] ?? 0) > 0) {
+                    throw new RuntimeException('This receiving has stock adjustments or other stock movements. Reverse those movements before cancelling the receiving.');
+                }
+
+                $userId = current_user_id();
+                $note = 'Receiving cancelled: ' . $cancelReason;
+
+                $stockStmt = $db->prepare("UPDATE stock_items SET quantity_received = 0, quantity_issued = 0, quantity_on_hand = 0 WHERE receiving_id = ?");
+                if (!$stockStmt) {
+                    throw new RuntimeException('Unable to update stock records.');
+                }
+                $stockStmt->bind_param('i', $cancelReceivingId);
+                $stockStmt->execute();
+                $stockStmt->close();
+
+                $movementStmt = $db->prepare("DELETE FROM stock_movements WHERE reference_type = 'receiving' AND reference_id = ?");
+                if (!$movementStmt) {
+                    throw new RuntimeException('Unable to remove stock movement records.');
+                }
+                $movementStmt->bind_param('i', $cancelReceivingId);
+                $movementStmt->execute();
+                $movementStmt->close();
+
+                $recvStmt = $db->prepare("
+                    UPDATE receivings
+                    SET status = 'cancelled',
+                        total_received_amount = 0,
+                        remarks = TRIM(CONCAT(COALESCE(NULLIF(remarks, ''), ''), CASE WHEN COALESCE(NULLIF(remarks, ''), '') = '' THEN '' ELSE '\n' END, ?))
+                    WHERE id = ?
+                ");
+                if (!$recvStmt) {
+                    throw new RuntimeException('Unable to cancel receiving record.');
+                }
+                $recvStmt->bind_param('si', $note, $cancelReceivingId);
+                $recvStmt->execute();
+                $recvStmt->close();
+
+                $poId = (int) ($receivingHeader['purchase_order_id'] ?? 0);
+                if ($poId > 0) {
+                    $poStatus = recalculate_purchase_order_status($db, $poId);
+                    $poUpdateStmt = $db->prepare("UPDATE purchase_orders SET status = ? WHERE id = ?");
+                    if ($poUpdateStmt) {
+                        $poUpdateStmt->bind_param('si', $poStatus, $poId);
+                        $poUpdateStmt->execute();
+                        $poUpdateStmt->close();
+                    }
+                }
+
+                write_audit_log($db, [
+                    'action' => 'update',
+                    'table_name' => 'receivings',
+                    'record_id' => $cancelReceivingId,
+                    'module_name' => 'receivings',
+                    'record_type' => 'receiving',
+                    'action_name' => 'cancel_receiving',
+                    'old_values' => ['status' => $receivingHeader['status'] ?? null],
+                    'new_values' => ['status' => 'cancelled', 'reason' => $cancelReason],
+                    'description' => 'Cancelled receiving record. ' . $note,
+                ]);
+
+                $db->commit();
+                set_flash('success', 'Receiving cancelled and stock availability rolled back.');
+                redirect('modules/receivings/index.php');
+            } catch (Throwable $e) {
+                $db->rollback();
+                $errors[] = $e->getMessage() !== '' ? $e->getMessage() : 'Unable to cancel receiving.';
+            }
+        }
+    }
 
                 $poList = $db->prepare(" 
                         SELECT po.id, po.po_number, po.po_date, po.status,
@@ -1775,7 +1918,24 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo h($receiving['delivery_receipt_no'] ?? ''); ?></td>
                                     <td><?php echo receiving_status_badge($receiving['status']); ?></td>
                                     <td class="text-end"><?php echo h(number_format((float) $receiving['total_received_amount'], 2)); ?></td>
-                                    <td class="text-end"><?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print IAR</a><a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="btn btn-sm btn-outline-secondary me-1" target="_blank">Final IAR by PO</a><a href="<?php echo base_url('modules/receivings/correct_receiving.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-warning">Correct</a><?php else: ?><span class="text-muted small">No items received yet</span><?php endif; ?></td>
+                                    <td class="text-end">
+                                        <?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?>
+                                            <a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print IAR</a>
+                                            <a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="btn btn-sm btn-outline-secondary me-1" target="_blank">Final IAR by PO</a>
+                                            <a href="<?php echo base_url('modules/receivings/correct_receiving.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-warning me-1">Correct</a>
+                                            <?php if (receiving_can_cancel()): ?>
+                                                <form method="post" class="d-inline" onsubmit="return confirm('Cancel this receiving and roll back stock availability?');">
+                                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                    <input type="hidden" name="action" value="cancel_receiving">
+                                                    <input type="hidden" name="receiving_id" value="<?php echo (int) $receiving['id']; ?>">
+                                                    <input type="hidden" name="cancel_reason" value="Admin cancelled receiving from receiving list">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Cancel Receiving</button>
+                                                </form>
+                                            <?php endif; ?>
+                                        <?php else: ?>
+                                            <span class="text-muted small">No items received yet</span>
+                                        <?php endif; ?>
+                                    </td>
                                 </tr>
                             <?php endforeach; else: ?>
                                 <tr>

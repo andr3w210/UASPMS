@@ -80,6 +80,18 @@ function cli_pick_csv_value(array $src, array $col, array $names, string $defaul
     return $default;
 }
 
+function cli_pick_acquisition_date(array $src, array $col): string
+{
+    return cli_clean_optional_value(cli_pick_csv_value($src, $col, [
+        'acquisition_date',
+        'date_acquired',
+        'date_acquire',
+        'date_of_acquisition',
+        'acquired_date',
+        'acquired',
+    ]));
+}
+
 function cli_build_description(string $description, string $specifications): string
 {
     $description = trim($description);
@@ -1047,7 +1059,7 @@ try {
             'model' => $isSemiTemplate ? cli_clean_optional_value(cli_pick_csv_value($src, $col, ['model'])) : cli_clean_optional_value((string) ($src[$col['model'] ?? null] ?? '')),
             'serial_no' => $isSemiTemplate ? cli_clean_optional_value(cli_pick_csv_value($src, $col, ['serialno'])) : cli_clean_optional_value((string) ($src[$col['serial_no'] ?? null] ?? '')),
             'acquisition_date' => cli_derive_acquisition_date(
-                cli_clean_optional_value((string) ($src[$col['acquisition_date'] ?? null] ?? '')),
+                cli_pick_acquisition_date($src, $col),
                 $isSemiTemplate ? cli_pick_csv_value($src, $col, ['propno']) : trim((string) ($src[$col['property_number'] ?? null] ?? ''))
             ),
             'quantity' => trim((string) ($src[$col['quantity'] ?? null] ?? '1')),

@@ -9,6 +9,7 @@ $printFormat = (($_GET['print_format'] ?? 'long') === 'short') ? 'short' : 'long
 $isShort = $printFormat === 'short';
 $viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
 $isGrouped = $viewMode === 'grouped';
+$extraRows = max(0, min(50, (int) ($_GET['extra_rows'] ?? 0)));
 
 if (!$db || ($transferId <= 0 && $batchId <= 0)) {
     http_response_code(404);
@@ -283,6 +284,10 @@ if ($isGrouped) {
 }
 
 $printItems = $isGrouped ? array_values($groupedItems) : array_values($items);
+$baseParams = $batchId > 0 ? ['batch_id' => $batchId] : ['id' => $transferId];
+$baseParams['print_format'] = $printFormat;
+$baseParams['view_mode'] = $viewMode;
+$baseParams['extra_rows'] = $extraRows;
 
 $fromOfficer = trim(itr_name($header, 'from_') . (!empty($header['from_office_name']) ? ' / ' . $header['from_office_name'] : ''));
 $toOfficer = trim(itr_name($header, 'to_') . (!empty($header['to_office_name']) ? ' / ' . $header['to_office_name'] : ''));
@@ -296,8 +301,7 @@ foreach ($items as $item) {
     }
 }
 $totalAmount = array_sum(array_map(static fn(array $item): float => (float) ($item['amount'] ?? 0), $items));
-$targetRows = $isShort ? 10 : 22;
-$blankRows = max(0, $targetRows - count($printItems));
+$blankRows = $extraRows;
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -342,10 +346,18 @@ $blankRows = max(0, $targetRows - count($printItems));
         <div>
             <a href="<?php echo base_url('modules/transfers/index.php'); ?>" class="btn btn-sm btn-outline-secondary">Back</a>
             <button onclick="window.print()" class="btn btn-sm btn-primary">Print</button>
-            <a href="<?php echo h(base_url('modules/transfers/itr.php?' . ($batchId > 0 ? 'batch_id=' . $batchId : 'id=' . $transferId) . '&print_format=short&view_mode=' . $viewMode)); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Short</a>
-            <a href="<?php echo h(base_url('modules/transfers/itr.php?' . ($batchId > 0 ? 'batch_id=' . $batchId : 'id=' . $transferId) . '&print_format=long&view_mode=' . $viewMode)); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Long</a>
-            <a href="<?php echo h(base_url('modules/transfers/itr.php?' . ($batchId > 0 ? 'batch_id=' . $batchId : 'id=' . $transferId) . '&print_format=' . $printFormat . '&view_mode=grouped')); ?>" class="btn btn-sm <?php echo $isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?>">Grouped</a>
-            <a href="<?php echo h(base_url('modules/transfers/itr.php?' . ($batchId > 0 ? 'batch_id=' . $batchId : 'id=' . $transferId) . '&print_format=' . $printFormat . '&view_mode=detailed')); ?>" class="btn btn-sm <?php echo !$isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?>">Detailed</a>
+            <a href="<?php echo h(base_url('modules/transfers/itr.php?' . http_build_query(array_merge($baseParams, ['print_format' => 'short'])))); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Short</a>
+            <a href="<?php echo h(base_url('modules/transfers/itr.php?' . http_build_query(array_merge($baseParams, ['print_format' => 'long'])))); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Long</a>
+            <a href="<?php echo h(base_url('modules/transfers/itr.php?' . http_build_query(array_merge($baseParams, ['view_mode' => 'grouped'])))); ?>" class="btn btn-sm <?php echo $isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?>">Grouped</a>
+            <a href="<?php echo h(base_url('modules/transfers/itr.php?' . http_build_query(array_merge($baseParams, ['view_mode' => 'detailed'])))); ?>" class="btn btn-sm <?php echo !$isGrouped ? 'btn-primary' : 'btn-outline-primary'; ?>">Detailed</a>
+            <form method="get" class="d-inline-flex align-items-center gap-2 ms-2">
+                <?php foreach ($baseParams as $paramName => $paramValue): ?>
+                    <?php if ($paramName !== 'extra_rows'): ?><input type="hidden" name="<?php echo h((string) $paramName); ?>" value="<?php echo h((string) $paramValue); ?>"><?php endif; ?>
+                <?php endforeach; ?>
+                <label for="extra_rows_itr" class="small text-muted mb-0">Extra rows</label>
+                <input type="number" min="0" max="50" step="1" id="extra_rows_itr" name="extra_rows" value="<?php echo (int) $extraRows; ?>" style="width:80px;" class="form-control form-control-sm">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button>
+            </form>
         </div>
     </div>
     <div class="print-copy" id="printCopy">

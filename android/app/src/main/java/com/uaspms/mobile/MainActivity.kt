@@ -13,6 +13,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -25,7 +26,6 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URI
 import java.net.URL
 import org.json.JSONObject
 import kotlin.math.abs
@@ -118,6 +118,21 @@ class MainActivity : AppCompatActivity() {
                 error: WebResourceError?
             ) {
                 super.onReceivedError(view, request, error)
+                val failingUrl = request?.url?.toString() ?: return
+                if (request.isForMainFrame && tryFallbackUrl(failingUrl)) {
+                    return
+                }
+                if (request.isForMainFrame) {
+                    swipeRefreshLayout.isRefreshing = false
+                }
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                errorResponse: WebResourceResponse?
+            ) {
+                super.onReceivedHttpError(view, request, errorResponse)
                 val failingUrl = request?.url?.toString() ?: return
                 if (request.isForMainFrame && tryFallbackUrl(failingUrl)) {
                     return
@@ -226,7 +241,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadHome() {
-        val fallbackUrls = prioritizedUrls(
+        val fallbackUrls = orderedBaseUrls(
             listOf(
                 BuildConfig.BASE_URL,
                 BuildConfig.TAILSCALE_IP_BASE_URL,
@@ -272,7 +287,7 @@ class MainActivity : AppCompatActivity() {
             return resolvedBaseUrls
         }
 
-        return prioritizedUrls(
+        return orderedBaseUrls(
             listOf(
                 BuildConfig.BASE_URL,
                 BuildConfig.TAILSCALE_IP_BASE_URL,
@@ -282,13 +297,12 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun prioritizedUrls(urls: List<String>): List<String> {
+    private fun orderedBaseUrls(urls: List<String>): List<String> {
         return urls
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .mapNotNull { normalizeBaseUrl(it) }
             .distinct()
-            .sortedBy { urlPriority(it) }
     }
 
     private fun normalizeBaseUrl(url: String): String? {
@@ -322,7 +336,7 @@ class MainActivity : AppCompatActivity() {
 
                 val remoteUrls = parseUrlsFromConfigResponse(body)
                 if (remoteUrls.isNotEmpty()) {
-                    return prioritizedUrls(remoteUrls + seedUrls)
+                    return orderedBaseUrls(seedUrls + remoteUrls)
                 }
             } catch (_: Exception) {
                 // Try the next candidate base URL.
@@ -347,57 +361,6 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {
             emptyList()
         }
-    }
-
-    private fun urlPriority(url: String): Int {
-        val host = hostFromUrl(url) ?: return 2
-        return when {
-            isPrivateLanHost(host) -> 0
-            isTailscaleHost(host) -> 1
-            else -> 2
-        }
-    }
-
-    private fun hostFromUrl(url: String): String? {
-        return try {
-            URI(url).host?.lowercase()
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun isPrivateLanHost(host: String): Boolean {
-        if (host == "localhost" || host == "127.0.0.1" || host == "10.0.2.2") {
-            return true
-        }
-
-        val octets = host.split('.')
-        if (octets.size != 4 || octets.any { it.toIntOrNull() == null }) {
-            return false
-        }
-
-        val a = octets[0].toInt()
-        val b = octets[1].toInt()
-
-        return (a == 10)
-            || (a == 192 && b == 168)
-            || (a == 172 && b in 16..31)
-    }
-
-    private fun isTailscaleHost(host: String): Boolean {
-        if (host.endsWith(".ts.net")) {
-            return true
-        }
-
-        val octets = host.split('.')
-        if (octets.size != 4 || octets.any { it.toIntOrNull() == null }) {
-            return false
-        }
-
-        val a = octets[0].toInt()
-        val b = octets[1].toInt()
-
-        return a == 100 && b in 64..127
     }
 
     private fun clearLegacyServerSettings() {

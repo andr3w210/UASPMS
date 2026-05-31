@@ -21,9 +21,13 @@ $latestInventoryCheck = null;
 $brandOptions = [];
 $brandQuickAddOptions = [];
 $modelOptions = [];
+$classificationOptions = [];
 $accountCodeOptions = [];
 $fundOptions = [];
 $locationOptions = [];
+$officeOptions = [];
+$employeeOptions = [];
+$responsibilityCodeOptions = [];
 $assetOfficeId = 0;
 $resolvedLocationId = 0;
 $resolvedManualLocation = '';
@@ -157,6 +161,65 @@ function asset_view_latest_inventory_check(mysqli $db, string $propertyNumber): 
     return $row ?: null;
 }
 
+function asset_view_clean_office_suffix(string $officeCode): string
+{
+    $suffix = strtoupper(trim($officeCode));
+    $suffix = preg_replace('/[^A-Z0-9]/', '', $suffix) ?? '';
+    return $suffix !== '' ? $suffix : 'GEN';
+}
+
+function asset_view_property_number_with_office_suffix(string $propertyNumber, string $officeCode): string
+{
+    $propertyNumber = trim($propertyNumber);
+    $officeSuffix = asset_view_clean_office_suffix($officeCode);
+
+    if ($propertyNumber === '') {
+        return $propertyNumber;
+    }
+
+    $lastDash = strrpos($propertyNumber, '-');
+    if ($lastDash === false) {
+        return $propertyNumber . '-' . $officeSuffix;
+    }
+
+    return substr($propertyNumber, 0, $lastDash + 1) . $officeSuffix;
+}
+
+function asset_view_sync_system_property_number(mysqli $db, int $detailId, string $propertyNumber): bool
+{
+    $syncTargets = [
+        ['table' => 'rpcppe_batch_items', 'id_column' => 'distribution_item_detail_id'],
+        ['table' => 'inventory_count_items', 'id_column' => 'distribution_item_detail_id'],
+        ['table' => 'asset_transfers', 'id_column' => 'distribution_item_detail_id'],
+        ['table' => 'transfer_batch_items', 'id_column' => 'distribution_item_detail_id'],
+    ];
+
+    foreach ($syncTargets as $target) {
+        $table = $target['table'];
+        $idColumn = $target['id_column'];
+        if (
+            !schema_has_column($db, $table, 'property_number')
+            || !schema_has_column($db, $table, $idColumn)
+        ) {
+            continue;
+        }
+
+        $stmt = $db->prepare("UPDATE {$table} SET property_number = ? WHERE {$idColumn} = ?");
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('si', $propertyNumber, $detailId);
+        $ok = $stmt->execute();
+        $stmt->close();
+
+        if (!$ok) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 if (!$db) {
     http_response_code(500);
     exit('Unable to connect to the database.');
@@ -173,6 +236,31 @@ if ($locationRes instanceof mysqli_result) {
             'location_name' => (string) ($row['location_name'] ?? ''),
             'description' => (string) ($row['description'] ?? ''),
         ];
+    }
+}
+
+$officeRes = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
+if ($officeRes instanceof mysqli_result) {
+    while ($row = $officeRes->fetch_assoc()) {
+        $officeOptions[] = [
+            'id' => (int) ($row['id'] ?? 0),
+            'office_name' => (string) ($row['office_name'] ?? ''),
+            'office_code' => (string) ($row['office_code'] ?? ''),
+        ];
+    }
+}
+
+$employeeRes = $db->query("SELECT id, employee_no, office_id, first_name, middle_name, last_name, suffix_name, is_unit_head FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
+if ($employeeRes instanceof mysqli_result) {
+    while ($row = $employeeRes->fetch_assoc()) {
+        $employeeOptions[] = $row;
+    }
+}
+
+$rcRes = $db->query("SELECT id, office_id, code, description FROM responsibility_codes WHERE is_active = 1 ORDER BY office_id ASC, code ASC");
+if ($rcRes instanceof mysqli_result) {
+    while ($row = $rcRes->fetch_assoc()) {
+        $responsibilityCodeOptions[] = $row;
     }
 }
 
@@ -197,6 +285,17 @@ if ($modelRes instanceof mysqli_result) {
         if ($name !== '') {
             $modelOptions[] = $name;
         }
+    }
+}
+
+$classificationRes = $db->query("SELECT id, classification_name, classification_family FROM classifications WHERE is_active = 1 ORDER BY COALESCE(classification_family, ''), classification_name ASC");
+if ($classificationRes instanceof mysqli_result) {
+    while ($row = $classificationRes->fetch_assoc()) {
+        $classificationOptions[] = [
+            'id' => (int) ($row['id'] ?? 0),
+            'classification_name' => (string) ($row['classification_name'] ?? ''),
+            'classification_family' => (string) ($row['classification_family'] ?? ''),
+        ];
     }
 }
 
@@ -264,6 +363,8 @@ if ($source === 'system') {
             f.fund_code,
             f.fund_source,
             d.id AS distribution_id,
+            d.office_id,
+            d.employee_id,
             d.system_reference AS distribution_reference,
             d.document_no,
             d.document_type,
@@ -320,7 +421,12 @@ if ($source === 'system') {
             la.property_number,
             la.item_type,
             la.item_description,
+            la.item_name,
+            la.item_name_id,
+            la.classification_id,
             la.office_id,
+            la.employee_id,
+            la.responsibility_code_id,
             la.account_code_id,
             la.fund_id,
             la.manual_location,
@@ -348,6 +454,7 @@ if ($source === 'system') {
             f.fund_code,
             f.fund_source,
             o.office_name,
+            o.office_code,
             e.employee_no,
             e.first_name,
             e.middle_name,
@@ -380,7 +487,7 @@ if ($source === 'system') {
 
 if ($asset) {
     $assetOfficeId = $source === 'system'
-        ? (int) ($asset['current_office_id'] ?? 0)
+        ? (int) (($asset['current_office_id'] ?? 0) ?: ($asset['office_id'] ?? 0))
         : (int) ($asset['office_id'] ?? 0);
 
     $resolvedLocationId = (int) ($asset['location_id'] ?? 0);
@@ -420,30 +527,103 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
         }
 
+        $originalPropertyNumber = trim((string) ($asset['property_number'] ?? ''));
         $propertyNumber = trim((string) ($_POST['property_number'] ?? ''));
         $brand = trim((string) ($_POST['brand'] ?? ''));
         $model = trim((string) ($_POST['model'] ?? ''));
         $serialNo = trim((string) ($_POST['serial_no'] ?? ''));
+        $officeIdInput = (int) ($_POST['office_id'] ?? 0);
+        $employeeIdInput = (int) ($_POST['employee_id'] ?? 0);
+        $responsibilityCodeIdInput = (int) ($_POST['responsibility_code_id'] ?? 0);
         $locationIdInput = (int) ($_POST['location_id'] ?? 0);
         $manualLocation = '';
         $locationLat = null;
         $locationLng = null;
+        $classificationIdInput = (int) ($_POST['classification_id'] ?? 0);
         $accountCodeIdInput = (int) ($_POST['account_code_id'] ?? 0);
         $fundIdInput = (int) ($_POST['fund_id'] ?? 0);
+        $rawAcquisitionDate = trim((string) ($_POST['acquisition_date'] ?? ''));
+        $acquisitionDate = normalize_date_string($rawAcquisitionDate);
 
         if ($propertyNumber === '') {
             set_flash('error', 'Property number is required.');
             redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
         }
-        $propertyConflict = asset_identifier_conflict($db, 'property_number', $propertyNumber, $source, $id);
-        if ($propertyConflict) {
-            set_flash('error', 'Property number already exists in ' . $propertyConflict['label'] . ' #' . $propertyConflict['id'] . '.');
+        if ($source === 'legacy' && $rawAcquisitionDate !== '' && $acquisitionDate === '') {
+            set_flash('error', 'Acquisition date must be a valid date from 1900 to 2100.');
             redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
         }
         if ($serialNo !== '') {
             $serialConflict = asset_identifier_conflict($db, 'serial_no', $serialNo, $source, $id);
             if ($serialConflict) {
                 set_flash('error', 'Serial number already exists in ' . $serialConflict['label'] . ' #' . $serialConflict['id'] . '.');
+                redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+            }
+        }
+
+        if ($officeIdInput <= 0) {
+            set_flash('error', 'Office assignment is required.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+
+        $officeStmt = $db->prepare("SELECT id, office_name, office_code FROM offices WHERE id = ? AND is_active = 1 LIMIT 1");
+        $officeRow = null;
+        if ($officeStmt) {
+            $officeStmt->bind_param('i', $officeIdInput);
+            $officeStmt->execute();
+            $officeRow = $officeStmt->get_result()->fetch_assoc();
+            $officeStmt->close();
+        }
+        if (!$officeRow) {
+            set_flash('error', 'Selected office is invalid.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+
+        $employeeNameSnapshot = '';
+        if ($employeeIdInput > 0) {
+            $employeeStmt = $db->prepare(
+                "SELECT e.id, e.office_id, e.first_name, e.middle_name, e.last_name, e.suffix_name,
+                        EXISTS (
+                            SELECT 1
+                            FROM employee_assignments ea
+                            WHERE ea.employee_id = e.id
+                              AND ea.office_id = ?
+                              AND ea.is_active = 1
+                        ) AS has_office_assignment
+                 FROM employees e
+                 WHERE e.id = ? AND e.is_active = 1
+                 LIMIT 1"
+            );
+            $employeeRow = null;
+            if ($employeeStmt) {
+                $employeeStmt->bind_param('ii', $officeIdInput, $employeeIdInput);
+                $employeeStmt->execute();
+                $employeeRow = $employeeStmt->get_result()->fetch_assoc();
+                $employeeStmt->close();
+            }
+            if (!$employeeRow || ((int) ($employeeRow['office_id'] ?? 0) !== $officeIdInput && (int) ($employeeRow['has_office_assignment'] ?? 0) !== 1)) {
+                set_flash('error', 'Selected accountable employee does not belong to the selected office.');
+                redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+            }
+            $employeeNameSnapshot = trim(implode(' ', array_filter([
+                trim((string) ($employeeRow['first_name'] ?? '')),
+                trim((string) ($employeeRow['middle_name'] ?? '')),
+                trim((string) ($employeeRow['last_name'] ?? '')),
+                trim((string) ($employeeRow['suffix_name'] ?? '')),
+            ])));
+        }
+
+        if ($responsibilityCodeIdInput > 0) {
+            $rcStmt = $db->prepare("SELECT id FROM responsibility_codes WHERE id = ? AND office_id = ? AND is_active = 1 LIMIT 1");
+            $rcRow = null;
+            if ($rcStmt) {
+                $rcStmt->bind_param('ii', $responsibilityCodeIdInput, $officeIdInput);
+                $rcStmt->execute();
+                $rcRow = $rcStmt->get_result()->fetch_assoc();
+                $rcStmt->close();
+            }
+            if (!$rcRow) {
+                set_flash('error', 'Selected responsibility code does not belong to the selected office.');
                 redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
             }
         }
@@ -477,6 +657,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             }
         }
 
+        $classificationNameSnapshot = '';
+        $classificationFamilySnapshot = '';
+        if ($source === 'legacy' && $classificationIdInput > 0) {
+            $checkClassificationStmt = $db->prepare("SELECT classification_name, classification_family FROM classifications WHERE id = ? AND is_active = 1 LIMIT 1");
+            $classificationRow = null;
+            if ($checkClassificationStmt) {
+                $checkClassificationStmt->bind_param('i', $classificationIdInput);
+                $checkClassificationStmt->execute();
+                $classificationRow = $checkClassificationStmt->get_result()->fetch_assoc();
+                $checkClassificationStmt->close();
+            }
+            if (!$classificationRow) {
+                set_flash('error', 'Selected item classification is invalid.');
+                redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+            }
+            $classificationNameSnapshot = trim((string) ($classificationRow['classification_name'] ?? ''));
+            $classificationFamilySnapshot = trim((string) ($classificationRow['classification_family'] ?? ''));
+        }
+
         if ($source === 'legacy' && $fundIdInput > 0) {
             $checkFundStmt = $db->prepare("SELECT id FROM funds WHERE id = ? AND is_active = 1 LIMIT 1");
             if ($checkFundStmt) {
@@ -491,6 +690,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             }
         }
 
+        if ($source === 'legacy' && stripos($propertyNumber, 'TEMP-') === 0) {
+            $effectiveAccountCodeId = $accountCodeIdInput > 0 ? $accountCodeIdInput : (int) ($asset['account_code_id'] ?? 0);
+            $effectiveFundId = $fundIdInput > 0 ? $fundIdInput : (int) ($asset['fund_id'] ?? 0);
+            $effectiveAccountCode = '';
+            $effectiveFundCode = '';
+            $effectiveOfficeCode = trim((string) ($officeRow['office_code'] ?? ''));
+
+            foreach ($accountCodeOptions as $option) {
+                if ((int) ($option['id'] ?? 0) === $effectiveAccountCodeId) {
+                    $effectiveAccountCode = trim((string) ($option['account_code'] ?? ''));
+                    break;
+                }
+            }
+            foreach ($fundOptions as $option) {
+                if ((int) ($option['id'] ?? 0) === $effectiveFundId) {
+                    $effectiveFundCode = fund_number_from_source((string) ($option['fund_code'] ?? ''), (string) ($option['fund_source'] ?? ''));
+                    if ($effectiveFundCode === '') {
+                        $effectiveFundCode = trim((string) ($option['fund_code'] ?? ''));
+                    }
+                    break;
+                }
+            }
+
+            if ($acquisitionDate !== '' && $effectiveAccountCode !== '' && $effectiveFundCode !== '') {
+                $propertyNumber = generate_property_number(
+                    $db,
+                    date('Y', strtotime($acquisitionDate)),
+                    $effectiveFundCode,
+                    $effectiveAccountCode,
+                    $effectiveOfficeCode
+                );
+            }
+        }
+
+        if (
+            $propertyNumber === $originalPropertyNumber
+            && $officeIdInput !== $assetOfficeId
+            && stripos($originalPropertyNumber, 'TEMP-') !== 0
+        ) {
+            $propertyNumber = asset_view_property_number_with_office_suffix(
+                $originalPropertyNumber,
+                (string) ($officeRow['office_code'] ?? '')
+            );
+        }
+
+        $propertyConflict = asset_identifier_conflict($db, 'property_number', $propertyNumber, $source, $id);
+        if ($propertyConflict) {
+            set_flash('error', 'Property number already exists in ' . $propertyConflict['label'] . ' #' . $propertyConflict['id'] . '.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+
         if ($source === 'system') {
             $db->begin_transaction();
             $saved = false;
@@ -500,12 +750,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                                   SET property_number = ?,
                                       brand = ?,
                                       model = ?,
-                                      serial_no = ?
+                                      serial_no = ?,
+                                      current_office_id = ?,
+                                      current_employee_id = NULLIF(?, 0),
+                                      current_responsibility_code_id = NULLIF(?, 0)
                                   WHERE id = ?");
             if ($stmt) {
-                $stmt->bind_param('ssssi', $propertyNumber, $brand, $model, $serialNo, $id);
+                $stmt->bind_param('ssssiiii', $propertyNumber, $brand, $model, $serialNo, $officeIdInput, $employeeIdInput, $responsibilityCodeIdInput, $id);
                 $saved = (bool) $stmt->execute();
                 $stmt->close();
+            }
+
+            if ($saved) {
+                $saved = asset_view_sync_system_property_number($db, $id, $propertyNumber);
             }
 
             if ($saved) {
@@ -539,6 +796,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'brand' => $asset['brand'] ?? null,
                         'model' => $asset['model'] ?? null,
                         'serial_no' => $asset['serial_no'] ?? null,
+                        'office_id' => $assetOfficeId ?: null,
+                        'employee_id' => ($asset['current_employee_id'] ?? 0) ?: ($asset['employee_id'] ?? null),
+                        'responsibility_code_id' => $asset['current_responsibility_code_id'] ?? null,
                         'location_id' => $asset['location_id'] ?? null,
                         'manual_location' => $asset['manual_location'] ?? null,
                     ],
@@ -547,6 +807,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'brand' => $brand,
                         'model' => $model,
                         'serial_no' => $serialNo,
+                        'office_id' => $officeIdInput,
+                        'employee_id' => $employeeIdInput > 0 ? $employeeIdInput : null,
+                        'responsibility_code_id' => $responsibilityCodeIdInput > 0 ? $responsibilityCodeIdInput : null,
                         'location_id' => $locationIdInput,
                         'manual_location' => $manualLocation,
                     ],
@@ -561,12 +824,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         }
 
         $description = trim((string) ($_POST['item_description'] ?? ''));
-        $rawAcquisitionDate = trim((string) ($_POST['acquisition_date'] ?? ''));
-        $acquisitionDate = normalize_date_string($rawAcquisitionDate);
-        if ($rawAcquisitionDate !== '' && $acquisitionDate === '') {
-            set_flash('error', 'Acquisition date must be a valid date from 1900 to 2100.');
-            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
-        }
         $quantity = max(1, (int) ($_POST['quantity'] ?? 1));
         $unitCostInput = trim((string) ($_POST['unit_cost'] ?? '0'));
         $amountInput = trim((string) ($_POST['acquisition_cost'] ?? ''));
@@ -590,6 +847,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                                   brand = ?,
                                   model = ?,
                                   serial_no = ?,
+                                  classification_id = CASE WHEN ? > 0 THEN ? ELSE classification_id END,
+                                  office_id = ?,
+                                  employee_id = NULLIF(?, 0),
+                                  responsibility_code_id = NULLIF(?, 0),
                                   acquisition_date = NULLIF(?, ''),
                                   account_code_id = CASE WHEN ? > 0 THEN ? ELSE account_code_id END,
                                   fund_id = CASE WHEN ? > 0 THEN ? ELSE fund_id END,
@@ -601,12 +862,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                               WHERE id = ?");
         if ($stmt) {
             $stmt->bind_param(
-                'ssssssiiiiiddssi',
+                'sssssiiiiisiiiiiddssi',
                 $propertyNumber,
                 $description,
                 $brand,
                 $model,
                 $serialNo,
+                $classificationIdInput,
+                $classificationIdInput,
+                $officeIdInput,
+                $employeeIdInput,
+                $responsibilityCodeIdInput,
                 $acquisitionDate,
                 $accountCodeIdInput,
                 $accountCodeIdInput,
@@ -622,6 +888,80 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             $saved = $stmt->execute();
             $stmt->close();
             if ($saved) {
+                if ($classificationIdInput > 0 && schema_has_column($db, 'legacy_assets', 'item_name')) {
+                    $itemNameId = 0;
+                    if (schema_has_column($db, 'legacy_assets', 'item_name_id')) {
+                        $itemNameLookupStmt = $db->prepare("SELECT id FROM item_names WHERE normalized_name = LOWER(TRIM(?)) LIMIT 1");
+                        if ($itemNameLookupStmt) {
+                            $itemNameLookupStmt->bind_param('s', $classificationNameSnapshot);
+                            $itemNameLookupStmt->execute();
+                            $itemNameRow = $itemNameLookupStmt->get_result()->fetch_assoc();
+                            $itemNameLookupStmt->close();
+                            $itemNameId = (int) ($itemNameRow['id'] ?? 0);
+                        }
+                    }
+
+                    $itemNameSql = schema_has_column($db, 'legacy_assets', 'item_name_id')
+                        ? "UPDATE legacy_assets SET item_name = NULLIF(?, ''), item_name_id = NULLIF(?, 0) WHERE id = ?"
+                        : "UPDATE legacy_assets SET item_name = NULLIF(?, '') WHERE id = ?";
+                    $itemNameStmt = $db->prepare($itemNameSql);
+                    if ($itemNameStmt) {
+                        if (schema_has_column($db, 'legacy_assets', 'item_name_id')) {
+                            $itemNameStmt->bind_param('sii', $classificationNameSnapshot, $itemNameId, $id);
+                        } else {
+                            $itemNameStmt->bind_param('si', $classificationNameSnapshot, $id);
+                        }
+                        $itemNameStmt->execute();
+                        $itemNameStmt->close();
+                    }
+                }
+
+                $syncStmt = $db->prepare(
+                    "UPDATE rpcppe_batch_items
+                     SET property_number = ?,
+                         office_id = ?,
+                         office_name = ?,
+                         employee_id = NULLIF(?, 0),
+                         employee_name = NULLIF(?, ''),
+                         acquisition_date = NULLIF(?, ''),
+                         updated_at = NOW()
+                     WHERE legacy_asset_id = ?"
+                );
+                if ($syncStmt) {
+                    $officeNameSnapshot = (string) ($officeRow['office_name'] ?? '');
+                    $syncStmt->bind_param('sisissi', $propertyNumber, $officeIdInput, $officeNameSnapshot, $employeeIdInput, $employeeNameSnapshot, $acquisitionDate, $id);
+                    $syncStmt->execute();
+                    $syncStmt->close();
+                }
+
+                $countStmt = $db->prepare(
+                    "UPDATE inventory_count_items
+                     SET property_number = ?,
+                         office_id = ?,
+                         employee_id = (SELECT e.id FROM employees e WHERE e.id = NULLIF(?, 0) LIMIT 1),
+                         accountable_name = NULLIF(?, '')
+                     WHERE legacy_asset_id = ?"
+                );
+                if ($countStmt) {
+                    $countStmt->bind_param('siisi', $propertyNumber, $officeIdInput, $employeeIdInput, $employeeNameSnapshot, $id);
+                    $countStmt->execute();
+                    $countStmt->close();
+                }
+
+                $transferStmt = $db->prepare("UPDATE asset_transfers SET property_number = ? WHERE legacy_asset_id = ?");
+                if ($transferStmt) {
+                    $transferStmt->bind_param('si', $propertyNumber, $id);
+                    $transferStmt->execute();
+                    $transferStmt->close();
+                }
+
+                $batchTransferStmt = $db->prepare("UPDATE transfer_batch_items SET property_number = ? WHERE legacy_asset_id = ?");
+                if ($batchTransferStmt) {
+                    $batchTransferStmt->bind_param('si', $propertyNumber, $id);
+                    $batchTransferStmt->execute();
+                    $batchTransferStmt->close();
+                }
+
                 update_asset_location_snapshot(
                     $db,
                     'legacy',
@@ -649,6 +989,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'brand' => $asset['brand'] ?? null,
                         'model' => $asset['model'] ?? null,
                         'serial_no' => $asset['serial_no'] ?? null,
+                        'office_id' => $asset['office_id'] ?? null,
+                        'employee_id' => $asset['employee_id'] ?? null,
+                        'responsibility_code_id' => $asset['responsibility_code_id'] ?? null,
                         'acquisition_date' => $asset['acquisition_date'] ?? null,
                         'account_code_id' => $asset['account_code_id'] ?? null,
                         'fund_id' => $asset['fund_id'] ?? null,
@@ -666,6 +1009,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'brand' => $brand,
                         'model' => $model,
                         'serial_no' => $serialNo,
+                        'office_id' => $officeIdInput,
+                        'employee_id' => $employeeIdInput > 0 ? $employeeIdInput : null,
+                        'responsibility_code_id' => $responsibilityCodeIdInput > 0 ? $responsibilityCodeIdInput : null,
                         'acquisition_date' => $acquisitionDate,
                         'account_code_id' => $accountCodeIdInput > 0 ? $accountCodeIdInput : ($asset['account_code_id'] ?? null),
                         'fund_id' => $fundIdInput > 0 ? $fundIdInput : ($asset['fund_id'] ?? null),
@@ -954,6 +1300,7 @@ if ($source === 'system') {
     if (schema_has_column($db, 'returns', 'distribution_item_detail_id')) {
         $stmt = $db->prepare("
             SELECT
+                rt.id AS return_id,
                 rt.system_reference,
                 rt.return_date,
                 rt.reason,
@@ -1055,6 +1402,7 @@ if ($source === 'system') {
     if (schema_has_column($db, 'returns', 'legacy_asset_id') && schema_has_column($db, 'returns', 'source_type')) {
         $stmt = $db->prepare("
             SELECT
+                rt.id AS return_id,
                 rt.system_reference,
                 rt.return_date,
                 rt.reason,
@@ -1307,6 +1655,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="alert alert-light border small">
                                         Update the core asset identity fields here for registry corrections. Other acquisition and source transaction details stay tied to the original PO and receiving records.
                                     </div>
+                                <?php elseif (stripos((string) ($asset['property_number'] ?? ''), 'TEMP-') === 0): ?>
+                                    <div class="alert alert-light border small">
+                                        This asset has a temporary property number. Once acquisition date, fund, and account code are complete, saving this form will generate the official property number.
+                                    </div>
                                 <?php endif; ?>
                                 <form method="post" id="assetEditForm" class="row g-3">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
@@ -1339,6 +1691,49 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <label class="form-label">Serial No.</label>
                                         <input type="text" name="serial_no" class="form-control" value="<?php echo h((string) ($asset['serial_no'] ?? '')); ?>">
                                     </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Office <span class="text-danger">*</span></label>
+                                        <select name="office_id" id="asset_office_id" class="form-select" required>
+                                            <option value="">Select office</option>
+                                            <?php foreach ($officeOptions as $officeOption): ?>
+                                                <?php $officeOptionId = (int) ($officeOption['id'] ?? 0); ?>
+                                                <?php $officeLabel = trim(($officeOption['office_code'] ?? '') . ' - ' . ($officeOption['office_name'] ?? '')); ?>
+                                                <option value="<?php echo $officeOptionId; ?>" <?php echo $officeOptionId === $assetOfficeId ? 'selected' : ''; ?>>
+                                                    <?php echo h($officeLabel); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Accountable Employee</label>
+                                        <?php $selectedEmployeeId = $source === 'system' ? (int) (($asset['current_employee_id'] ?? 0) ?: ($asset['employee_id'] ?? 0)) : (int) ($asset['employee_id'] ?? 0); ?>
+                                        <select name="employee_id" id="asset_employee_id" class="form-select">
+                                            <option value="0" data-office-id="0">Unassigned</option>
+                                            <?php foreach ($employeeOptions as $employeeOption): ?>
+                                                <?php $employeeOptionId = (int) ($employeeOption['id'] ?? 0); ?>
+                                                <?php $employeeOfficeId = (int) ($employeeOption['office_id'] ?? 0); ?>
+                                                <?php $employeeLabel = employee_choice_label($employeeOption); ?>
+                                                <option value="<?php echo $employeeOptionId; ?>" data-office-id="<?php echo $employeeOfficeId; ?>" <?php echo $employeeOptionId === $selectedEmployeeId ? 'selected' : ''; ?>>
+                                                    <?php echo h($employeeLabel); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Responsibility Code</label>
+                                        <?php $selectedRcId = $source === 'system' ? (int) ($asset['current_responsibility_code_id'] ?? 0) : (int) ($asset['responsibility_code_id'] ?? 0); ?>
+                                        <select name="responsibility_code_id" id="asset_responsibility_code_id" class="form-select">
+                                            <option value="0" data-office-id="0">Unassigned</option>
+                                            <?php foreach ($responsibilityCodeOptions as $rcOption): ?>
+                                                <?php $rcOptionId = (int) ($rcOption['id'] ?? 0); ?>
+                                                <?php $rcOfficeId = (int) ($rcOption['office_id'] ?? 0); ?>
+                                                <?php $rcLabel = trim(($rcOption['code'] ?? '') . (!empty($rcOption['description']) ? ' - ' . $rcOption['description'] : '')); ?>
+                                                <option value="<?php echo $rcOptionId; ?>" data-office-id="<?php echo $rcOfficeId; ?>" <?php echo $rcOptionId === $selectedRcId ? 'selected' : ''; ?>>
+                                                    <?php echo h($rcLabel); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
                                     <div class="col-md-8">
                                         <label class="form-label">Location</label>
                                         <select name="location_id" class="form-select" data-placeholder="Select location">
@@ -1357,6 +1752,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </div>
 
                                     <?php if ($source === 'legacy'): ?>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Item Classification</label>
+                                            <select name="classification_id" class="form-select">
+                                                <option value="0">Keep current classification</option>
+                                                <?php foreach ($classificationOptions as $option): ?>
+                                                    <?php $optionId = (int) ($option['id'] ?? 0); ?>
+                                                    <?php $isSelected = $optionId > 0 && $optionId === (int) ($asset['classification_id'] ?? 0); ?>
+                                                    <?php $classificationLabel = trim(($option['classification_family'] ?? '') . (($option['classification_family'] ?? '') !== '' ? ' / ' : '') . ($option['classification_name'] ?? '')); ?>
+                                                    <option value="<?php echo h((string) $optionId); ?>" <?php echo $isSelected ? 'selected' : ''; ?>>
+                                                        <?php echo h($classificationLabel); ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
                                         <div class="col-md-6">
                                             <label class="form-label">Account Code</label>
                                             <select name="account_code_id" class="form-select">
@@ -1750,11 +2159,25 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <th>Date</th>
                                                 <th>Reference</th>
                                                 <th>Details</th>
+                                                <th>Form</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <?php if ($returnRows): ?>
                                                 <?php foreach ($returnRows as $row): ?>
+                                                    <?php
+                                                    $returnFormUrl = '';
+                                                    $returnFormLabel = '';
+                                                    if ($source === 'system') {
+                                                        if (($asset['item_type'] ?? '') === 'semi_expendable') {
+                                                            $returnFormUrl = base_url('modules/reports/semi_rrsp.php?return_id=' . (int) ($row['return_id'] ?? 0) . '&print=1');
+                                                            $returnFormLabel = 'Returned Semi-Expendable Property';
+                                                        } elseif (($asset['item_type'] ?? '') === 'equipment') {
+                                                            $returnFormUrl = base_url('modules/reports/property_return_slip.php?return_id=' . (int) ($row['return_id'] ?? 0) . '&print=1');
+                                                            $returnFormLabel = 'RRPE';
+                                                        }
+                                                    }
+                                                    ?>
                                                     <tr>
                                                         <td><?php echo h(!empty($row['return_date']) ? date('M d, Y', strtotime((string) $row['return_date'])) : ''); ?></td>
                                                         <td><?php echo h($row['system_reference'] ?? ''); ?></td>
@@ -1763,10 +2186,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                             ($person = asset_view_person($row)) !== '' ? $person : '',
                                                             !empty($row['reason']) ? 'Reason: ' . $row['reason'] : '',
                                                         ])))); ?></td>
+                                                        <td>
+                                                            <?php if ($returnFormUrl !== ''): ?>
+                                                                <a class="btn btn-sm btn-outline-primary" href="<?php echo h($returnFormUrl); ?>" target="_blank"><?php echo h($returnFormLabel); ?></a>
+                                                            <?php else: ?>
+                                                                <span class="text-muted small">-</span>
+                                                            <?php endif; ?>
+                                                        </td>
                                                     </tr>
                                                 <?php endforeach; ?>
                                             <?php else: ?>
-                                                <tr><td colspan="3" class="text-center text-muted py-4">No return history.</td></tr>
+                                                <tr><td colspan="4" class="text-center text-muted py-4">No return history.</td></tr>
                                             <?php endif; ?>
                                         </tbody>
                                     </table>
@@ -1964,6 +2394,36 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (!window.SPAMS || typeof window.SPAMS.setupRequiredSummaryValidation !== 'function') {
         return;
+    }
+
+    var officeSelect = document.getElementById('asset_office_id');
+    var employeeSelect = document.getElementById('asset_employee_id');
+    var rcSelect = document.getElementById('asset_responsibility_code_id');
+
+    function filterByOffice(select) {
+        if (!officeSelect || !select) {
+            return;
+        }
+        var officeId = String(officeSelect.value || '0');
+        Array.prototype.forEach.call(select.options, function (option) {
+            var optionOfficeId = String(option.getAttribute('data-office-id') || '0');
+            var isPlaceholder = option.value === '' || option.value === '0';
+            var shouldShow = isPlaceholder || optionOfficeId === officeId;
+            option.hidden = !shouldShow;
+            option.disabled = !shouldShow;
+        });
+        if (select.selectedOptions.length && select.selectedOptions[0].disabled) {
+            select.value = '0';
+        }
+    }
+
+    if (officeSelect) {
+        officeSelect.addEventListener('change', function () {
+            filterByOffice(employeeSelect);
+            filterByOffice(rcSelect);
+        });
+        filterByOffice(employeeSelect);
+        filterByOffice(rcSelect);
     }
 
     window.SPAMS.setupRequiredSummaryValidation({

@@ -10,7 +10,7 @@ $printFormat = 'long';
 $isShort = false;
 $viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
 $isGrouped = $viewMode === 'grouped';
-$extraRows = max(0, min(25, (int) ($_GET['extra_rows'] ?? 0)));
+$extraRows = max(0, min(50, (int) ($_GET['extra_rows'] ?? 0)));
 $offices = [];
 $header = null;
 $rows = [];
@@ -67,6 +67,9 @@ $buildPropertyRange = static function (array $propertyNumbers): string {
 if ($db) {
     ensure_legacy_assets_rpcppe_tracking_columns($db);
     ensure_distribution_item_rpcppe_tracking_columns($db);
+    $legacyItemNameExpr = schema_has_column($db, 'legacy_assets', 'item_name')
+        ? "NULLIF(TRIM(la.item_name), '')"
+        : "NULL";
 
     $officeRes = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeRes) {
@@ -166,7 +169,7 @@ if ($db) {
             }
         }
 
-        if ($officeId > 0) {
+        if ($officeId > 0 && $legacyAssetId <= 0) {
             $systemStmt = $db->prepare(
                 "SELECT
                     'system' AS source_type,
@@ -174,12 +177,14 @@ if ($db) {
                     did.brand,
                     did.model,
                     did.serial_no,
+                    c.classification_name AS item_name,
                     poi.item_description,
                     c.classification_name,
                     c.classification_family,
+                    ac.account_name,
                     u.abbreviation,
                     ri.unit_cost,
-                    r.received_date AS date_acquired
+                    COALESCE(r.received_date, d.distribution_date) AS date_acquired
                  FROM distribution_item_details did
                  INNER JOIN distribution_items di ON di.id = did.distribution_item_id
                  INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted' AND d.document_type = 'par'
@@ -187,12 +192,11 @@ if ($db) {
                  INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id AND poi.item_type = 'equipment'
                  INNER JOIN receivings r ON r.id = ri.receiving_id
                  LEFT JOIN classifications c ON c.id = poi.classification_id
+                 LEFT JOIN account_codes ac ON ac.id = poi.account_code_id
                  LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id
-                 WHERE d.office_id = ?
+                 WHERE COALESCE(did.current_office_id, d.office_id) = ?
                    AND did.is_distributed = 1
                    AND (did.is_disposed IS NULL OR did.is_disposed = 0)
-                   AND COALESCE(did.is_rpcppe_candidate, 0) = 0
-                   AND COALESCE(NULLIF(TRIM(did.rpcppe_status), ''), 'excluded') = 'excluded'
                    AND UPPER(poi.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
                    AND UPPER(TRIM(poi.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')
                  ORDER BY did.property_number ASC, did.id ASC"
@@ -208,7 +212,7 @@ if ($db) {
             }
         }
 
-        if ($officeId > 0) {
+        if ($officeId > 0 && $legacyAssetId <= 0) {
             $legacyStmt = $db->prepare(
                 "SELECT
                     'legacy' AS source_type,
@@ -216,18 +220,32 @@ if ($db) {
                     la.brand,
                     la.model,
                     la.serial_no,
+                    COALESCE({$legacyItemNameExpr}, NULLIF(TRIM(c.classification_name), '')) AS item_name,
                     la.item_description,
                     c.classification_name,
                     c.classification_family,
+                    ac.account_name,
                     '' AS abbreviation,
                     la.unit_cost,
-                    la.acquisition_date AS date_acquired
+                    COALESCE(
+                        la.acquisition_date,
+                        rbi.acquisition_date,
+                        CASE
+                            WHEN la.property_number REGEXP '^[0-9]{4}[-.]' THEN STR_TO_DATE(CONCAT(LEFT(la.property_number, 4), '-01-01'), '%Y-%m-%d')
+                            ELSE DATE(la.created_at)
+                        END
+                    ) AS date_acquired
                  FROM legacy_assets la
                  LEFT JOIN classifications c ON c.id = la.classification_id
+                 LEFT JOIN account_codes ac ON ac.id = la.account_code_id
+                 LEFT JOIN (
+                    SELECT legacy_asset_id, MAX(acquisition_date) AS acquisition_date
+                    FROM rpcppe_batch_items
+                    WHERE legacy_asset_id IS NOT NULL AND acquisition_date IS NOT NULL
+                    GROUP BY legacy_asset_id
+                 ) rbi ON rbi.legacy_asset_id = la.id
                  WHERE la.is_active = 1
                    AND la.item_type = 'equipment'
-                   AND COALESCE(la.is_rpcppe_candidate, 0) = 0
-                   AND COALESCE(NULLIF(TRIM(la.rpcppe_status), ''), 'excluded') = 'excluded'
                    AND UPPER(la.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
                    AND UPPER(TRIM(la.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')
                    AND la.office_id = ?
@@ -250,14 +268,30 @@ if ($db) {
                     la.brand,
                     la.model,
                     la.serial_no,
+                    COALESCE({$legacyItemNameExpr}, NULLIF(TRIM(c.classification_name), '')) AS item_name,
                     la.item_description,
                     c.classification_name,
                     c.classification_family,
+                    ac.account_name,
                     '' AS abbreviation,
                     la.unit_cost,
-                    la.acquisition_date AS date_acquired
+                    COALESCE(
+                        la.acquisition_date,
+                        rbi.acquisition_date,
+                        CASE
+                            WHEN la.property_number REGEXP '^[0-9]{4}[-.]' THEN STR_TO_DATE(CONCAT(LEFT(la.property_number, 4), '-01-01'), '%Y-%m-%d')
+                            ELSE DATE(la.created_at)
+                        END
+                    ) AS date_acquired
                  FROM legacy_assets la
                  LEFT JOIN classifications c ON c.id = la.classification_id
+                 LEFT JOIN account_codes ac ON ac.id = la.account_code_id
+                 LEFT JOIN (
+                    SELECT legacy_asset_id, MAX(acquisition_date) AS acquisition_date
+                    FROM rpcppe_batch_items
+                    WHERE legacy_asset_id IS NOT NULL AND acquisition_date IS NOT NULL
+                    GROUP BY legacy_asset_id
+                 ) rbi ON rbi.legacy_asset_id = la.id
                  WHERE la.id = ?
                  LIMIT 1"
             );
@@ -279,6 +313,7 @@ if ($isGrouped) {
     foreach ($rows as $row) {
         $unitLabel = trim((string) ($row['abbreviation'] ?? 'unit'));
         $groupKey = implode('|', [
+            trim((string) ($row['item_name'] ?? '')),
             trim((string) ($row['classification_name'] ?? '')),
             trim((string) ($row['classification_family'] ?? '')),
             trim((string) ($row['item_description'] ?? '')),
@@ -290,8 +325,10 @@ if ($isGrouped) {
         if (!isset($groupedRows[$groupKey])) {
             $groupedRows[$groupKey] = [
                 'abbreviation' => (string) ($row['abbreviation'] ?? 'unit'),
+                'item_name' => (string) ($row['item_name'] ?? ''),
                 'classification_name' => (string) ($row['classification_name'] ?? ''),
                 'classification_family' => (string) ($row['classification_family'] ?? ''),
+                'account_name' => (string) ($row['account_name'] ?? ''),
                 'item_description' => (string) ($row['item_description'] ?? ''),
                 'date_acquired' => (string) ($row['date_acquired'] ?? ''),
                 'unit_cost' => (float) ($row['unit_cost'] ?? 0),
@@ -388,7 +425,8 @@ if ($db && $officeId > 0 && $legacyAssetId <= 0) {
          INNER JOIN receivings r ON r.id = ri.receiving_id
          INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
          LEFT JOIN funds f ON f.id = po.fund_id
-         WHERE d.office_id = ?
+         INNER JOIN distribution_item_details did ON did.distribution_item_id = di.id
+         WHERE COALESCE(did.current_office_id, d.office_id) = ?
            AND d.status = 'posted'
            AND d.document_type = 'par'"
     );
@@ -519,7 +557,7 @@ $blankRows = $extraRows;
                 <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
                 <?php if ($legacyAssetId > 0): ?><input type="hidden" name="legacy_asset_id" value="<?php echo (int) $legacyAssetId; ?>"><?php endif; ?>
                 <label for="extra_rows_par" style="font-size:12px;color:#666;white-space:nowrap;">Extra rows</label>
-                <input type="number" min="0" max="25" step="1" id="extra_rows_par" name="extra_rows" value="<?php echo (int) $extraRows; ?>" style="width:80px;" class="form-control form-control-sm">
+                <input type="number" min="0" max="50" step="1" id="extra_rows_par" name="extra_rows" value="<?php echo (int) $extraRows; ?>" style="width:80px;" class="form-control form-control-sm">
                 <button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button>
             </form>
         </div>
@@ -564,9 +602,14 @@ $blankRows = $extraRows;
                                 <td><?php echo h($row['abbreviation'] ?: 'unit'); ?></td>
                                 <td>
                                     <?php
-                                        $itemClass = trim((string) ($row['classification_name'] ?? ''));
+                                        $itemClass = trim(implode(' / ', array_filter([
+                                            trim((string) ($row['classification_family'] ?? '')),
+                                            trim((string) ($row['classification_name'] ?? '')),
+                                        ])));
+                                        $itemName = trim((string) ($row['item_name'] ?? ''));
                                         $itemDescription = trim((string) ($row['item_description'] ?? ''));
-                                        $parDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                                        $itemHeader = $itemName !== '' ? $itemName : $itemClass;
+                                        $parDescription = trim(($itemHeader !== '' ? $itemHeader : '') . ($itemHeader !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
                                         $identityLines = $itemIdentityLines((array) $row);
                                     ?>
                                     <?php echo nl2br(h($parDescription)); ?>

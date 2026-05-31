@@ -25,6 +25,8 @@ function module_series_defaults(): array
         'inventory_counts' => ['prefix' => 'INV', 'use_year' => true, 'padding' => 4],
         'supply_counts' => ['prefix' => 'SCI', 'use_year' => true, 'padding' => 4],
         'stock_adjustments' => ['prefix' => 'ADJ', 'use_year' => true, 'padding' => 4],
+        'returns' => ['prefix' => 'RTN', 'use_year' => true, 'padding' => 4],
+        'returns_rrpe' => ['prefix' => 'RRPE', 'use_year' => true, 'padding' => 4],
     ];
 }
 
@@ -137,6 +139,66 @@ function next_module_code(mysqli $db, string $moduleKey): string
     $assigned = (int) $lastRow['last_id'];
 
     return build_series_code($prefix, $yearValue, $assigned, $padding);
+}
+
+function next_year_series_number(mysqli $db, string $moduleKey): string
+{
+    ensure_series_row($db, $moduleKey);
+
+    $stmt = $db->prepare("SELECT year_value, current_value, padding_length FROM series_numbers WHERE module_key = ? LIMIT 1");
+    if (!$stmt) {
+        return '';
+    }
+
+    $stmt->bind_param('s', $moduleKey);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result ? $result->fetch_assoc() : null;
+    $stmt->close();
+
+    if (!$row) {
+        return '';
+    }
+
+    $currentYear = (int) date('Y');
+    $yearValue = $row['year_value'] !== null ? (int) $row['year_value'] : $currentYear;
+    if ($yearValue !== $currentYear) {
+        $resetStmt = $db->prepare("UPDATE series_numbers SET year_value = ?, current_value = 0 WHERE module_key = ?");
+        if ($resetStmt) {
+            $resetStmt->bind_param('is', $currentYear, $moduleKey);
+            $resetStmt->execute();
+            $resetStmt->close();
+        }
+        $yearValue = $currentYear;
+    }
+
+    $updateStmt = $db->prepare("UPDATE series_numbers SET current_value = LAST_INSERT_ID(current_value + 1) WHERE module_key = ?");
+    if (!$updateStmt) {
+        return '';
+    }
+
+    $updateStmt->bind_param('s', $moduleKey);
+    $updateStmt->execute();
+    $updateStmt->close();
+
+    $lastStmt = $db->prepare("SELECT LAST_INSERT_ID() AS last_id");
+    if (!$lastStmt) {
+        return '';
+    }
+
+    $lastStmt->execute();
+    $lastResult = $lastStmt->get_result();
+    $lastRow = $lastResult ? $lastResult->fetch_assoc() : null;
+    $lastStmt->close();
+
+    $assigned = (int) ($lastRow['last_id'] ?? 0);
+    if ($assigned <= 0) {
+        return '';
+    }
+
+    $padding = (int) ($row['padding_length'] ?? 4);
+
+    return $yearValue . '-' . str_pad((string) $assigned, $padding, '0', STR_PAD_LEFT);
 }
 
 function build_series_code(string $prefix, ?int $yearValue, int $number, int $padding): string

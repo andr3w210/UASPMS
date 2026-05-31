@@ -658,7 +658,7 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                 <a href="<?php echo h(build_registry_url(['office_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'amount_min' => '', 'amount_max' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="btn btn-outline-danger">Clear</a>
                             </div>
                         </div>
-                        <div class="small text-muted mt-2">Quick Search auto-runs while typing. Use Advanced for office, type, source, brand/model, serial, amount, and date filters.</div>
+                        <div class="small text-muted mt-2">Enter a keyword, then click Search. Use Advanced for office, type, source, brand/model, serial, amount, and date filters.</div>
                         <div id="registryAdvancedFilters" class="collapse <?php echo $hasAdvancedFiltersActive ? 'show' : ''; ?> mt-3">
                             <div class="row g-3">
                                 <div class="col-md-3">
@@ -899,8 +899,6 @@ document.addEventListener('DOMContentLoaded', function () {
     var form = document.getElementById('registryFiltersForm');
     if (form) {
         var pageField = document.getElementById('registryPageReset');
-        var quickSearch = document.getElementById('registryQuickSearch');
-        var debounceTimer = null;
 
         var submitWithPageReset = function () {
             if (pageField) {
@@ -908,15 +906,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             form.submit();
         };
-
-        if (quickSearch) {
-            quickSearch.addEventListener('input', function () {
-                if (debounceTimer) {
-                    window.clearTimeout(debounceTimer);
-                }
-                debounceTimer = window.setTimeout(submitWithPageReset, 1000);
-            });
-        }
 
         var autoSubmitFields = form.querySelectorAll('[data-autosubmit="true"]');
         autoSubmitFields.forEach(function (field) {

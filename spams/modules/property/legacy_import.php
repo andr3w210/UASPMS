@@ -85,6 +85,18 @@ function li_pick_csv_value(array $src, array $col, array $names, string $default
     return $default;
 }
 
+function li_pick_acquisition_date(array $src, array $col): string
+{
+    return li_clean_optional_value(li_pick_csv_value($src, $col, [
+        'acquisition_date',
+        'date_acquired',
+        'date_acquire',
+        'date_of_acquisition',
+        'acquired_date',
+        'acquired',
+    ]));
+}
+
 function li_build_description(string $description, string $specifications): string
 {
     $description = trim($description);
@@ -501,7 +513,7 @@ if (!$db) {
                                     'model' => $isSemiTemplate ? li_clean_optional_value(li_pick_csv_value($src, $col, ['model'])) : li_clean_optional_value((string) ($src[$col['model'] ?? null] ?? '')),
                                     'serial_no' => $isSemiTemplate ? li_clean_optional_value(li_pick_csv_value($src, $col, ['serialno'])) : li_clean_optional_value((string) ($src[$col['serial_no'] ?? null] ?? '')),
                                     'acquisition_date' => li_derive_acquisition_date(
-                                        li_clean_optional_value((string) ($src[$col['acquisition_date'] ?? null] ?? '')),
+                                        li_pick_acquisition_date($src, $col),
                                         $isSemiTemplate ? li_pick_csv_value($src, $col, ['propno']) : trim((string) ($src[$col['property_number'] ?? null] ?? ''))
                                     ),
                                     'quantity' => trim((string) ($src[$col['quantity'] ?? null] ?? '1')),
@@ -632,7 +644,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-md-8">
                         <label class="form-label">Legacy File</label>
                         <input type="file" name="legacy_file" class="form-control" accept=".csv,.xlsx" required>
-                        <div class="form-text">Required headers: `property_number`, `inventory_type`, `description`. Optional: `po_number`, `fund` or `fund_number`, `classification`, `account_code`, `supplier`, `brand`, `model`, `serial_no`, `acquisition_date`, `quantity`, `unit_cost`, `office`, `employee`, `responsibility_code`, `condition_status`, `remarks`.</div>
+                        <div class="form-text">Required headers: `property_number`, `inventory_type`, `description`. Optional: `po_number`, `fund` or `fund_number`, `classification`, `account_code`, `supplier`, `brand`, `model`, `serial_no`, `acquisition_date` or `date_acquired`, `quantity`, `unit_cost`, `office`, `employee`, `responsibility_code`, `condition_status`, `remarks`.</div>
                     </div>
                     <div class="col-md-4 d-flex gap-2 flex-wrap">
                         <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-1"></i>Preview Import</button>
