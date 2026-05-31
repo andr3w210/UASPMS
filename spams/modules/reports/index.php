@@ -100,9 +100,9 @@ $sections = [
         'description' => 'Accountability and inspection reports for equipment and other property, plant, and equipment records.',
         'items' => [
             [
-                'appendix' => 'Appendix 72',
-                'title' => 'Receipt of Returned Property',
-                'description' => 'Receipt of Returned Property for posted equipment returns received back by the supply/property office.',
+                'appendix' => 'Annex 28',
+                'title' => 'Return and Receipt of Property/Equipment',
+                'description' => 'Return and Receipt of Property/Equipment for posted equipment returns received back by the supply/property office.',
                 'path' => 'modules/reports/property_return_slip.php',
                 'icon' => 'bi bi-arrow-return-left',
                 'tags' => ['Equipment', 'Returns'],

@@ -389,6 +389,16 @@ if ($db) {
         $distParams[] = $filterDistType;
     }
 
+    // By default only show posted distributions that still have active distributed units.
+    $distWhere[] = "d.status = 'posted'";
+    $distWhere[] = "EXISTS (
+        SELECT 1
+        FROM distribution_items active_di
+        INNER JOIN distribution_item_details active_did ON active_did.distribution_item_id = active_di.id
+        WHERE active_di.distribution_id = d.id
+          AND active_did.is_distributed = 1
+    )";
+
     if ($filterDistQ !== '') {
         $distWhere[] = "(d.system_reference LIKE ? OR d.document_no LIKE ? OR o.office_name LIKE ? OR CONCAT(e.first_name, ' ', e.last_name) LIKE ? )";
         $like = '%' . $filterDistQ . '%';
@@ -1180,6 +1190,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $distParams[] = $filterDistType;
     }
 
+    // By default only show posted distributions that still have active distributed units.
+    $distWhere[] = "d.status = 'posted'";
+    $distWhere[] = "EXISTS (
+        SELECT 1
+        FROM distribution_items active_di
+        INNER JOIN distribution_item_details active_did ON active_did.distribution_item_id = active_di.id
+        WHERE active_di.distribution_id = d.id
+          AND active_did.is_distributed = 1
+    )";
+
     if ($filterDistQ !== '') {
         $distWhere[] = "(d.system_reference LIKE ? OR d.document_no LIKE ? OR o.office_name LIKE ? OR CONCAT(e.first_name, ' ', e.last_name) LIKE ? )";
         $like = '%' . $filterDistQ . '%';
@@ -1803,6 +1823,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td><?php echo $distribution['employee_no'] ? h(employee_display_name($distribution)) . ' - ' . h($distribution['employee_no']) : '<span class="text-muted">Not specified</span>'; ?></td>
                                         <td><?php echo operational_status_badge('posted_transaction', (string) ($distribution['status'] ?? 'posted')); ?></td>
                                         <td class="text-end">
+                                            <a href="<?php echo base_url('modules/distributions/view.php?id=' . (int) $distribution['id']); ?>" class="btn btn-sm btn-outline-dark me-1">View</a>
                                             <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType) . '&edit_id=' . (int) $distribution['id'] . '#distribution-edit-panel'); ?>" class="btn btn-sm btn-outline-secondary me-1">Edit</a>
                                             <?php if (($distribution['document_type'] ?? '') === 'par'): ?>
                                                 <a href="<?php echo base_url('modules/distributions/par.php?id=' . (int)$distribution['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print PAR</a>

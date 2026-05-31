@@ -291,6 +291,8 @@ function db_tools_default_auto_backup_config(): array
     return [
         'task_name' => 'UASPMS-Auto-DB-Backup',
         'output_dir' => db_tools_backups_root() . DIRECTORY_SEPARATOR . 'auto',
+        'photos_dir' => db_tools_project_root() . DIRECTORY_SEPARATOR . 'spams' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'assets',
+        'include_photos' => false,
         'keep_days' => 30,
         'schedule_type' => 'daily',
         'start_time' => '23:00',
@@ -329,6 +331,11 @@ function db_tools_load_auto_backup_config(): array
         $config['output_dir'] = $defaults['output_dir'];
     }
 
+    $config['photos_dir'] = trim((string) ($config['photos_dir'] ?? $defaults['photos_dir']));
+    if ($config['photos_dir'] === '') {
+        $config['photos_dir'] = $defaults['photos_dir'];
+    }
+
     $config['keep_days'] = max(1, (int) ($config['keep_days'] ?? $defaults['keep_days']));
 
     $scheduleType = strtolower(trim((string) ($config['schedule_type'] ?? $defaults['schedule_type'])));
@@ -347,6 +354,7 @@ function db_tools_load_auto_backup_config(): array
     $config['weekly_day'] = $weeklyDay;
 
     $config['include_tripdb'] = (bool) ($config['include_tripdb'] ?? false);
+    $config['include_photos'] = (bool) ($config['include_photos'] ?? false);
 
     return $config;
 }
@@ -413,6 +421,12 @@ function db_tools_register_scheduled_backup(array $config, array &$errors): bool
 
     if (!empty($config['include_tripdb'])) {
         $runArgs[] = '-IncludeTripDb';
+    }
+
+    if (!empty($config['photos_dir'])) {
+        $runArgs[] = '-IncludePhotos';
+        $runArgs[] = '-PhotosDir';
+        $runArgs[] = db_tools_escape_for_task_arg((string) $config['photos_dir']);
     }
 
     $taskRun = $psExe . ' ' . implode(' ', $runArgs);
@@ -742,11 +756,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'save_auto_backup_settings') {
         $taskName = trim((string) ($_POST['task_name'] ?? 'UASPMS-Auto-DB-Backup'));
         $outputDir = db_tools_normalize_output_dir((string) ($_POST['output_dir'] ?? ''));
+        $photosDir = db_tools_normalize_output_dir((string) ($_POST['photos_dir'] ?? ''));
+        $includePhotos = isset($_POST['include_photos']) && $_POST['include_photos'] === '1';
         $keepDays = (int) ($_POST['keep_days'] ?? 30);
         $scheduleType = strtolower(trim((string) ($_POST['schedule_type'] ?? 'daily')));
         $startTime = trim((string) ($_POST['start_time'] ?? '23:00'));
         $weeklyDay = strtoupper(trim((string) ($_POST['weekly_day'] ?? 'MON')));
         $includeTripDb = isset($_POST['include_tripdb']) && $_POST['include_tripdb'] === '1';
+        $photosDir = db_tools_normalize_output_dir((string) ($_POST['photos_dir'] ?? ''));
+        $includePhotos = isset($_POST['include_photos']) && $_POST['include_photos'] === '1';
 
         if ($taskName === '') {
             $errors[] = 'Task name is required.';
@@ -772,10 +790,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Invalid weekly day selected.';
         }
 
+        if ($includePhotos && $photosDir === '') {
+            $errors[] = 'Photos directory is required when Include Photos is checked.';
+        }
+
         if (empty($errors)) {
             $configToSave = [
                 'task_name' => $taskName,
-                'output_dir' => $outputDir,
+                    'output_dir' => $outputDir,
+                    'photos_dir' => $photosDir,
+                    'include_photos' => (bool) $includePhotos,
                 'keep_days' => $keepDays,
                 'schedule_type' => $scheduleType,
                 'start_time' => $startTime,
@@ -856,6 +880,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $autoBackupConfig = [
             'task_name' => $taskName,
             'output_dir' => $outputDir,
+            'photos_dir' => $includePhotos ? $photosDir : '',
+            'include_photos' => (bool) $includePhotos,
             'keep_days' => $keepDays,
             'schedule_type' => $scheduleType,
             'start_time' => $startTime,
@@ -894,10 +920,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $startTime = trim((string) ($_POST['start_time'] ?? '23:00'));
         $weeklyDay = strtoupper(trim((string) ($_POST['weekly_day'] ?? 'MON')));
         $includeTripDb = isset($_POST['include_tripdb']) && $_POST['include_tripdb'] === '1';
+        $photosDir = db_tools_normalize_output_dir((string) ($_POST['photos_dir'] ?? ''));
+        $includePhotos = isset($_POST['include_photos']) && $_POST['include_photos'] === '1';
 
         $autoBackupConfig = [
             'task_name' => $taskName,
             'output_dir' => $outputDir,
+            'photos_dir' => $includePhotos ? $photosDir : '',
+            'include_photos' => (bool) $includePhotos,
             'keep_days' => $keepDays,
             'schedule_type' => $scheduleType,
             'start_time' => $startTime,
@@ -1028,6 +1058,19 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <input class="form-check-input" type="checkbox" id="include_tripdb" name="include_tripdb" value="1" <?php echo !empty($autoBackupConfig['include_tripdb']) ? 'checked' : ''; ?>>
                                             <label class="form-check-label" for="include_tripdb">Include TRIP database backup</label>
                                         </div>
+                                    </div>
+
+                                    <div class="col-md-6 d-flex align-items-center pt-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="include_photos" name="include_photos" value="1" <?php echo !empty($autoBackupConfig['include_photos']) || (!empty($autoBackupConfig['photos_dir']) && $autoBackupConfig['photos_dir'] !== '') ? 'checked' : ''; ?>>
+                                            <label class="form-check-label" for="include_photos">Include asset photos in backup</label>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-12">
+                                        <label for="photos_dir" class="form-label">Photos directory (optional)</label>
+                                        <input type="text" class="form-control" id="photos_dir" name="photos_dir" value="<?php echo h((string) ($autoBackupConfig['photos_dir'] ?? '')); ?>" placeholder="C:\\xampp\\htdocs\\UASPMS\\spams\\uploads\\assets">
+                                        <div class="form-text">Set the folder that contains asset photos to include in the ZIP archive when enabled.</div>
                                     </div>
 
                                     <div class="col-12 d-flex flex-wrap gap-2">

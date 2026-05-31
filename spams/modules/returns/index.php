@@ -30,6 +30,85 @@ function return_asset_document_label(array $row): string
     ])));
 }
 
+function return_next_rrpe_no(mysqli $db): string
+{
+    return next_year_series_number($db, 'returns_rrpe');
+}
+
+function return_next_reference(mysqli $db, string $itemType): string
+{
+    if ($itemType === 'equipment') {
+        $rrpeNo = return_next_rrpe_no($db);
+        if ($rrpeNo !== '') {
+            return $rrpeNo;
+        }
+    }
+
+    return next_module_code($db, 'returns');
+}
+
+function return_resolve_spmu_office_id(mysqli $db): int
+{
+    $stmt = $db->prepare("
+        SELECT id
+        FROM offices
+        WHERE is_active = 1
+          AND (
+              office_code IN ('SPM', 'SPMU')
+              OR office_name LIKE '%Supply and Property Management Unit%'
+              OR office_name LIKE '%SPMU%'
+          )
+        ORDER BY
+            CASE
+                WHEN office_code = 'SPMU' THEN 0
+                WHEN office_code = 'SPM' THEN 1
+                ELSE 2
+            END,
+            id ASC
+        LIMIT 1
+    ");
+    if (!$stmt) {
+        return 0;
+    }
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: null;
+    $stmt->close();
+
+    return (int) ($row['id'] ?? 0);
+}
+
+function return_resolve_spmu_employee_id(mysqli $db, int $spmuOfficeId): int
+{
+    if ($spmuOfficeId <= 0) {
+        return 0;
+    }
+
+    if (function_exists('employee_resolve_office_head')) {
+        $head = employee_resolve_office_head($db, $spmuOfficeId);
+        if (!empty($head['id'])) {
+            return (int) $head['id'];
+        }
+    }
+
+    $stmt = $db->prepare("
+        SELECT id
+        FROM employees
+        WHERE office_id = ?
+          AND is_active = 1
+        ORDER BY is_unit_head DESC, last_name ASC, first_name ASC, id ASC
+        LIMIT 1
+    ");
+    if (!$stmt) {
+        return 0;
+    }
+    $stmt->bind_param('i', $spmuOfficeId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: null;
+    $stmt->close();
+
+    return (int) ($row['id'] ?? 0);
+}
+
 $db = db();
 $page_title = 'Returns';
 $flash = get_flash();
@@ -37,7 +116,10 @@ $errors = [];
 $success = '';
 $available = [];
 $rows = [];
+$selectedLegacyAsset = null;
+$legacyAvailable = [];
 $typeFilter = trim((string) ($_GET['item_type'] ?? 'all'));
+$sourceFilter = trim((string) ($_GET['source_filter'] ?? 'all'));
 $search = trim((string) ($_GET['q'] ?? ''));
 $preselectedDetailId = (int) ($_GET['detail_id'] ?? 0);
 $preselectedLegacyAssetId = (int) ($_GET['legacy_asset_id'] ?? 0);
@@ -51,9 +133,18 @@ $form = [
     'reason' => '',
     'remarks' => '',
 ];
+$returnReasonOptions = [
+    'replacement' => 'Replacement',
+    'repair' => 'Repair',
+    'safekeeping' => 'Safekeeping',
+    'disposal' => 'Disposal',
+];
 
 if (!in_array($typeFilter, ['all', 'semi_expendable', 'equipment'], true)) {
     $typeFilter = 'all';
+}
+if (!in_array($sourceFilter, ['all', 'system', 'legacy'], true)) {
+    $sourceFilter = 'all';
 }
 
 if (!$db) {
@@ -203,6 +294,17 @@ if (!$db) {
         }
 
         if (!$errors && ($sourceType === 'legacy' ? !empty($asset) : !empty($assets))) {
+            $spmuOfficeId = return_resolve_spmu_office_id($db);
+            if ($spmuOfficeId <= 0) {
+                $errors[] = 'SPMU office record could not be found. Please add or activate the Supply and Property Management Unit office first.';
+            }
+            $spmuEmployeeId = $spmuOfficeId > 0 ? return_resolve_spmu_employee_id($db, $spmuOfficeId) : 0;
+            if ($spmuEmployeeId <= 0) {
+                $errors[] = 'SPMU accountable employee could not be found. Please assign an active SPMU office head first.';
+            }
+        }
+
+        if (!$errors && ($sourceType === 'legacy' ? !empty($asset) : !empty($assets))) {
             $db->begin_transaction();
             try {
                 $userId = current_user_id();
@@ -227,7 +329,7 @@ if (!$db) {
                     throw new RuntimeException('Unable to prepare the return insert statement.');
                 }
                 if ($sourceType === 'legacy') {
-                    $systemRef = next_module_code($db, 'returns');
+                    $systemRef = return_next_reference($db, (string) ($asset['item_type'] ?? ''));
                     $officeId = (int) ($asset['current_office_id'] ?? 0);
                     $employeeId = (int) ($asset['current_employee_id'] ?? 0);
                     $detailIdToSave = null;
@@ -235,20 +337,20 @@ if (!$db) {
 
                     $ins->bind_param('sssiiiissi', $systemRef, $sourceType, $form['return_date'], $detailIdToSave, $legacyIdToSave, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
                     $ins->execute();
+                    $returnId = (int) $ins->insert_id;
 
                     $upd = $db->prepare("
                         UPDATE legacy_assets
-                        SET office_id = NULL, employee_id = NULL, responsibility_code_id = NULL
+                        SET office_id = ?, employee_id = ?, responsibility_code_id = NULL
                         WHERE id = ?
                     ");
                     if (!$upd) {
                         throw new RuntimeException('Unable to update legacy asset accountability state.');
                     }
-                    $upd->bind_param('i', $legacyAssetId);
+                    $upd->bind_param('iii', $spmuOfficeId, $spmuEmployeeId, $legacyAssetId);
                     $upd->execute();
                     $upd->close();
 
-                    $returnId = (int) $db->insert_id;
                     write_audit_log($db, [
                         'action' => 'insert',
                         'table_name' => 'returns',
@@ -273,8 +375,8 @@ if (!$db) {
                         UPDATE distribution_item_details
                         SET
                             is_distributed = 0,
-                            current_office_id = NULL,
-                            current_employee_id = NULL,
+                            current_office_id = ?,
+                            current_employee_id = ?,
                             current_responsibility_code_id = NULL
                         WHERE id = ?
                     ");
@@ -283,7 +385,7 @@ if (!$db) {
                     }
 
                     foreach ($assets as $assetRow) {
-                        $systemRef = next_module_code($db, 'returns');
+                        $systemRef = return_next_reference($db, (string) ($assetRow['item_type'] ?? ''));
                         $officeId = (int) ($assetRow['current_office_id'] ?? 0);
                         $employeeId = (int) ($assetRow['current_employee_id'] ?? 0);
                         $detailIdToSave = (int) ($assetRow['id'] ?? 0);
@@ -291,11 +393,11 @@ if (!$db) {
 
                         $ins->bind_param('sssiiiissi', $systemRef, $sourceType, $form['return_date'], $detailIdToSave, $legacyIdToSave, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
                         $ins->execute();
+                        $returnId = (int) $ins->insert_id;
 
-                        $upd->bind_param('i', $detailIdToSave);
+                        $upd->bind_param('iii', $spmuOfficeId, $spmuEmployeeId, $detailIdToSave);
                         $upd->execute();
 
-                        $returnId = (int) $db->insert_id;
                         write_audit_log($db, [
                             'action' => 'insert',
                             'table_name' => 'returns',
@@ -331,6 +433,7 @@ if (!$db) {
         }
     }
 
+    if ($sourceFilter !== 'legacy') {
     $availableSql = "
         SELECT
             did.id,
@@ -397,6 +500,7 @@ if (!$db) {
         $available = $availableStmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $availableStmt->close();
     }
+    }
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $preselectedDetailId > 0) {
         foreach ($available as $assetRow) {
@@ -410,7 +514,40 @@ if (!$db) {
     }
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $preselectedLegacyAssetId > 0 && $preselectedSourceType === 'legacy') {
-        $legacyAssetStmt = $db->prepare("SELECT id FROM legacy_assets WHERE id = ? AND is_active = 1 LIMIT 1");
+        $legacyAssetStmt = $db->prepare("
+            SELECT
+                la.id,
+                la.property_number,
+                la.serial_no,
+                la.item_type,
+                la.item_description,
+                la.brand,
+                la.model,
+                c.classification_name,
+                c.classification_family,
+                o.office_name,
+                e.first_name,
+                e.middle_name,
+                e.last_name,
+                e.suffix_name
+            FROM legacy_assets la
+            LEFT JOIN classifications c ON c.id = la.classification_id
+            LEFT JOIN offices o ON o.id = la.office_id
+            LEFT JOIN employees e
+              ON e.id = la.employee_id
+             AND (
+                 e.office_id = la.office_id
+                 OR EXISTS (
+                     SELECT 1
+                     FROM employee_assignments ea
+                     WHERE ea.employee_id = e.id
+                       AND ea.office_id = la.office_id
+                       AND ea.is_active = 1
+                 )
+             )
+            WHERE la.id = ? AND la.is_active = 1
+            LIMIT 1
+        ");
         if ($legacyAssetStmt) {
             $legacyAssetStmt->bind_param('i', $preselectedLegacyAssetId);
             $legacyAssetStmt->execute();
@@ -419,6 +556,133 @@ if (!$db) {
             if ($legacyAsset) {
                 $form['source_type'] = 'legacy';
                 $form['legacy_asset_id'] = (string) $preselectedLegacyAssetId;
+                $selectedLegacyAsset = $legacyAsset;
+            }
+        }
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $sourceFilter !== 'system' && $search !== '') {
+        $legacyListSql = "
+            SELECT
+                la.id,
+                la.property_number,
+                la.serial_no,
+                la.item_type,
+                la.item_description,
+                la.brand,
+                la.model,
+                c.classification_name,
+                c.classification_family,
+                o.office_name,
+                e.first_name,
+                e.middle_name,
+                e.last_name,
+                e.suffix_name
+            FROM legacy_assets la
+            LEFT JOIN returns rt
+              ON rt.source_type = 'legacy'
+             AND rt.legacy_asset_id = la.id
+             AND rt.status = 'posted'
+            LEFT JOIN classifications c ON c.id = la.classification_id
+            LEFT JOIN offices o ON o.id = la.office_id
+            LEFT JOIN employees e
+              ON e.id = la.employee_id
+             AND (
+                 e.office_id = la.office_id
+                 OR EXISTS (
+                     SELECT 1
+                     FROM employee_assignments ea
+                     WHERE ea.employee_id = e.id
+                       AND ea.office_id = la.office_id
+                       AND ea.is_active = 1
+                 )
+             )
+            WHERE la.is_active = 1
+              AND la.item_type IN ('equipment', 'semi_expendable')
+              AND rt.id IS NULL
+              AND (
+                  la.property_number LIKE CONCAT('%', ?, '%')
+                  OR la.serial_no LIKE CONCAT('%', ?, '%')
+                  OR la.qr_tag_code LIKE CONCAT('%', ?, '%')
+                  OR la.item_description LIKE CONCAT('%', ?, '%')
+                  OR la.brand LIKE CONCAT('%', ?, '%')
+                  OR la.model LIKE CONCAT('%', ?, '%')
+                  OR o.office_name LIKE CONCAT('%', ?, '%')
+              )
+        ";
+        $legacyTypes = 'sssssss';
+        $legacyParams = [$search, $search, $search, $search, $search, $search, $search];
+        if ($typeFilter !== 'all') {
+            $legacyListSql .= " AND la.item_type = ?";
+            $legacyTypes .= 's';
+            $legacyParams[] = $typeFilter;
+        }
+        $legacyListSql .= " ORDER BY la.item_type ASC, la.item_description ASC, la.property_number ASC LIMIT 50";
+
+        $legacyListStmt = $db->prepare($legacyListSql);
+        if ($legacyListStmt) {
+            $legacyListStmt->bind_param($legacyTypes, ...$legacyParams);
+            $legacyListStmt->execute();
+            $legacyAvailable = $legacyListStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $legacyListStmt->close();
+        }
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $sourceFilter !== 'system' && $form['source_type'] !== 'legacy' && $search !== '') {
+        $legacySearchStmt = $db->prepare("
+            SELECT
+                la.id,
+                la.property_number,
+                la.serial_no,
+                la.item_type,
+                la.item_description,
+                la.brand,
+                la.model,
+                c.classification_name,
+                c.classification_family,
+                o.office_name,
+                e.first_name,
+                e.middle_name,
+                e.last_name,
+                e.suffix_name
+            FROM legacy_assets la
+            LEFT JOIN returns rt
+              ON rt.source_type = 'legacy'
+             AND rt.legacy_asset_id = la.id
+             AND rt.status = 'posted'
+            LEFT JOIN classifications c ON c.id = la.classification_id
+            LEFT JOIN offices o ON o.id = la.office_id
+            LEFT JOIN employees e
+              ON e.id = la.employee_id
+             AND (
+                 e.office_id = la.office_id
+                 OR EXISTS (
+                     SELECT 1
+                     FROM employee_assignments ea
+                     WHERE ea.employee_id = e.id
+                       AND ea.office_id = la.office_id
+                       AND ea.is_active = 1
+                 )
+             )
+            WHERE la.is_active = 1
+              AND la.item_type IN ('equipment', 'semi_expendable')
+              AND rt.id IS NULL
+              AND (
+                  la.property_number = ?
+                  OR la.serial_no = ?
+                  OR la.qr_tag_code = ?
+              )
+            LIMIT 1
+        ");
+        if ($legacySearchStmt) {
+            $legacySearchStmt->bind_param('sss', $search, $search, $search);
+            $legacySearchStmt->execute();
+            $legacySearch = $legacySearchStmt->get_result()->fetch_assoc();
+            $legacySearchStmt->close();
+            if ($legacySearch) {
+                $form['source_type'] = 'legacy';
+                $form['legacy_asset_id'] = (string) (int) ($legacySearch['id'] ?? 0);
+                $selectedLegacyAsset = $legacySearch;
             }
         }
     }
@@ -466,6 +730,7 @@ if (!$db) {
 }
 
 $availableCount = count($available);
+$legacyAvailableCount = count($legacyAvailable);
 $recentCount = count($rows);
 $equipmentAvailable = 0;
 $semiAvailable = 0;
@@ -523,6 +788,26 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
 
+                    <ul class="nav nav-pills return-module-tabs" id="returnsModuleTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="return-desk-tab" data-bs-toggle="pill" data-bs-target="#return-desk" type="button" role="tab" aria-controls="return-desk" aria-selected="true">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>Return Desk
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="posted-returns-tab" data-bs-toggle="pill" data-bs-target="#posted-returns" type="button" role="tab" aria-controls="posted-returns" aria-selected="false">
+                                <i class="bi bi-clock-history me-1"></i>Posted Returns
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="return-forms-tab" data-bs-toggle="pill" data-bs-target="#return-forms" type="button" role="tab" aria-controls="return-forms" aria-selected="false">
+                                <i class="bi bi-file-earmark-text me-1"></i>Forms
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content return-module-tab-content">
+                        <div class="tab-pane fade show active" id="return-desk" role="tabpanel" aria-labelledby="return-desk-tab">
                     <div class="report-filter-card">
                         <h6 class="report-filter-title">Find Returnable Assets</h6>
                         <form method="get" class="row g-3 align-items-end">
@@ -534,7 +819,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <option value="equipment" <?php echo $typeFilter === 'equipment' ? 'selected' : ''; ?>>Equipment</option>
                                 </select>
                             </div>
-                            <div class="col-md-7">
+                            <div class="col-md-3">
+                                <label class="form-label">Source</label>
+                                <select name="source_filter" class="form-select">
+                                    <option value="all" <?php echo $sourceFilter === 'all' ? 'selected' : ''; ?>>All sources</option>
+                                    <option value="system" <?php echo $sourceFilter === 'system' ? 'selected' : ''; ?>>System assets</option>
+                                    <option value="legacy" <?php echo $sourceFilter === 'legacy' ? 'selected' : ''; ?>>Legacy assets</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
                                 <label class="form-label">Search</label>
                                 <input type="text" name="q" class="form-control" value="<?php echo h($search); ?>" placeholder="Property no., serial no., description, brand, model, accountable office, or accountable person">
                             </div>
@@ -549,7 +842,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <h6 class="report-filter-title">Record Return</h6>
                         <form method="post" class="row g-3">
                             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
-                            <input type="hidden" name="source_type" value="<?php echo h($form['source_type']); ?>">
+                            <input type="hidden" name="source_type" id="returnSourceType" value="<?php echo h($form['source_type']); ?>">
+                            <input type="hidden" name="legacy_asset_id" id="returnLegacyAssetId" value="<?php echo h($form['legacy_asset_id']); ?>">
                             <div class="col-lg-7">
                                 <?php if ($form['source_type'] === 'legacy' && $form['legacy_asset_id'] !== ''): ?>
                                     <div class="return-workspace-panel h-100">
@@ -560,12 +854,30 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <div class="text-muted small">This return was opened directly from the asset details page.</div>
                                             </div>
                                         </div>
-                                        <input type="hidden" name="legacy_asset_id" value="<?php echo h($form['legacy_asset_id']); ?>">
-                                        <div class="return-selection-empty">
-                                            <i class="bi bi-archive"></i>
-                                            <div class="fw-semibold">Legacy asset #<?php echo h($form['legacy_asset_id']); ?></div>
-                                            <div class="small">Review the return details on the right, then receive this asset back into Supply Office.</div>
-                                        </div>
+                                        <?php if ($selectedLegacyAsset): ?>
+                                            <div class="return-selection-card">
+                                                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                                                    <div>
+                                                        <div class="fw-semibold"><?php echo h(return_asset_label($selectedLegacyAsset)); ?></div>
+                                                        <div class="small text-muted"><?php echo h(trim(implode(' | ', array_filter([$selectedLegacyAsset['property_number'] ?? '', $selectedLegacyAsset['serial_no'] ?? ''])))); ?></div>
+                                                    </div>
+                                                    <span class="badge <?php echo ($selectedLegacyAsset['item_type'] ?? '') === 'equipment' ? 'badge-soft-info' : 'badge-soft-success'; ?>">
+                                                        <?php echo h(($selectedLegacyAsset['item_type'] ?? '') === 'equipment' ? 'Equipment' : 'Semi-Expendable'); ?>
+                                                    </span>
+                                                </div>
+                                                <div class="return-selection-grid">
+                                                    <div><span class="return-selection-label">Accountability</span><strong><?php echo h(trim(implode(' / ', array_filter([$selectedLegacyAsset['office_name'] ?? '', return_asset_person_label($selectedLegacyAsset)]))) ?: '-'); ?></strong></div>
+                                                    <div><span class="return-selection-label">Brand / Model</span><strong><?php echo h(trim(implode(' / ', array_filter([$selectedLegacyAsset['brand'] ?? '', $selectedLegacyAsset['model'] ?? '']))) ?: '-'); ?></strong></div>
+                                                    <div><span class="return-selection-label">Classification</span><strong><?php echo h(trim(implode(' / ', array_filter([$selectedLegacyAsset['classification_family'] ?? '', $selectedLegacyAsset['classification_name'] ?? '']))) ?: '-'); ?></strong></div>
+                                                </div>
+                                            </div>
+                                        <?php else: ?>
+                                            <div class="return-selection-empty">
+                                                <i class="bi bi-archive"></i>
+                                                <div class="fw-semibold">Legacy asset #<?php echo h($form['legacy_asset_id']); ?></div>
+                                                <div class="small">Review the return details on the right, then receive this asset back into Supply Office.</div>
+                                            </div>
+                                        <?php endif; ?>
                                     </div>
                                 <?php else: ?>
                                     <div class="return-workspace-panel h-100">
@@ -636,6 +948,44 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <?php endif; ?>
                                         </div>
                                         <div class="return-picker-empty d-none" id="returnAssetPickerEmpty">No loaded assets match the local search.</div>
+                                        <?php if ($legacyAvailable): ?>
+                                            <div class="return-legacy-results">
+                                                <div class="return-workspace-eyebrow">Legacy Matches</div>
+                                                <div class="return-legacy-list">
+                                                    <?php foreach ($legacyAvailable as $asset): ?>
+                                                        <?php
+                                                        $payload = [
+                                                            'id' => (int) ($asset['id'] ?? 0),
+                                                            'item_type' => (string) ($asset['item_type'] ?? ''),
+                                                            'property_number' => (string) ($asset['property_number'] ?? ''),
+                                                            'serial_no' => (string) ($asset['serial_no'] ?? ''),
+                                                            'asset_label' => return_asset_label($asset),
+                                                            'office_name' => (string) ($asset['office_name'] ?? ''),
+                                                            'accountable_person' => return_asset_person_label($asset),
+                                                            'document_label' => 'Beginning Balance',
+                                                            'brand' => (string) ($asset['brand'] ?? ''),
+                                                            'model' => (string) ($asset['model'] ?? ''),
+                                                            'classification_family' => (string) ($asset['classification_family'] ?? ''),
+                                                            'classification_name' => (string) ($asset['classification_name'] ?? ''),
+                                                        ];
+                                                        ?>
+                                                        <label class="return-picker-item return-legacy-item">
+                                                            <input class="return-legacy-radio" type="radio" name="legacy_pick" value="<?php echo (int) $asset['id']; ?>" data-asset="<?php echo h((string) json_encode($payload, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP)); ?>">
+                                                            <span class="return-picker-item-body">
+                                                                <span class="return-picker-item-top">
+                                                                    <span class="return-picker-title"><?php echo h(return_asset_label($asset)); ?></span>
+                                                                    <span class="badge <?php echo ($asset['item_type'] ?? '') === 'equipment' ? 'badge-soft-info' : 'badge-soft-success'; ?>"><?php echo h(($asset['item_type'] ?? '') === 'equipment' ? 'Equipment' : 'Semi-Expendable'); ?></span>
+                                                                </span>
+                                                                <span class="return-picker-meta"><?php echo h(trim(implode(' | ', array_filter([$asset['property_number'] ?? '', $asset['serial_no'] ?? '', 'Legacy'])))); ?></span>
+                                                                <span class="return-picker-submeta"><?php echo h(trim(implode(' / ', array_filter([$asset['office_name'] ?? '', return_asset_person_label($asset)])))); ?></span>
+                                                            </span>
+                                                        </label>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                        <?php elseif ($sourceFilter === 'legacy' && $search !== ''): ?>
+                                            <div class="return-picker-empty">No legacy assets match the current search.</div>
+                                        <?php endif; ?>
                                     </div>
                                 <?php endif; ?>
                             </div>
@@ -648,11 +998,22 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <div class="text-muted small">The panel updates as users tick assets for single or bulk return.</div>
                                         </div>
                                     </div>
-                                    <div id="returnSelectionPreview" class="return-selection-empty">
-                                        <i class="bi bi-check2-square"></i>
-                                        <div class="fw-semibold">No asset selected yet</div>
-                                        <div class="small">Choose an asset from the left to preview its details here before receiving the return.</div>
-                                    </div>
+                                    <?php if ($form['source_type'] === 'legacy' && $selectedLegacyAsset): ?>
+                                        <div id="returnSelectionPreview" class="return-selection-card">
+                                            <div class="fw-semibold">Ready to receive return</div>
+                                            <div class="small text-muted mt-1"><?php echo h(($selectedLegacyAsset['property_number'] ?? '') . (!empty($selectedLegacyAsset['serial_no']) ? ' | ' . $selectedLegacyAsset['serial_no'] : '')); ?></div>
+                                            <div class="return-selection-grid">
+                                                <div><span class="return-selection-label">Destination</span><strong>SPMU accountability</strong></div>
+                                                <div><span class="return-selection-label">Return Form</span><strong><?php echo ($selectedLegacyAsset['item_type'] ?? '') === 'semi_expendable' ? 'Receipt of Returned Semi-Expendable Property' : 'RRPE'; ?></strong></div>
+                                            </div>
+                                        </div>
+                                    <?php else: ?>
+                                        <div id="returnSelectionPreview" class="return-selection-empty">
+                                            <i class="bi bi-check2-square"></i>
+                                            <div class="fw-semibold">No asset selected yet</div>
+                                            <div class="small">Choose an asset from the left to preview its details here before receiving the return.</div>
+                                        </div>
+                                    <?php endif; ?>
                                     <div class="row g-3 mt-1">
                                         <div class="col-md-6">
                                             <label class="form-label">Return Date</label>
@@ -660,7 +1021,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </div>
                                         <div class="col-md-6">
                                             <label class="form-label">Reason</label>
-                                            <input type="text" name="reason" class="form-control" value="<?php echo h($form['reason']); ?>" placeholder="Reason for return">
+                                            <select name="reason" class="form-select">
+                                                <option value="">Select reason</option>
+                                                <?php foreach ($returnReasonOptions as $reasonValue => $reasonLabel): ?>
+                                                    <option value="<?php echo h($reasonValue); ?>" <?php echo $form['reason'] === $reasonValue ? 'selected' : ''; ?>><?php echo h($reasonLabel); ?></option>
+                                                <?php endforeach; ?>
+                                                <?php if ($form['reason'] !== '' && !isset($returnReasonOptions[$form['reason']])): ?>
+                                                    <option value="<?php echo h($form['reason']); ?>" selected><?php echo h($form['reason']); ?></option>
+                                                <?php endif; ?>
+                                            </select>
                                         </div>
                                         <div class="col-12">
                                             <label class="form-label">Remarks</label>
@@ -675,6 +1044,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </form>
                     </div>
 
+                        </div>
+                        <div class="tab-pane fade" id="posted-returns" role="tabpanel" aria-labelledby="posted-returns-tab">
                     <div class="report-table-card table-responsive mobile-table-frame">
                         <table class="table align-middle">
                             <thead>
@@ -711,9 +1082,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td><?php echo h(trim(implode(' | ', array_filter([$row['reason'] ?? '', $row['remarks'] ?? ''])))); ?></td>
                                             <td>
                                                 <?php if (($row['item_type'] ?? '') === 'semi_expendable'): ?>
-                                                    <a class="btn btn-outline-primary btn-sm" href="<?php echo h(base_url('modules/reports/semi_rrsp.php?return_id=' . (int) $row['id'])); ?>">Annex A.6 RRSP</a>
+                                                    <a class="btn btn-outline-primary btn-sm" href="<?php echo h(base_url('modules/reports/semi_rrsp.php?return_id=' . (int) $row['id'])); ?>">Receipt of Returned Semi-Expendable Property</a>
                                                 <?php elseif (($row['item_type'] ?? '') === 'equipment'): ?>
-                                                    <a class="btn btn-outline-primary btn-sm" href="<?php echo h(base_url('modules/reports/property_return_slip.php?return_id=' . (int) $row['id'])); ?>">Appendix 72 RRP</a>
+                                                    <a class="btn btn-outline-primary btn-sm" href="<?php echo h(base_url('modules/reports/property_return_slip.php?return_id=' . (int) $row['id'])); ?>">RRPE</a>
                                                 <?php else: ?>
                                                     <span class="text-muted">No form</span>
                                                 <?php endif; ?>
@@ -725,6 +1096,28 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <?php endif; ?>
                             </tbody>
                         </table>
+                    </div>
+                        </div>
+                        <div class="tab-pane fade" id="return-forms" role="tabpanel" aria-labelledby="return-forms-tab">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="return-form-card">
+                                        <div class="return-workspace-eyebrow">Annex 28</div>
+                                        <h6>Return and Receipt of Property/Equipment</h6>
+                                        <div class="text-muted small">Equipment return records use RRPE numbers in year-series format.</div>
+                                        <a class="btn btn-outline-primary btn-sm mt-3" href="<?php echo h(base_url('modules/reports/property_return_slip.php')); ?>">Open RRPE</a>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="return-form-card">
+                                        <div class="return-workspace-eyebrow">Annex A.6</div>
+                                        <h6>Receipt of Returned Semi-Expendable Property</h6>
+                                        <div class="text-muted small">Semi-expendable return records print through the RRSP report.</div>
+                                        <a class="btn btn-outline-primary btn-sm mt-3" href="<?php echo h(base_url('modules/reports/semi_rrsp.php')); ?>">Open RRSP</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -738,6 +1131,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var preview = document.getElementById('returnSelectionPreview');
     var countBadge = document.getElementById('returnSelectionCount');
     var emptySearch = document.getElementById('returnAssetPickerEmpty');
+    var sourceInput = document.getElementById('returnSourceType');
+    var legacyInput = document.getElementById('returnLegacyAssetId');
 
     if (!pickerList || !preview) {
         return;
@@ -745,6 +1140,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var checkboxes = Array.prototype.slice.call(pickerList.querySelectorAll('.return-picker-checkbox'));
     var items = Array.prototype.slice.call(pickerList.querySelectorAll('.return-picker-item'));
+    var legacyRadios = Array.prototype.slice.call(document.querySelectorAll('.return-legacy-radio'));
 
     function parseAsset(checkbox) {
         try {
@@ -769,7 +1165,41 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function selectedLegacyRadio() {
+        return legacyRadios.find(function (radio) {
+            return radio.checked;
+        }) || null;
+    }
+
+    function renderAssetCard(asset, sourceLabel) {
+        var typeLabel = asset.item_type === 'equipment' ? 'Equipment' : 'Semi-Expendable';
+        return '<div class="return-selection-card">'
+            + '<div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">'
+            + '<div class="fw-semibold">' + escapeHtml(asset.asset_label) + '</div>'
+            + '<span class="badge ' + (asset.item_type === 'equipment' ? 'badge-soft-info' : 'badge-soft-success') + '">' + escapeHtml(typeLabel) + '</span>'
+            + '</div>'
+            + '<div class="small text-muted mt-1">' + escapeHtml([asset.property_number, asset.serial_no, sourceLabel].filter(Boolean).join(' | ')) + '</div>'
+            + '<div class="small text-muted">' + escapeHtml([asset.office_name, asset.accountable_person].filter(Boolean).join(' / ')) + '</div>'
+            + '<div class="return-selection-grid">'
+            + '<div><span class="return-selection-label">Document</span><strong>' + escapeHtml(asset.document_label || '-') + '</strong></div>'
+            + '<div><span class="return-selection-label">Brand / Model</span><strong>' + escapeHtml([asset.brand, asset.model].filter(Boolean).join(' / ') || '-') + '</strong></div>'
+            + '<div><span class="return-selection-label">Classification</span><strong>' + escapeHtml([asset.classification_family, asset.classification_name].filter(Boolean).join(' / ') || '-') + '</strong></div>'
+            + '</div>'
+            + '</div>';
+    }
+
     function renderPreview() {
+        var legacyRadio = selectedLegacyRadio();
+        if (legacyRadio) {
+            var legacyAsset = parseAsset(legacyRadio);
+            if (countBadge) {
+                countBadge.textContent = '1 selected';
+            }
+            preview.className = '';
+            preview.innerHTML = renderAssetCard(legacyAsset, 'Legacy');
+            return;
+        }
+
         var selected = selectedCheckboxes();
 
         items.forEach(function (item) {
@@ -788,21 +1218,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         var summaryCards = selected.slice(0, 3).map(function (checkbox) {
-            var asset = parseAsset(checkbox);
-            var typeLabel = asset.item_type === 'equipment' ? 'Equipment' : 'Semi-Expendable';
-            return '<div class="return-selection-card">'
-                + '<div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">'
-                + '<div class="fw-semibold">' + escapeHtml(asset.asset_label) + '</div>'
-                + '<span class="badge ' + (asset.item_type === 'equipment' ? 'badge-soft-info' : 'badge-soft-success') + '">' + escapeHtml(typeLabel) + '</span>'
-                + '</div>'
-                + '<div class="small text-muted mt-1">' + escapeHtml([asset.property_number, asset.serial_no].filter(Boolean).join(' | ')) + '</div>'
-                + '<div class="small text-muted">' + escapeHtml([asset.office_name, asset.accountable_person].filter(Boolean).join(' / ')) + '</div>'
-                + '<div class="return-selection-grid">'
-                + '<div><span class="return-selection-label">Document</span><strong>' + escapeHtml(asset.document_label || '-') + '</strong></div>'
-                + '<div><span class="return-selection-label">Brand / Model</span><strong>' + escapeHtml([asset.brand, asset.model].filter(Boolean).join(' / ') || '-') + '</strong></div>'
-                + '<div><span class="return-selection-label">Classification</span><strong>' + escapeHtml([asset.classification_family, asset.classification_name].filter(Boolean).join(' / ') || '-') + '</strong></div>'
-                + '</div>'
-                + '</div>';
+            return renderAssetCard(parseAsset(checkbox), 'System');
         }).join('');
 
         if (selected.length > 3) {
@@ -836,7 +1252,45 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     checkboxes.forEach(function (checkbox) {
-        checkbox.addEventListener('change', renderPreview);
+        checkbox.addEventListener('change', function () {
+            if (checkbox.checked) {
+                legacyRadios.forEach(function (radio) {
+                    radio.checked = false;
+                    radio.closest('.return-picker-item')?.classList.remove('is-selected');
+                });
+                if (sourceInput) {
+                    sourceInput.value = 'system';
+                }
+                if (legacyInput) {
+                    legacyInput.value = '';
+                }
+            }
+            renderPreview();
+        });
+    });
+
+    legacyRadios.forEach(function (radio) {
+        radio.addEventListener('change', function () {
+            if (!radio.checked) {
+                return;
+            }
+            checkboxes.forEach(function (checkbox) {
+                checkbox.checked = false;
+            });
+            legacyRadios.forEach(function (other) {
+                var item = other.closest('.return-picker-item');
+                if (item) {
+                    item.classList.toggle('is-selected', other.checked);
+                }
+            });
+            if (sourceInput) {
+                sourceInput.value = 'legacy';
+            }
+            if (legacyInput) {
+                legacyInput.value = radio.value;
+            }
+            renderPreview();
+        });
     });
 
     if (searchInput) {

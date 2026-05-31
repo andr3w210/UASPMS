@@ -19,22 +19,24 @@ if (!$db) {
             rt.id,
             rt.system_reference,
             rt.return_date,
-            did.property_number,
-            poi.item_description,
+            COALESCE(did.property_number, la.property_number) AS property_number,
+            COALESCE(poi.item_description, la.item_description) AS item_description,
             c.classification_name,
             c.classification_family,
             f.fund_code,
             f.fund_source
         FROM returns rt
-        INNER JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
-        INNER JOIN distribution_items di ON di.id = did.distribution_item_id
-        INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
-        INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id AND poi.item_type = 'semi_expendable'
-        INNER JOIN receivings r ON r.id = ri.receiving_id
-        INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
-        LEFT JOIN funds f ON f.id = po.fund_id
-        LEFT JOIN classifications c ON c.id = poi.classification_id
+        LEFT JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
+        LEFT JOIN legacy_assets la ON la.id = rt.legacy_asset_id
+        LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
+        LEFT JOIN receiving_items ri ON ri.id = di.receiving_item_id
+        LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+        LEFT JOIN receivings r ON r.id = ri.receiving_id
+        LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+        LEFT JOIN funds f ON f.id = COALESCE(po.fund_id, la.fund_id)
+        LEFT JOIN classifications c ON c.id = COALESCE(poi.classification_id, la.classification_id)
         WHERE rt.status = 'posted'
+          AND COALESCE(poi.item_type, la.item_type) = 'semi_expendable'
         ORDER BY rt.return_date DESC, rt.id DESC
     ";
     $res = $db->query($listSql);
@@ -50,9 +52,9 @@ if (!$db) {
                 rt.return_date,
                 rt.reason,
                 rt.remarks,
-                did.property_number,
-                d.document_no AS ics_no,
-                poi.item_description,
+                COALESCE(did.property_number, la.property_number) AS property_number,
+                COALESCE(d.document_no, la.system_reference, 'Beginning Balance') AS ics_no,
+                COALESCE(poi.item_description, la.item_description) AS item_description,
                 c.classification_name,
                 c.classification_family,
                 f.fund_code,
@@ -63,19 +65,21 @@ if (!$db) {
                 e.last_name,
                 e.suffix_name
             FROM returns rt
-            INNER JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
-            INNER JOIN distribution_items di ON di.id = did.distribution_item_id
-            INNER JOIN distributions d ON d.id = di.distribution_id
-            INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
-            INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id AND poi.item_type = 'semi_expendable'
-            INNER JOIN receivings r ON r.id = ri.receiving_id
-            INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
-            LEFT JOIN funds f ON f.id = po.fund_id
-            LEFT JOIN classifications c ON c.id = poi.classification_id
-            LEFT JOIN offices o ON o.id = d.office_id
-            LEFT JOIN employees e ON e.id = d.employee_id
+            LEFT JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
+            LEFT JOIN legacy_assets la ON la.id = rt.legacy_asset_id
+            LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
+            LEFT JOIN distributions d ON d.id = di.distribution_id
+            LEFT JOIN receiving_items ri ON ri.id = di.receiving_item_id
+            LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+            LEFT JOIN receivings r ON r.id = ri.receiving_id
+            LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+            LEFT JOIN funds f ON f.id = COALESCE(po.fund_id, la.fund_id)
+            LEFT JOIN classifications c ON c.id = COALESCE(poi.classification_id, la.classification_id)
+            LEFT JOIN offices o ON o.id = rt.office_id
+            LEFT JOIN employees e ON e.id = rt.employee_id
             WHERE rt.id = ?
               AND rt.status = 'posted'
+              AND COALESCE(poi.item_type, la.item_type) = 'semi_expendable'
             LIMIT 1
         ");
         if ($stmt) {

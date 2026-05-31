@@ -7,6 +7,7 @@ $page_title = 'Inventory Count Workspace';
 $flash = get_flash();
 $errors = [];
 $offices = [];
+$locationOptions = [];
 $sessions = [];
 $selectedSession = null;
 $sessionItems = [];
@@ -80,6 +81,33 @@ function inventory_parse_coordinate(string $value, float $min, float $max): ?flo
     return round($number, 7);
 }
 
+function inventory_location_code_from_name(mysqli $db, string $locationName): string
+{
+    $base = strtoupper(trim((string) preg_replace('/[^A-Za-z0-9]+/', '-', $locationName), '-'));
+    if ($base === '') {
+        $base = 'LOC';
+    }
+    $base = substr($base, 0, 42);
+    $code = $base;
+    $suffix = 1;
+
+    while (true) {
+        $stmt = $db->prepare("SELECT id FROM locations WHERE location_code = ? LIMIT 1");
+        if (!$stmt) {
+            return $code;
+        }
+        $stmt->bind_param('s', $code);
+        $stmt->execute();
+        $duplicate = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$duplicate) {
+            return $code;
+        }
+        $suffix++;
+        $code = substr($base, 0, 42 - strlen((string) $suffix)) . '-' . $suffix;
+    }
+}
+
 function extract_scanned_property_reference(string $rawValue): string
 {
     $rawValue = trim($rawValue);
@@ -109,11 +137,71 @@ if ($db) {
         $offices = $officeResult->fetch_all(MYSQLI_ASSOC);
     }
 
+    $locationResult = $db->query("SELECT id, location_code, location_name FROM locations WHERE is_active = 1 ORDER BY location_name ASC");
+    if ($locationResult instanceof mysqli_result) {
+        $locationOptions = $locationResult->fetch_all(MYSQLI_ASSOC);
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = trim((string) ($_POST['action'] ?? ''));
 
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
+        }
+
+        if (empty($errors) && $action === 'quick_add_location') {
+            $locationName = trim((string) ($_POST['location_name'] ?? ''));
+            $locationDescription = trim((string) ($_POST['description'] ?? ''));
+
+            if ($locationName === '') {
+                $errors[] = 'Location name is required.';
+            }
+
+            if (empty($errors)) {
+                $dupStmt = $db->prepare("SELECT id FROM locations WHERE location_name = ? LIMIT 1");
+                if ($dupStmt) {
+                    $dupStmt->bind_param('s', $locationName);
+                    $dupStmt->execute();
+                    $duplicateLocation = $dupStmt->get_result()->fetch_assoc();
+                    $dupStmt->close();
+                    if ($duplicateLocation) {
+                        $errors[] = 'Location name already exists.';
+                    }
+                }
+            }
+
+            if (empty($errors)) {
+                $locationCode = inventory_location_code_from_name($db, $locationName);
+                $stmt = $db->prepare("INSERT INTO locations (location_code, location_name, description, is_active, created_by) VALUES (?, ?, ?, 1, ?)");
+                if ($stmt) {
+                    $userId = (int) current_user_id();
+                    $stmt->bind_param('sssi', $locationCode, $locationName, $locationDescription, $userId);
+                    $saved = $stmt->execute();
+                    $newLocationId = (int) $stmt->insert_id;
+                    $stmt->close();
+
+                    if ($saved) {
+                        write_audit_log($db, [
+                            'action' => 'insert',
+                            'table_name' => 'locations',
+                            'record_id' => $newLocationId,
+                            'module_name' => 'inventory_counts',
+                            'record_type' => 'location',
+                            'action_name' => 'quick_add_location',
+                            'description' => 'Quick-added location from inventory count workspace.',
+                            'new_values' => [
+                                'location_code' => $locationCode,
+                                'location_name' => $locationName,
+                                'description' => $locationDescription,
+                            ],
+                        ]);
+                        set_flash('success', 'Location added.');
+                        redirect('modules/property/inventory_counts.php' . build_inventory_count_url(['scan_feedback' => '', 'highlight_item_id' => '']));
+                    }
+                }
+
+                $errors[] = 'Unable to add the location.';
+            }
         }
 
         if (empty($errors) && $action === 'create_session') {
@@ -170,7 +258,7 @@ if ($db) {
                             did.model,
                             did.serial_no,
                             COALESCE(curr_o.id, d.office_id) AS office_id,
-                            COALESCE(curr_e.id, d.employee_id) AS employee_id,
+                            COALESCE(curr_e.id, base_e.id) AS employee_id,
                             TRIM(CONCAT_WS(' ',
                                 COALESCE(curr_e.first_name, base_e.first_name),
                                 COALESCE(curr_e.middle_name, base_e.middle_name),
@@ -212,7 +300,7 @@ if ($db) {
                             la.model,
                             la.serial_no,
                             la.office_id,
-                            la.employee_id,
+                            e.id AS employee_id,
                             TRIM(CONCAT_WS(' ', e.first_name, e.middle_name, e.last_name, e.suffix_name)) AS accountable_name
                         FROM legacy_assets la
                         LEFT JOIN classifications c ON c.id = la.classification_id
@@ -317,19 +405,31 @@ if ($db) {
             $itemId = (int) ($_POST['item_id'] ?? 0);
             $newStatus = normalize_inventory_count_status((string) ($_POST['status'] ?? 'pending'));
             $remarks = trim((string) ($_POST['remarks'] ?? ''));
-            $manualLocation = trim((string) ($_POST['manual_location'] ?? ''));
-            $locationLatRaw = trim((string) ($_POST['location_lat'] ?? ''));
-            $locationLngRaw = trim((string) ($_POST['location_lng'] ?? ''));
-            $locationLat = inventory_parse_coordinate($locationLatRaw, -90, 90);
-            $locationLng = inventory_parse_coordinate($locationLngRaw, -180, 180);
+            $locationIdInput = (int) ($_POST['location_id'] ?? 0);
+            $manualLocation = '';
+            $locationLat = null;
+            $locationLng = null;
 
             if ($sessionId <= 0 || $itemId <= 0) {
                 $errors[] = 'Invalid count item update.';
-            } elseif ($locationLatRaw !== '' && $locationLat === null) {
-                $errors[] = 'Latitude must be a number between -90 and 90.';
-            } elseif ($locationLngRaw !== '' && $locationLng === null) {
-                $errors[] = 'Longitude must be a number between -180 and 180.';
             } else {
+                if ($locationIdInput > 0) {
+                    $locationStmt = $db->prepare("SELECT location_name FROM locations WHERE id = ? AND is_active = 1 LIMIT 1");
+                    if ($locationStmt) {
+                        $locationStmt->bind_param('i', $locationIdInput);
+                        $locationStmt->execute();
+                        $locationRow = $locationStmt->get_result()->fetch_assoc();
+                        $locationStmt->close();
+                        if (!$locationRow) {
+                            $errors[] = 'Selected location is invalid.';
+                        } else {
+                            $manualLocation = trim((string) ($locationRow['location_name'] ?? ''));
+                        }
+                    }
+                }
+            }
+
+            if (empty($errors)) {
                 $lookupStmt = $db->prepare("
                     SELECT ici.id, ici.status, ici.source_type, ici.distribution_item_detail_id, ici.legacy_asset_id, ics.status AS session_status
                     FROM inventory_count_items ici
@@ -377,7 +477,8 @@ if ($db) {
                                         (int) $userId,
                                         'inventory_count_update',
                                         $sessionId,
-                                        $itemId
+                                        $itemId,
+                                        $locationIdInput
                                     );
                                 }
 
@@ -392,6 +493,7 @@ if ($db) {
                                     'new_values' => [
                                         'status' => $newStatus,
                                         'remarks' => $remarks,
+                                        'location_id' => $locationIdInput,
                                         'manual_location' => $manualLocation,
                                         'location_lat' => $locationLat,
                                         'location_lng' => $locationLng,
@@ -742,14 +844,23 @@ if ($db) {
             $itemsSql = "
                 SELECT
                     ici.*,
-                    COALESCE(did.manual_location, la.manual_location) AS asset_manual_location,
-                    COALESCE(did.location_lat, la.location_lat) AS asset_location_lat,
-                    COALESCE(did.location_lng, la.location_lng) AS asset_location_lng,
+                    COALESCE(did.location_id, la.location_id) AS asset_location_id,
+                    COALESCE(did_loc.location_name, la_loc.location_name, did.manual_location, la.manual_location) AS asset_manual_location,
+                    CASE
+                        WHEN COALESCE(did.location_id, la.location_id) IS NULL THEN COALESCE(did.location_lat, la.location_lat)
+                        ELSE NULL
+                    END AS asset_location_lat,
+                    CASE
+                        WHEN COALESCE(did.location_id, la.location_id) IS NULL THEN COALESCE(did.location_lng, la.location_lng)
+                        ELSE NULL
+                    END AS asset_location_lng,
                     o.office_name
                 FROM inventory_count_items ici
                 LEFT JOIN offices o ON o.id = ici.office_id
                 LEFT JOIN distribution_item_details did ON did.id = ici.distribution_item_detail_id AND ici.source_type = 'system'
+                LEFT JOIN locations did_loc ON did_loc.id = did.location_id
                 LEFT JOIN legacy_assets la ON la.id = ici.legacy_asset_id AND ici.source_type = 'legacy'
+                LEFT JOIN locations la_loc ON la_loc.id = la.location_id
                 WHERE ici.session_id = ?
             ";
             $itemTypes = 'i';
@@ -1134,14 +1245,26 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         <div class="col-md-2 d-grid">
                                                             <button type="submit" class="btn btn-sm btn-primary">Save</button>
                                                         </div>
-                                                        <div class="col-md-6">
-                                                            <input type="text" class="form-control form-control-sm" name="manual_location" value="<?php echo h((string) ($item['asset_manual_location'] ?? '')); ?>" placeholder="Manual location (building/floor/room)">
-                                                        </div>
-                                                        <div class="col-md-3">
-                                                            <input type="number" class="form-control form-control-sm" min="-90" max="90" step="0.0000001" name="location_lat" value="<?php echo h((string) ($item['asset_location_lat'] ?? '')); ?>" placeholder="Lat">
-                                                        </div>
-                                                        <div class="col-md-3">
-                                                            <input type="number" class="form-control form-control-sm" min="-180" max="180" step="0.0000001" name="location_lng" value="<?php echo h((string) ($item['asset_location_lng'] ?? '')); ?>" placeholder="Lng">
+                                                        <div class="col-md-12">
+                                                            <div class="input-group input-group-sm">
+                                                                <select class="form-select" name="location_id">
+                                                                    <option value="0">No location selected</option>
+                                                                    <?php foreach ($locationOptions as $locationOption): ?>
+                                                                        <?php
+                                                                        $locationOptionId = (int) ($locationOption['id'] ?? 0);
+                                                                        $locationLabel = trim((string) ($locationOption['location_name'] ?? ''));
+                                                                        $locationCode = trim((string) ($locationOption['location_code'] ?? ''));
+                                                                        if ($locationCode !== '') {
+                                                                            $locationLabel .= ' (' . $locationCode . ')';
+                                                                        }
+                                                                        ?>
+                                                                        <option value="<?php echo $locationOptionId; ?>" <?php echo $locationOptionId === (int) ($item['asset_location_id'] ?? 0) ? 'selected' : ''; ?>>
+                                                                            <?php echo h($locationLabel); ?>
+                                                                        </option>
+                                                                    <?php endforeach; ?>
+                                                                </select>
+                                                                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#quickAddLocationModal">Add</button>
+                                                            </div>
                                                         </div>
                                                     </form>
                                                 <?php else: ?>
@@ -1170,6 +1293,35 @@ require_once __DIR__ . '/../../includes/topbar.php';
     </div>
 </div>
 </section>
+<div class="modal fade" id="quickAddLocationModal" tabindex="-1" aria-labelledby="quickAddLocationModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="quickAddLocationModalLabel">Quick Add Location</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                    <input type="hidden" name="action" value="quick_add_location">
+                    <div class="mb-3">
+                        <label class="form-label">Location Name</label>
+                        <input type="text" class="form-control" name="location_name" maxlength="180" required>
+                        <div class="form-text">Location code is generated automatically from the name.</div>
+                    </div>
+                    <div>
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" name="description" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Location</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     var scanInput = document.getElementById('scan_value');

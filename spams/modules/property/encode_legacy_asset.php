@@ -36,6 +36,40 @@ $form = [
     'remarks' => '',
 ];
 
+function legacy_asset_temp_property_number(mysqli $db, string $officeCode = ''): string
+{
+    $officeCode = strtoupper(trim($officeCode));
+    $officeCode = preg_replace('/[^A-Z0-9]/', '', $officeCode) ?? '';
+    if ($officeCode === '') {
+        $officeCode = 'GEN';
+    }
+
+    $prefix = 'TEMP-' . $officeCode . '-' . date('Y') . '-';
+    $nextSeq = 1;
+
+    $stmt = $db->prepare(
+        "SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(property_number, '-', -1) AS UNSIGNED)), 0) AS current_value
+         FROM legacy_assets
+         WHERE property_number LIKE ?"
+    );
+    if ($stmt) {
+        $pattern = $prefix . '%';
+        $stmt->bind_param('s', $pattern);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        $nextSeq = ((int) ($row['current_value'] ?? 0)) + 1;
+    }
+
+    do {
+        $propertyNumber = $prefix . str_pad((string) $nextSeq, 4, '0', STR_PAD_LEFT);
+        $conflict = asset_identifier_conflict($db, 'property_number', $propertyNumber);
+        $nextSeq++;
+    } while ($conflict);
+
+    return $propertyNumber;
+}
+
 if ($db) {
     ensure_legacy_assets_fund_column($db);
 
@@ -45,7 +79,7 @@ if ($db) {
     if ($res instanceof mysqli_result) { $employees = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, office_id, code, description FROM responsibility_codes WHERE is_active = 1 ORDER BY code ASC");
     if ($res instanceof mysqli_result) { $responsibilityCodes = $res->fetch_all(MYSQLI_ASSOC); }
-    $res = $db->query("SELECT id, classification_name, classification_family FROM classifications WHERE is_active = 1 ORDER BY classification_family ASC, classification_name ASC");
+    $res = $db->query("SELECT id, classification_name, classification_family, account_code_id FROM classifications WHERE is_active = 1 ORDER BY classification_family ASC, classification_name ASC");
     if ($res instanceof mysqli_result) { $classifications = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC");
     if ($res instanceof mysqli_result) { $accountCodes = $res->fetch_all(MYSQLI_ASSOC); }
@@ -69,13 +103,12 @@ if ($db) {
         if ($form['item_description'] === '') { add_validation_error($errors, 'Description is required.'); }
         if (!is_allowed_value($form['item_type'], ['semi_expendable', 'equipment'])) { add_validation_error($errors, 'Inventory type must be semi-expendable or equipment.'); }
         if ($form['quantity'] === '' || !ctype_digit($form['quantity']) || (int) $form['quantity'] <= 0) { add_validation_error($errors, 'Quantity is required.'); }
-        if ($form['unit_cost'] === '' || !is_numeric($form['unit_cost']) || (float) $form['unit_cost'] <= 0) { add_validation_error($errors, 'Unit cost must be greater than zero.'); }
-        if ($form['acquisition_date'] === '') {
-            add_validation_error($errors, 'Acquisition date is required.');
-        } elseif (!is_valid_date_string($form['acquisition_date'])) {
+        if ($form['unit_cost'] !== '' && (!is_numeric($form['unit_cost']) || (float) $form['unit_cost'] < 0)) {
+            add_validation_error($errors, 'Unit cost must be a valid amount or left blank if unknown.');
+        }
+        if ($form['acquisition_date'] !== '' && !is_valid_date_string($form['acquisition_date'])) {
             add_validation_error($errors, 'Acquisition date format is invalid.');
         }
-        if ($form['fund_id'] === '') { add_validation_error($errors, 'Fund is required to generate the property number.'); }
         if ($form['account_code_id'] === '') { add_validation_error($errors, 'Account code is required to generate the property number.'); }
         if (!is_allowed_value($form['condition_status'], ['good', 'serviceable', 'repair_needed', 'unserviceable'])) {
             add_validation_error($errors, 'Condition status is invalid.');
@@ -109,6 +142,13 @@ if ($db) {
         $officeIdValue = $form['office_id'] !== '' ? (int) $form['office_id'] : 0;
         $employeeIdValue = $form['employee_id'] !== '' ? (int) $form['employee_id'] : 0;
         $responsibilityCodeIdValue = $form['responsibility_code_id'] !== '' ? (int) $form['responsibility_code_id'] : 0;
+
+        if ($officeIdValue <= 0) {
+            add_validation_error($errors, 'Office assignment is required for PAR/ICS printing.');
+        }
+        if ($employeeIdValue <= 0) {
+            add_validation_error($errors, 'Accountable employee is required for PAR/ICS printing.');
+        }
 
         if ($officeIdValue > 0) {
             $officeExists = false;
@@ -153,21 +193,6 @@ if ($db) {
             }
         }
 
-        if ($form['classification_id'] !== '' && $form['account_code_id'] !== '') {
-            $classStmt = $db->prepare("SELECT account_code_id FROM classifications WHERE id = ? LIMIT 1");
-            if ($classStmt) {
-                $classificationCheckId = (int) $form['classification_id'];
-                $classStmt->bind_param('i', $classificationCheckId);
-                $classStmt->execute();
-                $classRow = $classStmt->get_result()->fetch_assoc();
-                $classStmt->close();
-                $classAccountId = (int) ($classRow['account_code_id'] ?? 0);
-                if ($classAccountId > 0 && $classAccountId !== (int) $form['account_code_id']) {
-                    add_validation_error($errors, 'Classification does not match the selected account code.');
-                }
-            }
-        }
-
         $officeCodeValue = '';
         foreach ($offices as $officeRow) {
             if ($form['office_id'] !== '' && (int) $officeRow['id'] === (int) $form['office_id']) {
@@ -185,7 +210,14 @@ if ($db) {
         }
 
         if (!$errors) {
-            $form['property_number'] = generate_property_number($db, $yearValue, $fundCodeValue, $accountCodeValue, $officeCodeValue);
+            $hasOfficialNumberInputs = $form['acquisition_date'] !== ''
+                && $form['fund_id'] !== ''
+                && $fundCodeValue !== ''
+                && $accountCodeValue !== '';
+
+            $form['property_number'] = $hasOfficialNumberInputs
+                ? generate_property_number($db, $yearValue, $fundCodeValue, $accountCodeValue, $officeCodeValue)
+                : legacy_asset_temp_property_number($db, $officeCodeValue);
         }
 
         if (!$errors) {
@@ -215,10 +247,25 @@ if ($db) {
             $employeeId = $form['employee_id'] !== '' ? (int) $form['employee_id'] : null;
             $rcId = $form['responsibility_code_id'] !== '' ? (int) $form['responsibility_code_id'] : null;
             $quantity = (int) $form['quantity'];
-            $unitCost = (float) $form['unit_cost'];
+            $unitCost = $form['unit_cost'] !== '' ? (float) $form['unit_cost'] : 0.0;
             $acquisitionCost = round($quantity * $unitCost, 2);
+            $itemName = '';
             $brandName = '';
             $modelName = '';
+            foreach ($classifications as $classificationRow) {
+                if ((int) ($classificationRow['id'] ?? 0) === (int) $classificationId) {
+                    $itemName = trim((string) ($classificationRow['classification_name'] ?? ''));
+                    break;
+                }
+            }
+            if ($itemName === '') {
+                foreach ($accountCodes as $accountCodeRow) {
+                    if ((int) ($accountCodeRow['id'] ?? 0) === (int) $accountCodeId) {
+                        $itemName = trim((string) ($accountCodeRow['account_name'] ?? ''));
+                        break;
+                    }
+                }
+            }
             foreach ($brands as $brandRow) {
                 if ((int) $brandRow['id'] === (int) $brandId) { $brandName = (string) $brandRow['brand_name']; break; }
             }
@@ -263,6 +310,15 @@ if ($db) {
                 $legacyAssetId = (int) $stmt->insert_id;
                 $stmt->close();
 
+                if ($legacyAssetId > 0 && schema_has_column($db, 'legacy_assets', 'item_name')) {
+                    $itemNameStmt = $db->prepare("UPDATE legacy_assets SET item_name = NULLIF(?, '') WHERE id = ?");
+                    if ($itemNameStmt) {
+                        $itemNameStmt->bind_param('si', $itemName, $legacyAssetId);
+                        $itemNameStmt->execute();
+                        $itemNameStmt->close();
+                    }
+                }
+
                 write_audit_log($db, [
                     'action' => 'insert',
                     'table_name' => 'legacy_assets',
@@ -274,8 +330,10 @@ if ($db) {
                         'system_reference' => $systemReference,
                         'property_number' => $form['property_number'],
                         'item_type' => $form['item_type'],
+                        'item_name' => $itemName,
                         'item_description' => $form['item_description'],
                         'fund_id' => $fundId,
+                        'acquisition_date' => $form['acquisition_date'],
                         'office_id' => $officeId,
                         'employee_id' => $employeeId,
                         'responsibility_code_id' => $rcId,
@@ -305,7 +363,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div>
                         <div class="text-uppercase small text-muted fw-semibold">Beginning Balance Encoding</div>
                         <h4 class="mb-1">Encode Legacy Asset</h4>
-                        <div class="small text-muted">Record an existing asset already owned by the university. Property number is auto-generated on save.</div>
+                        <div class="small text-muted">Record an existing asset already owned by the university. If date or fund is still unknown, the system saves a temporary property number first.</div>
                     </div>
                     <a href="<?php echo h(base_url('modules/property/legacy_assets.php')); ?>" class="btn btn-outline-secondary">
                         <i class="bi bi-arrow-left me-1"></i>Back to List
@@ -330,7 +388,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-4">
                             <label class="form-label">Property Number</label>
                             <input type="text" class="form-control" name="property_number" value="<?php echo h($form['property_number']); ?>" readonly>
-                            <div class="form-text">Auto-generated on save from acquisition year, account code, and responsibility code.</div>
+                            <div class="form-text">Official number is generated when date and fund are complete. Otherwise a TEMP number is assigned.</div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Inventory Type</label>
@@ -346,6 +404,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-4">
                             <label class="form-label">Acquisition Date</label>
                             <input type="date" class="form-control" name="acquisition_date" value="<?php echo h($form['acquisition_date']); ?>">
+                            <div class="form-text">Leave blank if still for verification.</div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Quantity</label>
@@ -353,7 +412,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Unit Cost</label>
-                            <input type="number" step="0.01" class="form-control" name="unit_cost" value="<?php echo h($form['unit_cost']); ?>" required>
+                            <input type="number" min="0" step="0.01" class="form-control" name="unit_cost" value="<?php echo h($form['unit_cost']); ?>" placeholder="Leave blank if unknown">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Fund</label>
@@ -365,6 +424,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            <div class="form-text">Leave blank if still for verification.</div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Supplier</label>
@@ -390,13 +450,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <select name="classification_id" class="form-select" id="classification_id">
                                     <option value="">Select classification</option>
                                     <?php foreach ($classifications as $classification): ?>
-                                        <option value="<?php echo (int) $classification['id']; ?>" <?php echo $form['classification_id'] === (string) $classification['id'] ? 'selected' : ''; ?>>
+                                        <option value="<?php echo (int) $classification['id']; ?>" <?php echo $form['classification_id'] === (string) $classification['id'] ? 'selected' : ''; ?> data-account-code-id="<?php echo (int) ($classification['account_code_id'] ?? 0); ?>">
                                             <?php echo h(trim(($classification['classification_family'] ?? '') . ' / ' . ($classification['classification_name'] ?? ''))); ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
                                 <button type="button" class="btn btn-outline-secondary qa-trigger-btn" title="Add new classification" aria-label="Add new classification" data-qa-modal="qaClassificationModal"><i class="bi bi-plus-lg"></i></button>
                             </div>
+                            <div class="form-text">Select the actual item classification, such as Airconditioner, Chair, or Printer.</div>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Account Code <span class="text-danger">*</span></label>
@@ -446,9 +507,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="small text-uppercase text-muted fw-semibold">Assignment</div>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Office</label>
+                            <label class="form-label">Office <span class="text-danger">*</span></label>
                             <div class="input-group qa-field-group">
-                                <select name="office_id" class="form-select" id="office_id" data-placeholder="Select office">
+                                <select name="office_id" class="form-select" id="office_id" data-placeholder="Select office" required>
                                     <option value="">Select office</option>
                                     <?php foreach ($offices as $office): ?>
                                         <option value="<?php echo (int) $office['id']; ?>" <?php echo $form['office_id'] === (string) $office['id'] ? 'selected' : ''; ?>><?php echo h($office['office_name']); ?></option>
@@ -458,9 +519,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Accountable Employee</label>
+                            <label class="form-label">Accountable Employee <span class="text-danger">*</span></label>
                             <div class="input-group qa-field-group">
-                                <select name="employee_id" class="form-select" id="employee_id" data-placeholder="Select employee">
+                                <select name="employee_id" class="form-select" id="employee_id" data-placeholder="Select employee" required>
                                     <option value="">Select employee</option>
                                     <?php foreach ($employees as $employee): ?>
                                         <option value="<?php echo (int) $employee['id']; ?>" <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?> data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>">

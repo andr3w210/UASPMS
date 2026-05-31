@@ -37,7 +37,8 @@ function property_qr_looks_like_property_number(string $value): bool
         return false;
     }
 
-    return (bool) preg_match('/^\d{4}-\d{2}-\d{2}\.\d{3}-\d+$/', $value);
+    // Accept legacy trailing parentheses like "(...)", e.g. 2018-01-05.020-001(2)
+    return (bool) preg_match('/^\d{4}-\d{2}-\d{2}\.\d{3}-\d+(?:\(\d+\))?$/', $value);
 }
 
 function property_qr_looks_like_serial_number(string $value): bool
@@ -215,15 +216,47 @@ function property_qr_parse_payload(string $raw): array
     }
 
     if ($payload['property_number'] === '' && $payload['serial_number'] === '' && strpos($raw, '|') !== false) {
-        $parts = preg_split('/\|+/', $raw) ?: [];
-        if (count($parts) >= 2) {
-            $first = property_qr_normalize_scan_text((string) ($parts[0] ?? ''));
-            $second = property_qr_normalize_scan_text((string) ($parts[1] ?? ''));
-            if ($first !== '' && $second !== '') {
+        // Use a non-collapsing split so empty segments are preserved (legacy QR uses empty placeholders).
+        $parts = array_map('property_qr_normalize_scan_text', preg_split('/\|/', $raw) ?: []);
+        if (count($parts) >= 1) {
+            $first = (string) ($parts[0] ?? '');
+
+            // Prefer the legacy positional serial (index 3) when present and looks like a serial.
+            $candidatePart3 = (string) ($parts[3] ?? '');
+
+            // Find the first non-empty part after the first as a fallback.
+            $firstNonEmptyAfterFirst = '';
+            for ($i = 1; $i < count($parts); $i++) {
+                if ($parts[$i] !== '') {
+                    $firstNonEmptyAfterFirst = $parts[$i];
+                    break;
+                }
+            }
+
+            if ($first !== '' && property_qr_looks_like_property_number($first)) {
                 $payload['property_number'] = $first;
-                $payload['serial_number'] = $second;
+            }
+
+            if ($candidatePart3 !== '' && property_qr_looks_like_serial_number($candidatePart3)) {
+                $payload['serial_number'] = $candidatePart3;
+            } elseif ($firstNonEmptyAfterFirst !== '' && property_qr_looks_like_serial_number($firstNonEmptyAfterFirst)) {
+                $payload['serial_number'] = $firstNonEmptyAfterFirst;
+            }
+
+            // As a last resort, if we still have no serial but have a non-empty second part, assign it.
+            if ($payload['serial_number'] === '' && ($parts[1] ?? '') !== '') {
+                $maybe = (string) ($parts[1] ?? '');
+                if ($maybe !== '') {
+                    $payload['serial_number'] = $maybe;
+                }
             }
         }
+    }
+
+    // Normalize property number: strip simple trailing parentheses like (2)
+    if ($payload['property_number'] !== '') {
+        $payload['property_number'] = preg_replace('/\(\d+\)$/', '', $payload['property_number']);
+        $payload['property_number'] = trim($payload['property_number']);
     }
 
     if ($payload['property_number'] === '' && strpos($raw, '|') !== false) {
