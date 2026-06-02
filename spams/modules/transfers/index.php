@@ -81,6 +81,111 @@ function transfer_name(array $row, string $prefix = ''): string
     ])));
 }
 
+function transfer_clean_office_suffix(string $officeCode): string
+{
+    $suffix = strtoupper(trim($officeCode));
+    $suffix = preg_replace('/[^A-Z0-9]/', '', $suffix) ?? '';
+    return $suffix !== '' ? $suffix : 'GEN';
+}
+
+function transfer_force_office_suffix(string $propertyNumber, string $toOfficeCode): string
+{
+    $propertyNumber = trim($propertyNumber);
+    $toOfficeCode = transfer_clean_office_suffix($toOfficeCode);
+    if ($propertyNumber === '' || $toOfficeCode === '') {
+        return $propertyNumber;
+    }
+
+    if (preg_match('/-([A-Z0-9]{2,12})$/i', $propertyNumber)) {
+        return (string) preg_replace('/-([A-Z0-9]{2,12})$/i', '-' . strtoupper($toOfficeCode), $propertyNumber, 1);
+    }
+
+    return $propertyNumber;
+}
+
+function transfer_office_code(array $offices, int $officeId): string
+{
+    if ($officeId <= 0) {
+        return '';
+    }
+
+    foreach ($offices as $office) {
+        if ((int) ($office['id'] ?? 0) === $officeId) {
+            return trim((string) ($office['office_code'] ?? ''));
+        }
+    }
+
+    return '';
+}
+
+function transfer_sync_system_property_number(mysqli $db, int $detailId, string $propertyNumber): bool
+{
+    $syncTargets = [
+        ['table' => 'rpcppe_batch_items', 'id_column' => 'distribution_item_detail_id'],
+        ['table' => 'inventory_count_items', 'id_column' => 'distribution_item_detail_id'],
+        ['table' => 'asset_transfers', 'id_column' => 'distribution_item_detail_id'],
+        ['table' => 'transfer_batch_items', 'id_column' => 'distribution_item_detail_id'],
+    ];
+
+    foreach ($syncTargets as $target) {
+        $table = $target['table'];
+        $idColumn = $target['id_column'];
+        if (
+            !schema_has_column($db, $table, 'property_number')
+            || !schema_has_column($db, $table, $idColumn)
+        ) {
+            continue;
+        }
+
+        $stmt = $db->prepare("UPDATE {$table} SET property_number = ? WHERE {$idColumn} = ?");
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('si', $propertyNumber, $detailId);
+        $ok = $stmt->execute();
+        $stmt->close();
+        if (!$ok) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function transfer_sync_legacy_property_number(mysqli $db, int $legacyId, string $propertyNumber): bool
+{
+    $syncTargets = [
+        ['table' => 'rpcppe_batch_items', 'id_column' => 'legacy_asset_id'],
+        ['table' => 'inventory_count_items', 'id_column' => 'legacy_asset_id'],
+        ['table' => 'asset_transfers', 'id_column' => 'legacy_asset_id'],
+        ['table' => 'transfer_batch_items', 'id_column' => 'legacy_asset_id'],
+    ];
+
+    foreach ($syncTargets as $target) {
+        $table = $target['table'];
+        $idColumn = $target['id_column'];
+        if (
+            !schema_has_column($db, $table, 'property_number')
+            || !schema_has_column($db, $table, $idColumn)
+        ) {
+            continue;
+        }
+
+        $stmt = $db->prepare("UPDATE {$table} SET property_number = ? WHERE {$idColumn} = ?");
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('si', $propertyNumber, $legacyId);
+        $ok = $stmt->execute();
+        $stmt->close();
+        if (!$ok) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 function transfer_employee_is_active(array $employees, int $employeeId): bool
 {
     foreach ($employees as $employee) {
@@ -216,13 +321,14 @@ function transfer_post_asset(
     string $reason,
     string $remarks,
     int $userId,
-    ?int $batchId = null
+    ?int $batchId = null,
+    string $toOfficeCode = ''
 ): int {
     $ref = next_module_code($db, 'transfers');
     $sourceType = (string) ($asset['source_type'] ?? '');
     $distributionItemDetailId = $sourceType === 'system' ? (int) ($asset['source_id'] ?? 0) : 0;
     $legacyAssetId = $sourceType === 'legacy' ? (int) ($asset['source_id'] ?? 0) : 0;
-    $propertyNumber = (string) ($asset['property_number'] ?? '');
+    $propertyNumber = transfer_force_office_suffix((string) ($asset['property_number'] ?? ''), $toOfficeCode);
     $fromOfficeId = (int) ($asset['current_office_id'] ?? 0);
     $fromEmployeeId = (int) ($asset['current_employee_id'] ?? 0);
     $fromRcId = (int) ($asset['current_rc_id'] ?? 0);
@@ -248,17 +354,17 @@ function transfer_post_asset(
     $stmt->close();
 
     if ($sourceType === 'system') {
-        $stmt = $db->prepare("UPDATE distribution_item_details SET current_office_id = ?, current_employee_id = NULLIF(?,0), current_responsibility_code_id = NULLIF(?,0) WHERE id = ?");
+        $stmt = $db->prepare("UPDATE distribution_item_details SET property_number = ?, current_office_id = ?, current_employee_id = NULLIF(?,0), current_responsibility_code_id = NULLIF(?,0) WHERE id = ?");
         if (!$stmt) {
             throw new RuntimeException('Unable to prepare system accountability update.');
         }
-        $stmt->bind_param('iiii', $toOfficeId, $toEmployeeId, $toRcId, $distributionItemDetailId);
+        $stmt->bind_param('siiii', $propertyNumber, $toOfficeId, $toEmployeeId, $toRcId, $distributionItemDetailId);
     } else {
-        $stmt = $db->prepare("UPDATE legacy_assets SET office_id = ?, employee_id = NULLIF(?,0), responsibility_code_id = NULLIF(?,0) WHERE id = ?");
+        $stmt = $db->prepare("UPDATE legacy_assets SET property_number = ?, office_id = ?, employee_id = NULLIF(?,0), responsibility_code_id = NULLIF(?,0) WHERE id = ?");
         if (!$stmt) {
             throw new RuntimeException('Unable to prepare legacy accountability update.');
         }
-        $stmt->bind_param('iiii', $toOfficeId, $toEmployeeId, $toRcId, $legacyAssetId);
+        $stmt->bind_param('siiii', $propertyNumber, $toOfficeId, $toEmployeeId, $toRcId, $legacyAssetId);
     }
     if (!$stmt->execute()) {
         $err = $stmt->error;
@@ -266,6 +372,13 @@ function transfer_post_asset(
         throw new RuntimeException('Unable to update asset accountability: ' . $err);
     }
     $stmt->close();
+
+    if ($sourceType === 'system' && !transfer_sync_system_property_number($db, $distributionItemDetailId, $propertyNumber)) {
+        throw new RuntimeException('Unable to sync system property number after transfer.');
+    }
+    if ($sourceType !== 'system' && !transfer_sync_legacy_property_number($db, $legacyAssetId, $propertyNumber)) {
+        throw new RuntimeException('Unable to sync legacy property number after transfer.');
+    }
 
     transfer_ensure_employee_office_assignment($db, $toEmployeeId, $toOfficeId, $toRcId, $userId);
 
@@ -342,12 +455,14 @@ function transfer_create_batch(
     return ['id' => $batchId, 'system_reference' => $reference, 'document_type' => $documentType];
 }
 
-function transfer_attach_batch_item(mysqli $db, int $batchId, int $transferId, array $asset): void
+function transfer_attach_batch_item(mysqli $db, int $batchId, int $transferId, array $asset, ?string $propertyNumberOverride = null): void
 {
     $sourceType = (string) ($asset['source_type'] ?? '');
     $distributionItemDetailId = $sourceType === 'system' ? (int) ($asset['source_id'] ?? 0) : 0;
     $legacyAssetId = $sourceType === 'legacy' ? (int) ($asset['source_id'] ?? 0) : 0;
-    $propertyNumber = (string) ($asset['property_number'] ?? '');
+    $propertyNumber = $propertyNumberOverride !== null
+        ? (string) $propertyNumberOverride
+        : (string) ($asset['property_number'] ?? '');
     $itemType = (string) ($asset['item_type'] ?? 'equipment');
 
     $stmt = $db->prepare("
@@ -371,7 +486,7 @@ function transfer_attach_batch_item(mysqli $db, int $batchId, int $transferId, a
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
+    $res = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res) $offices = $res->fetch_all(MYSQLI_ASSOC);
     $res = $db->query("SELECT id, office_id, employee_no, first_name, middle_name, last_name, suffix_name, position_title, is_unit_head FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
     if ($res) $employees = $res->fetch_all(MYSQLI_ASSOC);
@@ -499,6 +614,7 @@ if (!$db) {
             $toOfficeId = (int) ($form['to_office_id'] ?: 0);
             $toEmployeeId = (int) ($form['to_employee_id'] ?: 0);
             $toRcId = (int) ($form['to_responsibility_code_id'] ?: 0);
+            $toOfficeCode = transfer_office_code($offices, $toOfficeId);
 
             if ($toOfficeId > 0) {
                 $officeValid = false;
@@ -530,7 +646,7 @@ if (!$db) {
             if (!$errors && $asset) {
                 $db->begin_transaction();
                 try {
-                    transfer_post_asset($db, $asset, $form['transfer_date'], $toOfficeId, $toEmployeeId, $toRcId, $form['reason'], $form['remarks'], (int) current_user_id());
+                    transfer_post_asset($db, $asset, $form['transfer_date'], $toOfficeId, $toEmployeeId, $toRcId, $form['reason'], $form['remarks'], (int) current_user_id(), null, $toOfficeCode);
                     $db->commit();
                     set_flash('success', 'Transfer of accountability posted successfully.');
                     redirect('modules/transfers/index.php');
@@ -552,6 +668,7 @@ if (!$db) {
             $toOfficeId = (int) ($bulkForm['to_office_id'] ?: 0);
             $toEmployeeId = (int) ($bulkForm['to_employee_id'] ?: 0);
             $toRcId = (int) ($bulkForm['to_responsibility_code_id'] ?: 0);
+            $toOfficeCode = transfer_office_code($offices, $toOfficeId);
             $sourceOfficeId = (int) ($bulkForm['source_office_id'] ?: 0);
             $sourceEmployeeId = (int) ($bulkForm['source_employee_id'] ?: 0);
 
@@ -631,6 +748,7 @@ if (!$db) {
                             (int) current_user_id()
                         );
                         foreach ($documentAssets as $asset) {
+                            $updatedPropertyNumber = transfer_force_office_suffix((string) ($asset['property_number'] ?? ''), $toOfficeCode);
                             $transferId = transfer_post_asset(
                                 $db,
                                 $asset,
@@ -641,9 +759,10 @@ if (!$db) {
                                 $bulkForm['reason'],
                                 $bulkForm['remarks'],
                                 (int) current_user_id(),
-                                (int) $batch['id']
+                                (int) $batch['id'],
+                                $toOfficeCode
                             );
-                            transfer_attach_batch_item($db, (int) $batch['id'], $transferId, $asset);
+                            transfer_attach_batch_item($db, (int) $batch['id'], $transferId, $asset, $updatedPropertyNumber);
                         }
                         $postedDocuments[] = strtoupper((string) $batch['document_type']) . ' ' . $batch['system_reference'] . ' (' . count($documentAssets) . ' item' . (count($documentAssets) === 1 ? '' : 's') . ')';
                     }
@@ -667,6 +786,7 @@ if (!$db) {
             $toOfficeId = (int) ($searchForm['to_office_id'] ?: 0);
             $toEmployeeId = (int) ($searchForm['to_employee_id'] ?: 0);
             $toRcId = (int) ($searchForm['to_responsibility_code_id'] ?: 0);
+            $toOfficeCode = transfer_office_code($offices, $toOfficeId);
 
             if ($toEmployeeId > 0) {
                 if (!transfer_employee_is_active($employees, $toEmployeeId)) {
@@ -719,6 +839,7 @@ if (!$db) {
                             (int) current_user_id()
                         );
                         foreach ($documentAssets as $asset) {
+                            $updatedPropertyNumber = transfer_force_office_suffix((string) ($asset['property_number'] ?? ''), $toOfficeCode);
                             $transferId = transfer_post_asset(
                                 $db,
                                 $asset,
@@ -729,9 +850,10 @@ if (!$db) {
                                 $searchForm['reason'],
                                 $searchForm['remarks'],
                                 (int) current_user_id(),
-                                (int) $batch['id']
+                                (int) $batch['id'],
+                                $toOfficeCode
                             );
-                            transfer_attach_batch_item($db, (int) $batch['id'], $transferId, $asset);
+                            transfer_attach_batch_item($db, (int) $batch['id'], $transferId, $asset, $updatedPropertyNumber);
                         }
                         $postedDocuments[] = strtoupper((string) $batch['document_type']) . ' ' . $batch['system_reference'] . ' (' . count($documentAssets) . ' item' . (count($documentAssets) === 1 ? '' : 's') . ')';
                     }

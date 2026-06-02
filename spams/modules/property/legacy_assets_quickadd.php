@@ -1,7 +1,7 @@
 <?php
 /**
  * AJAX quick-add endpoint for legacy assets form.
- * Handles creation of classification, account_code, brand, model, office, employee.
+ * Handles creation of classification, account_code, brand, model, supplier, office, employee.
  * Returns JSON: {success: bool, id: int, label: string} or {success: false, error: string}
  */
 require_once __DIR__ . '/../../app/config/init.php';
@@ -35,30 +35,85 @@ switch ($action) {
 
     // ── Classification ────────────────────────────────────────────
     case 'add_classification': {
-        $name   = trim((string) ($_POST['classification_name'] ?? ''));
+        $name = trim((string) ($_POST['classification_name'] ?? ''));
         $family = trim((string) ($_POST['classification_family'] ?? ''));
+        $accountCodeId = (int) ($_POST['account_code_id'] ?? 0);
         if ($name === '') { qa_json(false, ['error' => 'Classification name is required.']); }
+        if ($accountCodeId <= 0) {
+            qa_json(false, ['error' => 'Select account code first before adding classification.']);
+        }
 
-        $dup = $db->prepare('SELECT id FROM classifications WHERE classification_name = ? LIMIT 1');
+        $group = '';
+        $accountGroupStmt = $db->prepare('SELECT account_group FROM account_codes WHERE id = ? AND is_active = 1 LIMIT 1');
+        if ($accountGroupStmt) {
+            $accountGroupStmt->bind_param('i', $accountCodeId);
+            $accountGroupStmt->execute();
+            $accountGroupRow = $accountGroupStmt->get_result()->fetch_assoc();
+            $accountGroupStmt->close();
+            $group = trim((string) ($accountGroupRow['account_group'] ?? ''));
+        }
+        if (!in_array($group, ['asset', 'semi_expendable', 'supply'], true)) {
+            qa_json(false, ['error' => 'Selected account code has invalid group mapping.']);
+        }
+
+        if ($group === 'supply') {
+            qa_json(false, ['error' => 'Supply account codes are not allowed for legacy asset classifications.']);
+        }
+
+        $dup = $db->prepare('SELECT id, classification_family, account_code_id, is_active FROM classifications WHERE account_code_id = ? AND LOWER(TRIM(classification_name)) = LOWER(TRIM(?)) LIMIT 1');
         if ($dup) {
-            $dup->bind_param('s', $name);
+            $dup->bind_param('is', $accountCodeId, $name);
             $dup->execute();
-            if ($dup->get_result()->fetch_assoc()) {
+            $existing = $dup->get_result()->fetch_assoc();
+            if ($existing) {
                 $dup->close();
-                qa_json(false, ['error' => 'A classification with that name already exists.']);
+
+                $existingId = (int) ($existing['id'] ?? 0);
+                $existingFamily = trim((string) ($existing['classification_family'] ?? ''));
+                $existingAccountCodeId = (int) ($existing['account_code_id'] ?? 0);
+                $isActive = (int) ($existing['is_active'] ?? 0) === 1;
+
+                if (!$isActive && $existingId > 0) {
+                    $reactivateStmt = $db->prepare('UPDATE classifications SET is_active = 1, updated_by = ?, updated_at = NOW() WHERE id = ? LIMIT 1');
+                    if ($reactivateStmt) {
+                        $reactivateStmt->bind_param('ii', $userId, $existingId);
+                        $reactivateStmt->execute();
+                        $reactivateStmt->close();
+                    }
+                }
+
+                $labelFamily = $existingFamily !== '' ? $existingFamily : $family;
+                $label = $labelFamily !== '' ? $labelFamily . ' / ' . $name : $name;
+                qa_json(true, [
+                    'id' => $existingId,
+                    'label' => $label,
+                    'account_code_id' => $existingAccountCodeId,
+                    'classification_group' => $group,
+                    'reused' => true,
+                ]);
             }
             $dup->close();
         }
 
-        $stmt = $db->prepare('INSERT INTO classifications (classification_name, classification_family, is_active, created_by) VALUES (?, NULLIF(?,\'\'), 1, ?)');
+        $classificationCode = next_module_code($db, 'classifications');
+        $stmt = $db->prepare('INSERT INTO classifications (classification_code, classification_name, classification_family, classification_group, account_code_id, is_active, created_by) VALUES (?, ?, NULLIF(?,\'\'), ?, ?, 1, ?)');
         if (!$stmt) { qa_json(false, ['error' => 'Failed to prepare insert.']); }
-        $stmt->bind_param('ssi', $name, $family, $userId);
-        $stmt->execute();
+        $stmt->bind_param('ssssii', $classificationCode, $name, $family, $group, $accountCodeId, $userId);
+        $saved = $stmt->execute();
         $id = (int) $stmt->insert_id;
         $stmt->close();
 
+        if (!$saved || $id <= 0) {
+            qa_json(false, ['error' => 'Unable to save classification right now.']);
+        }
+
         $label = $family !== '' ? $family . ' / ' . $name : $name;
-        qa_json(true, ['id' => $id, 'label' => $label]);
+        qa_json(true, [
+            'id' => $id,
+            'label' => $label,
+            'account_code_id' => $accountCodeId,
+            'classification_group' => $group,
+        ]);
     }
 
     // ── Account Code ──────────────────────────────────────────────
@@ -143,6 +198,48 @@ switch ($action) {
         $stmt->close();
 
         qa_json(true, ['id' => $id, 'label' => $mname, 'brand_id' => $brandId, 'code' => $modelCode]);
+    }
+
+    // ── Office ────────────────────────────────────────────────────
+    case 'add_supplier': {
+        $supplierName = trim((string) ($_POST['supplier_name'] ?? ''));
+        if ($supplierName === '') { qa_json(false, ['error' => 'Supplier name is required.']); }
+
+        $dup = $db->prepare('SELECT id, supplier_name, is_active FROM suppliers WHERE LOWER(TRIM(supplier_name)) = LOWER(TRIM(?)) LIMIT 1');
+        if ($dup) {
+            $dup->bind_param('s', $supplierName);
+            $dup->execute();
+            $existing = $dup->get_result()->fetch_assoc();
+            $dup->close();
+            if ($existing) {
+                $existingId = (int) ($existing['id'] ?? 0);
+                $isActive = (int) ($existing['is_active'] ?? 0) === 1;
+                if (!$isActive && $existingId > 0) {
+                    $reactivateStmt = $db->prepare('UPDATE suppliers SET is_active = 1, updated_by = ?, updated_at = NOW() WHERE id = ? LIMIT 1');
+                    if ($reactivateStmt) {
+                        $reactivateStmt->bind_param('ii', $userId, $existingId);
+                        $reactivateStmt->execute();
+                        $reactivateStmt->close();
+                    }
+                }
+                $existingName = trim((string) ($existing['supplier_name'] ?? ''));
+                qa_json(true, ['id' => $existingId, 'label' => ($existingName !== '' ? $existingName : $supplierName), 'reused' => true]);
+            }
+        }
+
+        $supplierCode = next_module_code($db, 'suppliers');
+        $stmt = $db->prepare('INSERT INTO suppliers (supplier_code, supplier_name, is_active, created_by) VALUES (?, ?, 1, ?)');
+        if (!$stmt) { qa_json(false, ['error' => 'Failed to prepare insert.']); }
+        $stmt->bind_param('ssi', $supplierCode, $supplierName, $userId);
+        $saved = $stmt->execute();
+        $id = (int) $stmt->insert_id;
+        $stmt->close();
+
+        if (!$saved || $id <= 0) {
+            qa_json(false, ['error' => 'Unable to save supplier right now.']);
+        }
+
+        qa_json(true, ['id' => $id, 'label' => $supplierName, 'code' => $supplierCode]);
     }
 
     // ── Office ────────────────────────────────────────────────────

@@ -6,11 +6,12 @@ $db = db();
 $officeId = (int) ($_GET['office_id'] ?? 0);
 $legacyAssetId = (int) ($_GET['legacy_asset_id'] ?? 0);
 $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
-$printFormat = 'long';
-$isShort = false;
+$printFormat = (($_GET['print_format'] ?? 'long') === 'short') ? 'short' : 'long';
+$isShort = $printFormat === 'short';
 $viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
 $isGrouped = $viewMode === 'grouped';
 $extraRows = max(0, min(50, (int) ($_GET['extra_rows'] ?? 0)));
+$copyCount = max(1, min(20, (int) ($_GET['copies'] ?? 1)));
 $offices = [];
 $header = null;
 $rows = [];
@@ -452,6 +453,7 @@ if ($db && $officeId > 0 && $legacyAssetId <= 0) {
 
 $officePrintNo = 'PAR-OFFICE-' . str_pad((string) max(1, $officeId), 4, '0', STR_PAD_LEFT);
 $blankRows = $extraRows;
+$shortSheetCount = (int) ceil($copyCount / 2);
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -466,15 +468,14 @@ $blankRows = $extraRows;
         .no-print { display:block; font-family: Arial, sans-serif; }
         .print-shell.short { font-size: 10.5px; }
         .print-shell.short table { font-size: 10px; }
-        .duplicate-host { display: none; }
-        .print-shell.short { display: flex; flex-direction: column; gap: 0.2in; }
-        .print-shell.short .print-copy,
-        .print-shell.short .duplicate-host {
-            flex: 0 0 calc((13in - 1in - 0.2in) / 2);
-            min-height: calc((13in - 1in - 0.2in) / 2);
-        }
-        .print-shell.short .duplicate-host { display: block; }
-        .print-shell.short .duplicate-host .no-print { display: none !important; }
+        .print-shell.short { width: 100%; max-width: none !important; }
+        .print-shell.short.container { padding-left: 0; padding-right: 0; }
+        .short-copies { width: 100%; }
+        .short-sheet { width: 100%; height: 12in; box-sizing: border-box; display: flex; flex-direction: column; }
+        .short-sheet + .short-sheet { margin-top: 0; }
+        .short-slot { height: 6in; box-sizing: border-box; display: flex; flex-direction: column; }
+        .short-slot + .short-slot { border-top: 1px dashed #bbb; }
+        .short-copy { min-height: 6in; padding: 0; box-sizing: border-box; overflow: visible; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
         .par-form { position: relative; }
         .par-title { text-align:center; font-weight:bold; font-size:16px; text-transform:uppercase; margin:18px 0 22px; }
         .appendix { position:absolute; right:0; top:0; font-size:12px; font-style:italic; }
@@ -500,7 +501,13 @@ $blankRows = $extraRows;
         .print-shell.short .par-sign-table .sign-name { font-size:10px; margin-top:16px; margin-bottom:0; }
         .print-shell.short .par-sign-table .meta-box { height:42px; padding-top:4px; }
         .print-shell.short .par-sign-table .meta-value { font-size:9px; margin-top:8px; }
-        @media print { .no-print { display:none !important; } thead { display: table-header-group; } .print-shell.short .print-copy, .print-shell.short .duplicate-host { break-inside: avoid; } }
+        @media print {
+            .no-print { display:none !important; }
+            thead { display: table-header-group; }
+            .print-shell.short .short-slot + .short-slot { border-top: none; }
+            .print-shell.short .short-sheet { break-after: page; page-break-after: always; }
+            .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; }
+        }
     </style>
 </head>
 <body>
@@ -514,7 +521,7 @@ $blankRows = $extraRows;
             <div class="d-flex gap-2">
                 <a href="<?php echo base_url('modules/distributions/index.php?document_type=par'); ?>" class="btn btn-outline-secondary">Back to Distribution</a>
                 <?php if (($officeId > 0 || $legacyAssetId > 0) && $rows): ?>
-                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : '') . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
+                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . ($isShort ? '&copies=' . $copyCount : '') . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : '') . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
                 <?php endif; ?>
             </div>
         </div>
@@ -538,12 +545,14 @@ $blankRows = $extraRows;
             <div class="col-lg-3 col-md-6">
                 <label class="form-label">View</label>
                 <div class="btn-group w-100" role="group" aria-label="PAR view mode">
-                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&view_mode=grouped' . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-outline-primary <?php echo $isGrouped ? 'active' : ''; ?>">Grouped</a>
-                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&view_mode=detailed' . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-outline-primary <?php echo !$isGrouped ? 'active' : ''; ?>">Detailed</a>
+                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&view_mode=grouped' . ($isShort ? '&copies=' . $copyCount : '') . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-outline-primary <?php echo $isGrouped ? 'active' : ''; ?>">Grouped</a>
+                    <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&view_mode=detailed' . ($isShort ? '&copies=' . $copyCount : '') . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-outline-primary <?php echo !$isGrouped ? 'active' : ''; ?>">Detailed</a>
                 </div>
             </div>
             <div class="col-lg-2 col-md-6">
+                <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
                 <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
+                <?php if ($isShort): ?><input type="hidden" name="copies" value="<?php echo (int) $copyCount; ?>"><?php endif; ?>
                 <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                     <button type="submit" class="btn btn-primary flex-fill">Load PAR</button>
                     <a href="<?php echo base_url('modules/distributions/par_office.php'); ?>" class="btn btn-outline-secondary flex-fill">Clear</a>
@@ -551,16 +560,36 @@ $blankRows = $extraRows;
             </div>
         </form>
         <?php if (($officeId > 0 || $legacyAssetId > 0) && $rows): ?>
-        <div class="d-flex align-items-center gap-2 mt-2 no-print">
+        <div class="d-flex justify-content-between align-items-start mt-3 mb-2 no-print">
+            <div class="btn-group" role="group" aria-label="PAR print format">
+                <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=short&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . '&copies=' . $copyCount . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Short</a>
+                <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=long&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Long</a>
+            </div>
             <form method="get" class="d-flex align-items-center gap-2">
                 <input type="hidden" name="office_id" value="<?php echo (int) $officeId; ?>">
+                <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
                 <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
+                <?php if ($isShort): ?><input type="hidden" name="copies" value="<?php echo (int) $copyCount; ?>"><?php endif; ?>
                 <?php if ($legacyAssetId > 0): ?><input type="hidden" name="legacy_asset_id" value="<?php echo (int) $legacyAssetId; ?>"><?php endif; ?>
                 <label for="extra_rows_par" style="font-size:12px;color:#666;white-space:nowrap;">Extra rows</label>
                 <input type="number" min="0" max="50" step="1" id="extra_rows_par" name="extra_rows" value="<?php echo (int) $extraRows; ?>" style="width:80px;" class="form-control form-control-sm">
                 <button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button>
             </form>
         </div>
+        <?php if ($isShort): ?>
+        <div class="d-flex align-items-center gap-2 mt-2 no-print">
+            <form method="get" class="d-flex align-items-center gap-2">
+                <input type="hidden" name="office_id" value="<?php echo (int) $officeId; ?>">
+                <input type="hidden" name="print_format" value="short">
+                <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
+                <input type="hidden" name="extra_rows" value="<?php echo (int) $extraRows; ?>">
+                <?php if ($legacyAssetId > 0): ?><input type="hidden" name="legacy_asset_id" value="<?php echo (int) $legacyAssetId; ?>"><?php endif; ?>
+                <label for="copies_par_office" class="small text-muted mb-0">Copies on sheet</label>
+                <input type="number" min="1" max="20" step="1" id="copies_par_office" name="copies" value="<?php echo (int) $copyCount; ?>" class="form-control form-control-sm" style="width:88px;">
+                <button type="submit" class="btn btn-sm btn-outline-dark">Apply</button>
+            </form>
+        </div>
+        <?php endif; ?>
         <?php endif; ?>
     </div>
     <?php if (($officeId > 0 || $legacyAssetId > 0) && $header): ?>
@@ -686,7 +715,6 @@ $blankRows = $extraRows;
                 </table>
             </div>
         </div>
-        <div class="duplicate-host" id="duplicateHost"></div>
     <?php elseif ($officeId > 0 || $legacyAssetId > 0): ?>
         <div class="alert alert-info">No PAR items found for the selected office.</div>
     <?php endif; ?>
@@ -696,11 +724,44 @@ $blankRows = $extraRows;
 <script>
 (function () {
     var source = document.getElementById('printCopy');
-    var host = document.getElementById('duplicateHost');
-    if (!source || !host || host.children.length) return;
-    var clone = source.cloneNode(true);
-    clone.removeAttribute('id');
-    host.appendChild(clone);
+    if (!source) return;
+
+    var copyCount = <?php echo (int) $copyCount; ?>;
+    var shortSheetCount = <?php echo (int) $shortSheetCount; ?>;
+    var shell = source.parentElement;
+    if (!shell) return;
+
+    var host = document.createElement('div');
+    host.className = 'short-copies';
+
+    for (var sheetIndex = 0; sheetIndex < shortSheetCount; sheetIndex++) {
+        var sheet = document.createElement('div');
+        sheet.className = 'short-sheet';
+
+        for (var slotIndex = 0; slotIndex < 2; slotIndex++) {
+            var copyIndex = (sheetIndex * 2) + slotIndex;
+            var slot = document.createElement('div');
+            slot.className = 'short-slot';
+
+            if (copyIndex < copyCount) {
+                var clone = source.cloneNode(true);
+                clone.removeAttribute('id');
+                clone.classList.add('short-copy');
+                slot.appendChild(clone);
+            } else {
+                var blank = document.createElement('div');
+                blank.className = 'print-copy short-copy';
+                slot.appendChild(blank);
+            }
+
+            sheet.appendChild(slot);
+        }
+
+        host.appendChild(sheet);
+    }
+
+    source.style.display = 'none';
+    shell.insertBefore(host, source.nextSibling);
 })();
 </script>
 <?php endif; ?>
