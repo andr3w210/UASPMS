@@ -978,8 +978,25 @@ require_once __DIR__ . '/../../includes/topbar.php';
     function appendOption(selectId, id, label, extraData) {
         var sel = document.getElementById(selectId);
         if (!sel) return;
+        var stringId = String(id);
+        var existing = Array.prototype.find.call(sel.options, function (option) {
+            return String(option.value) === stringId;
+        });
+        if (existing) {
+            existing.textContent = label;
+            if (extraData) {
+                Object.keys(extraData).forEach(function (k) {
+                    existing.setAttribute('data-' + k.replace(/_/g, '-'), extraData[k]);
+                });
+            }
+            sel.value = stringId;
+            if (window.SPAMS && window.SPAMS.refreshSelect2) {
+                window.SPAMS.refreshSelect2(sel);
+            }
+            return;
+        }
         var opt = document.createElement('option');
-        opt.value = id;
+        opt.value = stringId;
         opt.textContent = label;
         if (extraData) {
             Object.keys(extraData).forEach(function (k) {
@@ -1057,15 +1074,19 @@ require_once __DIR__ . '/../../includes/topbar.php';
         },
         buildPayload: function () {
             var name = document.getElementById('qa_classification_name').value.trim();
+            var accountCodeSelect = document.getElementById('account_code_id');
+            var accountCodeId = accountCodeSelect ? accountCodeSelect.value : '';
             if (!name) return { error: 'Classification Name is required.' };
+            if (!accountCodeId) return { error: 'Select Account Code first before adding classification.' };
             return {
                 action: 'add_classification',
                 classification_name: name,
-                classification_family: document.getElementById('qa_classification_family').value.trim()
+                classification_family: document.getElementById('qa_classification_family').value.trim(),
+                account_code_id: accountCodeId
             };
         },
         onSuccess: function (data) {
-            appendOption('classification_id', data.id, data.label);
+            appendOption('classification_id', data.id, data.label, { account_code_id: data.account_code_id || 0 });
         }
     });
 

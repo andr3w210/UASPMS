@@ -20,6 +20,7 @@ function module_series_defaults(): array
         'po_delivery_extensions' => ['prefix' => 'POEXT', 'use_year' => true, 'padding' => 4],
         'receivings' => ['prefix' => 'RCV', 'use_year' => true, 'padding' => 4],
         'maintenance' => ['prefix' => 'MNT', 'use_year' => true, 'padding' => 4],
+        'disposals' => ['prefix' => 'DSP', 'use_year' => true, 'padding' => 4],
         'transfers' => ['prefix' => 'TRF', 'use_year' => true, 'padding' => 4],
         'transfer_batches' => ['prefix' => 'PTR', 'use_year' => true, 'padding' => 4],
         'inventory_counts' => ['prefix' => 'INV', 'use_year' => true, 'padding' => 4],

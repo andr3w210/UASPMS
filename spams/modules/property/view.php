@@ -24,6 +24,8 @@ $modelOptions = [];
 $classificationOptions = [];
 $accountCodeOptions = [];
 $fundOptions = [];
+$supplierOptions = [];
+$supplierQuickAddOptions = [];
 $locationOptions = [];
 $officeOptions = [];
 $employeeOptions = [];
@@ -185,8 +187,91 @@ function asset_view_property_number_with_office_suffix(string $propertyNumber, s
     return substr($propertyNumber, 0, $lastDash + 1) . $officeSuffix;
 }
 
+function asset_view_is_generated_property_number(string $propertyNumber): bool
+{
+    $propertyNumber = trim($propertyNumber);
+    if ($propertyNumber === '') {
+        return false;
+    }
+
+    return preg_match('/^\d{4}-\d{2}-\d{2}(?:\.\d{3}(?:\.\d{2})?)-\d{4}-[A-Z0-9-]+$/', $propertyNumber) === 1;
+}
+
+function asset_view_account_code_short(string $accountCode): string
+{
+    $accountCode = trim($accountCode);
+    if ($accountCode === '') {
+        return '';
+    }
+
+    $acctParts = explode('.', $accountCode);
+    if (isset($acctParts[2], $acctParts[3]) && $acctParts[2] === '03' && $acctParts[3] === '210' && isset($acctParts[4])) {
+        return trim($acctParts[2] . '.' . $acctParts[3] . '.' . $acctParts[4]);
+    }
+
+    if (isset($acctParts[2], $acctParts[3])) {
+        return trim($acctParts[2] . '.' . $acctParts[3]);
+    }
+
+    return $accountCode;
+}
+
+function asset_view_rebuild_generated_property_number(
+    string $originalPropertyNumber,
+    string $acquisitionDate,
+    string $fundCode,
+    string $accountCode,
+    string $officeCode
+): string {
+    $sequence = trim((string) preg_replace('/^.*-([0-9]{4})-[A-Z0-9-]+$/', '$1', trim($originalPropertyNumber)));
+    if (!preg_match('/^[0-9]{4}$/', $sequence)) {
+        return $originalPropertyNumber;
+    }
+
+    $normalizedDate = normalize_date_string($acquisitionDate);
+    if ($normalizedDate === '') {
+        return $originalPropertyNumber;
+    }
+
+    $fundSegment = fund_number_from_source($fundCode, '');
+    $accountShort = asset_view_account_code_short($accountCode);
+    $officeSuffix = asset_view_clean_office_suffix($officeCode);
+    if ($fundSegment === '' || $accountShort === '') {
+        return $originalPropertyNumber;
+    }
+
+    return date('Y', strtotime($normalizedDate))
+        . '-' . $fundSegment
+        . '-' . $accountShort
+        . '-' . $sequence
+        . '-' . $officeSuffix;
+}
+
 function asset_view_sync_system_property_number(mysqli $db, int $detailId, string $propertyNumber): bool
 {
+    if (
+        schema_has_column($db, 'distribution_item_details', 'distribution_item_id')
+        && schema_has_column($db, 'distribution_items', 'id')
+        && schema_has_column($db, 'distribution_items', 'property_number')
+    ) {
+        $parentStmt = $db->prepare(
+            'UPDATE distribution_items di
+             INNER JOIN distribution_item_details did ON did.distribution_item_id = di.id
+             SET di.property_number = ?
+             WHERE did.id = ?'
+        );
+        if (!$parentStmt) {
+            return false;
+        }
+        $parentStmt->bind_param('si', $propertyNumber, $detailId);
+        $parentOk = $parentStmt->execute();
+        $parentStmt->close();
+
+        if (!$parentOk) {
+            return false;
+        }
+    }
+
     $syncTargets = [
         ['table' => 'rpcppe_batch_items', 'id_column' => 'distribution_item_detail_id'],
         ['table' => 'inventory_count_items', 'id_column' => 'distribution_item_detail_id'],
@@ -246,6 +331,7 @@ if ($officeRes instanceof mysqli_result) {
             'id' => (int) ($row['id'] ?? 0),
             'office_name' => (string) ($row['office_name'] ?? ''),
             'office_code' => (string) ($row['office_code'] ?? ''),
+            'is_active' => 1,
         ];
     }
 }
@@ -319,6 +405,25 @@ if ($fundRes instanceof mysqli_result) {
             'fund_name' => (string) ($row['fund_name'] ?? ''),
             'fund_source' => (string) ($row['fund_source'] ?? ''),
         ];
+    }
+}
+
+$supplierRes = $db->query("SELECT id, supplier_name FROM suppliers WHERE is_active = 1 ORDER BY supplier_name ASC");
+if ($supplierRes instanceof mysqli_result) {
+    while ($row = $supplierRes->fetch_assoc()) {
+        $supplierName = trim((string) ($row['supplier_name'] ?? ''));
+        $supplierId = (int) ($row['id'] ?? 0);
+        if ($supplierId > 0 && $supplierName !== '') {
+            $supplierOptions[] = [
+                'id' => $supplierId,
+                'supplier_name' => $supplierName,
+                'is_active' => 1,
+            ];
+            $supplierQuickAddOptions[] = [
+                'id' => $supplierId,
+                'label' => $supplierName,
+            ];
+        }
     }
 }
 
@@ -424,6 +529,7 @@ if ($source === 'system') {
             la.item_name,
             la.item_name_id,
             la.classification_id,
+            la.supplier_id,
             la.office_id,
             la.employee_id,
             la.responsibility_code_id,
@@ -505,6 +611,70 @@ if ($asset) {
     }
 }
 
+if ($assetOfficeId > 0) {
+    $hasAssetOfficeOption = false;
+    foreach ($officeOptions as $officeOption) {
+        if ((int) ($officeOption['id'] ?? 0) === $assetOfficeId) {
+            $hasAssetOfficeOption = true;
+            break;
+        }
+    }
+
+    if (!$hasAssetOfficeOption) {
+        $assetOfficeStmt = $db->prepare("SELECT id, office_name, office_code, is_active FROM offices WHERE id = ? LIMIT 1");
+        if ($assetOfficeStmt) {
+            $assetOfficeStmt->bind_param('i', $assetOfficeId);
+            $assetOfficeStmt->execute();
+            $assetOfficeRow = $assetOfficeStmt->get_result()->fetch_assoc();
+            $assetOfficeStmt->close();
+
+            if ($assetOfficeRow) {
+                $officeOptions[] = [
+                    'id' => (int) ($assetOfficeRow['id'] ?? 0),
+                    'office_name' => (string) ($assetOfficeRow['office_name'] ?? ''),
+                    'office_code' => (string) ($assetOfficeRow['office_code'] ?? ''),
+                    'is_active' => (int) ($assetOfficeRow['is_active'] ?? 0),
+                ];
+            }
+        }
+    }
+}
+
+if ($source === 'legacy') {
+    $assetSupplierId = (int) ($asset['supplier_id'] ?? 0);
+    if ($assetSupplierId > 0) {
+        $hasAssetSupplierOption = false;
+        foreach ($supplierOptions as $supplierOption) {
+            if ((int) ($supplierOption['id'] ?? 0) === $assetSupplierId) {
+                $hasAssetSupplierOption = true;
+                break;
+            }
+        }
+
+        if (!$hasAssetSupplierOption) {
+            $assetSupplierStmt = $db->prepare("SELECT id, supplier_name, is_active FROM suppliers WHERE id = ? LIMIT 1");
+            if ($assetSupplierStmt) {
+                $assetSupplierStmt->bind_param('i', $assetSupplierId);
+                $assetSupplierStmt->execute();
+                $assetSupplierRow = $assetSupplierStmt->get_result()->fetch_assoc();
+                $assetSupplierStmt->close();
+
+                if ($assetSupplierRow) {
+                    $supplierOptions[] = [
+                        'id' => (int) ($assetSupplierRow['id'] ?? 0),
+                        'supplier_name' => (string) ($assetSupplierRow['supplier_name'] ?? ''),
+                        'is_active' => (int) ($assetSupplierRow['is_active'] ?? 0),
+                    ];
+                    $supplierQuickAddOptions[] = [
+                        'id' => (int) ($assetSupplierRow['id'] ?? 0),
+                        'label' => (string) ($assetSupplierRow['supplier_name'] ?? ''),
+                    ];
+                }
+            }
+        }
+    }
+}
+
 if (!$asset) {
     http_response_code(404);
     exit('Asset not found.');
@@ -528,6 +698,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         }
 
         $originalPropertyNumber = trim((string) ($asset['property_number'] ?? ''));
+        $originalSerialNo = trim((string) ($asset['serial_no'] ?? ''));
         $propertyNumber = trim((string) ($_POST['property_number'] ?? ''));
         $brand = trim((string) ($_POST['brand'] ?? ''));
         $model = trim((string) ($_POST['model'] ?? ''));
@@ -540,10 +711,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         $locationLat = null;
         $locationLng = null;
         $classificationIdInput = (int) ($_POST['classification_id'] ?? 0);
+        $supplierIdInput = (int) ($_POST['supplier_id'] ?? 0);
         $accountCodeIdInput = (int) ($_POST['account_code_id'] ?? 0);
         $fundIdInput = (int) ($_POST['fund_id'] ?? 0);
         $rawAcquisitionDate = trim((string) ($_POST['acquisition_date'] ?? ''));
         $acquisitionDate = normalize_date_string($rawAcquisitionDate);
+
+        if ($propertyNumber === '' && $serialNo !== '') {
+            $propertyNumber = $serialNo;
+        }
 
         if ($propertyNumber === '') {
             set_flash('error', 'Property number is required.');
@@ -559,6 +735,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                 set_flash('error', 'Serial number already exists in ' . $serialConflict['label'] . ' #' . $serialConflict['id'] . '.');
                 redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
             }
+
+            if (
+                $serialNo !== $originalSerialNo
+                && $propertyNumber === $originalPropertyNumber
+                && ($originalPropertyNumber === '' || strcasecmp($originalPropertyNumber, $originalSerialNo) === 0)
+            ) {
+                $propertyNumber = $serialNo;
+            }
         }
 
         if ($officeIdInput <= 0) {
@@ -566,7 +750,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
         }
 
-        $officeStmt = $db->prepare("SELECT id, office_name, office_code FROM offices WHERE id = ? AND is_active = 1 LIMIT 1");
+        $officeStmt = $db->prepare("SELECT id, office_name, office_code, is_active FROM offices WHERE id = ? LIMIT 1");
         $officeRow = null;
         if ($officeStmt) {
             $officeStmt->bind_param('i', $officeIdInput);
@@ -576,6 +760,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         }
         if (!$officeRow) {
             set_flash('error', 'Selected office is invalid.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+        if ((int) ($officeRow['is_active'] ?? 0) !== 1 && $officeIdInput !== $assetOfficeId) {
+            set_flash('error', 'Selected office is inactive. Choose an active office assignment.');
             redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
         }
 
@@ -657,6 +845,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             }
         }
 
+        if ($source === 'legacy' && ($supplierIdInput > 0 || $supplierIdInput === -1)) {
+            if ($supplierIdInput > 0) {
+                $checkSupplierStmt = $db->prepare("SELECT id FROM suppliers WHERE id = ? LIMIT 1");
+                if ($checkSupplierStmt) {
+                    $checkSupplierStmt->bind_param('i', $supplierIdInput);
+                    $checkSupplierStmt->execute();
+                    $supplierExists = $checkSupplierStmt->get_result()->fetch_assoc();
+                    $checkSupplierStmt->close();
+                    if (!$supplierExists) {
+                        set_flash('error', 'Selected supplier is invalid.');
+                        redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+                    }
+                }
+            }
+        }
+
         $classificationNameSnapshot = '';
         $classificationFamilySnapshot = '';
         if ($source === 'legacy' && $classificationIdInput > 0) {
@@ -690,12 +894,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             }
         }
 
-        if ($source === 'legacy' && stripos($propertyNumber, 'TEMP-') === 0) {
+        if ($source === 'legacy') {
             $effectiveAccountCodeId = $accountCodeIdInput > 0 ? $accountCodeIdInput : (int) ($asset['account_code_id'] ?? 0);
             $effectiveFundId = $fundIdInput > 0 ? $fundIdInput : (int) ($asset['fund_id'] ?? 0);
             $effectiveAccountCode = '';
             $effectiveFundCode = '';
             $effectiveOfficeCode = trim((string) ($officeRow['office_code'] ?? ''));
+            $originalAcquisitionDate = normalize_date_string((string) ($asset['acquisition_date'] ?? ''));
+            $originalAccountCodeId = (int) ($asset['account_code_id'] ?? 0);
+            $originalFundId = (int) ($asset['fund_id'] ?? 0);
+            $isTemporaryPropertyNumber = stripos($originalPropertyNumber, 'TEMP-') === 0;
+            $isGeneratedPropertyNumber = asset_view_is_generated_property_number($originalPropertyNumber);
+            $identityChanged = $acquisitionDate !== $originalAcquisitionDate
+                || $effectiveAccountCodeId !== $originalAccountCodeId
+                || $effectiveFundId !== $originalFundId;
 
             foreach ($accountCodeOptions as $option) {
                 if ((int) ($option['id'] ?? 0) === $effectiveAccountCodeId) {
@@ -713,26 +925,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                 }
             }
 
-            if ($acquisitionDate !== '' && $effectiveAccountCode !== '' && $effectiveFundCode !== '') {
-                $propertyNumber = generate_property_number(
-                    $db,
-                    date('Y', strtotime($acquisitionDate)),
-                    $effectiveFundCode,
-                    $effectiveAccountCode,
+            if (
+                $propertyNumber === $originalPropertyNumber
+                && ($isTemporaryPropertyNumber || ($isGeneratedPropertyNumber && $identityChanged))
+                && $acquisitionDate !== ''
+                && $effectiveAccountCode !== ''
+                && $effectiveFundCode !== ''
+            ) {
+                if ($isTemporaryPropertyNumber) {
+                    $propertyNumber = generate_property_number(
+                        $db,
+                        date('Y', strtotime($acquisitionDate)),
+                        $effectiveFundCode,
+                        $effectiveAccountCode,
+                        $effectiveOfficeCode
+                    );
+                } else {
+                    $propertyNumber = asset_view_rebuild_generated_property_number(
+                        $originalPropertyNumber,
+                        $acquisitionDate,
+                        $effectiveFundCode,
+                        $effectiveAccountCode,
+                        $effectiveOfficeCode
+                    );
+                }
+            } elseif (
+                $propertyNumber === $originalPropertyNumber
+                && $officeIdInput !== $assetOfficeId
+                && !$isTemporaryPropertyNumber
+            ) {
+                $propertyNumber = asset_view_property_number_with_office_suffix(
+                    $originalPropertyNumber,
                     $effectiveOfficeCode
                 );
             }
-        }
-
-        if (
-            $propertyNumber === $originalPropertyNumber
-            && $officeIdInput !== $assetOfficeId
-            && stripos($originalPropertyNumber, 'TEMP-') !== 0
-        ) {
-            $propertyNumber = asset_view_property_number_with_office_suffix(
-                $originalPropertyNumber,
-                (string) ($officeRow['office_code'] ?? '')
-            );
         }
 
         $propertyConflict = asset_identifier_conflict($db, 'property_number', $propertyNumber, $source, $id);
@@ -848,6 +1074,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                                   model = ?,
                                   serial_no = ?,
                                   classification_id = CASE WHEN ? > 0 THEN ? ELSE classification_id END,
+                                  supplier_id = CASE WHEN ? = -1 THEN NULL WHEN ? > 0 THEN ? ELSE supplier_id END,
                                   office_id = ?,
                                   employee_id = NULLIF(?, 0),
                                   responsibility_code_id = NULLIF(?, 0),
@@ -862,7 +1089,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                               WHERE id = ?");
         if ($stmt) {
             $stmt->bind_param(
-                'sssssiiiiisiiiiiddssi',
+                'sssssiiiiiiiisiiiiiddssi',
                 $propertyNumber,
                 $description,
                 $brand,
@@ -870,6 +1097,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                 $serialNo,
                 $classificationIdInput,
                 $classificationIdInput,
+                $supplierIdInput,
+                $supplierIdInput,
+                $supplierIdInput,
                 $officeIdInput,
                 $employeeIdInput,
                 $responsibilityCodeIdInput,
@@ -989,6 +1219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'brand' => $asset['brand'] ?? null,
                         'model' => $asset['model'] ?? null,
                         'serial_no' => $asset['serial_no'] ?? null,
+                        'supplier_id' => $asset['supplier_id'] ?? null,
                         'office_id' => $asset['office_id'] ?? null,
                         'employee_id' => $asset['employee_id'] ?? null,
                         'responsibility_code_id' => $asset['responsibility_code_id'] ?? null,
@@ -1009,6 +1240,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'brand' => $brand,
                         'model' => $model,
                         'serial_no' => $serialNo,
+                        'supplier_id' => $supplierIdInput === -1 ? null : ($supplierIdInput > 0 ? $supplierIdInput : ($asset['supplier_id'] ?? null)),
                         'office_id' => $officeIdInput,
                         'employee_id' => $employeeIdInput > 0 ? $employeeIdInput : null,
                         'responsibility_code_id' => $responsibilityCodeIdInput > 0 ? $responsibilityCodeIdInput : null,
@@ -1619,10 +1851,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <li><a class="dropdown-item" href="<?php echo base_url('modules/property/tags.php?detail_id=' . (int) $asset['id']); ?>" target="_blank">Print Tag</a></li>
                                 <?php elseif ($source === 'legacy'): ?>
                                     <?php if (($asset['item_type'] ?? '') === 'semi_expendable'): ?>
-                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/ics_office.php?legacy_asset_id=' . (int) $asset['id'] . '&semi_type=all&print=1'); ?>" target="_blank">Print ICS</a></li>
+                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/ics_office.php?legacy_asset_id=' . (int) $asset['id'] . '&semi_type=all&view_mode=detailed'); ?>" target="_blank">Print ICS</a></li>
                                         <li><span class="dropdown-item-text text-muted small">PAR is for equipment assets only.</span></li>
                                     <?php else: ?>
-                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/par_office.php?legacy_asset_id=' . (int) $asset['id'] . '&print=1'); ?>" target="_blank">Print PAR</a></li>
+                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/par_office.php?legacy_asset_id=' . (int) $asset['id'] . '&print_format=long&view_mode=detailed'); ?>" target="_blank">Print PAR</a></li>
                                         <li><span class="dropdown-item-text text-muted small">ICS is for semi-expendable assets only.</span></li>
                                     <?php endif; ?>
                                     <li><a class="dropdown-item" href="<?php echo base_url('modules/property/tags.php?legacy_asset_id=' . (int) $asset['id']); ?>" target="_blank">Print Tag</a></li>
@@ -1698,6 +1930,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <?php foreach ($officeOptions as $officeOption): ?>
                                                 <?php $officeOptionId = (int) ($officeOption['id'] ?? 0); ?>
                                                 <?php $officeLabel = trim(($officeOption['office_code'] ?? '') . ' - ' . ($officeOption['office_name'] ?? '')); ?>
+                                                <?php if ((int) ($officeOption['is_active'] ?? 1) !== 1): ?>
+                                                    <?php $officeLabel .= ' (Inactive)'; ?>
+                                                <?php endif; ?>
                                                 <option value="<?php echo $officeOptionId; ?>" <?php echo $officeOptionId === $assetOfficeId ? 'selected' : ''; ?>>
                                                     <?php echo h($officeLabel); ?>
                                                 </option>
@@ -1753,15 +1988,34 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                                     <?php if ($source === 'legacy'): ?>
                                         <div class="col-md-6">
+                                            <label class="form-label">Supplier</label>
+                                            <div class="input-group">
+                                                <select name="supplier_id" id="asset_supplier_id" class="form-select">
+                                                    <option value="0">Keep current supplier</option>
+                                                    <option value="-1">Clear supplier</option>
+                                                    <?php foreach ($supplierOptions as $option): ?>
+                                                        <?php $optionId = (int) ($option['id'] ?? 0); ?>
+                                                        <?php $isSelected = $optionId > 0 && $optionId === (int) ($asset['supplier_id'] ?? 0); ?>
+                                                        <?php $supplierLabel = (string) ($option['supplier_name'] ?? ''); ?>
+                                                        <?php if ((int) ($option['is_active'] ?? 1) !== 1) { $supplierLabel .= ' (Inactive)'; } ?>
+                                                        <option value="<?php echo h((string) $optionId); ?>" <?php echo $isSelected ? 'selected' : ''; ?>>
+                                                            <?php echo h($supplierLabel); ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <button type="button" class="btn btn-outline-success" id="assetAddSupplierBtn"><i class="bi bi-plus-circle"></i> Supplier</button>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
                                             <label class="form-label">Item Classification</label>
                                             <select name="classification_id" class="form-select">
                                                 <option value="0">Keep current classification</option>
                                                 <?php foreach ($classificationOptions as $option): ?>
                                                     <?php $optionId = (int) ($option['id'] ?? 0); ?>
                                                     <?php $isSelected = $optionId > 0 && $optionId === (int) ($asset['classification_id'] ?? 0); ?>
-                                                    <?php $classificationLabel = trim(($option['classification_family'] ?? '') . (($option['classification_family'] ?? '') !== '' ? ' / ' : '') . ($option['classification_name'] ?? '')); ?>
+                                                    <?php $classificationOptionLabel = trim(($option['classification_family'] ?? '') . (($option['classification_family'] ?? '') !== '' ? ' / ' : '') . ($option['classification_name'] ?? '')); ?>
                                                     <option value="<?php echo h((string) $optionId); ?>" <?php echo $isSelected ? 'selected' : ''; ?>>
-                                                        <?php echo h($classificationLabel); ?>
+                                                        <?php echo h($classificationOptionLabel); ?>
                                                     </option>
                                                 <?php endforeach; ?>
                                             </select>
@@ -2294,11 +2548,17 @@ document.addEventListener('DOMContentLoaded', function () {
     var csrfToken = <?php echo json_encode(csrf_token()); ?>;
     var brandInput = document.getElementById('asset_brand');
     var modelInput = document.getElementById('asset_model');
+    var supplierSelect = document.getElementById('asset_supplier_id');
     var brandDatalist = document.getElementById('assetBrandOptions');
     var modelDatalist = document.getElementById('assetModelOptions');
     var brandsByName = {};
     <?php foreach ($brandQuickAddOptions as $brandOption): ?>
     brandsByName[<?php echo json_encode(strtolower((string) $brandOption['label'])); ?>] = <?php echo json_encode($brandOption, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+    <?php endforeach; ?>
+
+    var suppliersByName = {};
+    <?php foreach ($supplierQuickAddOptions as $supplierOption): ?>
+    suppliersByName[<?php echo json_encode(strtolower((string) $supplierOption['label'])); ?>] = <?php echo json_encode($supplierOption, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
     <?php endforeach; ?>
 
     function appendDatalistOption(datalist, value) {
@@ -2386,6 +2646,31 @@ document.addEventListener('DOMContentLoaded', function () {
             }).then(function (data) {
                 appendDatalistOption(modelDatalist, data.label || modelName.trim());
                 modelInput.value = data.label || modelName.trim();
+            }).catch(function (error) {
+                window.alert(error.message);
+            });
+        });
+    }
+
+    var addSupplierBtn = document.getElementById('assetAddSupplierBtn');
+    if (addSupplierBtn && supplierSelect) {
+        addSupplierBtn.addEventListener('click', function () {
+            var name = window.prompt('Supplier name');
+            if (!name || !name.trim()) {
+                return;
+            }
+            var normalized = name.trim().toLowerCase();
+            if (suppliersByName[normalized]) {
+                supplierSelect.value = String(suppliersByName[normalized].id);
+                return;
+            }
+            postQuickAdd({ action: 'add_supplier', supplier_name: name.trim() }).then(function (data) {
+                suppliersByName[String((data.label || name).trim()).toLowerCase()] = { id: data.id, label: data.label || name.trim() };
+                var option = document.createElement('option');
+                option.value = String(data.id);
+                option.textContent = data.label || name.trim();
+                supplierSelect.appendChild(option);
+                supplierSelect.value = String(data.id);
             }).catch(function (error) {
                 window.alert(error.message);
             });
