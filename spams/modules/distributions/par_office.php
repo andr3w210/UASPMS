@@ -28,10 +28,12 @@ $resolveSupplyOfficeHead = static function (mysqli $db): array {
 
 $signatoryDisplayName = static function (array $person): string {
     $suffix = trim((string) ($person['suffix_name'] ?? ''));
+    $middle = trim((string) ($person['middle_name'] ?? ''));
+    $middleInitial = $middle !== '' ? strtoupper(substr(rtrim($middle, '.'), 0, 1)) . '.' : '';
     $nameParts = array_filter([
         trim((string) ($person['name_prefix'] ?? '')),
         trim((string) ($person['first_name'] ?? '')),
-        trim((string) ($person['middle_name'] ?? '')),
+        $middleInitial,
         trim((string) ($person['last_name'] ?? '')),
     ]);
     $name = strtoupper(trim(implode(' ', $nameParts)));
@@ -68,9 +70,6 @@ $buildPropertyRange = static function (array $propertyNumbers): string {
 if ($db) {
     ensure_legacy_assets_rpcppe_tracking_columns($db);
     ensure_distribution_item_rpcppe_tracking_columns($db);
-    $legacyItemNameExpr = schema_has_column($db, 'legacy_assets', 'item_name')
-        ? "NULLIF(TRIM(la.item_name), '')"
-        : "NULL";
 
     $officeRes = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeRes) {
@@ -178,11 +177,9 @@ if ($db) {
                     did.brand,
                     did.model,
                     did.serial_no,
-                    c.classification_name AS item_name,
                     poi.item_description,
                     c.classification_name,
                     c.classification_family,
-                    ac.account_name,
                     u.abbreviation,
                     ri.unit_cost,
                     COALESCE(r.received_date, d.distribution_date) AS date_acquired
@@ -193,7 +190,6 @@ if ($db) {
                  INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id AND poi.item_type = 'equipment'
                  INNER JOIN receivings r ON r.id = ri.receiving_id
                  LEFT JOIN classifications c ON c.id = poi.classification_id
-                 LEFT JOIN account_codes ac ON ac.id = poi.account_code_id
                  LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id
                  WHERE COALESCE(did.current_office_id, d.office_id) = ?
                    AND did.is_distributed = 1
@@ -221,11 +217,9 @@ if ($db) {
                     la.brand,
                     la.model,
                     la.serial_no,
-                    COALESCE({$legacyItemNameExpr}, NULLIF(TRIM(c.classification_name), '')) AS item_name,
                     la.item_description,
                     c.classification_name,
                     c.classification_family,
-                    ac.account_name,
                     '' AS abbreviation,
                     la.unit_cost,
                     COALESCE(
@@ -238,7 +232,6 @@ if ($db) {
                     ) AS date_acquired
                  FROM legacy_assets la
                  LEFT JOIN classifications c ON c.id = la.classification_id
-                 LEFT JOIN account_codes ac ON ac.id = la.account_code_id
                  LEFT JOIN (
                     SELECT legacy_asset_id, MAX(acquisition_date) AS acquisition_date
                     FROM rpcppe_batch_items
@@ -261,7 +254,9 @@ if ($db) {
                 }
                 $legacyStmt->close();
             }
-        } elseif ($legacyAssetId > 0) {
+        }
+
+        if ($legacyAssetId > 0) {
             $legacyStmt = $db->prepare(
                 "SELECT
                     'legacy' AS source_type,
@@ -269,11 +264,9 @@ if ($db) {
                     la.brand,
                     la.model,
                     la.serial_no,
-                    COALESCE({$legacyItemNameExpr}, NULLIF(TRIM(c.classification_name), '')) AS item_name,
                     la.item_description,
                     c.classification_name,
                     c.classification_family,
-                    ac.account_name,
                     '' AS abbreviation,
                     la.unit_cost,
                     COALESCE(
@@ -286,7 +279,6 @@ if ($db) {
                     ) AS date_acquired
                  FROM legacy_assets la
                  LEFT JOIN classifications c ON c.id = la.classification_id
-                 LEFT JOIN account_codes ac ON ac.id = la.account_code_id
                  LEFT JOIN (
                     SELECT legacy_asset_id, MAX(acquisition_date) AS acquisition_date
                     FROM rpcppe_batch_items
@@ -314,7 +306,6 @@ if ($isGrouped) {
     foreach ($rows as $row) {
         $unitLabel = trim((string) ($row['abbreviation'] ?? 'unit'));
         $groupKey = implode('|', [
-            trim((string) ($row['item_name'] ?? '')),
             trim((string) ($row['classification_name'] ?? '')),
             trim((string) ($row['classification_family'] ?? '')),
             trim((string) ($row['item_description'] ?? '')),
@@ -326,10 +317,8 @@ if ($isGrouped) {
         if (!isset($groupedRows[$groupKey])) {
             $groupedRows[$groupKey] = [
                 'abbreviation' => (string) ($row['abbreviation'] ?? 'unit'),
-                'item_name' => (string) ($row['item_name'] ?? ''),
                 'classification_name' => (string) ($row['classification_name'] ?? ''),
                 'classification_family' => (string) ($row['classification_family'] ?? ''),
-                'account_name' => (string) ($row['account_name'] ?? ''),
                 'item_description' => (string) ($row['item_description'] ?? ''),
                 'date_acquired' => (string) ($row['date_acquired'] ?? ''),
                 'unit_cost' => (float) ($row['unit_cost'] ?? 0),
@@ -404,7 +393,25 @@ $itemIdentityLines = static function (array $row) use ($detailIdentityLine): arr
     return array_values(array_unique($lines));
 };
 
-$recipientHead = ($db && $officeId > 0) ? $resolveOfficeHead($db, $officeId) : [];
+$singleAssetRecipient = [];
+if ($db && $legacyAssetId > 0) {
+    $recipientStmt = $db->prepare(
+        "SELECT e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title, o.office_name
+         FROM legacy_assets la
+         INNER JOIN employees e ON e.id = la.employee_id
+         LEFT JOIN offices o ON o.id = la.office_id
+         WHERE la.id = ? AND e.is_active = 1
+         LIMIT 1"
+    );
+    if ($recipientStmt) {
+        $recipientStmt->bind_param('i', $legacyAssetId);
+        $recipientStmt->execute();
+        $singleAssetRecipient = $recipientStmt->get_result()->fetch_assoc() ?: [];
+        $recipientStmt->close();
+    }
+}
+
+$recipientHead = $singleAssetRecipient ?: (($db && $officeId > 0) ? $resolveOfficeHead($db, $officeId) : []);
 $supplyHead = $db ? $resolveSupplyOfficeHead($db) : [];
 
 $recipientHeadName = !empty($recipientHead) ? $signatoryDisplayName($recipientHead) : '';
@@ -462,20 +469,18 @@ $shortSheetCount = (int) ceil($copyCount / 2);
     <title>PAR by Office</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        @page { size: 8.5in 13in; margin: 0.5in; }
+        @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0.25in 0.5in' : '0.5in'; ?>; }
         body { margin: 0; font-size:12px; color:#000; font-family: "Times New Roman", serif; }
         table { font-size:11px; }
         .no-print { display:block; font-family: Arial, sans-serif; }
         .print-shell.short { font-size: 10.5px; }
         .print-shell.short table { font-size: 10px; }
-        .print-shell.short { width: 100%; max-width: none !important; }
-        .print-shell.short.container { padding-left: 0; padding-right: 0; }
-        .short-copies { width: 100%; }
-        .short-sheet { width: 100%; height: 12in; box-sizing: border-box; display: flex; flex-direction: column; }
-        .short-sheet + .short-sheet { margin-top: 0; }
-        .short-slot { height: 6in; box-sizing: border-box; display: flex; flex-direction: column; }
-        .short-slot + .short-slot { border-top: 1px dashed #bbb; }
-        .short-copy { min-height: 6in; padding: 0; box-sizing: border-box; overflow: visible; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
+        .print-shell.short { width: 7.5in; max-width: 7.5in !important; padding: 0; }
+        .short-copies { width: 7.5in; }
+        .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: flex; flex-direction: column; }
+        .short-slot { height: 6.25in; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
+        .short-slot + .short-slot { padding-top: 0.25in; }
+        .short-copy { height: 6.25in; min-height: 6.25in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
         .par-form { position: relative; }
         .par-title { text-align:center; font-weight:bold; font-size:16px; text-transform:uppercase; margin:18px 0 22px; }
         .appendix { position:absolute; right:0; top:0; font-size:12px; font-style:italic; }
@@ -501,13 +506,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         .print-shell.short .par-sign-table .sign-name { font-size:10px; margin-top:16px; margin-bottom:0; }
         .print-shell.short .par-sign-table .meta-box { height:42px; padding-top:4px; }
         .print-shell.short .par-sign-table .meta-value { font-size:9px; margin-top:8px; }
-        @media print {
-            .no-print { display:none !important; }
-            thead { display: table-header-group; }
-            .print-shell.short .short-slot + .short-slot { border-top: none; }
-            .print-shell.short .short-sheet { break-after: page; page-break-after: always; }
-            .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; }
-        }
+        @media print { .no-print { display:none !important; } thead { display: table-header-group; } .print-shell.short .short-copies { width: 7.5in !important; height: 12.5in !important; } .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display:flex !important; flex-direction:column !important; break-after: page; page-break-after: always; } .print-shell.short .short-slot { height: 6.25in !important; flex: 0 0 6.25in !important; overflow: hidden !important; } .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; } .print-shell.short .short-copy { height: 6.25in !important; min-height: 6.25in !important; } .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; } }
     </style>
 </head>
 <body>
@@ -550,8 +549,8 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                 </div>
             </div>
             <div class="col-lg-2 col-md-6">
-                <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
                 <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
+                <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
                 <?php if ($isShort): ?><input type="hidden" name="copies" value="<?php echo (int) $copyCount; ?>"><?php endif; ?>
                 <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                     <button type="submit" class="btn btn-primary flex-fill">Load PAR</button>
@@ -631,14 +630,9 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                                 <td><?php echo h($row['abbreviation'] ?: 'unit'); ?></td>
                                 <td>
                                     <?php
-                                        $itemClass = trim(implode(' / ', array_filter([
-                                            trim((string) ($row['classification_family'] ?? '')),
-                                            trim((string) ($row['classification_name'] ?? '')),
-                                        ])));
-                                        $itemName = trim((string) ($row['item_name'] ?? ''));
+                                        $itemClass = trim((string) ($row['classification_name'] ?? ''));
                                         $itemDescription = trim((string) ($row['item_description'] ?? ''));
-                                        $itemHeader = $itemName !== '' ? $itemName : $itemClass;
-                                        $parDescription = trim(($itemHeader !== '' ? $itemHeader : '') . ($itemHeader !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                                        $parDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
                                         $identityLines = $itemIdentityLines((array) $row);
                                     ?>
                                     <?php echo nl2br(h($parDescription)); ?>

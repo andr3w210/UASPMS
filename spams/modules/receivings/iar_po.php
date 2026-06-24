@@ -35,6 +35,9 @@ if (!$db) {
     echo 'Unable to connect to the database.';
     exit;
 }
+if (function_exists('ensure_receiving_item_variance_columns')) {
+    ensure_receiving_item_variance_columns($db);
+}
 
 $poListStmt = $db->prepare(
     "SELECT po.id, po.po_number, po.po_date, s.supplier_name
@@ -96,6 +99,8 @@ if ($purchaseOrderId > 0) {
                 poi.line_no,
                 poi.item_type,
                 poi.item_description,
+                COALESCE(MAX(NULLIF(ri.actual_item_description, '')), poi.item_description) AS actual_item_description,
+                GROUP_CONCAT(DISTINCT NULLIF(ri.variance_note, '') SEPARATOR '; ') AS variance_notes,
                 poi.quantity AS qty_ordered,
                 poi.unit_cost,
                 sc.stock_no,
@@ -279,8 +284,20 @@ $fundClusterLabel = $po ? consolidated_iar_fund_cluster_label($po) : '';
                         $qtyAccepted = (float) ($item['quantity_accepted'] ?? 0);
                         $unitLabel = trim((string) ($item['abbreviation'] ?? $item['uom_name'] ?? ''));
                         $description = trim((string) ($item['classification_name'] ?? ''));
-                        if (!empty($item['item_description'])) {
-                            $description = trim($description . ' - ' . (string) $item['item_description'], ' -');
+                        $actualDescription = trim((string) ($item['actual_item_description'] ?? ''));
+                        $orderedDescription = trim((string) ($item['item_description'] ?? ''));
+                        if ($actualDescription === '') {
+                            $actualDescription = $orderedDescription;
+                        }
+                        if ($actualDescription !== '') {
+                            $description = trim($description . ' - ' . $actualDescription, ' -');
+                        }
+                        $varianceNotes = trim((string) ($item['variance_notes'] ?? ''));
+                        if ($varianceNotes !== '') {
+                            $description .= "\nInspection note: " . $varianceNotes;
+                        }
+                        if ($orderedDescription !== '' && $actualDescription !== $orderedDescription) {
+                            $description .= "\nOrdered per PO: " . $orderedDescription;
                         }
                         ?>
                         <tr>

@@ -104,6 +104,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <a href="<?php echo base_url('modules/settings/upload_storage.php'); ?>" class="btn btn-primary w-100">Open Upload Storage</a>
                             </div>
                         </div>
+
+                        <div class="col-md-4">
+                            <div class="border rounded-3 p-4 h-100">
+                                <div class="d-flex align-items-center gap-3 mb-3">
+                                    <div class="fs-3 text-primary"><i class="bi bi-person-lines-fill"></i></div>
+                                    <div>
+                                        <div class="text-uppercase small text-muted fw-semibold">Master Data</div>
+                                        <h5 class="mb-0">Assignment Cleanup</h5>
+                                    </div>
+                                </div>
+                                <p class="text-muted small mb-4">Review duplicate primary assignments, duplicate unit heads, and office-head assignment mismatches.</p>
+                                <a href="<?php echo base_url('modules/settings/assignment_cleanup.php'); ?>" class="btn btn-primary w-100">Open Assignment Cleanup</a>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -848,6 +848,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <a href="<?php echo base_url('modules/trip_tickets/fuel_ris_report.php'); ?>" class="btn btn-outline-secondary">
                     <i class="bi bi-graph-up-arrow me-1"></i> Consolidated Report
                 </a>
+                <a href="<?php echo base_url('modules/trip_tickets/annual_fuel_consumption_summary.php'); ?>" class="btn btn-outline-primary">
+                    <i class="bi bi-calendar3 me-1"></i> Annual Summary
+                </a>
                 <a href="<?php echo base_url('modules/trip_tickets/fuel_ris.php?download_template=1'); ?>" class="btn btn-primary">
                     <i class="bi bi-download me-1"></i> Download Template
                 </a>
@@ -899,6 +902,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
                 <a href="<?php echo base_url('modules/trip_tickets/fuel_ris_report.php'); ?>" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-graph-up-arrow me-1"></i> Full Report
+                </a>
+                <a href="<?php echo base_url('modules/trip_tickets/annual_fuel_consumption_summary.php'); ?>" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-calendar3 me-1"></i> Annual Summary
                 </a>
             </div>
             <div class="row g-3">

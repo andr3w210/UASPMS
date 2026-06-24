@@ -82,6 +82,7 @@ if ($db) {
         $whereSql .= " AND (
             la.property_number LIKE CONCAT('%', ?, '%')
             OR la.po_number LIKE CONCAT('%', ?, '%')
+            OR la.serial_no LIKE CONCAT('%', ?, '%')
             OR la.item_description LIKE CONCAT('%', ?, '%')
             OR COALESCE(o.office_name, '') LIKE CONCAT('%', ?, '%')
             OR CONCAT_WS(' ', COALESCE(e.first_name, ''), COALESCE(e.middle_name, ''), COALESCE(e.last_name, ''), COALESCE(e.suffix_name, '')) LIKE CONCAT('%', ?, '%')
@@ -89,8 +90,8 @@ if ($db) {
             OR COALESCE(b.brand_name, la.brand, '') LIKE CONCAT('%', ?, '%')
             OR COALESCE(m.model_name, la.model, '') LIKE CONCAT('%', ?, '%')
         )";
-        $whereTypes .= 'ssssssss';
-        array_push($whereParams, $search, $search, $search, $search, $search, $search, $search, $search);
+        $whereTypes .= 'sssssssss';
+        array_push($whereParams, $search, $search, $search, $search, $search, $search, $search, $search, $search);
     }
 
     $summarySql = "
@@ -254,6 +255,56 @@ $prevUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(arr
 $nextUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(array_merge($pageBaseParams, ['page' => min($totalPages, $page + 1)])));
 $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(array_merge($pageBaseParams, ['export' => 'csv'])));
 ?>
+<style>
+    .legacy-assets-table {
+        min-width: 1180px;
+    }
+    .legacy-assets-table th,
+    .legacy-assets-table td {
+        vertical-align: middle;
+    }
+    .legacy-assets-table .legacy-actions-col {
+        position: sticky;
+        left: 0;
+        z-index: 3;
+        width: 190px;
+        min-width: 190px;
+        background: var(--bs-body-bg);
+        box-shadow: 1px 0 0 var(--bs-border-color);
+    }
+    .legacy-assets-table thead .legacy-actions-col {
+        z-index: 4;
+        background: var(--bs-tertiary-bg, var(--bs-body-bg));
+    }
+    .legacy-assets-table .legacy-description-col {
+        min-width: 260px;
+        max-width: 380px;
+    }
+    .legacy-assets-table .legacy-description-text {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .legacy-assets-table .legacy-rpcppe-col {
+        min-width: 190px;
+    }
+    .legacy-row-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+    }
+    .legacy-row-actions .btn {
+        min-width: 78px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 0 10px;
+    }
+</style>
 <section class="page-section">
 <div class="row g-4">
     <div class="col-12">
@@ -307,7 +358,7 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
                             <label class="form-label">Search</label>
                             <div class="input-group">
                                 <span class="input-group-text"><i class="bi bi-search"></i></span>
-                                <input type="search" name="q" class="form-control" value="<?php echo h($search); ?>" placeholder="Search property no., description, office, accountable, supplier, brand, model">
+                                <input type="search" name="q" class="form-control" value="<?php echo h($search); ?>" placeholder="Search property no., serial no., description, office, accountable, supplier, brand, model">
                             </div>
                         </div>
                         <div class="col-sm-4 col-lg-2">
@@ -334,16 +385,16 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
 
                 <div class="master-data-table-shell">
                     <div class="table-responsive mobile-table-frame master-data-table-scroll">
-                        <table class="table table-sm align-middle" id="legacyAssetsTable" data-no-table-search>
+                        <table class="table table-sm align-middle legacy-assets-table" id="legacyAssetsTable" data-no-table-search>
                             <thead>
                                 <tr>
+                                    <th class="legacy-actions-col">Actions</th>
                                     <th>Property No.</th>
                                     <th>PO No.</th>
-                                    <th>Description</th>
+                                    <th class="legacy-description-col">Description</th>
                                     <th>Type</th>
-                                    <th>Fund</th>
-                                    <th>Supplier</th>
                                     <th>Brand / Model</th>
+                                    <th>Serial No.</th>
                                     <th>Office</th>
                                     <th>Accountable</th>
                                     <th>Acquired</th>
@@ -351,19 +402,28 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
                                     <th>Unit Cost</th>
                                     <th>Cost</th>
                                     <th>Condition</th>
-                                    <th>RPCPPE</th>
+                                    <th class="legacy-rpcppe-col">RPCPPE</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php if ($rows): foreach ($rows as $row): ?>
                                     <tr>
+                                        <td class="legacy-actions-col">
+                                            <div class="legacy-row-actions">
+                                                <a href="<?php echo h(base_url('modules/property/view.php?source=legacy&id=' . (int) ($row['id'] ?? 0))); ?>" class="btn btn-sm btn-outline-secondary" title="View details" aria-label="View details">
+                                                    <i class="bi bi-eye"></i>View
+                                                </a>
+                                                <a href="<?php echo h(base_url('modules/property/encode_legacy_asset.php?duplicate_id=' . (int) ($row['id'] ?? 0))); ?>" class="btn btn-sm btn-outline-primary" title="Duplicate asset" aria-label="Duplicate asset">
+                                                    <i class="bi bi-copy"></i>Duplicate
+                                                </a>
+                                            </div>
+                                        </td>
                                         <td><?php echo h($row['property_number']); ?></td>
                                         <td><?php echo h($row['po_number'] ?? ''); ?></td>
-                                        <td><?php echo h($row['item_description']); ?></td>
+                                        <td class="legacy-description-col"><div class="legacy-description-text" title="<?php echo h($row['item_description']); ?>"><?php echo h($row['item_description']); ?></div></td>
                                         <td><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['item_type'] ?? '')))); ?></td>
-                                        <td><?php echo h(trim(implode(' - ', array_filter([$row['fund_code'] ?? '', $row['fund_name'] ?? ''])))); ?></td>
-                                        <td><?php echo h($row['supplier_name'] ?? ''); ?></td>
                                         <td><?php echo h(trim((($row['brand_name'] ?? '') ?: ($row['brand'] ?? '')) . ' ' . (($row['model_name'] ?? '') ?: ($row['model'] ?? '')))); ?></td>
+                                        <td><?php echo h($row['serial_no'] ?? ''); ?></td>
                                         <td><?php echo h($row['office_name'] ?? ''); ?></td>
                                         <td><?php echo h(employee_display_name($row)); ?></td>
                                         <td><?php echo h(format_date($row['acquisition_date'] ?? null)); ?></td>
@@ -371,9 +431,7 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
                                         <td><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
                                         <td><?php echo h(number_format((float) ($row['acquisition_cost'] ?? 0), 2)); ?></td>
                                         <td><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['condition_status'] ?? '')))); ?></td>
-                                        <td>
-                                            <div class="d-grid gap-2" style="min-width: 210px;">
-                                                <a href="<?php echo h(base_url('modules/property/view.php?source=legacy&id=' . (int) ($row['id'] ?? 0))); ?>" class="btn btn-sm btn-outline-secondary">View Details</a>
+                                        <td class="legacy-rpcppe-col">
                                                 <form method="post" class="d-grid gap-2">
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="update_rpcppe_tracking">
@@ -398,7 +456,6 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
                                                     <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
                                                 </div>
                                                 </form>
-                                            </div>
                                         </td>
                                     </tr>
                                 <?php endforeach; else: ?>

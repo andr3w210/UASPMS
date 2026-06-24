@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 
-require_role('Administrator', 'Supply Officer');
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -26,7 +26,6 @@ if (!csrf_verify()) {
 
 $itemType = trim((string) ($_POST['item_type'] ?? 'supply'));
 $classificationName = trim((string) ($_POST['classification_name'] ?? ''));
-$classificationFamily = trim((string) ($_POST['classification_family'] ?? ''));
 $accountCodeId = (int) ($_POST['account_code_id'] ?? 0);
 $usefulLifeYears = trim((string) ($_POST['useful_life_years'] ?? ''));
 $description = trim((string) ($_POST['description'] ?? ''));
@@ -43,6 +42,7 @@ if ($classificationName === '') {
 
 $classificationGroup = $itemType === 'equipment' ? 'asset' : $itemType;
 $usefulLife = $usefulLifeYears !== '' ? (int) $usefulLifeYears : null;
+$classificationFamily = '';
 
 if ($usefulLife !== null && $usefulLife < 0) {
     http_response_code(422);
@@ -50,8 +50,14 @@ if ($usefulLife !== null && $usefulLife < 0) {
     exit;
 }
 
+if ($accountCodeId <= 0) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'Select account code first before adding a classification.']);
+    exit;
+}
+
 if ($accountCodeId > 0) {
-    $accountStmt = $db->prepare("SELECT id, account_group FROM account_codes WHERE id = ? AND is_active = 1 LIMIT 1");
+    $accountStmt = $db->prepare("SELECT id, account_code, account_name, account_group FROM account_codes WHERE id = ? AND is_active = 1 LIMIT 1");
     if (!$accountStmt) {
         http_response_code(500);
         echo json_encode(['ok' => false, 'error' => 'Unable to validate account code.']);
@@ -68,21 +74,31 @@ if ($accountCodeId > 0) {
         exit;
     }
 
-    $expectedGroup = $classificationGroup === 'asset' ? 'asset' : $classificationGroup;
-    if (($accountRow['account_group'] ?? '') !== $expectedGroup) {
+    $expectedGroups = $classificationGroup === 'asset' ? ['asset', 'fixed_asset'] : [$classificationGroup];
+    if (!in_array((string) ($accountRow['account_group'] ?? ''), $expectedGroups, true)) {
         http_response_code(422);
         echo json_encode(['ok' => false, 'error' => 'Selected account code does not match the item type.']);
         exit;
     }
+
+    $classificationFamily = trim((string) ($accountRow['account_name'] ?? ''));
+    if ($classificationFamily === '') {
+        $classificationFamily = trim((string) ($accountRow['account_code'] ?? ''));
+    }
+    if ($classificationFamily === '') {
+        http_response_code(422);
+        echo json_encode(['ok' => false, 'error' => 'Selected account code has no name to use as classification family.']);
+        exit;
+    }
 }
 
-$duplicateStmt = $db->prepare("SELECT id, classification_name, classification_family, classification_group, account_code_id, useful_life_years FROM classifications WHERE classification_name = ? AND classification_group = ? LIMIT 1");
+$duplicateStmt = $db->prepare("SELECT id, classification_name, classification_family, classification_group, account_code_id, useful_life_years FROM classifications WHERE account_code_id = ? AND LOWER(TRIM(classification_name)) = LOWER(TRIM(?)) AND LOWER(TRIM(COALESCE(classification_family, ''))) = LOWER(TRIM(?)) LIMIT 1");
 if (!$duplicateStmt) {
     http_response_code(500);
     echo json_encode(['ok' => false, 'error' => 'Unable to validate classification duplicates.']);
     exit;
 }
-$duplicateStmt->bind_param('ss', $classificationName, $classificationGroup);
+$duplicateStmt->bind_param('iss', $accountCodeId, $classificationName, $classificationFamily);
 $duplicateStmt->execute();
 $existing = $duplicateStmt->get_result()->fetch_assoc();
 $duplicateStmt->close();
@@ -108,7 +124,7 @@ $userId = current_user_id();
 $insertStmt = $db->prepare("
     INSERT INTO classifications
     (classification_code, system_reference, classification_name, classification_family, classification_group, useful_life_years, account_code_id, description, is_active, created_by)
-    VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, NULLIF(?, 0), ?, 1, ?)
+    VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, 1, ?)
 ");
 if (!$insertStmt) {
     http_response_code(500);

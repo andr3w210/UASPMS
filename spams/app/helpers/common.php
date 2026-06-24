@@ -1089,6 +1089,13 @@ function ensure_legacy_assets_fund_column(mysqli $db): void
     }
 }
 
+function ensure_legacy_assets_unit_of_measure_column(mysqli $db): void
+{
+    if (function_exists('schema_has_column') && !schema_has_column($db, 'legacy_assets', 'unit_of_measure_id')) {
+        $db->query("ALTER TABLE legacy_assets ADD COLUMN unit_of_measure_id INT UNSIGNED NULL AFTER quantity");
+    }
+}
+
 function ensure_legacy_assets_rpcppe_tracking_columns(mysqli $db): void
 {
     $db->query("ALTER TABLE legacy_assets
@@ -1121,6 +1128,15 @@ function ensure_distribution_item_rpcppe_tracking_columns(mysqli $db): void
             ELSE 'excluded'
         END
         WHERE rpcppe_status IS NULL OR TRIM(rpcppe_status) = ''");
+}
+
+function ensure_receiving_item_variance_columns(mysqli $db): void
+{
+    $db->query("ALTER TABLE receiving_items
+        ADD COLUMN IF NOT EXISTS actual_item_description TEXT NULL AFTER purchase_order_item_id,
+        ADD COLUMN IF NOT EXISTS variance_type VARCHAR(40) NOT NULL DEFAULT 'none' AFTER actual_item_description,
+        ADD COLUMN IF NOT EXISTS variance_note TEXT NULL AFTER variance_type,
+        ADD COLUMN IF NOT EXISTS accepted_no_additional_cost TINYINT(1) NOT NULL DEFAULT 0 AFTER variance_note");
 }
 
 function ensure_rpcppe_batch_tracking_columns(mysqli $db): void

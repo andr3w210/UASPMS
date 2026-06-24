@@ -137,10 +137,12 @@ function property_return_person(array $row): string
 function property_return_signatory_name(array $person): string
 {
     $suffix = trim((string) ($person['suffix_name'] ?? ''));
+    $middle = trim((string) ($person['middle_name'] ?? ''));
+    $middleInitial = $middle !== '' ? strtoupper(substr(rtrim($middle, '.'), 0, 1)) . '.' : '';
     $nameParts = array_filter([
         trim((string) ($person['name_prefix'] ?? '')),
         trim((string) ($person['first_name'] ?? '')),
-        trim((string) ($person['middle_name'] ?? '')),
+        $middleInitial,
         trim((string) ($person['last_name'] ?? '')),
     ]);
     $name = strtoupper(trim(implode(' ', $nameParts)));

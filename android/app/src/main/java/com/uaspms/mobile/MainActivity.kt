@@ -243,10 +243,10 @@ class MainActivity : AppCompatActivity() {
     private fun loadHome() {
         val fallbackUrls = orderedBaseUrls(
             listOf(
-                BuildConfig.BASE_URL,
-                BuildConfig.TAILSCALE_IP_BASE_URL,
                 BuildConfig.LAN_BASE_URL,
-                BuildConfig.LOCAL_BASE_URL
+                BuildConfig.LOCAL_BASE_URL,
+                BuildConfig.BASE_URL,
+                BuildConfig.TAILSCALE_IP_BASE_URL
             )
         )
 
@@ -289,10 +289,10 @@ class MainActivity : AppCompatActivity() {
 
         return orderedBaseUrls(
             listOf(
-                BuildConfig.BASE_URL,
-                BuildConfig.TAILSCALE_IP_BASE_URL,
                 BuildConfig.LAN_BASE_URL,
-                BuildConfig.LOCAL_BASE_URL
+                BuildConfig.LOCAL_BASE_URL,
+                BuildConfig.BASE_URL,
+                BuildConfig.TAILSCALE_IP_BASE_URL
             )
         )
     }

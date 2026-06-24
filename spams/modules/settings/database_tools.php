@@ -406,6 +406,12 @@ function db_tools_register_scheduled_backup(array $config, array &$errors): bool
         $taskName = 'UASPMS-Auto-DB-Backup';
     }
 
+    $configPath = db_tools_auto_backup_config_path();
+    if (!is_file($configPath)) {
+        $errors[] = 'Cannot register scheduled backup: automatic backup settings file was not found.';
+        return false;
+    }
+
     $psExe = 'powershell.exe';
     $runArgs = [
         '-NoProfile',
@@ -413,21 +419,9 @@ function db_tools_register_scheduled_backup(array $config, array &$errors): bool
         'Bypass',
         '-File',
         db_tools_escape_for_task_arg($scriptPath),
-        '-KeepDays',
-        (string) max(1, (int) ($config['keep_days'] ?? 30)),
-        '-OutputDir',
-        db_tools_escape_for_task_arg((string) $config['output_dir']),
+        '-ConfigPath',
+        db_tools_escape_for_task_arg($configPath),
     ];
-
-    if (!empty($config['include_tripdb'])) {
-        $runArgs[] = '-IncludeTripDb';
-    }
-
-    if (!empty($config['photos_dir'])) {
-        $runArgs[] = '-IncludePhotos';
-        $runArgs[] = '-PhotosDir';
-        $runArgs[] = db_tools_escape_for_task_arg((string) $config['photos_dir']);
-    }
 
     $taskRun = $psExe . ' ' . implode(' ', $runArgs);
 
@@ -594,34 +588,63 @@ function db_tools_detect_php_cli(): ?string
     return null;
 }
 
+function db_tools_detect_powershell(): ?string
+{
+    $candidates = [
+        getenv('SystemRoot') ? rtrim((string) getenv('SystemRoot'), "\\/") . DIRECTORY_SEPARATOR . 'System32' . DIRECTORY_SEPARATOR . 'WindowsPowerShell' . DIRECTORY_SEPARATOR . 'v1.0' . DIRECTORY_SEPARATOR . 'powershell.exe' : '',
+        'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+        'powershell.exe',
+    ];
+
+    foreach ($candidates as $candidate) {
+        if ($candidate !== '' && (is_file($candidate) || $candidate === 'powershell.exe')) {
+            return $candidate;
+        }
+    }
+
+    return null;
+}
+
 function db_tools_run_backup_now(array $config, array &$errors): bool
 {
     if (!db_tools_exec_available()) {
-        $errors[] = 'Cannot run test backup: PHP shell execution is disabled.';
+        $errors[] = 'Cannot run manual backup: PHP shell execution is disabled.';
         return false;
     }
 
-    $scriptPath = db_tools_project_root() . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'backup_database.php';
+    $scriptPath = db_tools_project_root() . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'backup_database.ps1';
     if (!is_file($scriptPath)) {
-        $errors[] = 'Cannot run test backup: scripts/backup_database.php was not found.';
+        $errors[] = 'Cannot run manual backup: scripts/backup_database.ps1 was not found.';
         return false;
     }
 
-    $phpBinary = db_tools_detect_php_cli();
-    if ($phpBinary === null) {
-        $errors[] = 'Cannot run test backup: php.exe (CLI) was not found.';
+    $powerShell = db_tools_detect_powershell();
+    if ($powerShell === null) {
+        $errors[] = 'Cannot run manual backup: powershell.exe was not found.';
         return false;
     }
 
     $commandParts = [
-        escapeshellarg($phpBinary),
+        escapeshellarg($powerShell),
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
         escapeshellarg($scriptPath),
-        '--keep-days=' . (string) max(1, (int) ($config['keep_days'] ?? 30)),
-        '--output-dir=' . escapeshellarg((string) ($config['output_dir'] ?? db_tools_backups_root() . DIRECTORY_SEPARATOR . 'auto')),
+        '-KeepDays',
+        (string) max(1, (int) ($config['keep_days'] ?? 30)),
+        '-OutputDir',
+        escapeshellarg((string) ($config['output_dir'] ?? db_tools_backups_root() . DIRECTORY_SEPARATOR . 'auto')),
     ];
 
     if (!empty($config['include_tripdb'])) {
-        $commandParts[] = '--include-tripdb';
+        $commandParts[] = '-IncludeTripDb';
+    }
+
+    if (!empty($config['include_photos'])) {
+        $commandParts[] = '-IncludePhotos';
+        $commandParts[] = '-PhotosDir';
+        $commandParts[] = escapeshellarg((string) ($config['photos_dir'] ?? ''));
     }
 
     $output = [];
@@ -629,7 +652,7 @@ function db_tools_run_backup_now(array $config, array &$errors): bool
     exec(implode(' ', $commandParts) . ' 2>&1', $output, $exitCode);
 
     if ($exitCode !== 0) {
-        $errors[] = 'Test backup failed. ' . trim(implode(' ', $output));
+        $errors[] = 'Manual backup failed. ' . trim(implode(' ', $output));
         return false;
     }
 
@@ -662,6 +685,20 @@ function db_tools_validate_output_directory(string $outputDir, array &$errors): 
 
     @unlink($probeFile);
     return true;
+}
+
+function db_tools_path_is_inside(string $path, string $parent): bool
+{
+    $realPath = realpath($path);
+    $realParent = realpath($parent);
+    if ($realPath === false || $realParent === false) {
+        return false;
+    }
+
+    $realPath = rtrim(str_replace('\\', '/', $realPath), '/') . '/';
+    $realParent = rtrim(str_replace('\\', '/', $realParent), '/') . '/';
+
+    return stripos($realPath, $realParent) === 0;
 }
 
 $db = db();
@@ -763,8 +800,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $startTime = trim((string) ($_POST['start_time'] ?? '23:00'));
         $weeklyDay = strtoupper(trim((string) ($_POST['weekly_day'] ?? 'MON')));
         $includeTripDb = isset($_POST['include_tripdb']) && $_POST['include_tripdb'] === '1';
-        $photosDir = db_tools_normalize_output_dir((string) ($_POST['photos_dir'] ?? ''));
-        $includePhotos = isset($_POST['include_photos']) && $_POST['include_photos'] === '1';
 
         if ($taskName === '') {
             $errors[] = 'Task name is required.';
@@ -792,14 +827,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($includePhotos && $photosDir === '') {
             $errors[] = 'Photos directory is required when Include Photos is checked.';
+        } elseif ($includePhotos && is_dir($outputDir) && is_dir($photosDir) && db_tools_path_is_inside($photosDir, $outputDir)) {
+            $errors[] = 'Photos directory must be the source image folder, not a folder inside the backup destination.';
         }
 
         if (empty($errors)) {
             $configToSave = [
                 'task_name' => $taskName,
-                    'output_dir' => $outputDir,
-                    'photos_dir' => $photosDir,
-                    'include_photos' => (bool) $includePhotos,
+                'output_dir' => $outputDir,
+                'photos_dir' => $photosDir,
+                'include_photos' => (bool) $includePhotos,
                 'keep_days' => $keepDays,
                 'schedule_type' => $scheduleType,
                 'start_time' => $startTime,
@@ -841,12 +878,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'start_time' => $startTime,
                 'weekly_day' => $weeklyDay,
                 'include_tripdb' => $includeTripDb,
+                'photos_dir' => $photosDir,
+                'include_photos' => (bool) $includePhotos,
             ];
         }
         $autoBackupTaskStatus = db_tools_get_task_status((string) $autoBackupConfig['task_name']);
     } elseif ($action === 'run_auto_backup_test') {
         $taskName = trim((string) ($_POST['task_name'] ?? 'UASPMS-Auto-DB-Backup'));
         $outputDir = db_tools_normalize_output_dir((string) ($_POST['output_dir'] ?? ''));
+        $photosDir = db_tools_normalize_output_dir((string) ($_POST['photos_dir'] ?? ''));
+        $includePhotos = isset($_POST['include_photos']) && $_POST['include_photos'] === '1';
         $keepDays = (int) ($_POST['keep_days'] ?? 30);
         $scheduleType = strtolower(trim((string) ($_POST['schedule_type'] ?? 'daily')));
         $startTime = trim((string) ($_POST['start_time'] ?? '23:00'));
@@ -877,6 +918,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Invalid weekly day selected.';
         }
 
+        if ($includePhotos && $photosDir === '') {
+            $errors[] = 'Photos directory is required when Include Photos is checked.';
+        } elseif ($includePhotos && !is_dir($photosDir)) {
+            $errors[] = 'Photos directory was not found: ' . $photosDir;
+        } elseif ($includePhotos && is_dir($outputDir) && db_tools_path_is_inside($photosDir, $outputDir)) {
+            $errors[] = 'Photos directory must be the source image folder, not a folder inside the backup destination.';
+        }
+
         $autoBackupConfig = [
             'task_name' => $taskName,
             'output_dir' => $outputDir,
@@ -896,18 +945,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'table_name' => 'database_backups',
                     'record_id' => (string) $taskName,
                     'module_name' => 'settings',
-                    'record_type' => 'database_backup_test',
-                    'action_name' => 'run_database_backup_test',
+                    'record_type' => 'database_backup_manual',
+                    'action_name' => 'run_manual_database_backup',
                     'new_values' => [
                         'output_dir' => $outputDir,
                         'keep_days' => $keepDays,
                         'include_tripdb' => $includeTripDb,
+                        'include_photos' => $includePhotos,
+                        'photos_dir' => $includePhotos ? $photosDir : '',
                     ],
-                    'description' => 'Ran an immediate test backup using auto-backup settings.',
+                    'description' => 'Ran a manual backup using automatic backup settings.',
                 ]);
             }
 
-            set_flash('success', 'Test backup completed successfully. Check the backup folder for the new SQL file.');
+            $successMessage = $includePhotos
+                ? 'Manual backup completed successfully. Check the backup folder for the new SQL file and photo folder.'
+                : 'Manual backup completed successfully. Check the backup folder for the new SQL file.';
+            set_flash('success', $successMessage);
             redirect('modules/settings/database_tools.php');
         }
 
@@ -935,7 +989,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'include_tripdb' => $includeTripDb,
         ];
 
-        if (db_tools_validate_output_directory($outputDir, $errors)) {
+        if ($includePhotos && $photosDir !== '' && is_dir($outputDir) && is_dir($photosDir) && db_tools_path_is_inside($photosDir, $outputDir)) {
+            $errors[] = 'Photos directory must be the source image folder, not a folder inside the backup destination.';
+        }
+
+        if (empty($errors) && db_tools_validate_output_directory($outputDir, $errors)) {
             set_flash('success', 'Backup location is valid and writable: ' . $outputDir);
             redirect('modules/settings/database_tools.php');
         }
@@ -1002,7 +1060,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <h5 class="mb-0">Automatic Backup Settings</h5>
                                     </div>
                                 </div>
-                                <p class="text-muted small mb-3">Choose where to save backups and when to run them. Saving this form updates a Windows Task Scheduler job.</p>
+                                <p class="text-muted small mb-3">Choose where to save backups, whether to include images, and when to run them. The manual button uses this same backup location and image setting.</p>
 
                                 <form method="post" class="row g-3" id="autoBackupForm">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
@@ -1062,7 +1120,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                                     <div class="col-md-6 d-flex align-items-center pt-4">
                                         <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="include_photos" name="include_photos" value="1" <?php echo !empty($autoBackupConfig['include_photos']) || (!empty($autoBackupConfig['photos_dir']) && $autoBackupConfig['photos_dir'] !== '') ? 'checked' : ''; ?>>
+                                            <input class="form-check-input" type="checkbox" id="include_photos" name="include_photos" value="1" <?php echo !empty($autoBackupConfig['include_photos']) ? 'checked' : ''; ?>>
                                             <label class="form-check-label" for="include_photos">Include asset photos in backup</label>
                                         </div>
                                     </div>
@@ -1070,7 +1128,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="col-md-12">
                                         <label for="photos_dir" class="form-label">Photos directory (optional)</label>
                                         <input type="text" class="form-control" id="photos_dir" name="photos_dir" value="<?php echo h((string) ($autoBackupConfig['photos_dir'] ?? '')); ?>" placeholder="C:\\xampp\\htdocs\\UASPMS\\spams\\uploads\\assets">
-                                        <div class="form-text">Set the folder that contains asset photos to include in the ZIP archive when enabled.</div>
+                                        <div class="form-text">Set the folder that contains asset photos to copy into the backup folder when enabled.</div>
                                     </div>
 
                                     <div class="col-12 d-flex flex-wrap gap-2">
@@ -1080,8 +1138,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <button type="submit" class="btn btn-outline-secondary" onclick="document.getElementById('auto_backup_action').value='validate_auto_backup_path';">
                                             <i class="bi bi-folder-check me-1"></i>Validate Path
                                         </button>
-                                        <button type="submit" class="btn btn-outline-primary" onclick="document.getElementById('auto_backup_action').value='run_auto_backup_test';">
-                                            <i class="bi bi-play-circle me-1"></i>Run Test Backup Now
+                                        <button type="submit" class="btn btn-primary" onclick="document.getElementById('auto_backup_action').value='run_auto_backup_test';">
+                                            <i class="bi bi-database-down me-1"></i>Manual Backup Now
                                         </button>
                                     </div>
                                 </form>
@@ -1108,15 +1166,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="fs-2 text-primary"><i class="bi bi-download"></i></div>
                                     <div>
                                         <div class="text-uppercase small text-muted fw-semibold">Backup</div>
-                                        <h5 class="mb-0">Create SQL Backup</h5>
+                                        <h5 class="mb-0">Create Local SQL Backup</h5>
                                     </div>
                                 </div>
-                                <p class="text-muted small">Generate a timestamped `.sql` dump and save it under `database/backups/generated`.</p>
+                                <p class="text-muted small">Generate a timestamped `.sql` dump only and save it under `database/backups/generated`.</p>
                                 <form method="post" id="createBackupForm">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                     <input type="hidden" name="action" value="create_backup">
                                     <button type="submit" class="btn btn-primary">
-                                        <i class="bi bi-database-down me-1"></i>Create Backup
+                                        <i class="bi bi-database-down me-1"></i>Create Local SQL Backup
                                     </button>
                                 </form>
                             </div>
@@ -1295,8 +1353,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
             autoBackupForm.addEventListener('submit', function () {
                 const action = autoBackupAction ? autoBackupAction.value : 'save_auto_backup_settings';
                 if (action === 'run_auto_backup_test') {
-                    setRunningNotice('Test backup is running. Please wait...');
-                    showToast('info', 'Test backup is running. Please wait...');
+                    setRunningNotice('Manual backup is running. Please wait...');
+                    showToast('info', 'Manual backup is running. Please wait...');
                 } else if (action === 'validate_auto_backup_path') {
                     setRunningNotice('Validating backup location...');
                     showToast('info', 'Validating backup location...');

@@ -262,13 +262,16 @@ if ($fundClusterLabel === '') {
 if ($fundClusterLabel === '') {
     $fundClusterLabel = trim((string) ($purchaseOrder['fund_name'] ?? ''));
 }
+$displayPoNumber = strpos((string) ($purchaseOrder['po_number'] ?? ''), 'NO-PO-') === 0
+    ? ''
+    : (string) ($purchaseOrder['po_number'] ?? '');
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
-    <title><?php echo h('PO ' . $purchaseOrder['po_number']); ?> | SPAMS</title>
+    <title><?php echo h(($displayPoNumber !== '' ? 'PO ' . $displayPoNumber : $purchaseOrder['system_reference']) . ' | SPAMS'); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="<?php echo base_url('assets/css/app.css'); ?>" rel="stylesheet">
 </head>
@@ -277,7 +280,7 @@ if ($fundClusterLabel === '') {
         <div class="container-fluid d-flex justify-content-between align-items-center gap-3">
             <div>
                 <div class="fw-semibold">Purchase Order Preview</div>
-                <small class="text-muted"><?php echo h($purchaseOrder['po_number']); ?> | <?php echo h($purchaseOrder['system_reference']); ?></small>
+                <small class="text-muted"><?php echo h($displayPoNumber !== '' ? $displayPoNumber . ' | ' . $purchaseOrder['system_reference'] : $purchaseOrder['system_reference']); ?></small>
                 <?php if (!empty($purchaseOrder['is_partial_entry'])): ?>
                     <span class="badge text-bg-info ms-1">Partial Entry</span>
                 <?php endif; ?>
@@ -337,7 +340,7 @@ if ($fundClusterLabel === '') {
                         <td class="po-label-cell">Supplier</td>
                         <td class="po-value-cell" colspan="3"><?php echo h($purchaseOrder['supplier_name']); ?></td>
                         <td class="po-label-cell">P.O. No.</td>
-                        <td class="po-value-cell"><?php echo h($purchaseOrder['po_number']); ?></td>
+                        <td class="po-value-cell"><?php echo h($displayPoNumber !== '' ? $displayPoNumber : '________________'); ?></td>
                     </tr>
                     <tr>
                         <td class="po-label-cell">Address</td>

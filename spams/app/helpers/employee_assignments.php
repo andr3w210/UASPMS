@@ -363,6 +363,119 @@ function employee_save_assignments(mysqli $db, int $employeeId, array $rows, int
     return true;
 }
 
+function employee_find_default_responsibility_code(mysqli $db, int $officeId): int
+{
+    if ($officeId <= 0) {
+        return 0;
+    }
+
+    $stmt = $db->prepare("SELECT id FROM responsibility_codes WHERE office_id = ? AND is_active = 1 ORDER BY code ASC, id ASC LIMIT 1");
+    if (!$stmt) {
+        return 0;
+    }
+
+    $stmt->bind_param('i', $officeId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: [];
+    $stmt->close();
+
+    return (int) ($row['id'] ?? 0);
+}
+
+function employee_ensure_office_assignment(mysqli $db, int $employeeId, int $officeId, string $roleTitle = '', bool $isUnitHead = false, int $userId = 0): bool
+{
+    if ($employeeId <= 0 || $officeId <= 0 || !employee_assignments_enabled($db)) {
+        return true;
+    }
+
+    $roleTitle = trim($roleTitle);
+    if ($roleTitle === '') {
+        $employeeStmt = $db->prepare("SELECT position_title FROM employees WHERE id = ? LIMIT 1");
+        if ($employeeStmt) {
+            $employeeStmt->bind_param('i', $employeeId);
+            $employeeStmt->execute();
+            $employeeRow = $employeeStmt->get_result()->fetch_assoc() ?: [];
+            $employeeStmt->close();
+            $roleTitle = trim((string) ($employeeRow['position_title'] ?? ''));
+        }
+    }
+    if ($roleTitle === '') {
+        $roleTitle = $isUnitHead ? 'Office Head' : 'Employee';
+    }
+
+    $responsibilityCodeId = employee_find_default_responsibility_code($db, $officeId);
+    $isUnitHeadValue = $isUnitHead ? 1 : 0;
+    $createdBy = $userId > 0 ? $userId : 0;
+    $updatedBy = $userId > 0 ? $userId : 0;
+
+    $hasActiveAssignment = false;
+    $activeStmt = $db->prepare("SELECT id FROM employee_assignments WHERE employee_id = ? AND is_active = 1 LIMIT 1");
+    if ($activeStmt) {
+        $activeStmt->bind_param('i', $employeeId);
+        $activeStmt->execute();
+        $hasActiveAssignment = (bool) $activeStmt->get_result()->fetch_assoc();
+        $activeStmt->close();
+    }
+    $isPrimaryValue = $hasActiveAssignment ? 0 : 1;
+
+    $assignmentStmt = $db->prepare("SELECT id, responsibility_code_id, role_title FROM employee_assignments WHERE employee_id = ? AND office_id = ? LIMIT 1");
+    if (!$assignmentStmt) {
+        return false;
+    }
+    $assignmentStmt->bind_param('ii', $employeeId, $officeId);
+    $assignmentStmt->execute();
+    $assignmentRow = $assignmentStmt->get_result()->fetch_assoc() ?: [];
+    $assignmentStmt->close();
+
+    if ($assignmentRow) {
+        $assignmentId = (int) ($assignmentRow['id'] ?? 0);
+        $saveResponsibilityCodeId = !empty($assignmentRow['responsibility_code_id'])
+            ? (int) $assignmentRow['responsibility_code_id']
+            : $responsibilityCodeId;
+        $saveRoleTitle = trim((string) ($assignmentRow['role_title'] ?? '')) !== ''
+            ? trim((string) $assignmentRow['role_title'])
+            : $roleTitle;
+
+        $stmt = $db->prepare("UPDATE employee_assignments
+                              SET responsibility_code_id = NULLIF(?, 0), role_title = ?, is_unit_head = ?, is_active = 1, updated_by = ?, updated_at = NOW()
+                              WHERE id = ? AND employee_id = ?");
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('isiiii', $saveResponsibilityCodeId, $saveRoleTitle, $isUnitHeadValue, $updatedBy, $assignmentId, $employeeId);
+        $ok = $stmt->execute();
+        $stmt->close();
+    } else {
+        $stmt = $db->prepare("INSERT INTO employee_assignments
+                              (employee_id, office_id, responsibility_code_id, role_title, is_unit_head, is_oic, is_primary, is_active, created_by, updated_by)
+                              VALUES (?, ?, NULLIF(?, 0), ?, ?, 0, ?, 1, ?, ?)");
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('iiisiiii', $employeeId, $officeId, $responsibilityCodeId, $roleTitle, $isUnitHeadValue, $isPrimaryValue, $createdBy, $updatedBy);
+        $ok = $stmt->execute();
+        $stmt->close();
+    }
+
+    if (!$ok) {
+        return false;
+    }
+
+    if ($isUnitHeadValue === 1) {
+        $stmt = $db->prepare("UPDATE employee_assignments
+                              SET is_unit_head = 0, updated_by = ?, updated_at = NOW()
+                              WHERE office_id = ? AND employee_id != ? AND is_active = 1");
+        if ($stmt) {
+            $stmt->bind_param('iii', $updatedBy, $officeId, $employeeId);
+            $stmt->execute();
+            $stmt->close();
+        }
+    }
+
+    employee_sync_legacy_assignment_fields($db, $employeeId);
+    return true;
+}
+
 function employee_resolve_office_head(mysqli $db, int $officeId): array
 {
     if ($officeId <= 0) {

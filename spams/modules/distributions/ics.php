@@ -4,6 +4,7 @@ require_login();
 
 $db = db();
 $distributionId = (int) ($_GET['id'] ?? 0);
+$detailId = (int) ($_GET['detail_id'] ?? 0);
 $printFormat = ($_GET['print_format'] ?? 'long') === 'short' ? 'short' : 'long';
 $isShort = $printFormat === 'short';
 $copyCount = max(1, min(20, (int) ($_GET['copies'] ?? 1)));
@@ -60,7 +61,7 @@ if (!$header) {
 
 $docNo = $header['document_no'] ?? '';
 if ((!empty($header['document_type']) && $header['document_type'] === 'par') || (is_string($docNo) && strpos($docNo, 'PAR-') === 0)) {
-    header('Location: par.php?id=' . (int) $distributionId);
+    header('Location: par.php?id=' . (int) $distributionId . ($detailId > 0 ? '&detail_id=' . $detailId : ''));
     exit;
 }
 
@@ -74,6 +75,7 @@ $resolveSupplyOfficeHead = static function (mysqli $db): array {
     return employee_resolve_supply_office_head($db);
 };
 
+$detailFilterSql = $detailId > 0 ? ' AND did.id = ?' : '';
 $itemStmt = $db->prepare(
     "SELECT di.id AS di_id, di.quantity_distributed, di.unit_cost, di.line_total,
             poi.item_description,
@@ -85,15 +87,19 @@ $itemStmt = $db->prepare(
      INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
      LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id
      LEFT JOIN classifications c ON c.id = poi.classification_id
-      LEFT JOIN distribution_item_details did ON did.distribution_item_id = di.id
-          AND did.is_distributed = 1
-     WHERE di.distribution_id = ?
+     LEFT JOIN distribution_item_details did ON did.distribution_item_id = di.id
+         AND did.is_distributed = 1
+     WHERE di.distribution_id = ?{$detailFilterSql}
      ORDER BY di.id ASC, did.id ASC"
 );
 
 $rows = [];
 if ($itemStmt) {
-    $itemStmt->bind_param('i', $distributionId);
+    if ($detailId > 0) {
+        $itemStmt->bind_param('ii', $distributionId, $detailId);
+    } else {
+        $itemStmt->bind_param('i', $distributionId);
+    }
     $itemStmt->execute();
     $res = $itemStmt->get_result();
     while ($res && ($row = $res->fetch_assoc())) {
@@ -102,11 +108,17 @@ if ($itemStmt) {
     $itemStmt->close();
 }
 
+if ($detailId > 0 && !$rows) {
+    http_response_code(404);
+    echo 'Asset detail not found in this ICS.';
+    exit;
+}
+
 $items = [];
 foreach ($rows as $row) {
     $di = (int) $row['di_id'];
     if (!isset($items[$di])) {
-        $qty_di = (float) $row['quantity_distributed'];
+        $qty_di = $detailId > 0 ? 1.0 : (float) $row['quantity_distributed'];
         $uc_di  = (float) $row['unit_cost'];
         $items[$di] = [
             'quantity_distributed' => $qty_di,
@@ -244,15 +256,37 @@ $itemIdentityLines = static function (array $item) use ($detailIdentityLine): ar
     return array_values(array_unique($lines));
 };
 
-$recipientHead = $resolveOfficeHead($db, $officeId);
+$singleAssetRecipient = [];
+if ($detailId > 0) {
+    $recipientStmt = $db->prepare(
+        "SELECT e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title, o.office_name
+         FROM distribution_item_details did
+         INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+         INNER JOIN distributions d ON d.id = di.distribution_id
+         INNER JOIN employees e ON e.id = COALESCE(NULLIF(did.current_employee_id, 0), d.employee_id)
+         LEFT JOIN offices o ON o.id = COALESCE(NULLIF(did.current_office_id, 0), d.office_id)
+         WHERE did.id = ? AND d.id = ? AND e.is_active = 1
+         LIMIT 1"
+    );
+    if ($recipientStmt) {
+        $recipientStmt->bind_param('ii', $detailId, $distributionId);
+        $recipientStmt->execute();
+        $singleAssetRecipient = $recipientStmt->get_result()->fetch_assoc() ?: [];
+        $recipientStmt->close();
+    }
+}
+
+$recipientHead = $singleAssetRecipient ?: $resolveOfficeHead($db, $officeId);
 $supplyHead = $resolveSupplyOfficeHead($db);
 
 $signatoryDisplayName = static function (array $person): string {
     $suffix = trim((string) ($person['suffix_name'] ?? ''));
+    $middle = trim((string) ($person['middle_name'] ?? ''));
+    $middleInitial = $middle !== '' ? strtoupper(substr(rtrim($middle, '.'), 0, 1)) . '.' : '';
     $nameParts = array_filter([
         trim((string) ($person['name_prefix'] ?? '')),
         trim((string) ($person['first_name'] ?? '')),
-        trim((string) ($person['middle_name'] ?? '')),
+        $middleInitial,
         trim((string) ($person['last_name'] ?? '')),
     ]);
     $name = strtoupper(trim(implode(' ', $nameParts)));
@@ -282,6 +316,10 @@ if (preg_match('/(?:^|[^0-9])(0[1567])(?:[^0-9]|$)/', $fundCluster, $matches)) {
 
 $blankRows = $extraRows;
 $shortSheetCount = (int) ceil($copyCount / 2);
+$detailParam = $detailId > 0 ? '&detail_id=' . $detailId : '';
+$tagPrintUrl = $detailId > 0
+    ? base_url('modules/property/tags.php?detail_id=' . $detailId)
+    : base_url('modules/property/tags.php?distribution_id=' . (int) $distributionId);
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -289,20 +327,21 @@ $shortSheetCount = (int) ceil($copyCount / 2);
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>ICS <?php echo h($header['document_no'] ?? $header['system_reference']); ?></title>
     <style>
-        @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0' : '0.5in'; ?>; }
+        @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0.25in 0.5in' : '0.5in'; ?>; }
         body { margin: 0; font-size: 12px; color: #000; font-family: "Times New Roman", serif; }
         table { font-size: 12px; }
         .print-shell { width: 100%; max-width: none !important; margin: 0; padding: 0; }
         .no-print { display: block; font-family: Arial, sans-serif; }
         .print-shell.short { font-size: 12px; }
         .print-shell.short table { font-size: 12px; }
-        .print-shell.short { width: 8.5in; max-width: 8.5in !important; }
-        .short-copies { width: 8.5in; }
-        .short-sheet { width: 8.5in; height: 13in; box-sizing: border-box; display: flex; flex-direction: column; }
+        .print-shell.short { width: 7.5in; max-width: 7.5in !important; padding: 0; }
+        .short-copies { width: 7.5in; }
+        .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: flex; flex-direction: column; }
         .short-sheet + .short-sheet { margin-top: 0; }
-        .short-slot { height: 6.5in; box-sizing: border-box; display: flex; flex-direction: column; }
+        .short-slot { height: 6.25in; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
+        .short-slot + .short-slot { padding-top: 0.25in; }
         .short-slot + .short-slot { border-top: 1px dashed #bbb; }
-        .short-copy { min-height: 6.35in; padding: 0.45in 0.5in; box-sizing: border-box; overflow: visible; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
+        .short-copy { height: 6.25in; min-height: 6.25in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
         .ics-form { position: relative; break-inside: avoid; page-break-inside: avoid; }
         .appendix { position: absolute; right: 0; top: 0; font-style: italic; font-size: 12px; }
         .ics-title { text-align: center; font-weight: bold; font-size: 16px; text-transform: uppercase; margin: 18px 0 22px; }
@@ -334,6 +373,11 @@ $shortSheetCount = (int) ceil($copyCount / 2);
             .no-print, .no-print * { display: none !important; }
             thead { display: table-header-group; }
             .print-shell.long .print-copy { break-inside: avoid; page-break-inside: avoid; }
+            .print-shell.short .short-copies { width: 7.5in !important; height: 12.5in !important; }
+            .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display: flex !important; flex-direction: column !important; }
+            .print-shell.short .short-slot { height: 6.25in !important; flex: 0 0 6.25in !important; overflow: hidden !important; }
+            .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; }
+            .print-shell.short .short-copy { height: 6.25in !important; min-height: 6.25in !important; }
             .print-shell.short .short-slot + .short-slot { border-top: none; }
             .print-shell.short .short-sheet { break-after: page; page-break-after: always; }
             .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; }
@@ -348,13 +392,14 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;">
             <a href="<?php echo base_url('modules/distributions/index.php?document_type=ics'); ?>" style="border:1px solid #666;padding:6px 10px;text-decoration:none;color:#111;">Back</a>
             <button onclick="window.print()" style="border:1px solid #0d6efd;background:#0d6efd;color:#fff;padding:6px 10px;">Print</button>
-            <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . '&print_format=short&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . '&copies=' . $copyCount)); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo $isShort ? '#fff' : '#0d6efd'; ?>;background:<?php echo $isShort ? '#0d6efd' : '#fff'; ?>;">Short</a>
-            <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . '&print_format=long&view_mode=' . $viewMode . '&extra_rows=' . $extraRows)); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo !$isShort ? '#fff' : '#0d6efd'; ?>;background:<?php echo !$isShort ? '#0d6efd' : '#fff'; ?>;">Long</a>
-            <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . '&print_format=' . $printFormat . '&view_mode=grouped&extra_rows=' . $extraRows . ($isShort ? '&copies=' . $copyCount : ''))); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo $isGrouped ? '#fff' : '#0d6efd'; ?>;background:<?php echo $isGrouped ? '#0d6efd' : '#fff'; ?>;">Grouped</a>
-            <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . '&print_format=' . $printFormat . '&view_mode=detailed&extra_rows=' . $extraRows . ($isShort ? '&copies=' . $copyCount : ''))); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo !$isGrouped ? '#fff' : '#0d6efd'; ?>;background:<?php echo !$isGrouped ? '#0d6efd' : '#fff'; ?>;">Detailed</a>
-            <a href="<?php echo base_url('modules/property/tags.php?distribution_id=' . (int) $distributionId); ?>" target="_blank" style="border:1px solid #666;padding:6px 10px;text-decoration:none;color:#111;">Print QR Tags</a>
+            <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . $detailParam . '&print_format=short&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . '&copies=' . $copyCount)); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo $isShort ? '#fff' : '#0d6efd'; ?>;background:<?php echo $isShort ? '#0d6efd' : '#fff'; ?>;">Short</a>
+            <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . $detailParam . '&print_format=long&view_mode=' . $viewMode . '&extra_rows=' . $extraRows)); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo !$isShort ? '#fff' : '#0d6efd'; ?>;background:<?php echo !$isShort ? '#0d6efd' : '#fff'; ?>;">Long</a>
+            <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . $detailParam . '&print_format=' . $printFormat . '&view_mode=grouped&extra_rows=' . $extraRows . ($isShort ? '&copies=' . $copyCount : ''))); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo $isGrouped ? '#fff' : '#0d6efd'; ?>;background:<?php echo $isGrouped ? '#0d6efd' : '#fff'; ?>;">Grouped</a>
+            <a href="<?php echo h(base_url('modules/distributions/ics.php?id=' . (int) $distributionId . $detailParam . '&print_format=' . $printFormat . '&view_mode=detailed&extra_rows=' . $extraRows . ($isShort ? '&copies=' . $copyCount : ''))); ?>" style="border:1px solid #0d6efd;padding:6px 10px;text-decoration:none;color:<?php echo !$isGrouped ? '#fff' : '#0d6efd'; ?>;background:<?php echo !$isGrouped ? '#0d6efd' : '#fff'; ?>;">Detailed</a>
+            <a href="<?php echo h($tagPrintUrl); ?>" target="_blank" style="border:1px solid #666;padding:6px 10px;text-decoration:none;color:#111;">Print QR Tags</a>
             <form method="get" style="display:flex;align-items:center;gap:8px;" class="no-print">
                 <input type="hidden" name="id" value="<?php echo (int) $distributionId; ?>">
+                <?php if ($detailId > 0): ?><input type="hidden" name="detail_id" value="<?php echo (int) $detailId; ?>"><?php endif; ?>
                 <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
                 <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
                 <?php if ($isShort): ?>
@@ -367,6 +412,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
             <?php if ($isShort): ?>
             <form method="get" style="display:flex;align-items:center;gap:8px;" class="no-print">
                 <input type="hidden" name="id" value="<?php echo (int) $distributionId; ?>">
+                <?php if ($detailId > 0): ?><input type="hidden" name="detail_id" value="<?php echo (int) $detailId; ?>"><?php endif; ?>
                 <input type="hidden" name="print_format" value="short">
                 <input type="hidden" name="view_mode" value="<?php echo h($viewMode); ?>">
                 <input type="hidden" name="extra_rows" value="<?php echo (int) $extraRows; ?>">

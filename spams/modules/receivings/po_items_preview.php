@@ -16,12 +16,14 @@ if (!$db || $poId <= 0) {
 
 $stmt = $db->prepare(
     "SELECT poi.id, poi.line_no, poi.item_type, " . ($hasSemiTypeColumn ? "poi.semi_expendable_type" : "NULL AS semi_expendable_type") . ", poi.item_description, poi.quantity, poi.unit_cost,
+            c.classification_name,
             COALESCE(SUM(CASE WHEN r.status != 'cancelled' THEN ri.quantity_accepted ELSE 0 END), 0) AS quantity_already_received
      FROM purchase_order_items poi
+     LEFT JOIN classifications c ON c.id = poi.classification_id
      LEFT JOIN receiving_items ri ON ri.purchase_order_item_id = poi.id
      LEFT JOIN receivings r ON r.id = ri.receiving_id
      WHERE poi.purchase_order_id = ?
-     GROUP BY poi.id, poi.line_no, poi.item_type, " . ($hasSemiTypeColumn ? "poi.semi_expendable_type" : "semi_expendable_type") . ", poi.item_description, poi.quantity, poi.unit_cost
+     GROUP BY poi.id, poi.line_no, poi.item_type, " . ($hasSemiTypeColumn ? "poi.semi_expendable_type" : "semi_expendable_type") . ", poi.item_description, poi.quantity, poi.unit_cost, c.classification_name
      ORDER BY poi.line_no ASC, poi.id ASC"
 );
 if (!$stmt) {
@@ -40,6 +42,7 @@ while ($row = $res->fetch_assoc()) {
         'line_no' => (int) $row['line_no'],
         'item_type' => $row['item_type'],
         'semi_expendable_type' => $row['semi_expendable_type'],
+        'classification_name' => $row['classification_name'],
         'description' => $row['item_description'],
         'ordered' => (float) $row['quantity'],
         'received' => (float) $row['quantity_already_received'],

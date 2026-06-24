@@ -76,6 +76,66 @@ function preview_distribution_doc_no($db, string $docType, string $date, string 
     return $prefix . '-' . $year . '-' . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT);
 }
 
+function distribution_sync_system_property_number(mysqli $db, int $detailId, string $propertyNumber): bool
+{
+    if (
+        schema_has_column($db, 'distribution_item_details', 'distribution_item_id')
+        && schema_has_column($db, 'distribution_items', 'id')
+        && schema_has_column($db, 'distribution_items', 'property_number')
+    ) {
+        $parentStmt = $db->prepare(
+            'UPDATE distribution_items di
+             INNER JOIN distribution_item_details did ON did.distribution_item_id = di.id
+             SET di.property_number = ?
+             WHERE did.id = ?'
+        );
+        if (!$parentStmt) {
+            return false;
+        }
+
+        $parentStmt->bind_param('si', $propertyNumber, $detailId);
+        $parentOk = $parentStmt->execute();
+        $parentStmt->close();
+
+        if (!$parentOk) {
+            return false;
+        }
+    }
+
+    $syncTargets = [
+        ['table' => 'rpcppe_batch_items', 'id_column' => 'distribution_item_detail_id'],
+        ['table' => 'inventory_count_items', 'id_column' => 'distribution_item_detail_id'],
+        ['table' => 'asset_transfers', 'id_column' => 'distribution_item_detail_id'],
+        ['table' => 'transfer_batch_items', 'id_column' => 'distribution_item_detail_id'],
+    ];
+
+    foreach ($syncTargets as $target) {
+        $table = $target['table'];
+        $idColumn = $target['id_column'];
+        if (
+            !schema_has_column($db, $table, 'property_number')
+            || !schema_has_column($db, $table, $idColumn)
+        ) {
+            continue;
+        }
+
+        $stmt = $db->prepare("UPDATE {$table} SET property_number = ? WHERE {$idColumn} = ?");
+        if (!$stmt) {
+            return false;
+        }
+
+        $stmt->bind_param('si', $propertyNumber, $detailId);
+        $ok = $stmt->execute();
+        $stmt->close();
+
+        if (!$ok) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 function distribution_extract_uploaded_file(string $fieldName, int $itemId): array
 {
     $empty = [
@@ -663,6 +723,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (!$detailStmt->execute()) {
                             throw new RuntimeException('Unable to update distributed unit details.');
                         }
+                        if (!distribution_sync_system_property_number($db, $detailId, $propertyNumber)) {
+                            throw new RuntimeException('Unable to sync distributed unit property number.');
+                        }
 
                         if ($quantityDistributed <= 0) {
                             $releaseDistributionDetailStmt->bind_param('ii', $detailId, $distributionItemId);
@@ -1051,6 +1114,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $clearPriorPropertyStmt->bind_param('i', $priorPropertyId);
                             if (!$clearPriorPropertyStmt->execute()) {
                                 throw new RuntimeException('Unable to transfer the prior property number.');
+                            }
+                            if (!distribution_sync_system_property_number($db, $priorPropertyId, '')) {
+                                throw new RuntimeException('Unable to clear the prior property number snapshot.');
                             }
                         }
 
@@ -1776,10 +1842,28 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
                 </form>
+                <form method="get" action="<?php echo base_url('modules/distributions/consolidated_print.php'); ?>" target="_blank" class="mb-0">
+                <div class="d-flex flex-wrap align-items-end gap-2 mb-3 p-3 border rounded bg-light">
+                    <div>
+                        <label for="consolidated_print_date" class="form-label small mb-1">Acceptance / print date</label>
+                        <input type="date" class="form-control form-control-sm" id="consolidated_print_date" name="print_date" value="<?php echo h(date('Y-m-d')); ?>" required>
+                    </div>
+                    <div>
+                        <label for="consolidated_extra_rows" class="form-label small mb-1">Extra rows</label>
+                        <input type="number" class="form-control form-control-sm" id="consolidated_extra_rows" name="extra_rows" value="0" min="0" max="35" step="1" style="width:90px;">
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">
+                        Print Selected Acceptance
+                    </button>
+                    <div class="small text-muted">
+                        Select posted distributions from the same PO, office, employee, supplier, fund, and document type.
+                    </div>
+                </div>
                 <div class="table-responsive mobile-table-frame">
                     <table class="table align-middle">
                         <thead>
                             <tr>
+                                <th style="width:36px;"><span class="visually-hidden">Select</span></th>
                                 <th data-sort="ref">Reference <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="docno">Document No. <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="date">Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
@@ -1796,6 +1880,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <?php if ($distributions): ?>
                                 <?php foreach ($distributions as $distribution): ?>
                                     <tr>
+                                        <td>
+                                            <input class="form-check-input" type="checkbox" name="distribution_ids[]" value="<?php echo (int) $distribution['id']; ?>" aria-label="Select <?php echo h((string) $distribution['document_no']); ?>">
+                                        </td>
                                         <td class="fw-semibold"><?php echo h($distribution['system_reference']); ?></td>
                                         <td><?php echo h($distribution['document_no']); ?></td>
                                         <td><?php echo h(date('M d, Y', strtotime($distribution['distribution_date']))); ?></td>
@@ -1837,11 +1924,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </tr>
                                 <?php endforeach; ?>
                             <?php else: ?>
-                                <tr><td colspan="10" class="text-center text-muted py-4">No distributions posted yet.</td></tr>
+                                <tr><td colspan="11" class="text-center text-muted py-4">No distributions posted yet.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
+                </form>
             </div>
         </div>
     </div>
