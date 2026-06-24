@@ -15,6 +15,19 @@ function qa_json(bool $success, array $payload = []): never
     exit;
 }
 
+function qa_ensure_classification_family_unique_index(mysqli $db): void
+{
+    $indexResult = $db->query("SHOW INDEX FROM classifications WHERE Key_name = 'uk_classifications_group_name'");
+    if (!$indexResult || $indexResult->num_rows === 0) {
+        return;
+    }
+
+    $db->query("UPDATE classifications SET classification_family = '' WHERE classification_family IS NULL");
+    $db->query("ALTER TABLE classifications MODIFY classification_family VARCHAR(150) NOT NULL DEFAULT ''");
+    $db->query("ALTER TABLE classifications DROP INDEX uk_classifications_group_name");
+    $db->query("ALTER TABLE classifications ADD UNIQUE KEY uk_classifications_group_family_name (classification_group, classification_family, classification_name)");
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     qa_json(false, ['error' => 'Method not allowed.']);
 }
@@ -36,7 +49,6 @@ switch ($action) {
     // ── Classification ────────────────────────────────────────────
     case 'add_classification': {
         $name = trim((string) ($_POST['classification_name'] ?? ''));
-        $family = trim((string) ($_POST['classification_family'] ?? ''));
         $accountCodeId = (int) ($_POST['account_code_id'] ?? 0);
         if ($name === '') { qa_json(false, ['error' => 'Classification name is required.']); }
         if ($accountCodeId <= 0) {
@@ -44,25 +56,38 @@ switch ($action) {
         }
 
         $group = '';
-        $accountGroupStmt = $db->prepare('SELECT account_group FROM account_codes WHERE id = ? AND is_active = 1 LIMIT 1');
+        $family = '';
+        $accountGroupStmt = $db->prepare('SELECT account_code, account_name, account_group FROM account_codes WHERE id = ? AND is_active = 1 LIMIT 1');
         if ($accountGroupStmt) {
             $accountGroupStmt->bind_param('i', $accountCodeId);
             $accountGroupStmt->execute();
             $accountGroupRow = $accountGroupStmt->get_result()->fetch_assoc();
             $accountGroupStmt->close();
             $group = trim((string) ($accountGroupRow['account_group'] ?? ''));
+            if ($group === 'fixed_asset') {
+                $group = 'asset';
+            }
+            $family = trim((string) ($accountGroupRow['account_name'] ?? ''));
+            if ($family === '') {
+                $family = trim((string) ($accountGroupRow['account_code'] ?? ''));
+            }
         }
         if (!in_array($group, ['asset', 'semi_expendable', 'supply'], true)) {
             qa_json(false, ['error' => 'Selected account code has invalid group mapping.']);
+        }
+        if ($family === '') {
+            qa_json(false, ['error' => 'Selected account code has no name to use as classification family.']);
         }
 
         if ($group === 'supply') {
             qa_json(false, ['error' => 'Supply account codes are not allowed for legacy asset classifications.']);
         }
 
-        $dup = $db->prepare('SELECT id, classification_family, account_code_id, is_active FROM classifications WHERE account_code_id = ? AND LOWER(TRIM(classification_name)) = LOWER(TRIM(?)) LIMIT 1');
+        qa_ensure_classification_family_unique_index($db);
+
+        $dup = $db->prepare("SELECT id, classification_family, account_code_id, is_active FROM classifications WHERE account_code_id = ? AND LOWER(TRIM(classification_name)) = LOWER(TRIM(?)) AND LOWER(TRIM(COALESCE(classification_family, ''))) = LOWER(TRIM(?)) LIMIT 1");
         if ($dup) {
-            $dup->bind_param('is', $accountCodeId, $name);
+            $dup->bind_param('iss', $accountCodeId, $name, $family);
             $dup->execute();
             $existing = $dup->get_result()->fetch_assoc();
             if ($existing) {
@@ -96,14 +121,18 @@ switch ($action) {
         }
 
         $classificationCode = next_module_code($db, 'classifications');
-        $stmt = $db->prepare('INSERT INTO classifications (classification_code, classification_name, classification_family, classification_group, account_code_id, is_active, created_by) VALUES (?, ?, NULLIF(?,\'\'), ?, ?, 1, ?)');
+        $stmt = $db->prepare('INSERT INTO classifications (classification_code, classification_name, classification_family, classification_group, account_code_id, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, ?)');
         if (!$stmt) { qa_json(false, ['error' => 'Failed to prepare insert.']); }
         $stmt->bind_param('ssssii', $classificationCode, $name, $family, $group, $accountCodeId, $userId);
         $saved = $stmt->execute();
+        $insertError = $stmt->error;
         $id = (int) $stmt->insert_id;
         $stmt->close();
 
         if (!$saved || $id <= 0) {
+            if (stripos($insertError, 'duplicate') !== false) {
+                qa_json(false, ['error' => 'A classification named "' . $name . '" already exists under ' . $family . '.']);
+            }
             qa_json(false, ['error' => 'Unable to save classification right now.']);
         }
 
@@ -120,8 +149,12 @@ switch ($action) {
     case 'add_account_code': {
         $code = trim((string) ($_POST['account_code'] ?? ''));
         $aname = trim((string) ($_POST['account_name'] ?? ''));
+        $accountGroup = trim((string) ($_POST['account_group'] ?? 'asset'));
         if ($code === '') { qa_json(false, ['error' => 'Account code is required.']); }
         if ($aname === '') { qa_json(false, ['error' => 'Account name is required.']); }
+        if (!in_array($accountGroup, ['asset', 'semi_expendable'], true)) {
+            qa_json(false, ['error' => 'Account group must match equipment or semi-expendable inventory.']);
+        }
 
         $dup = $db->prepare('SELECT id FROM account_codes WHERE account_code = ? LIMIT 1');
         if ($dup) {
@@ -134,14 +167,14 @@ switch ($action) {
             $dup->close();
         }
 
-        $stmt = $db->prepare('INSERT INTO account_codes (account_code, account_name, is_active, created_by) VALUES (?, ?, 1, ?)');
+        $stmt = $db->prepare('INSERT INTO account_codes (account_code, account_name, account_group, is_active, created_by) VALUES (?, ?, ?, 1, ?)');
         if (!$stmt) { qa_json(false, ['error' => 'Failed to prepare insert.']); }
-        $stmt->bind_param('ssi', $code, $aname, $userId);
+        $stmt->bind_param('sssi', $code, $aname, $accountGroup, $userId);
         $stmt->execute();
         $id = (int) $stmt->insert_id;
         $stmt->close();
 
-        qa_json(true, ['id' => $id, 'label' => $code . ' - ' . $aname]);
+        qa_json(true, ['id' => $id, 'label' => $code . ' - ' . $aname, 'account_group' => $accountGroup]);
     }
 
     // ── Brand ─────────────────────────────────────────────────────

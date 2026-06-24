@@ -142,7 +142,7 @@ function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $
 
     if ($sourceType === 'legacy') {
         $stmt = $db->prepare(
-            "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
+            "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, la.quantity AS quantity_received,
                     la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
                     '' AS ris_no, la.acquisition_date AS received_date, la.po_number, '' AS supplier_name,
                     la.brand, la.model, la.serial_no, la.qr_tag_code, la.location_id, la.manual_location,
@@ -235,7 +235,7 @@ function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
     }
 
     $legacyStmt = $db->prepare(
-        "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
+        "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, la.quantity AS quantity_received,
                 la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
                 '' AS ris_no, la.acquisition_date AS received_date, la.po_number, '' AS supplier_name,
                 la.brand, la.model, la.serial_no, la.qr_tag_code, la.location_id, la.manual_location,
@@ -344,7 +344,7 @@ function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
         }
 
         $legacySerialStmt = $db->prepare(
-            "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, 1 AS quantity_received,
+            "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, la.quantity AS quantity_received,
                     la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
                     '' AS ris_no, la.acquisition_date AS received_date, la.po_number, '' AS supplier_name,
                     la.brand, la.model, la.serial_no, la.qr_tag_code, la.location_id, la.manual_location,
@@ -1092,6 +1092,7 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                 <div class="row g-3">
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Brand / Model</div><div><?php echo h($brandModel !== '' ? $brandModel : 'Not recorded'); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Serial Number</div><div><?php echo h((string) ($row['serial_no'] ?? '') !== '' ? (string) $row['serial_no'] : 'Not recorded'); ?></div></div></div>
+                    <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Quantity</div><div><?php echo isset($row['quantity_received']) ? h(format_quantity($row['quantity_received'])) : '-'; ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Unit Cost</div><div><?php echo isset($row['unit_cost']) ? h(number_format((float) $row['unit_cost'], 2)) : '-'; ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Date Acquired</div><div><?php echo h(format_date($row['received_date'] ?? null)); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Supplier</div><div><?php echo h((string) ($row['supplier_name'] ?? '') !== '' ? (string) $row['supplier_name'] : 'Not recorded'); ?></div></div></div>

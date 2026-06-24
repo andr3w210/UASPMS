@@ -6,11 +6,16 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.util.Size
 import android.view.View
 import android.view.animation.LinearInterpolator
+import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -24,6 +29,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
 
@@ -32,11 +38,20 @@ class QRScannerActivity : AppCompatActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var scannerFrame: View
     private lateinit var scannerLine: View
+    private lateinit var scannerHint: TextView
+    private lateinit var torchButton: Button
+    private lateinit var zoomOutButton: Button
+    private lateinit var zoomInButton: Button
     private lateinit var cameraExecutor: ExecutorService
     private var scanLineAnimator: ValueAnimator? = null
     private var lastScannedValue = ""
     private var lastScannedTime = 0L
     private var baseUrl = BuildConfig.BASE_URL
+    private var camera: Camera? = null
+    private var torchEnabled = false
+    private var zoomRatio = 1.0f
+    private var minZoomRatio = 1.0f
+    private var maxZoomRatio = 1.0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,7 +61,12 @@ class QRScannerActivity : AppCompatActivity() {
         previewView = findViewById(R.id.previewView)
         scannerFrame = findViewById(R.id.scannerFrame)
         scannerLine = findViewById(R.id.scannerLine)
+        scannerHint = findViewById(R.id.scannerHint)
+        torchButton = findViewById(R.id.torchButton)
+        zoomOutButton = findViewById(R.id.zoomOutButton)
+        zoomInButton = findViewById(R.id.zoomInButton)
         cameraExecutor = Executors.newSingleThreadExecutor()
+        configureScannerControls()
         configureScannerFrameSize()
         scannerFrame.post {
             startScanLineAnimation()
@@ -73,6 +93,7 @@ class QRScannerActivity : AppCompatActivity() {
 
             val imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setTargetResolution(Size(1280, 720))
                 .build()
                 .also {
                     it.setAnalyzer(cameraExecutor, BarcodeAnalyzer { barcode ->
@@ -84,9 +105,10 @@ class QRScannerActivity : AppCompatActivity() {
 
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+                camera = cameraProvider.bindToLifecycle(
                     this, cameraSelector, preview, imageAnalyzer
                 )
+                configureCameraAfterBind()
             } catch (exc: Exception) {
                 exc.printStackTrace()
                 Toast.makeText(this, "Camera binding failed", Toast.LENGTH_SHORT).show()
@@ -104,6 +126,7 @@ class QRScannerActivity : AppCompatActivity() {
         lastScannedTime = currentTime
 
         if (barcode.isNotBlank()) {
+            scannerHint.text = "QR detected. Opening asset..."
             navigateToScan(barcode)
         }
     }
@@ -183,16 +206,68 @@ class QRScannerActivity : AppCompatActivity() {
         }
     }
 
+    private fun configureScannerControls() {
+        torchButton.setOnClickListener {
+            val activeCamera = camera ?: return@setOnClickListener
+            torchEnabled = !torchEnabled
+            activeCamera.cameraControl.enableTorch(torchEnabled)
+            torchButton.text = if (torchEnabled) "Light On" else "Light"
+        }
+
+        zoomOutButton.setOnClickListener {
+            setZoomRatio(zoomRatio - 0.25f)
+        }
+
+        zoomInButton.setOnClickListener {
+            setZoomRatio(zoomRatio + 0.25f)
+        }
+
+        previewView.setOnClickListener {
+            focusAtCenter()
+        }
+    }
+
+    private fun configureCameraAfterBind() {
+        val activeCamera = camera ?: return
+        val zoomState = activeCamera.cameraInfo.zoomState.value
+        if (zoomState != null) {
+            minZoomRatio = zoomState.minZoomRatio
+            maxZoomRatio = min(zoomState.maxZoomRatio, 3.0f)
+            zoomRatio = min(max(1.25f, minZoomRatio), maxZoomRatio)
+            activeCamera.cameraControl.setZoomRatio(zoomRatio)
+        }
+        updateZoomButtons()
+        focusAtCenter()
+    }
+
+    private fun setZoomRatio(value: Float) {
+        val activeCamera = camera ?: return
+        zoomRatio = min(max(value, minZoomRatio), maxZoomRatio)
+        activeCamera.cameraControl.setZoomRatio(zoomRatio)
+        scannerHint.text = "Hold steady. Move closer if the QR is small."
+        updateZoomButtons()
+    }
+
+    private fun updateZoomButtons() {
+        zoomOutButton.isEnabled = zoomRatio > minZoomRatio + 0.01f
+        zoomInButton.isEnabled = zoomRatio < maxZoomRatio - 0.01f
+    }
+
+    private fun focusAtCenter() {
+        val activeCamera = camera ?: return
+        val factory = previewView.meteringPointFactory
+        val point = factory.createPoint(previewView.width / 2f, previewView.height / 2f)
+        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
+            .setAutoCancelDuration(2, TimeUnit.SECONDS)
+            .build()
+        activeCamera.cameraControl.startFocusAndMetering(action)
+    }
+
     private inner class BarcodeAnalyzer(private val onBarcodeDetected: (String) -> Unit) :
         ImageAnalysis.Analyzer {
         private val scanner = BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(
-                    Barcode.FORMAT_QR_CODE,
-                    Barcode.FORMAT_CODE_128,
-                    Barcode.FORMAT_CODE_39,
-                    Barcode.FORMAT_EAN_13
-                )
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
                 .build()
         )
 

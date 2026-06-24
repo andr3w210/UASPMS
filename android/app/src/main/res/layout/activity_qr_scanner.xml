@@ -7,7 +7,9 @@
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -46,6 +48,37 @@
             android:text="Align the QR code inside the frame"
             android:textColor="@android:color/white"
             android:textSize="15sp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/zoomOutButton"
+                android:layout_width="56dp"
+                android:layout_height="44dp"
+                android:text="-"
+                android:textAllCaps="false" />
+
+            <Button
+                android:id="@+id/torchButton"
+                android:layout_width="96dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:text="Light"
+                android:textAllCaps="false" />
+
+            <Button
+                android:id="@+id/zoomInButton"
+                android:layout_width="56dp"
+                android:layout_height="44dp"
+                android:text="+"
+                android:textAllCaps="false" />
+        </LinearLayout>
     </LinearLayout>
 
 </FrameLayout>

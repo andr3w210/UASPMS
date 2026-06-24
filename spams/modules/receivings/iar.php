@@ -30,6 +30,9 @@ if (!$db || $receivingId <= 0) {
     echo 'Record not found.';
     exit;
 }
+if (function_exists('ensure_receiving_item_variance_columns')) {
+    ensure_receiving_item_variance_columns($db);
+}
 
 $headerStmt = $db->prepare(
     "SELECT r.id, r.system_reference, r.ris_no, r.received_date, r.delivery_receipt_no, r.invoice_no, r.inspected_by, r.remarks, r.status,
@@ -71,7 +74,8 @@ if (!in_array($receiving['status'], ['completed', 'partial'], true)) {
 }
 
 $itemStmt = $db->prepare(
-    "SELECT ri.id, ri.quantity_delivered, ri.quantity_accepted, ri.quantity_rejected, ri.unit_cost, ri.item_condition, ri.remarks,
+    "SELECT ri.id, ri.actual_item_description, ri.variance_type, ri.variance_note, ri.accepted_no_additional_cost,
+            ri.quantity_delivered, ri.quantity_accepted, ri.quantity_rejected, ri.unit_cost, ri.item_condition, ri.remarks,
             poi.line_no, poi.item_type, poi.item_description, poi.quantity AS qty_ordered,
             sc.stock_no,
             ac.account_code, c.classification_name,
@@ -212,8 +216,20 @@ $blankRows = max(0, 10 - count($items));
                         $qtyAccepted = (float) ($it['quantity_accepted'] ?? 0);
                         $unitLabel = trim((string) ($it['abbreviation'] ?? $it['uom_name'] ?? ''));
                         $description = trim((string) ($it['classification_name'] ?? ''));
-                        if (!empty($it['item_description'])) {
-                            $description = trim($description . ' - ' . (string) $it['item_description'], ' -');
+                        $actualDescription = trim((string) ($it['actual_item_description'] ?? ''));
+                        $orderedDescription = trim((string) ($it['item_description'] ?? ''));
+                        if ($actualDescription === '') {
+                            $actualDescription = $orderedDescription;
+                        }
+                        if ($actualDescription !== '') {
+                            $description = trim($description . ' - ' . $actualDescription, ' -');
+                        }
+                        $varianceNote = trim((string) ($it['variance_note'] ?? ''));
+                        if (($it['variance_type'] ?? 'none') !== 'none' && $varianceNote !== '') {
+                            $description .= "\nInspection note: " . $varianceNote;
+                        }
+                        if ($orderedDescription !== '' && $actualDescription !== $orderedDescription) {
+                            $description .= "\nOrdered per PO: " . $orderedDescription;
                         }
                     ?>
                     <tr>

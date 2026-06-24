@@ -13,7 +13,9 @@ $brands = [];
 $models = [];
 $suppliers = [];
 $funds = [];
+$unitOfMeasures = [];
 $csrfToken = csrf_token();
+$duplicateSource = null;
 $form = [
     'property_number' => '',
     'po_number' => '',
@@ -28,6 +30,7 @@ $form = [
     'serial_no' => '',
     'acquisition_date' => '',
     'quantity' => '1',
+    'unit_of_measure_id' => '',
     'unit_cost' => '',
     'office_id' => '',
     'employee_id' => '',
@@ -72,25 +75,58 @@ function legacy_asset_temp_property_number(mysqli $db, string $officeCode = ''):
 
 if ($db) {
     ensure_legacy_assets_fund_column($db);
+    ensure_legacy_assets_unit_of_measure_column($db);
 
     $res = $db->query("SELECT id, office_code, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res instanceof mysqli_result) { $offices = $res->fetch_all(MYSQLI_ASSOC); }
-    $res = $db->query("SELECT id, office_id, is_unit_head, position_title, first_name, middle_name, last_name, suffix_name FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
+    $res = $db->query("SELECT id, office_id, responsibility_code_id, is_unit_head, position_title, first_name, middle_name, last_name, suffix_name FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
     if ($res instanceof mysqli_result) { $employees = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, office_id, code, description FROM responsibility_codes WHERE is_active = 1 ORDER BY code ASC");
     if ($res instanceof mysqli_result) { $responsibilityCodes = $res->fetch_all(MYSQLI_ASSOC); }
-    $res = $db->query("SELECT id, classification_name, classification_family, account_code_id FROM classifications WHERE is_active = 1 ORDER BY classification_family ASC, classification_name ASC");
+    $res = $db->query("SELECT id, classification_name, classification_family, classification_group, account_code_id FROM classifications WHERE is_active = 1 ORDER BY classification_family ASC, classification_name ASC");
     if ($res instanceof mysqli_result) { $classifications = $res->fetch_all(MYSQLI_ASSOC); }
-    $res = $db->query("SELECT id, account_code, account_name FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC");
+    $res = $db->query("SELECT id, account_code, account_name, account_group FROM account_codes WHERE is_active = 1 ORDER BY account_code ASC");
     if ($res instanceof mysqli_result) { $accountCodes = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, fund_code, fund_name, fund_source FROM funds WHERE is_active = 1 ORDER BY fund_code ASC, fund_name ASC");
     if ($res instanceof mysqli_result) { $funds = $res->fetch_all(MYSQLI_ASSOC); }
+    $res = $db->query("SELECT id, uom_name, abbreviation FROM unit_of_measures WHERE is_active = 1 ORDER BY uom_name ASC");
+    if ($res instanceof mysqli_result) { $unitOfMeasures = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, supplier_name FROM suppliers WHERE is_active = 1 ORDER BY supplier_name ASC");
     if ($res instanceof mysqli_result) { $suppliers = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, brand_name FROM brands WHERE is_active = 1 ORDER BY brand_name ASC");
     if ($res instanceof mysqli_result) { $brands = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, model_name, brand_id FROM models WHERE is_active = 1 ORDER BY model_name ASC");
     if ($res instanceof mysqli_result) { $models = $res->fetch_all(MYSQLI_ASSOC); }
+
+    $duplicateId = (int) ($_GET['duplicate_id'] ?? 0);
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $duplicateId > 0) {
+        $duplicateStmt = $db->prepare("
+            SELECT id, property_number, po_number, item_type, item_description, classification_id, account_code_id,
+                   fund_id, supplier_id, brand_id, model_id, acquisition_date, quantity, unit_of_measure_id,
+                   unit_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks
+            FROM legacy_assets
+            WHERE id = ? AND is_active = 1
+            LIMIT 1
+        ");
+        if ($duplicateStmt) {
+            $duplicateStmt->bind_param('i', $duplicateId);
+            $duplicateStmt->execute();
+            $duplicateSource = $duplicateStmt->get_result()->fetch_assoc() ?: null;
+            $duplicateStmt->close();
+
+            if ($duplicateSource) {
+                foreach ($form as $key => $value) {
+                    if (array_key_exists($key, $duplicateSource)) {
+                        $form[$key] = (string) ($duplicateSource[$key] ?? '');
+                    }
+                }
+                $form['property_number'] = '';
+                $form['serial_no'] = '';
+            } else {
+                add_validation_error($errors, 'The asset selected for duplication was not found.');
+            }
+        }
+    }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($form as $key => $value) {
@@ -103,6 +139,18 @@ if ($db) {
         if ($form['item_description'] === '') { add_validation_error($errors, 'Description is required.'); }
         if (!is_allowed_value($form['item_type'], ['semi_expendable', 'equipment'])) { add_validation_error($errors, 'Inventory type must be semi-expendable or equipment.'); }
         if ($form['quantity'] === '' || !ctype_digit($form['quantity']) || (int) $form['quantity'] <= 0) { add_validation_error($errors, 'Quantity is required.'); }
+        if ($form['unit_of_measure_id'] !== '') {
+            $unitExists = false;
+            foreach ($unitOfMeasures as $unitRow) {
+                if ((int) ($unitRow['id'] ?? 0) === (int) $form['unit_of_measure_id']) {
+                    $unitExists = true;
+                    break;
+                }
+            }
+            if (!$unitExists) {
+                add_validation_error($errors, 'Selected unit type is invalid.');
+            }
+        }
         if ($form['unit_cost'] !== '' && (!is_numeric($form['unit_cost']) || (float) $form['unit_cost'] < 0)) {
             add_validation_error($errors, 'Unit cost must be a valid amount or left blank if unknown.');
         }
@@ -129,14 +177,45 @@ if ($db) {
         }
 
         $accountCodeValue = '';
+        $expectedAccountGroups = $form['item_type'] === 'equipment' ? ['asset', 'fixed_asset'] : ['semi_expendable'];
+        $accountCodeGroup = '';
         foreach ($accountCodes as $accountCodeRow) {
             if ($form['account_code_id'] !== '' && (int) $accountCodeRow['id'] === (int) $form['account_code_id']) {
                 $accountCodeValue = trim((string) ($accountCodeRow['account_code'] ?? ''));
+                $accountCodeGroup = trim((string) ($accountCodeRow['account_group'] ?? ''));
                 break;
             }
         }
         if ($form['account_code_id'] !== '' && $accountCodeValue === '') {
             add_validation_error($errors, 'Selected account code is invalid.');
+        }
+        if ($form['account_code_id'] !== '' && $accountCodeValue !== '' && !in_array($accountCodeGroup, $expectedAccountGroups, true)) {
+            add_validation_error($errors, 'Selected account code does not match the inventory type.');
+        }
+        if ($form['classification_id'] !== '') {
+            $classificationGroup = '';
+            $classificationAccountCodeId = 0;
+            foreach ($classifications as $classificationRow) {
+                if ((int) ($classificationRow['id'] ?? 0) === (int) $form['classification_id']) {
+                    $classificationGroup = trim((string) ($classificationRow['classification_group'] ?? ''));
+                    $classificationAccountCodeId = (int) ($classificationRow['account_code_id'] ?? 0);
+                    break;
+                }
+            }
+            if ($classificationGroup === '' && $classificationAccountCodeId > 0) {
+                foreach ($accountCodes as $accountCodeRow) {
+                    if ((int) ($accountCodeRow['id'] ?? 0) === $classificationAccountCodeId) {
+                        $classificationGroup = trim((string) ($accountCodeRow['account_group'] ?? ''));
+                        break;
+                    }
+                }
+            }
+            $expectedClassificationGroups = $form['item_type'] === 'equipment' ? ['asset', 'fixed_asset'] : ['semi_expendable'];
+            if ($classificationGroup === '') {
+                add_validation_error($errors, 'Selected item classification is invalid.');
+            } elseif (!in_array($classificationGroup, $expectedClassificationGroups, true)) {
+                add_validation_error($errors, 'Selected item classification does not match the inventory type.');
+            }
         }
 
         $officeIdValue = $form['office_id'] !== '' ? (int) $form['office_id'] : 0;
@@ -247,6 +326,7 @@ if ($db) {
             $employeeId = $form['employee_id'] !== '' ? (int) $form['employee_id'] : null;
             $rcId = $form['responsibility_code_id'] !== '' ? (int) $form['responsibility_code_id'] : null;
             $quantity = (int) $form['quantity'];
+            $unitOfMeasureId = $form['unit_of_measure_id'] !== '' ? (int) $form['unit_of_measure_id'] : null;
             $unitCost = $form['unit_cost'] !== '' ? (float) $form['unit_cost'] : 0.0;
             $acquisitionCost = round($quantity * $unitCost, 2);
             $itemName = '';
@@ -275,12 +355,12 @@ if ($db) {
 
             $stmt = $db->prepare("
                 INSERT INTO legacy_assets
-                    (system_reference, po_number, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (system_reference, po_number, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_of_measure_id, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             if ($stmt) {
                 $stmt->bind_param(
-                    'sssssiiiiiissssiddiiissi',
+                    'sssssiiiiiissssiiddiiissi',
                     $systemReference,
                     $form['po_number'],
                     $form['property_number'],
@@ -297,6 +377,7 @@ if ($db) {
                     $form['serial_no'],
                     $form['acquisition_date'],
                     $quantity,
+                    $unitOfMeasureId,
                     $unitCost,
                     $acquisitionCost,
                     $officeId,
@@ -334,6 +415,10 @@ if ($db) {
                         'item_description' => $form['item_description'],
                         'fund_id' => $fundId,
                         'acquisition_date' => $form['acquisition_date'],
+                        'quantity' => $quantity,
+                        'unit_of_measure_id' => $unitOfMeasureId,
+                        'unit_cost' => $unitCost,
+                        'acquisition_cost' => $acquisitionCost,
                         'office_id' => $officeId,
                         'employee_id' => $employeeId,
                         'responsibility_code_id' => $rcId,
@@ -376,6 +461,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?>
                     </div>
                 <?php endif; ?>
+                <?php if ($duplicateSource): ?>
+                    <div class="alert alert-info">
+                        Duplicating <?php echo h((string) ($duplicateSource['property_number'] ?? 'selected beginning balance asset')); ?>. Enter the new serial number, then save to generate a new property number.
+                    </div>
+                <?php endif; ?>
 
                 <form method="post" class="workspace-form-section">
                     <input type="hidden" name="_csrf" id="legacy_asset_csrf_token" value="<?php echo h($csrfToken); ?>">
@@ -392,7 +482,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Inventory Type</label>
-                            <select name="item_type" class="form-select">
+                            <select name="item_type" class="form-select" id="item_type">
                                 <option value="equipment" <?php echo $form['item_type'] === 'equipment' ? 'selected' : ''; ?>>Equipment</option>
                                 <option value="semi_expendable" <?php echo $form['item_type'] === 'semi_expendable' ? 'selected' : ''; ?>>Semi-Expendable</option>
                             </select>
@@ -409,6 +499,21 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-4">
                             <label class="form-label">Quantity</label>
                             <input type="number" min="1" step="1" class="form-control" name="quantity" value="<?php echo h($form['quantity']); ?>" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Unit of Measure</label>
+                            <select name="unit_of_measure_id" class="form-select">
+                                <option value="">Select unit</option>
+                                <?php foreach ($unitOfMeasures as $unit): ?>
+                                    <?php
+                                    $unitId = (int) ($unit['id'] ?? 0);
+                                    $unitLabel = trim(($unit['uom_name'] ?? '') . (($unit['abbreviation'] ?? '') !== '' ? ' (' . $unit['abbreviation'] . ')' : ''));
+                                    ?>
+                                    <option value="<?php echo $unitId; ?>" <?php echo $form['unit_of_measure_id'] === (string) $unitId ? 'selected' : ''; ?>>
+                                        <?php echo h($unitLabel); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Unit Cost</label>
@@ -450,7 +555,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <select name="classification_id" class="form-select" id="classification_id">
                                     <option value="">Select classification</option>
                                     <?php foreach ($classifications as $classification): ?>
-                                        <option value="<?php echo (int) $classification['id']; ?>" <?php echo $form['classification_id'] === (string) $classification['id'] ? 'selected' : ''; ?> data-account-code-id="<?php echo (int) ($classification['account_code_id'] ?? 0); ?>">
+                                        <option value="<?php echo (int) $classification['id']; ?>" <?php echo $form['classification_id'] === (string) $classification['id'] ? 'selected' : ''; ?> data-account-code-id="<?php echo (int) ($classification['account_code_id'] ?? 0); ?>" data-classification-group="<?php echo h((string) ($classification['classification_group'] ?? '')); ?>">
                                             <?php echo h(trim(($classification['classification_family'] ?? '') . ' / ' . ($classification['classification_name'] ?? ''))); ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -465,7 +570,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <select name="account_code_id" class="form-select" id="account_code_id">
                                     <option value="">Select account code</option>
                                     <?php foreach ($accountCodes as $accountCode): ?>
-                                        <option value="<?php echo (int) $accountCode['id']; ?>" <?php echo $form['account_code_id'] === (string) $accountCode['id'] ? 'selected' : ''; ?>>
+                                        <option value="<?php echo (int) $accountCode['id']; ?>" <?php echo $form['account_code_id'] === (string) $accountCode['id'] ? 'selected' : ''; ?> data-account-group="<?php echo h((string) ($accountCode['account_group'] ?? '')); ?>">
                                             <?php echo h(($accountCode['account_code'] ?? '') . ' - ' . ($accountCode['account_name'] ?? '')); ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -524,7 +629,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <select name="employee_id" class="form-select" id="employee_id" data-placeholder="Select employee" required>
                                     <option value="">Select employee</option>
                                     <?php foreach ($employees as $employee): ?>
-                                        <option value="<?php echo (int) $employee['id']; ?>" <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?> data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>">
+                                        <option value="<?php echo (int) $employee['id']; ?>" <?php echo $form['employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?> data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-responsibility-code-id="<?php echo (int) ($employee['responsibility_code_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>">
                                             <?php echo h(employee_display_name($employee)); ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -616,6 +721,106 @@ require_once __DIR__ . '/../../includes/topbar.php';
         }, $models);
         echo json_encode($modelDataset, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     ?>;
+    var accountCodeOptions = window.legacyAssetAccountCodeOptions = <?php
+        $accountCodeDataset = array_map(static function ($accountCode) {
+            return [
+                'value' => (string) ($accountCode['id'] ?? ''),
+                'text' => trim((string) ($accountCode['account_code'] ?? '') . ' - ' . (string) ($accountCode['account_name'] ?? '')),
+                'accountGroup' => (string) ($accountCode['account_group'] ?? ''),
+            ];
+        }, $accountCodes);
+        echo json_encode($accountCodeDataset, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    ?>;
+    var classificationOptions = window.legacyAssetClassificationOptions = <?php
+        $classificationDataset = array_map(static function ($classification) {
+            return [
+                'value' => (string) ($classification['id'] ?? ''),
+                'text' => trim((string) ($classification['classification_family'] ?? '') . ' / ' . (string) ($classification['classification_name'] ?? '')),
+                'accountCodeId' => (string) ($classification['account_code_id'] ?? ''),
+                'classificationGroup' => (string) ($classification['classification_group'] ?? ''),
+            ];
+        }, $classifications);
+        echo json_encode($classificationDataset, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    ?>;
+
+    function expectedAssetGroups(itemType) {
+        return itemType === 'equipment' ? ['asset', 'fixed_asset'] : ['semi_expendable'];
+    }
+
+    function classificationGroupMatches(optionData, expectedGroups) {
+        if (expectedGroups.indexOf(optionData.classificationGroup) !== -1) {
+            return true;
+        }
+        if (!optionData.classificationGroup && optionData.accountCodeId) {
+            var accountCode = accountCodeOptions.find(function(accountData) {
+                return accountData.value === optionData.accountCodeId;
+            });
+            return !!accountCode && expectedGroups.indexOf(accountCode.accountGroup) !== -1;
+        }
+        return false;
+    }
+
+    function filterClassificationsForType() {
+        var itemTypeSelect = document.getElementById('item_type');
+        var classificationSelect = document.getElementById('classification_id');
+        if (!itemTypeSelect || !classificationSelect) { return; }
+        var expectedGroups = expectedAssetGroups(itemTypeSelect.value);
+        var previousValue = classificationSelect.value || '';
+        classificationSelect.innerHTML = '';
+        classificationSelect.add(new Option('Select classification', '', false, false));
+        classificationOptions.forEach(function(optionData) {
+            if (!classificationGroupMatches(optionData, expectedGroups)) { return; }
+            var option = new Option(optionData.text, optionData.value, false, optionData.value === previousValue);
+            option.setAttribute('data-account-code-id', optionData.accountCodeId || '0');
+            option.setAttribute('data-classification-group', optionData.classificationGroup || '');
+            classificationSelect.add(option);
+        });
+        if (previousValue !== '' && !Array.from(classificationSelect.options).some(function(option) { return option.value === previousValue; })) {
+            classificationSelect.value = '';
+        }
+        refreshEnhancedSelect(classificationSelect);
+    }
+    window.legacyAssetFilterClassificationsForType = filterClassificationsForType;
+
+    function setupAccountCodeTypeFilter() {
+        var itemTypeSelect = document.getElementById('item_type');
+        var accountCodeSelect = document.getElementById('account_code_id');
+        if (!itemTypeSelect || !accountCodeSelect) { return; }
+        var initialValue = accountCodeSelect.value || '';
+
+        function filterAccountCodes() {
+            var expectedGroups = itemTypeSelect.value === 'equipment' ? ['asset', 'fixed_asset'] : ['semi_expendable'];
+            var previousValue = accountCodeSelect.value || initialValue;
+            accountCodeSelect.innerHTML = '';
+            accountCodeSelect.add(new Option('Select account code', '', false, false));
+            accountCodeOptions.forEach(function(optionData) {
+                if (expectedGroups.indexOf(optionData.accountGroup) === -1) { return; }
+                var option = new Option(optionData.text, optionData.value, false, optionData.value === previousValue);
+                option.setAttribute('data-account-group', optionData.accountGroup);
+                accountCodeSelect.add(option);
+            });
+            if (previousValue !== '' && !Array.from(accountCodeSelect.options).some(function(option) { return option.value === previousValue; })) {
+                accountCodeSelect.value = '';
+            }
+            initialValue = '';
+            refreshEnhancedSelect(accountCodeSelect);
+            filterClassificationsForType();
+        }
+
+        filterAccountCodes();
+        window.setTimeout(filterAccountCodes, 0);
+        window.setTimeout(filterAccountCodes, 250);
+        if (itemTypeSelect.getAttribute('data-account-filter-wired') !== '1') {
+            itemTypeSelect.setAttribute('data-account-filter-wired', '1');
+            itemTypeSelect.addEventListener('change', filterAccountCodes);
+            if (window.jQuery) {
+                jQuery(itemTypeSelect)
+                    .off('select2:select.legacyAccountFilter select2:clear.legacyAccountFilter change.legacyAccountFilter')
+                    .on('select2:select.legacyAccountFilter select2:clear.legacyAccountFilter change.legacyAccountFilter', filterAccountCodes);
+            }
+        }
+    }
+    window.legacyAssetSetupAccountCodeTypeFilter = setupAccountCodeTypeFilter;
 
     function setupBrandModelFilter() {
         var brandSelect = document.querySelector('select[name="brand_id"]');
@@ -667,12 +872,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
         function filterResponsibilityCodes() {
             if (!rcSelect) { return; }
             var officeId = officeSelect.value || '';
+            var selectedEmployeeOption = employeeSelect.options[employeeSelect.selectedIndex];
+            var employeeRcId = selectedEmployeeOption ? (selectedEmployeeOption.getAttribute('data-responsibility-code-id') || '') : '';
             var preferredRcId = '';
             Array.prototype.forEach.call(rcSelect.options, function(option) {
                 if (!option.value) { option.hidden = false; return; }
                 var optionOfficeId = option.getAttribute('data-office-id') || '';
                 var matches = !officeId || optionOfficeId === officeId;
                 option.hidden = !matches;
+                if (matches && employeeRcId !== '' && option.value === employeeRcId) { preferredRcId = option.value; }
                 if (matches && preferredRcId === '') { preferredRcId = option.value; }
                 if (!matches && option.selected) { rcSelect.value = ''; }
             });
@@ -685,16 +893,23 @@ require_once __DIR__ . '/../../includes/topbar.php';
         function filterEmployees() {
             var officeId = officeSelect.value || '';
             var preferredEmployeeId = '';
+            var firstEmployeeId = '';
             Array.prototype.forEach.call(employeeSelect.options, function(option) {
                 if (!option.value) { option.hidden = false; return; }
                 var optionOfficeId = option.getAttribute('data-office-id') || '';
                 var matches = !officeId || optionOfficeId === officeId;
                 option.hidden = !matches;
+                if (matches && firstEmployeeId === '') {
+                    firstEmployeeId = option.value;
+                }
                 if (matches && option.getAttribute('data-is-unit-head') === '1' && preferredEmployeeId === '') {
                     preferredEmployeeId = option.value;
                 }
                 if (!matches && option.selected) { employeeSelect.value = ''; }
             });
+            if (preferredEmployeeId === '') {
+                preferredEmployeeId = firstEmployeeId;
+            }
             if (officeId !== '' && (!employeeSelect.value || (employeeSelect.selectedOptions.length && employeeSelect.selectedOptions[0].hidden)) && preferredEmployeeId !== '') {
                 employeeSelect.value = preferredEmployeeId;
             }
@@ -714,6 +929,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 employeeSelect.value = selectedOption.value;
                 refreshSharedSelect(employeeSelect);
             }
+            filterResponsibilityCodes();
         }
 
         refreshSharedSelect(officeSelect);
@@ -721,8 +937,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
         officeSelect.addEventListener('change', filterEmployees);
         employeeSelect.addEventListener('change', syncOfficeFromEmployee);
         if (window.jQuery) {
-            jQuery(officeSelect).off('select2:select.legacyOfficeFilter select2:clear.legacyOfficeFilter').on('select2:select.legacyOfficeFilter select2:clear.legacyOfficeFilter', filterEmployees);
-            jQuery(employeeSelect).off('select2:select.legacyEmployeeFilter select2:clear.legacyEmployeeFilter').on('select2:select.legacyEmployeeFilter select2:clear.legacyEmployeeFilter', syncOfficeFromEmployee);
+            jQuery(officeSelect).off('select2:select.legacyOfficeFilter select2:clear.legacyOfficeFilter change.legacyOfficeFilter').on('select2:select.legacyOfficeFilter select2:clear.legacyOfficeFilter change.legacyOfficeFilter', filterEmployees);
+            jQuery(employeeSelect).off('select2:select.legacyEmployeeFilter select2:clear.legacyEmployeeFilter change.legacyEmployeeFilter').on('select2:select.legacyEmployeeFilter select2:clear.legacyEmployeeFilter change.legacyEmployeeFilter', syncOfficeFromEmployee);
         }
     }
 
@@ -738,6 +954,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 document.getElementById('office_id'),
                 document.getElementById('employee_id')
             ].forEach(refreshEnhancedSelect);
+            setupAccountCodeTypeFilter();
             setupBrandModelFilter();
             setupOfficeEmployeeFilter();
         });
@@ -752,6 +969,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
             document.getElementById('office_id'),
             document.getElementById('employee_id')
         ].forEach(refreshEnhancedSelect);
+        setupAccountCodeTypeFilter();
         setupBrandModelFilter();
         setupOfficeEmployeeFilter();
     }
@@ -771,12 +989,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
       <div class="modal-body">
         <div id="qaClassificationError" class="alert alert-danger d-none"></div>
         <div class="mb-3">
-          <label class="form-label">Classification Family <small class="text-muted">(optional)</small></label>
-          <input type="text" class="form-control" id="qa_classification_family" placeholder="e.g. Furniture and Fixtures">
-        </div>
-        <div class="mb-3">
           <label class="form-label">Classification Name <span class="text-danger">*</span></label>
           <input type="text" class="form-control" id="qa_classification_name" placeholder="e.g. Office Chair">
+          <div class="form-text">Family will automatically copy the selected account code name.</div>
         </div>
       </div>
       <div class="modal-footer qa-modal-footer">
@@ -1069,7 +1284,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
         saveBtnId: 'qaClassificationSaveBtn',
         errorId: 'qaClassificationError',
         onShow: function () {
-            document.getElementById('qa_classification_family').value = '';
             document.getElementById('qa_classification_name').value = '';
         },
         buildPayload: function () {
@@ -1081,12 +1295,29 @@ require_once __DIR__ . '/../../includes/topbar.php';
             return {
                 action: 'add_classification',
                 classification_name: name,
-                classification_family: document.getElementById('qa_classification_family').value.trim(),
                 account_code_id: accountCodeId
             };
         },
         onSuccess: function (data) {
-            appendOption('classification_id', data.id, data.label, { account_code_id: data.account_code_id || 0 });
+            appendOption('classification_id', data.id, data.label, { account_code_id: data.account_code_id || 0, classification_group: data.classification_group || '' });
+            if (window.legacyAssetClassificationOptions) {
+                window.legacyAssetClassificationOptions.push({
+                    value: String(data.id),
+                    text: data.label,
+                    accountCodeId: String(data.account_code_id || ''),
+                    classificationGroup: data.classification_group || ''
+                });
+            }
+            if (typeof window.legacyAssetFilterClassificationsForType === 'function') {
+                window.legacyAssetFilterClassificationsForType();
+                var classificationSelect = document.getElementById('classification_id');
+                if (classificationSelect) {
+                    classificationSelect.value = String(data.id);
+                    if (window.SPAMS && window.SPAMS.refreshSelect2) {
+                        window.SPAMS.refreshSelect2(classificationSelect);
+                    }
+                }
+            }
         }
     });
 
@@ -1103,10 +1334,22 @@ require_once __DIR__ . '/../../includes/topbar.php';
             var name = document.getElementById('qa_account_name').value.trim();
             if (!code) return { error: 'Account Code is required.' };
             if (!name) return { error: 'Account Name is required.' };
-            return { action: 'add_account_code', account_code: code, account_name: name };
+            var itemTypeSelect = document.getElementById('item_type');
+            var accountGroup = itemTypeSelect && itemTypeSelect.value === 'equipment' ? 'asset' : 'semi_expendable';
+            return { action: 'add_account_code', account_code: code, account_name: name, account_group: accountGroup };
         },
         onSuccess: function (data) {
-            appendOption('account_code_id', data.id, data.label);
+            appendOption('account_code_id', data.id, data.label, { account_group: data.account_group || '' });
+            if (window.legacyAssetAccountCodeOptions) {
+                window.legacyAssetAccountCodeOptions.push({
+                    value: String(data.id),
+                    text: data.label,
+                    accountGroup: data.account_group || ''
+                });
+            }
+            if (typeof window.legacyAssetSetupAccountCodeTypeFilter === 'function') {
+                window.legacyAssetSetupAccountCodeTypeFilter();
+            }
         }
     });
 

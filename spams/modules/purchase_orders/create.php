@@ -117,7 +117,6 @@ if ($db) {
 
                         $form['system_reference'] = preview_module_code($db, 'purchase_orders');
 
-                        if ($form['po_number'] === '') $errors[] = 'PO number from the hard copy is required.';
                         if ($form['po_date'] === '')   $errors[] = 'PO date is required.';
                         if ($form['po_date'] !== '' && !is_valid_date_string($form['po_date'])) {
                             $errors[] = 'PO date format is invalid.';
@@ -178,15 +177,17 @@ if ($db) {
                             }
                         }
 
-                        // Check duplicate PO number
-                        $dupStmt = $db->prepare("SELECT id FROM purchase_orders WHERE po_number = ? LIMIT 1");
-                        if ($dupStmt) {
-                            $dupStmt->bind_param('s', $form['po_number']);
-                            $dupStmt->execute();
-                            if ($dupStmt->get_result()->fetch_assoc()) {
-                                $errors[] = 'PO number already exists.';
+                        // Check duplicate PO number only when the hard copy provides one.
+                        if ($form['po_number'] !== '') {
+                            $dupStmt = $db->prepare("SELECT id FROM purchase_orders WHERE po_number = ? LIMIT 1");
+                            if ($dupStmt) {
+                                $dupStmt->bind_param('s', $form['po_number']);
+                                $dupStmt->execute();
+                                if ($dupStmt->get_result()->fetch_assoc()) {
+                                    $errors[] = 'PO number already exists.';
+                                }
+                                $dupStmt->close();
                             }
-                            $dupStmt->close();
                         }
 
                         // Calculate expected delivery date
@@ -280,7 +281,7 @@ if ($db) {
                         $documentTotalAmount = null;
                         if ($form['document_total_amount'] !== '') {
                             $documentTotalAmount = round((float) $form['document_total_amount'], 2);
-                            if (abs($documentTotalAmount - $totalAmount) > 0.009) {
+                            if (empty($form['is_partial_entry']) && abs($documentTotalAmount - $totalAmount) > 0.009) {
                                 $errors[] = 'Encoded line total (' . number_format($totalAmount, 2) . ') does not match the hard copy PO total (' . number_format($documentTotalAmount, 2) . ').';
                             }
                         }
@@ -296,6 +297,7 @@ if ($db) {
                                 ? $form['expected_delivery_date'] : null;
                             $userId              = current_user_id();
                             $systemReference     = next_module_code($db, 'purchase_orders');
+                            $poNumberForSave     = $form['po_number'] !== '' ? $form['po_number'] : 'NO-PO-' . $systemReference;
                             $status              = 'encoded';
                             $isPartialEntry      = (int) !empty($_POST['is_partial_entry']);
 
@@ -312,7 +314,7 @@ if ($db) {
                                     $headerStmt->bind_param(
                                         'sssiisisissidsi',
                                         $systemReference,
-                                        $form['po_number'],
+                                        $poNumberForSave,
                                         $form['po_date'],
                                         $supplierId,
                                         $fundId,
@@ -331,7 +333,7 @@ if ($db) {
                                     $headerStmt->bind_param(
                                         'sssiisisissidi',
                                         $systemReference,
-                                        $form['po_number'],
+                                        $poNumberForSave,
                                         $form['po_date'],
                                         $supplierId,
                                         $fundId,
@@ -408,7 +410,7 @@ if ($db) {
                                     'action_name' => 'create_purchase_order',
                                     'new_values' => [
                                         'system_reference' => $systemReference,
-                                        'po_number' => $form['po_number'],
+                                        'po_number' => $poNumberForSave,
                                         'po_date' => $form['po_date'],
                                         'supplier_id' => $supplierId,
                                         'fund_id' => $fundId,
@@ -482,10 +484,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </div>
                                         </div>
 
-                                        <div class="row g-3 workspace-filter-panel mb-4">
+                                        <div class="row g-3 workspace-filter-panel po-header-panel mb-4">
                         <div class="col-md-4">
                             <label for="po_number" class="form-label">Hard Copy PO Number</label>
-                            <input type="text" class="form-control" id="po_number" name="po_number" value="<?php echo h($form['po_number']); ?>" required>
+                            <input type="text" class="form-control" id="po_number" name="po_number" value="<?php echo h(strpos((string) $form['po_number'], 'NO-PO-') === 0 ? '' : $form['po_number']); ?>" placeholder="Leave blank if none">
+                            <div class="form-text">Optional. If the hard copy has no PO number, the system reference will keep the record unique.</div>
                         </div>
                         <div class="col-md-3">
                             <label for="po_date" class="form-label">PO Date</label>
@@ -704,7 +707,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                     <div id="poHiddenInputs"></div>
 
-                    <div class="workspace-sticky-bar" style="position:sticky; bottom:0; z-index:10;">
+                    <div class="workspace-sticky-bar">
                         <div class="workspace-header">
                             <div class="workspace-header-copy">
                                 <span class="text-muted small" id="footerLineCount">0 line(s)</span>
@@ -865,12 +868,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <input type="text" class="form-control" id="quickClassificationName">
                     </div>
                     <div class="col-12">
-                        <label for="quickClassificationFamily" class="form-label">Classification Family</label>
-                        <input type="text" class="form-control" id="quickClassificationFamily" placeholder="e.g. IT Supplies, Janitorial Supplies">
-                    </div>
-                    <div class="col-12">
                         <label for="quickClassificationAccountCode" class="form-label">Default Account Code</label>
                         <select class="form-select" id="quickClassificationAccountCode"></select>
+                        <div class="form-text">Classification family will copy this account code name.</div>
                     </div>
                     <div class="col-md-6">
                         <label for="quickClassificationUsefulLife" class="form-label">Useful Life (Years)</label>
@@ -949,7 +949,6 @@ document.addEventListener('DOMContentLoaded', function () {
         classificationQuickAddError: document.getElementById('classificationQuickAddError'),
         quickClassificationType: document.getElementById('quickClassificationType'),
         quickClassificationName: document.getElementById('quickClassificationName'),
-        quickClassificationFamily: document.getElementById('quickClassificationFamily'),
         quickClassificationAccountCode: document.getElementById('quickClassificationAccountCode'),
         quickClassificationUsefulLife: document.getElementById('quickClassificationUsefulLife'),
         quickClassificationDescription: document.getElementById('quickClassificationDescription'),
@@ -1229,21 +1228,38 @@ document.addEventListener('DOMContentLoaded', function () {
         var done = 0; var total = poLines.length; var sum = 0;
         for (var i = 0; i < poLines.length; i++) {
             var ln = poLines[i];
+            ln.index = i;
             syncLineMode(ln);
             ln.semi_expendable_type = lineNeedsSemiType(ln) ? getSemiType(ln.unit_cost || 0) : '';
             ln.is_complete = lineIsComplete(ln); if (ln.is_complete) done++; sum += parseFloat(ln.line_total || 0);
             if (currentFilter === 'done' && !ln.is_complete) continue; if (currentFilter === 'empty' && ln.is_complete) continue; if (currentFilter === 'supply' && ln.item_type !== 'supply') continue; if (currentFilter === 'semi_expendable' && ln.item_type !== 'semi_expendable') continue; if (currentFilter === 'equipment' && ln.item_type !== 'equipment') continue; var searchBlob = [ln.item_description || '', ln.item_type || '', classificationNameById(ln.classification_id || ''), uomLabelById(ln.unit_of_measure_id || ''), accountCodeLabelById(ln.account_code_id || '')].join(' ').toLowerCase(); if (searchTerm && searchBlob.indexOf(searchTerm) === -1) continue;
             var dotColor = (i === activeIndex) ? '#0d6efd' : (ln.is_complete ? '#198754' : '#adb5bd');
             var badgeClass = (ln.item_type === 'equipment') ? 'text-bg-warning-subtle' : (ln.item_type === 'semi_expendable' ? 'text-bg-primary-subtle' : 'text-bg-success-subtle');
-            var shortType = typeShortLabel(ln.item_type); var desc = (ln.item_description || 'New item'); var amt = (parseFloat(ln.line_total || 0) !== 0) ? formatNumber(ln.line_total) : 'â€”';
+            var shortType = typeShortLabel(ln.item_type); var desc = (ln.item_description || 'New item'); var classificationName = classificationNameById(ln.classification_id || ''); var amt = (parseFloat(ln.line_total || 0) !== 0) ? formatNumber(ln.line_total) : 'â€”';
             var row = document.createElement('div'); row.className = 'po-line-list-item'; row.setAttribute('data-index', i);
             row.style.cssText = 'display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:12px; border:0.5px solid transparent;';
             row.innerHTML = '<span style="width:20px; text-align:center; color:var(--bs-body-color); opacity:0.5; font-size:11px;">' + (i+1) + '</span>' +
+                '<span style="display:flex; flex-direction:column; gap:1px; flex-shrink:0;">' +
+                '<button type="button" class="btn btn-light btn-sm po-line-move-btn" data-direction="-1" title="Move line up" aria-label="Move line ' + (i + 1) + ' up" style="width:20px; height:16px; line-height:1; padding:0; font-size:10px;" ' + (i === 0 ? 'disabled' : '') + '>&#8593;</button>' +
+                '<button type="button" class="btn btn-light btn-sm po-line-move-btn" data-direction="1" title="Move line down" aria-label="Move line ' + (i + 1) + ' down" style="width:20px; height:16px; line-height:1; padding:0; font-size:10px;" ' + (i === poLines.length - 1 ? 'disabled' : '') + '>&#8595;</button>' +
+                '</span>' +
                 '<span class="po-line-status-dot" style="width:8px; height:8px; border-radius:50%; flex-shrink:0; background:' + dotColor + ';"></span>' +
                 '<span class="badge ' + badgeClass + '" style="font-size:9px; padding:1px 5px; flex-shrink:0;">' + shortType + '</span>' +
-                '<span style="flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; margin-left:6px; color:var(--bs-body-color);">' + escapeHtml(desc) + '</span>' +
+                '<span style="flex:1; min-width:0; overflow:hidden; margin-left:6px; color:var(--bs-body-color);">' +
+                '<span style="display:block; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">' + escapeHtml(desc) + '</span>' +
+                '<span style="display:block; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:10px; color:var(--bs-secondary-color);">' + (classificationName ? escapeHtml(classificationName) : 'No classification') + '</span>' +
+                '</span>' +
                 '<span style="font-size:11px; color:var(--bs-body-color); opacity:0.65; flex-shrink:0; margin-left:8px;">' + amt + '</span>';
             (function(index){ row.addEventListener('click', function(){ loadLineEditor(index); }); })(i);
+            Array.from(row.querySelectorAll('.po-line-move-btn')).forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var listRow = this.closest('.po-line-list-item');
+                    var rowIndex = listRow ? parseInt(listRow.getAttribute('data-index'), 10) : -1;
+                    moveLine(rowIndex, parseInt(this.getAttribute('data-direction'), 10) || 0);
+                });
+            });
             if (i === activeIndex) { row.style.background = 'var(--bs-primary-bg-subtle)'; row.style.borderColor = 'var(--bs-primary-border-subtle)'; }
             container.appendChild(row);
         }
@@ -1336,6 +1352,28 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function updateEditorAmount() { var q = parseFloat(el.editorQty.value || 0) || 0; var c = parseFloat(el.editorUnitCost.value || 0) || 0; el.editorAmount.textContent = formatNumber(Math.round(q * c * 100) / 100); }
 
+    function renumberPoLines() {
+        poLines.forEach(function(line, index) {
+            line.index = index;
+        });
+    }
+
+    function moveLine(index, direction) {
+        if (direction !== -1 && direction !== 1) return;
+        if (index < 0 || index >= poLines.length) return;
+        var targetIndex = index + direction;
+        if (targetIndex < 0 || targetIndex >= poLines.length) return;
+
+        saveCurrentLine();
+        var activeLine = activeIndex >= 0 && activeIndex < poLines.length ? poLines[activeIndex] : null;
+        var movedLine = poLines.splice(index, 1)[0];
+        poLines.splice(targetIndex, 0, movedLine);
+        renumberPoLines();
+        activeIndex = activeLine ? poLines.indexOf(activeLine) : targetIndex;
+        loadLineEditor(activeIndex >= 0 ? activeIndex : targetIndex);
+        updateGrandTotal();
+    }
+
     function deleteLine(idx) { if (poLines.length <= 1) { showFormSummary('At least one line is required.'); return; } poLines.splice(idx,1); poLines.forEach(function(l,i){ l.index = i; }); var nextIndex = Math.min(idx, poLines.length-1); renderLineList(); loadLineEditor(nextIndex); }
 
     function buildHiddenInputs() { var container = el.poHiddenInputs; if (!container) return; container.innerHTML = ''; poLines.forEach(function(ln,i){ var fields = { item_type: ln.item_type, semi_expendable_type: ln.semi_expendable_type, stock_catalog_id: ln.stock_catalog_id, account_code_id: ln.account_code_id, classification_id: ln.classification_id, item_description: ln.item_description, quantity: ln.quantity, unit_of_measure_id: ln.unit_of_measure_id, unit_cost: ln.unit_cost }; Object.keys(fields).forEach(function(k){ var inp = document.createElement('input'); inp.type='hidden'; inp.name='items['+i+']['+k+']'; inp.value = fields[k] || ''; container.appendChild(inp); }); }); }
@@ -1369,6 +1407,8 @@ document.addEventListener('DOMContentLoaded', function () {
         var documentTotalInput = document.getElementById('document_total_amount');
         var documentTotalDisplay = document.getElementById('poDocumentTotalDisplay');
         var totalDelta = document.getElementById('poTotalDelta');
+        var partialEntryInput = document.getElementById('is_partial_entry');
+        var isPartialEntry = partialEntryInput ? partialEntryInput.checked : false;
         var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : '';
         var documentTotal = documentTotalRaw !== '' ? parseFloat(documentTotalRaw) : NaN;
         var hasDocumentTotal = documentTotalRaw !== '' && !isNaN(documentTotal);
@@ -1381,7 +1421,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (hasDocumentTotal) {
                 var delta = Math.round((total - documentTotal) * 100) / 100;
                 totalDelta.textContent = formatNumber(delta);
-                totalDelta.className = Math.abs(delta) > 0.009 ? 'text-danger fw-semibold' : 'text-success fw-semibold';
+                totalDelta.className = Math.abs(delta) > 0.009
+                    ? (isPartialEntry ? 'text-warning fw-semibold' : 'text-danger fw-semibold')
+                    : 'text-success fw-semibold';
             } else {
                 totalDelta.textContent = '—';
                 totalDelta.className = 'text-muted';
@@ -1537,6 +1579,8 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             var documentTotalInput = document.getElementById('document_total_amount');
+            var partialEntryInput = document.getElementById('is_partial_entry');
+            var isPartialEntry = partialEntryInput ? partialEntryInput.checked : false;
             var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : '';
             if (documentTotalRaw !== '') {
                 var documentTotal = parseFloat(documentTotalRaw);
@@ -1547,7 +1591,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     documentTotalInput && documentTotalInput.focus();
                     return;
                 }
-                if (Math.abs(lineTotal - documentTotal) > 0.009) {
+                if (!isPartialEntry && Math.abs(lineTotal - documentTotal) > 0.009) {
                     e.preventDefault();
                     showFormSummary('Encoded line total (' + formatNumber(lineTotal) + ') does not match the hard copy PO total (' + formatNumber(documentTotal) + ').');
                     documentTotalInput && documentTotalInput.focus();
@@ -1562,6 +1606,10 @@ document.addEventListener('DOMContentLoaded', function () {
     var documentTotalInput = document.getElementById('document_total_amount');
     if (documentTotalInput) {
         documentTotalInput.addEventListener('input', updateGrandTotal);
+    }
+    var partialEntryInput = document.getElementById('is_partial_entry');
+    if (partialEntryInput) {
+        partialEntryInput.addEventListener('change', updateGrandTotal);
     }
 
     // init state
@@ -1716,7 +1764,6 @@ document.addEventListener('DOMContentLoaded', function () {
             el.quickClassificationType.setAttribute('data-item-type', itemType);
         }
         if (el.quickClassificationName) el.quickClassificationName.value = '';
-        if (el.quickClassificationFamily) el.quickClassificationFamily.value = itemType === 'supply' ? 'Office Supplies' : '';
         if (el.quickClassificationDescription) el.quickClassificationDescription.value = '';
         if (el.quickClassificationUsefulLife) {
             el.quickClassificationUsefulLife.value = itemType === 'supply' ? '' : '3';
@@ -1774,7 +1821,6 @@ document.addEventListener('DOMContentLoaded', function () {
             payload.append('_csrf', <?php echo json_encode(csrf_token(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>);
             payload.append('item_type', itemType);
             payload.append('classification_name', el.quickClassificationName ? el.quickClassificationName.value.trim() : '');
-            payload.append('classification_family', el.quickClassificationFamily ? el.quickClassificationFamily.value.trim() : '');
             payload.append('account_code_id', el.quickClassificationAccountCode ? (el.quickClassificationAccountCode.value || '') : '');
             payload.append('useful_life_years', el.quickClassificationUsefulLife ? (el.quickClassificationUsefulLife.value || '') : '');
             payload.append('description', el.quickClassificationDescription ? el.quickClassificationDescription.value.trim() : '');

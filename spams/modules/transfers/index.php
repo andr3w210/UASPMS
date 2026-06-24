@@ -120,6 +120,30 @@ function transfer_office_code(array $offices, int $officeId): string
 
 function transfer_sync_system_property_number(mysqli $db, int $detailId, string $propertyNumber): bool
 {
+    if (
+        schema_has_column($db, 'distribution_item_details', 'distribution_item_id')
+        && schema_has_column($db, 'distribution_items', 'id')
+        && schema_has_column($db, 'distribution_items', 'property_number')
+    ) {
+        $parentStmt = $db->prepare(
+            'UPDATE distribution_items di
+             INNER JOIN distribution_item_details did ON did.distribution_item_id = di.id
+             SET di.property_number = ?
+             WHERE did.id = ?'
+        );
+        if (!$parentStmt) {
+            return false;
+        }
+
+        $parentStmt->bind_param('si', $propertyNumber, $detailId);
+        $parentOk = $parentStmt->execute();
+        $parentStmt->close();
+
+        if (!$parentOk) {
+            return false;
+        }
+    }
+
     $syncTargets = [
         ['table' => 'rpcppe_batch_items', 'id_column' => 'distribution_item_detail_id'],
         ['table' => 'inventory_count_items', 'id_column' => 'distribution_item_detail_id'],

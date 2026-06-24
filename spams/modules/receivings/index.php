@@ -116,6 +116,9 @@ $form = [
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    if (function_exists('ensure_receiving_item_variance_columns')) {
+        ensure_receiving_item_variance_columns($db);
+    }
     $poItemHasSemiType = function_exists('schema_has_column')
         ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type')
         : false;
@@ -364,6 +367,10 @@ if (!$db) {
                     $item['accept_quantity'] = '0.00';
                     $item['reject_quantity'] = '0.00';
                     $item['item_condition'] = 'Good Condition';
+                    $item['actual_item_description'] = (string) ($item['item_description'] ?? '');
+                    $item['variance_type'] = 'none';
+                    $item['variance_note'] = '';
+                    $item['accepted_no_additional_cost'] = '0';
                     $item['remarks'] = '';
                     $item['bulk_no_brand_model'] = '0';
                     $item['bulk_no_serial_no'] = '0';
@@ -428,6 +435,10 @@ if (!$db) {
             $item['accept_quantity'] = old($posted, 'accept_quantity', $item['accept_quantity']);
             $item['reject_quantity'] = old($posted, 'reject_quantity', $item['reject_quantity']);
             $item['item_condition'] = old($posted, 'item_condition', $item['item_condition']);
+            $item['actual_item_description'] = old($posted, 'actual_item_description', (string) ($item['actual_item_description'] ?? $item['item_description']));
+            $item['variance_type'] = old($posted, 'variance_type', (string) ($item['variance_type'] ?? 'none'));
+            $item['variance_note'] = old($posted, 'variance_note', (string) ($item['variance_note'] ?? ''));
+            $item['accepted_no_additional_cost'] = !empty($posted['accepted_no_additional_cost']) ? '1' : '0';
             $item['remarks'] = old($posted, 'remarks');
             $item['bulk_no_brand_model'] = !empty($posted['bulk_no_brand_model']) ? '1' : '0';
             $item['bulk_no_serial_no'] = !empty($posted['bulk_no_serial_no']) ? '1' : '0';
@@ -444,6 +455,10 @@ if (!$db) {
             $rejected = (float) ($posted['reject_quantity'] ?? 0);
             $remaining = (float) $item['remaining_quantity'];
             $condition = trim((string) ($posted['item_condition'] ?? ''));
+            $actualDescription = trim((string) ($posted['actual_item_description'] ?? $item['item_description']));
+            $varianceType = trim((string) ($posted['variance_type'] ?? 'none'));
+            $varianceNote = trim((string) ($posted['variance_note'] ?? ''));
+            $acceptedNoAdditionalCost = !empty($posted['accepted_no_additional_cost']) ? 1 : 0;
             $details = receiving_normalize_details($posted['details'] ?? []);
             $allDetailsHaveNoBrandModelValues = !empty($details);
             foreach ($details as $detailCheck) {
@@ -510,6 +525,22 @@ if (!$db) {
             }
             if ($condition === '') {
                 $errors[] = 'Condition is required for line ' . $item['line_no'] . '.';
+                continue;
+            }
+            if ($actualDescription === '') {
+                $errors[] = 'Actual delivered description is required for line ' . $item['line_no'] . '.';
+                continue;
+            }
+            if (!in_array($varianceType, ['none', 'higher_specs', 'substitution', 'defective', 'short_delivery', 'other'], true)) {
+                $errors[] = 'Variance type is invalid for line ' . $item['line_no'] . '.';
+                continue;
+            }
+            if ($varianceType !== 'none' && $varianceNote === '') {
+                $errors[] = 'Variance/inspection note is required for line ' . $item['line_no'] . '.';
+                continue;
+            }
+            if ($varianceType === 'higher_specs' && $acceptedNoAdditionalCost !== 1) {
+                $errors[] = 'Confirm no additional cost for higher-spec accepted delivery on line ' . $item['line_no'] . '.';
                 continue;
             }
 
@@ -657,6 +688,10 @@ if (!$db) {
                 'classification_id' => (int) ($item['classification_id'] ?? 0),
                 'unit_of_measure_id' => (int) ($item['unit_of_measure_id'] ?? 0),
                 'item_description' => (string) $item['item_description'],
+                'actual_item_description' => $actualDescription,
+                'variance_type' => $varianceType,
+                'variance_note' => $varianceNote,
+                'accepted_no_additional_cost' => $acceptedNoAdditionalCost,
                 'quantity_delivered' => $delivered,
                 'quantity_accepted' => $accepted,
                 'quantity_rejected' => $rejected,
@@ -707,7 +742,7 @@ if (!$db) {
                 $receivingId = (int) $headerStmt->insert_id;
                 $headerStmt->close();
 
-                $itemStmt = $db->prepare("INSERT INTO receiving_items (receiving_id, purchase_order_item_id, quantity_delivered, quantity_accepted, quantity_rejected, item_condition, unit_cost, line_total, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $itemStmt = $db->prepare("INSERT INTO receiving_items (receiving_id, purchase_order_item_id, actual_item_description, variance_type, variance_note, accepted_no_additional_cost, quantity_delivered, quantity_accepted, quantity_rejected, item_condition, unit_cost, line_total, remarks) VALUES (?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)");
                 $detailStmt = $db->prepare("INSERT INTO receiving_item_details (receiving_item_id, brand_id, model_id, brand, model, serial_no, remarks) VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?)");
                 $stockStmt = $db->prepare("INSERT INTO stock_items (system_reference, stock_catalog_id, receiving_id, receiving_item_id, purchase_order_item_id, item_type, semi_expendable_type, account_code_id, classification_id, unit_of_measure_id, item_description, unit_cost, quantity_received, quantity_issued, quantity_on_hand, created_by) VALUES (?, NULLIF(?,0), ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, 0.00, ?, ?)");
                 $movementStmt = $db->prepare("INSERT INTO stock_movements (stock_item_id, movement_type, movement_date, reference_type, reference_id, quantity_in, quantity_out, balance_after, remarks, created_by) VALUES (?, 'receipt', ?, 'receiving', ?, ?, 0.00, ?, ?, ?)");
@@ -719,7 +754,7 @@ if (!$db) {
                 $threshold = get_active_threshold($db);
 
                 foreach ($validatedItems as $item) {
-                    $itemStmt->bind_param('iidddsdds', $receivingId, $item['purchase_order_item_id'], $item['quantity_delivered'], $item['quantity_accepted'], $item['quantity_rejected'], $item['item_condition'], $item['unit_cost'], $item['line_total'], $item['remarks']);
+                    $itemStmt->bind_param('iisssidddsdds', $receivingId, $item['purchase_order_item_id'], $item['actual_item_description'], $item['variance_type'], $item['variance_note'], $item['accepted_no_additional_cost'], $item['quantity_delivered'], $item['quantity_accepted'], $item['quantity_rejected'], $item['item_condition'], $item['unit_cost'], $item['line_total'], $item['remarks']);
                     $itemStmt->execute();
                     $receivingItemId = (int) $itemStmt->insert_id;
                     $catalogId = 0;
@@ -773,7 +808,7 @@ if (!$db) {
                                 $accountCodeId,
                                 $classificationId,
                                 $unitOfMeasureId,
-                                $item['item_description'],
+                                $item['actual_item_description'],
                                 $item['unit_cost'],
                                 $stockQty,
                                 $stockQty,
@@ -826,7 +861,7 @@ if (!$db) {
                                 $accountCodeId,
                                 $classificationId,
                                 $unitOfMeasureId,
-                                $item['item_description'],
+                                $item['actual_item_description'],
                                 $item['unit_cost'],
                                 $item['quantity_accepted'],
                                 $item['quantity_accepted'],
@@ -1001,6 +1036,7 @@ if (($_GET['export'] ?? '') === 'csv') {
     );
 }
 
+$body_class = 'module-receivings';
 require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
@@ -1608,7 +1644,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <input type="hidden" name="action" value="save">
                             <?php echo '<input type="hidden" name="_csrf" value="' . h(csrf_token()) . '">'; ?>
                             <input type="hidden" name="purchase_order_id" value="<?php echo (int) $selectedPurchaseOrder['id']; ?>">
-                        <div class="row g-3 mb-4 workspace-filter-panel" id="receivingHeaderSection">
+                        <div class="row g-3 mb-4 workspace-filter-panel receiving-header-panel" id="receivingHeaderSection">
                             <div class="col-12">
                                 <div id="receiving_form_feedback" class="alert alert-danger small py-2 px-3 mb-0 d-none" role="alert" aria-live="polite"></div>
                             </div>
@@ -1718,6 +1754,37 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <?php endif; ?>
                                                 <div class="small"><?php echo h(mb_strimwidth(str_replace(["\r", "\n"], ' ', $item['item_description']), 0, 120, '...')); ?></div>
                                                 <div class="small text-muted"><?php echo h($item['account_code'] ?: ''); ?><?php echo $item['account_name'] ? ' - ' . h($item['account_name']) : ''; ?><?php echo $uomLabel ? ' | ' . h($uomLabel) : ''; ?></div>
+                                                <div class="mt-2 pt-2 border-top">
+                                                    <label class="form-label small mb-1">Actual delivered description/specs</label>
+                                                    <textarea class="form-control form-control-sm" name="items[<?php echo $itemId; ?>][actual_item_description]" rows="2"><?php echo h((string) ($item['actual_item_description'] ?? $item['item_description'])); ?></textarea>
+                                                    <div class="row g-2 mt-1">
+                                                        <div class="col-md-5">
+                                                            <select class="form-select form-select-sm" name="items[<?php echo $itemId; ?>][variance_type]">
+                                                                <?php
+                                                                $varianceType = (string) ($item['variance_type'] ?? 'none');
+                                                                $varianceOptions = [
+                                                                    'none' => 'No variance',
+                                                                    'higher_specs' => 'Higher/equivalent specs',
+                                                                    'substitution' => 'Substitution / review needed',
+                                                                    'defective' => 'Defective / rejected issue',
+                                                                    'short_delivery' => 'Short delivery',
+                                                                    'other' => 'Other variance',
+                                                                ];
+                                                                foreach ($varianceOptions as $varianceValue => $varianceLabel):
+                                                                ?>
+                                                                    <option value="<?php echo h($varianceValue); ?>" <?php echo $varianceType === $varianceValue ? 'selected' : ''; ?>><?php echo h($varianceLabel); ?></option>
+                                                                <?php endforeach; ?>
+                                                            </select>
+                                                        </div>
+                                                        <div class="col-md-7">
+                                                            <input type="text" class="form-control form-control-sm" name="items[<?php echo $itemId; ?>][variance_note]" value="<?php echo h((string) ($item['variance_note'] ?? '')); ?>" placeholder="Variance / inspection note">
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-check mt-1">
+                                                        <input class="form-check-input" type="checkbox" id="no-additional-cost-<?php echo $itemId; ?>" name="items[<?php echo $itemId; ?>][accepted_no_additional_cost]" value="1" <?php echo !empty($item['accepted_no_additional_cost']) ? 'checked' : ''; ?>>
+                                                        <label class="form-check-label small" for="no-additional-cost-<?php echo $itemId; ?>">Accepted at no additional cost</label>
+                                                    </div>
+                                                </div>
                                             </td>
                                             <td>
                                                 <span class="badge text-bg-primary-subtle text-primary"><?php echo h(receiving_type_label((string) $item['item_type'])); ?></span>
@@ -1883,7 +1950,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <a href="<?php echo base_url('modules/receivings/index.php?filter_status=cancelled'); ?>" class="btn btn-sm <?php echo $filterStatus === 'cancelled' ? 'btn-primary' : 'btn-outline-secondary'; ?>">Cancelled</a>
                 </div>
 
-                <form method="get" class="row g-2 align-items-end mb-3 workspace-filter-panel">
+                <form method="get" class="row g-2 align-items-end mb-3 workspace-filter-panel receiving-list-filter-panel">
                     <div class="col-md-5">
                         <input type="text" name="q" class="form-control form-control-sm" placeholder="Search PO number, supplier, or reference..." value="<?php echo h($filterPoNumber); ?>">
                     </div>
@@ -2720,6 +2787,12 @@ document.addEventListener('DOMContentLoaded', function () {
     updatePhysicalConfirmRequirement();
 
     // PO selector interactions (left list -> preview)
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, function (char) {
+            return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'}[char];
+        });
+    }
+
     function renderPoDetail(po, items) {
         document.getElementById('poDetailEmpty').style.display = 'none';
         var content = document.getElementById('poDetailContent');
@@ -2735,9 +2808,11 @@ document.addEventListener('DOMContentLoaded', function () {
         tbody.innerHTML = '';
         items.forEach(function (it) {
             var tr = document.createElement('tr');
+            var classification = it.classification_name ? String(it.classification_name) : 'No classification';
+            var description = it.description ? String(it.description) : '';
             tr.innerHTML = '<td>' + it.line_no + '</td>' +
-                '<td>' + (it.description ? it.description : '') + '</td>' +
-                '<td>' + (it.item_type ? it.item_type : '') + '</td>' +
+                '<td><div class="fw-semibold">' + escapeHtml(classification) + '</div><div class="small text-muted">' + escapeHtml(description) + '</div></td>' +
+                '<td>' + escapeHtml(it.item_type ? it.item_type : '') + '</td>' +
                 '<td class="text-end">' + (it.ordered !== undefined ? it.ordered.toFixed(2) : '0.00') + '</td>' +
                 '<td class="text-end">' + (it.received !== undefined ? it.received.toFixed(2) : '0.00') + '</td>' +
                 '<td class="text-end fw-semibold">' + (it.remaining !== undefined ? it.remaining.toFixed(2) : '0.00') + '</td>' +

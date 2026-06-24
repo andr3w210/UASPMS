@@ -24,6 +24,9 @@ function employees_has_reference(mysqli $db, int $recordId): bool
         if ($table === '' || $column === '') {
             continue;
         }
+        if ($table === 'employee_assignments') {
+            continue;
+        }
         $safeTable = str_replace('`', '``', $table);
         $safeColumn = str_replace('`', '``', $column);
         $checks[] = "SELECT 1 FROM `{$safeTable}` WHERE `{$safeColumn}` = ? LIMIT 1";
@@ -137,6 +140,134 @@ function employees_audit_snapshot(mysqli $db, int $employeeId): array
     }
 
     return audit_fetch_row_snapshot($db, 'employees', $employeeId, $columns);
+}
+
+function employees_foreign_key_targets(mysqli $db): array
+{
+    $targets = [];
+    $fkStmt = $db->prepare("SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME = 'employees'");
+    if ($fkStmt) {
+        $fkStmt->execute();
+        $fkResult = $fkStmt->get_result();
+        if ($fkResult) {
+            $targets = $fkResult->fetch_all(MYSQLI_ASSOC);
+        }
+        $fkStmt->close();
+    }
+
+    return array_values(array_filter($targets, static function (array $target): bool {
+        return (string) ($target['TABLE_NAME'] ?? '') !== 'employee_assignments'
+            && (string) ($target['TABLE_NAME'] ?? '') !== ''
+            && (string) ($target['COLUMN_NAME'] ?? '') !== '';
+    }));
+}
+
+function employees_merge_records(mysqli $db, int $sourceEmployeeId, int $targetEmployeeId, int $userId): bool
+{
+    if ($sourceEmployeeId <= 0 || $targetEmployeeId <= 0 || $sourceEmployeeId === $targetEmployeeId) {
+        return false;
+    }
+
+    $sourceBefore = employees_audit_snapshot($db, $sourceEmployeeId);
+    $targetBefore = employees_audit_snapshot($db, $targetEmployeeId);
+    if (!$sourceBefore || !$targetBefore) {
+        return false;
+    }
+
+    $db->begin_transaction();
+    try {
+        foreach (employees_foreign_key_targets($db) as $target) {
+            $table = str_replace('`', '``', (string) $target['TABLE_NAME']);
+            $column = str_replace('`', '``', (string) $target['COLUMN_NAME']);
+            $stmt = $db->prepare("UPDATE `{$table}` SET `{$column}` = ? WHERE `{$column}` = ?");
+            if (!$stmt) {
+                throw new RuntimeException('Unable to prepare reference update for ' . $table . '.' . $column);
+            }
+            $stmt->bind_param('ii', $targetEmployeeId, $sourceEmployeeId);
+            if (!$stmt->execute()) {
+                $error = $stmt->error;
+                $stmt->close();
+                throw new RuntimeException('Unable to update reference ' . $table . '.' . $column . ': ' . $error);
+            }
+            $stmt->close();
+        }
+
+        if (employee_assignments_enabled($db)) {
+            $targetHasPrimary = false;
+            $primaryStmt = $db->prepare("SELECT id FROM employee_assignments WHERE employee_id = ? AND is_active = 1 AND is_primary = 1 LIMIT 1");
+            if ($primaryStmt) {
+                $primaryStmt->bind_param('i', $targetEmployeeId);
+                $primaryStmt->execute();
+                $targetHasPrimary = (bool) $primaryStmt->get_result()->fetch_assoc();
+                $primaryStmt->close();
+            }
+
+            if ($targetHasPrimary) {
+                $stmt = $db->prepare("UPDATE employee_assignments SET is_primary = 0, updated_by = ?, updated_at = NOW() WHERE employee_id = ?");
+                if (!$stmt) {
+                    throw new RuntimeException('Unable to prepare source assignment primary update.');
+                }
+                $stmt->bind_param('ii', $userId, $sourceEmployeeId);
+                if (!$stmt->execute()) {
+                    $error = $stmt->error;
+                    $stmt->close();
+                    throw new RuntimeException('Unable to update source assignment primary flags: ' . $error);
+                }
+                $stmt->close();
+            }
+
+            $stmt = $db->prepare("UPDATE employee_assignments SET employee_id = ?, updated_by = ?, updated_at = NOW() WHERE employee_id = ?");
+            if (!$stmt) {
+                throw new RuntimeException('Unable to prepare assignment merge.');
+            }
+            $stmt->bind_param('iii', $targetEmployeeId, $userId, $sourceEmployeeId);
+            if (!$stmt->execute()) {
+                $error = $stmt->error;
+                $stmt->close();
+                throw new RuntimeException('Unable to merge assignments: ' . $error);
+            }
+            $stmt->close();
+
+            employee_sync_legacy_assignment_fields($db, $targetEmployeeId);
+        }
+
+        $stmt = $db->prepare("UPDATE employees SET is_active = 0, office_id = NULL, responsibility_code_id = NULL, position_title = '', is_unit_head = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
+        if (!$stmt) {
+            throw new RuntimeException('Unable to prepare duplicate deactivation.');
+        }
+        $stmt->bind_param('ii', $userId, $sourceEmployeeId);
+        if (!$stmt->execute()) {
+            $error = $stmt->error;
+            $stmt->close();
+            throw new RuntimeException('Unable to deactivate duplicate employee: ' . $error);
+        }
+        $stmt->close();
+
+        write_audit_log($db, [
+            'action' => 'update',
+            'table_name' => 'employees',
+            'record_id' => $targetEmployeeId,
+            'module_name' => 'employees',
+            'record_type' => 'employee',
+            'action_name' => 'merge_employee',
+            'description' => 'Merged duplicate employee into existing employee.',
+            'old_values' => [
+                'source_employee' => $sourceBefore,
+                'target_employee' => $targetBefore,
+            ],
+            'new_values' => [
+                'source_employee_id' => $sourceEmployeeId,
+                'target_employee_id' => $targetEmployeeId,
+            ],
+        ]);
+
+        $db->commit();
+        return true;
+    } catch (Throwable $e) {
+        $db->rollback();
+        error_log('Employee merge failed: ' . $e->getMessage());
+        return false;
+    }
 }
 
 $db = db();
@@ -458,6 +589,23 @@ if (!$db) {
                 }
             }
             $errors[]='Unable to reactivate the employee.';
+        } elseif($action==='merge'){
+            if(($_SESSION['user_role']??'')!=='Administrator'){
+                set_flash('error','Only administrators can merge employee records.');
+                redirect('modules/employees/index.php');
+            }
+            $sourceEmployeeId = (int) ($_POST['source_employee_id'] ?? 0);
+            $targetEmployeeId = (int) ($_POST['target_employee_id'] ?? 0);
+            if ($sourceEmployeeId <= 0 || $targetEmployeeId <= 0 || $sourceEmployeeId === $targetEmployeeId) {
+                set_flash('error','Choose a duplicate employee and a different existing employee to merge into.');
+                redirect('modules/employees/index.php');
+            }
+            if (employees_merge_records($db, $sourceEmployeeId, $targetEmployeeId, current_user_id())) {
+                set_flash('success','Employee records merged successfully. Assignments and references were moved to the existing employee.');
+            } else {
+                set_flash('error','Unable to merge employee records. Please check that both employees still exist and try again.');
+            }
+            redirect('modules/employees/index.php');
         } elseif($action==='hard_delete'){
             if(($_SESSION['user_role']??'')!=='Administrator'){
                 set_flash('error','Only administrators can permanently delete records.');
@@ -703,7 +851,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
             <?php endif; ?>
             <?php if($flash): ?>
-                <div class="alert alert-<?php echo $flash['type']==='success'?'success':'info'; ?> mb-4"><?php echo h($flash['message']); ?></div>
+                <?php $flashTone = $flash['type'] === 'success' ? 'success' : ($flash['type'] === 'error' ? 'danger' : 'info'); ?>
+                <div class="alert alert-<?php echo h($flashTone); ?> mb-4"><?php echo h($flash['message']); ?></div>
             <?php endif; ?>
 
             <div class="master-data-header mb-4">
@@ -1090,6 +1239,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </form>
                                         <?php endif; ?>
                                         <?php if(($_SESSION['user_role']??'')==='Administrator'): ?>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" data-merge-source-id="<?php echo (int)$employee['id']; ?>" data-merge-source-label="<?php echo h(employee_choice_label($employee)); ?>">
+                                                <i class="bi bi-intersect"></i> Merge
+                                            </button>
                                             <form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="hard_delete">
@@ -1117,7 +1269,47 @@ require_once __DIR__ . '/../../includes/topbar.php';
             </div>
         </div>
     </div>
-</section><script>
+</section>
+<?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
+<div class="modal fade" id="mergeEmployeeModal" tabindex="-1" aria-labelledby="mergeEmployeeModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="post" class="modal-content" onsubmit="return confirm('Merge this duplicate employee into the selected existing employee? This moves assignments and transaction references.');">
+            <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+            <input type="hidden" name="action" value="merge">
+            <input type="hidden" name="source_employee_id" id="mergeSourceEmployeeId" value="">
+            <div class="modal-header">
+                <h5 class="modal-title" id="mergeEmployeeModalLabel">Merge Employee</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning small">
+                    Use this when the employee already exists and the current record is only a duplicate. The duplicate record will be deactivated after its assignments and references are moved.
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Duplicate employee</label>
+                    <input type="text" class="form-control" id="mergeSourceEmployeeLabel" value="" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Merge into existing employee</label>
+                    <select class="form-select" name="target_employee_id" id="mergeTargetEmployeeId" required data-placeholder="Select existing employee">
+                        <option value="">Select employee</option>
+                        <?php foreach ($employees as $mergeEmployee): ?>
+                            <option value="<?php echo (int) $mergeEmployee['id']; ?>">
+                                <?php echo h(employee_choice_label($mergeEmployee, $assignmentSummaryMap[(int) ($mergeEmployee['id'] ?? 0)] ?? '')); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Merge Employee</button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+<script>
 document.addEventListener('DOMContentLoaded', function () {
     var assignmentsEnabled = <?php echo $assignmentsEnabled ? 'true' : 'false'; ?>;
     var officeOptions = <?php echo json_encode(array_map(static function ($office) {
@@ -1359,6 +1551,33 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function initEmployeeMergeModal() {
+        var modalEl = document.getElementById('mergeEmployeeModal');
+        if (!modalEl || typeof bootstrap === 'undefined') {
+            return;
+        }
+        var modal = new bootstrap.Modal(modalEl);
+        var sourceIdInput = document.getElementById('mergeSourceEmployeeId');
+        var sourceLabelInput = document.getElementById('mergeSourceEmployeeLabel');
+        var targetSelect = document.getElementById('mergeTargetEmployeeId');
+
+        document.querySelectorAll('[data-merge-source-id]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                var sourceId = String(button.getAttribute('data-merge-source-id') || '');
+                sourceIdInput.value = sourceId;
+                sourceLabelInput.value = button.getAttribute('data-merge-source-label') || '';
+                if (targetSelect) {
+                    targetSelect.value = '';
+                    Array.from(targetSelect.options).forEach(function (option) {
+                        option.disabled = option.value !== '' && option.value === sourceId;
+                    });
+                    refreshSharedSelect(targetSelect);
+                }
+                modal.show();
+            });
+        });
+    }
+
     document.getElementById('office_id')?.addEventListener('change', function () {
         var officeSelect = document.getElementById('office_id');
         var codeSelect = document.getElementById('responsibility_code_id');
@@ -1367,6 +1586,7 @@ document.addEventListener('DOMContentLoaded', function () {
     filterResponsibilityCodes();
     initAssignmentEditor();
     initEmployeeTable();
+    initEmployeeMergeModal();
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

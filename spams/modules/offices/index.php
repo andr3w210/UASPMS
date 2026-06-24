@@ -12,6 +12,172 @@ function offices_has_reference(mysqli $db, int $recordId): bool
     ]);
 }
 
+function offices_fetch_merge_row(mysqli $db, int $officeId): ?array
+{
+    if ($officeId <= 0) {
+        return null;
+    }
+
+    $stmt = $db->prepare("SELECT id, office_code, office_name, is_active FROM offices WHERE id = ? LIMIT 1");
+    if (!$stmt) {
+        return null;
+    }
+
+    $stmt->bind_param('i', $officeId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    return $row ?: null;
+}
+
+function offices_update_reference(mysqli $db, string $table, string $column, int $fromOfficeId, int $toOfficeId, int $userId): int
+{
+    if (!schema_has_table($db, $table) || !schema_has_column($db, $table, $column)) {
+        return 0;
+    }
+
+    $safeTable = str_replace('`', '``', $table);
+    $safeColumn = str_replace('`', '``', $column);
+    $setUpdated = schema_has_column($db, $table, 'updated_by') ? ', `updated_by` = ?' : '';
+    $setUpdatedAt = schema_has_column($db, $table, 'updated_at') ? ', `updated_at` = NOW()' : '';
+    $stmt = $db->prepare("UPDATE `{$safeTable}` SET `{$safeColumn}` = ?{$setUpdated}{$setUpdatedAt} WHERE `{$safeColumn}` = ?");
+    if (!$stmt) {
+        return 0;
+    }
+
+    if ($setUpdated !== '') {
+        $stmt->bind_param('iii', $toOfficeId, $userId, $fromOfficeId);
+    } else {
+        $stmt->bind_param('ii', $toOfficeId, $fromOfficeId);
+    }
+    $stmt->execute();
+    $count = $stmt->affected_rows;
+    $stmt->close();
+
+    return max(0, $count);
+}
+
+function offices_merge_responsibility_codes(mysqli $db, int $fromOfficeId, int $toOfficeId, int $userId): int
+{
+    if (!schema_has_table($db, 'responsibility_codes')) {
+        return 0;
+    }
+
+    $mergedCount = 0;
+    $sourceCodes = [];
+    $result = $db->query("SELECT id, code FROM responsibility_codes WHERE office_id = " . (int) $fromOfficeId);
+    if ($result) {
+        $sourceCodes = $result->fetch_all(MYSQLI_ASSOC);
+        $result->free();
+    }
+
+    foreach ($sourceCodes as $sourceCode) {
+        $sourceRcId = (int) ($sourceCode['id'] ?? 0);
+        $code = (string) ($sourceCode['code'] ?? '');
+        $targetRcId = 0;
+        $targetStmt = $db->prepare("SELECT id FROM responsibility_codes WHERE office_id = ? AND code = ? LIMIT 1");
+        if ($targetStmt) {
+            $targetStmt->bind_param('is', $toOfficeId, $code);
+            $targetStmt->execute();
+            $targetRow = $targetStmt->get_result()->fetch_assoc();
+            $targetStmt->close();
+            $targetRcId = (int) ($targetRow['id'] ?? 0);
+        }
+
+        if ($targetRcId > 0) {
+            foreach (['employees' => 'responsibility_code_id', 'employee_assignments' => 'responsibility_code_id'] as $table => $column) {
+                if (schema_has_table($db, $table) && schema_has_column($db, $table, $column)) {
+                    $safeTable = str_replace('`', '``', $table);
+                    $safeColumn = str_replace('`', '``', $column);
+                    $stmt = $db->prepare("UPDATE `{$safeTable}` SET `{$safeColumn}` = ? WHERE `{$safeColumn}` = ?");
+                    if ($stmt) {
+                        $stmt->bind_param('ii', $targetRcId, $sourceRcId);
+                        $stmt->execute();
+                        $mergedCount += max(0, $stmt->affected_rows);
+                        $stmt->close();
+                    }
+                }
+            }
+
+            $stmt = $db->prepare("UPDATE responsibility_codes SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
+            if ($stmt) {
+                $stmt->bind_param('ii', $userId, $sourceRcId);
+                $stmt->execute();
+                $stmt->close();
+            }
+            continue;
+        }
+
+        $stmt = $db->prepare("UPDATE responsibility_codes SET office_id = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
+        if ($stmt) {
+            $stmt->bind_param('iii', $toOfficeId, $userId, $sourceRcId);
+            $stmt->execute();
+            $mergedCount += max(0, $stmt->affected_rows);
+            $stmt->close();
+        }
+    }
+
+    return $mergedCount;
+}
+
+function offices_merge_location_pin(mysqli $db, int $fromOfficeId, int $toOfficeId, int $userId): int
+{
+    if (!schema_has_table($db, 'office_location_pins') || !schema_has_column($db, 'office_location_pins', 'office_id')) {
+        return 0;
+    }
+
+    $targetPin = get_office_location_pin($db, $toOfficeId);
+    if ($targetPin) {
+        $stmt = $db->prepare("DELETE FROM office_location_pins WHERE office_id = ?");
+        if (!$stmt) {
+            return 0;
+        }
+        $stmt->bind_param('i', $fromOfficeId);
+        $stmt->execute();
+        $count = max(0, $stmt->affected_rows);
+        $stmt->close();
+        return $count;
+    }
+
+    return offices_update_reference($db, 'office_location_pins', 'office_id', $fromOfficeId, $toOfficeId, $userId);
+}
+
+function offices_merge_into(mysqli $db, int $fromOfficeId, int $toOfficeId, int $userId): array
+{
+    $changes = [];
+    $changes['responsibility_codes'] = offices_merge_responsibility_codes($db, $fromOfficeId, $toOfficeId, $userId);
+    $changes['office_location_pins'] = offices_merge_location_pin($db, $fromOfficeId, $toOfficeId, $userId);
+
+    $references = [
+        ['users', 'office_id'],
+        ['employees', 'office_id'],
+        ['employee_assignments', 'office_id'],
+        ['purchase_orders', 'office_id'],
+        ['issuances', 'office_id'],
+        ['distributions', 'office_id'],
+        ['legacy_assets', 'office_id'],
+        ['distribution_item_details', 'current_office_id'],
+        ['returns', 'office_id'],
+        ['disposals', 'office_id'],
+        ['inventory_count_sessions', 'office_id'],
+        ['inventory_count_items', 'office_id'],
+        ['asset_transfers', 'from_office_id'],
+        ['asset_transfers', 'to_office_id'],
+        ['transfer_batches', 'source_office_id'],
+        ['transfer_batches', 'to_office_id'],
+        ['rpcppe_batches', 'office_id'],
+        ['trip_tickets', 'office_id'],
+    ];
+
+    foreach ($references as [$table, $column]) {
+        $key = $table . '.' . $column;
+        $changes[$key] = offices_update_reference($db, $table, $column, $fromOfficeId, $toOfficeId, $userId);
+    }
+
+    return $changes;
+}
+
 $db = db();
 $page_title = 'Offices';
 $flash = get_flash();
@@ -95,25 +261,29 @@ if (!$db) {
                         $saved = $stmt->execute();
                         $stmt->close();
                         if ($saved) {
-                            write_audit_log($db, [
-                                'action' => 'update',
-                                'table_name' => 'offices',
-                                'record_id' => $officeId,
-                                'module_name' => 'offices',
-                                'record_type' => 'office',
-                                'action_name' => 'update_office',
-                                'description' => 'Updated office record.',
-                                'old_values' => $auditBefore,
-                                'new_values' => [
-                                    'office_code' => $form['office_code'],
-                                    'office_name' => $form['office_name'],
-                                    'office_head_employee_id' => $officeHeadId,
-                                    'description' => $form['description'],
-                                    'is_active' => $isActive,
-                                ],
-                            ]);
-                            set_flash('success', 'Office updated successfully.');
-                            redirect('modules/offices/index.php');
+                            if ($officeHeadId && !employee_ensure_office_assignment($db, $officeHeadId, $officeId, 'Office Head', true, $userId)) {
+                                $errors[] = 'Office was updated, but the office head assignment could not be saved.';
+                            } else {
+                                write_audit_log($db, [
+                                    'action' => 'update',
+                                    'table_name' => 'offices',
+                                    'record_id' => $officeId,
+                                    'module_name' => 'offices',
+                                    'record_type' => 'office',
+                                    'action_name' => 'update_office',
+                                    'description' => 'Updated office record.',
+                                    'old_values' => $auditBefore,
+                                    'new_values' => [
+                                        'office_code' => $form['office_code'],
+                                        'office_name' => $form['office_name'],
+                                        'office_head_employee_id' => $officeHeadId,
+                                        'description' => $form['description'],
+                                        'is_active' => $isActive,
+                                    ],
+                                ]);
+                                set_flash('success', 'Office updated successfully.');
+                                redirect('modules/offices/index.php');
+                            }
                         }
                     }
                 } else {
@@ -124,24 +294,28 @@ if (!$db) {
                         $newOfficeId = (int) $stmt->insert_id;
                         $stmt->close();
                         if ($saved) {
-                            write_audit_log($db, [
-                                'action' => 'insert',
-                                'table_name' => 'offices',
-                                'record_id' => $newOfficeId,
-                                'module_name' => 'offices',
-                                'record_type' => 'office',
-                                'action_name' => 'create_office',
-                                'description' => 'Created office record.',
-                                'new_values' => [
-                                    'office_code' => $form['office_code'],
-                                    'office_name' => $form['office_name'],
-                                    'office_head_employee_id' => $officeHeadId,
-                                    'description' => $form['description'],
-                                    'is_active' => $isActive,
-                                ],
-                            ]);
-                            set_flash('success', 'Office created successfully.');
-                            redirect('modules/offices/index.php');
+                            if ($officeHeadId && !employee_ensure_office_assignment($db, $officeHeadId, $newOfficeId, 'Office Head', true, $userId)) {
+                                $errors[] = 'Office was created, but the office head assignment could not be saved.';
+                            } else {
+                                write_audit_log($db, [
+                                    'action' => 'insert',
+                                    'table_name' => 'offices',
+                                    'record_id' => $newOfficeId,
+                                    'module_name' => 'offices',
+                                    'record_type' => 'office',
+                                    'action_name' => 'create_office',
+                                    'description' => 'Created office record.',
+                                    'new_values' => [
+                                        'office_code' => $form['office_code'],
+                                        'office_name' => $form['office_name'],
+                                        'office_head_employee_id' => $officeHeadId,
+                                        'description' => $form['description'],
+                                        'is_active' => $isActive,
+                                    ],
+                                ]);
+                                set_flash('success', 'Office created successfully.');
+                                redirect('modules/offices/index.php');
+                            }
                         }
                     }
                 }
@@ -212,6 +386,77 @@ if (!$db) {
                 }
             }
             $errors[] = 'Unable to reactivate the office.';
+        } elseif ($action === 'merge') {
+            if (($_SESSION['user_role'] ?? '') !== 'Administrator') {
+                set_flash('error', 'Only administrators can merge office records.');
+                redirect('modules/offices/index.php');
+            }
+
+            $fromOfficeId = (int) ($_POST['id'] ?? 0);
+            $toOfficeId = (int) ($_POST['target_office_id'] ?? 0);
+            $fromOffice = offices_fetch_merge_row($db, $fromOfficeId);
+            $toOffice = offices_fetch_merge_row($db, $toOfficeId);
+
+            if (!$fromOffice || !$toOffice || $fromOfficeId <= 0 || $toOfficeId <= 0) {
+                set_flash('error', 'Choose a valid source office and target office.');
+                redirect('modules/offices/index.php');
+            }
+            if ($fromOfficeId === $toOfficeId) {
+                set_flash('error', 'Choose a different target office for the merge.');
+                redirect('modules/offices/index.php');
+            }
+
+            $userId = current_user_id();
+            $db->begin_transaction();
+            try {
+                $changes = offices_merge_into($db, $fromOfficeId, $toOfficeId, $userId);
+                $auditBefore = audit_fetch_row_snapshot($db, 'offices', $fromOfficeId, [
+                    'office_code',
+                    'office_name',
+                    'office_head_employee_id',
+                    'description',
+                    'is_active',
+                ]);
+                $stmt = $db->prepare("UPDATE offices SET is_active = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
+                if (!$stmt) {
+                    throw new RuntimeException('Unable to prepare office deactivation.');
+                }
+                $stmt->bind_param('ii', $userId, $fromOfficeId);
+                if (!$stmt->execute()) {
+                    $stmt->close();
+                    throw new RuntimeException('Unable to deactivate source office.');
+                }
+                $stmt->close();
+
+                write_audit_log($db, [
+                    'action' => 'update',
+                    'table_name' => 'offices',
+                    'record_id' => $fromOfficeId,
+                    'module_name' => 'offices',
+                    'record_type' => 'office',
+                    'action_name' => 'merge_office',
+                    'description' => 'Merged office record into another office.',
+                    'old_values' => $auditBefore,
+                    'new_values' => [
+                        'merged_into_office_id' => $toOfficeId,
+                        'merged_into_office_code' => $toOffice['office_code'] ?? '',
+                        'merged_into_office_name' => $toOffice['office_name'] ?? '',
+                        'source_office_code' => $fromOffice['office_code'] ?? '',
+                        'source_office_name' => $fromOffice['office_name'] ?? '',
+                        'reference_updates' => $changes,
+                        'is_active' => 0,
+                    ],
+                ]);
+
+                $db->commit();
+                $moved = array_sum($changes);
+                set_flash('success', 'Office merged successfully. ' . $moved . ' reference' . ($moved === 1 ? '' : 's') . ' moved to ' . ($toOffice['office_name'] ?? 'the target office') . '.');
+                redirect('modules/offices/index.php');
+            } catch (Throwable $e) {
+                $db->rollback();
+                set_flash('error', 'Unable to merge office records: ' . $e->getMessage());
+                redirect('modules/offices/index.php');
+            }
         } elseif ($action === 'hard_delete') {
             if (($_SESSION['user_role'] ?? '') !== 'Administrator') {
                 set_flash('error', 'Only administrators can permanently delete records.');
@@ -282,6 +527,17 @@ if (!$db) {
         }
     }
 
+    $listResult = $db->query("
+        SELECT o.id, o.office_code, o.office_name, o.description, o.is_active, o.created_at,
+               e.first_name, e.middle_name, e.last_name, e.suffix_name
+        FROM offices o
+        LEFT JOIN employees e ON e.id = o.office_head_employee_id
+        ORDER BY o.office_name ASC
+    ");
+    if ($listResult) {
+        $offices = $listResult->fetch_all(MYSQLI_ASSOC);
+    }
+
     if (employee_assignments_enabled($db)) {
         foreach ($offices as $officeRow) {
             $head = employee_resolve_office_head($db, (int) ($officeRow['id'] ?? 0));
@@ -300,17 +556,6 @@ if (!$db) {
                 $unitHeads[(int) $unitHeadRow['office_id']] = employee_display_name($unitHeadRow);
             }
         }
-    }
-
-    $listResult = $db->query("
-        SELECT o.id, o.office_code, o.office_name, o.description, o.is_active, o.created_at,
-               e.first_name, e.middle_name, e.last_name, e.suffix_name
-        FROM offices o
-        LEFT JOIN employees e ON e.id = o.office_head_employee_id
-        ORDER BY o.office_name ASC
-    ");
-    if ($listResult) {
-        $offices = $listResult->fetch_all(MYSQLI_ASSOC);
     }
 }
 
@@ -514,6 +759,19 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </form>
                                         <?php endif; ?>
                                         <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
+                                            <form method="post" onsubmit="return confirm('Merge this office into the selected target? Existing records will be moved to the target office and this office will be deactivated.');" class="d-inline-flex gap-2">
+                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="merge">
+                                                <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
+                                                <select name="target_office_id" class="form-select form-select-sm" required aria-label="Merge target office">
+                                                    <option value="">Merge into...</option>
+                                                    <?php foreach ($offices as $targetOffice): ?>
+                                                        <?php if ((int) $targetOffice['id'] === (int) $office['id']) continue; ?>
+                                                        <option value="<?php echo (int) $targetOffice['id']; ?>"><?php echo h($targetOffice['office_name']); ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-intersect"></i> Merge</button>
+                                            </form>
                                             <form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="hard_delete">
@@ -554,6 +812,22 @@ document.addEventListener('DOMContentLoaded', function () {
         },
         pageInfoFormatter: function (state) {
             return 'Page ' + state.currentPage + ' of ' + state.totalPages + ' (' + state.totalVisible + ' matches)';
+        },
+        rowMatcher: function (row, filters) {
+            var status = (filters.status || '').trim();
+            if (status && row.getAttribute('data-status') !== status) {
+                return false;
+            }
+
+            var term = (filters.term || '').trim();
+            if (!term) {
+                return true;
+            }
+
+            var searchableCells = Array.from(row.cells).slice(0, 4);
+            return searchableCells.some(function (cell) {
+                return cell.textContent.toLowerCase().indexOf(term) !== -1;
+            });
         },
         emptyMessage: 'No offices matched your search or status filter.'
     };

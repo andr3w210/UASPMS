@@ -55,6 +55,9 @@ $total = 0;
 $totalPages = 0;
 
 if ($db) {
+    if (function_exists('ensure_receiving_item_variance_columns')) {
+        ensure_receiving_item_variance_columns($db);
+    }
     ensure_distribution_item_rpcppe_tracking_columns($db);
     ensure_legacy_assets_rpcppe_tracking_columns($db);
 
@@ -73,7 +76,7 @@ if ($db) {
                 did.property_number AS property_no,
                 CONCAT('system:', did.id) AS asset_key,
                 poi.item_type,
-                poi.item_description AS description,
+                COALESCE(NULLIF(ri.actual_item_description, ''), poi.item_description) AS description,
                 c.classification_name,
                 c.classification_family,
                 did.brand,
@@ -107,8 +110,8 @@ if ($db) {
             WHERE poi.item_type IN ('equipment', 'semi_expendable')
               AND did.is_distributed = 1
               AND (did.is_disposed IS NULL OR did.is_disposed = 0)
-              AND UPPER(poi.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
-              AND UPPER(TRIM(poi.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')";
+              AND UPPER(COALESCE(NULLIF(ri.actual_item_description, ''), poi.item_description)) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
+              AND UPPER(TRIM(COALESCE(NULLIF(ri.actual_item_description, ''), poi.item_description))) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')";
 
         if ($officeId > 0) {
             $systemSql .= " AND COALESCE(did.current_office_id, d.office_id) = ?";
@@ -118,7 +121,7 @@ if ($db) {
         if ($search !== '') {
             $systemSql .= " AND (
                 did.property_number LIKE ?
-                OR poi.item_description LIKE ?
+                OR COALESCE(NULLIF(ri.actual_item_description, ''), poi.item_description) LIKE ?
                 OR c.classification_name LIKE ?
                 OR c.classification_family LIKE ?
                 OR COALESCE(curr_o.office_name, o.office_name) LIKE ?
@@ -589,9 +592,14 @@ if ($dateFrom !== '' || $dateTo !== '') {
                             <h4 class="mb-1">Asset Registry</h4>
                             <div class="text-muted">List and search all active equipment and semi-expendable assets from system and beginning balance records.</div>
                         </div>
-                        <a href="<?php echo h(build_registry_url(['export' => 'csv', 'page' => 1])); ?>" class="btn btn-outline-success">
-                            <i class="bi bi-download me-1"></i>Export CSV
-                        </a>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <a href="<?php echo h(base_url('modules/property/encode_legacy_asset.php')); ?>" class="btn btn-primary">
+                                <i class="bi bi-plus-circle me-1"></i>Encode Legacy Asset
+                            </a>
+                            <a href="<?php echo h(build_registry_url(['export' => 'csv', 'page' => 1])); ?>" class="btn btn-outline-success">
+                                <i class="bi bi-download me-1"></i>Export CSV
+                            </a>
+                        </div>
                     </div>
 
                     <div class="row g-3 mb-4">
