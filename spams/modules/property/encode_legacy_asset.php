@@ -73,6 +73,156 @@ function legacy_asset_temp_property_number(mysqli $db, string $officeCode = ''):
     return $propertyNumber;
 }
 
+function legacy_asset_parse_bulk_rows(string $rawText): array
+{
+    $rows = [];
+    $lines = preg_split('/\R/', $rawText) ?: [];
+
+    foreach ($lines as $line) {
+        $line = trim((string) $line);
+        if ($line === '') {
+            continue;
+        }
+
+        if (preg_match('/^(?:s\/?n|serial(?:\s+no\.?)?)\s*[:#-]?\s*(.+)$/i', $line, $serialMatch) && $rows) {
+            $rows[count($rows) - 1]['serial_no'] = trim((string) $serialMatch[1]);
+            continue;
+        }
+
+        $parts = preg_split('/\t+/', $line);
+        $quantity = '1';
+        $unit = '';
+        $unitCost = '';
+        $totalCost = '';
+        $description = $line;
+
+        if (is_array($parts) && count($parts) >= 3 && ctype_digit(trim((string) $parts[0]))) {
+            $quantity = trim((string) $parts[0]);
+            $unit = trim((string) $parts[1]);
+            $remainingParts = array_values(array_filter(array_map(static function ($part): string {
+                return trim((string) $part);
+            }, array_slice($parts, 2)), static function (string $part): bool {
+                return $part !== '';
+            }));
+            $descriptionParts = [];
+            foreach ($remainingParts as $part) {
+                $normalizedAmount = legacy_asset_normalize_amount($part);
+                if ($normalizedAmount !== '' && count($descriptionParts) === 0) {
+                    if ($unitCost === '') {
+                        $unitCost = $normalizedAmount;
+                        continue;
+                    }
+                    if ($totalCost === '') {
+                        $totalCost = $normalizedAmount;
+                        continue;
+                    }
+                }
+                $descriptionParts[] = $part;
+            }
+            $description = trim(implode(' ', $descriptionParts));
+        } elseif (preg_match('/^(\d+)\s+([A-Za-z.\/-]+)\s+(.+)$/', $line, $match)) {
+            $quantity = $match[1];
+            $unit = $match[2];
+            $description = trim($match[3]);
+            $tokens = preg_split('/\s+/', $description) ?: [];
+            if ($tokens) {
+                $firstAmount = legacy_asset_normalize_amount((string) ($tokens[0] ?? ''));
+                if ($firstAmount !== '' && count($tokens) > 1) {
+                    $unitCost = $firstAmount;
+                    array_shift($tokens);
+                    $secondAmount = legacy_asset_normalize_amount((string) ($tokens[0] ?? ''));
+                    if ($secondAmount !== '' && count($tokens) > 1) {
+                        $totalCost = $secondAmount;
+                        array_shift($tokens);
+                    }
+                    $description = trim(implode(' ', $tokens));
+                }
+            }
+        }
+
+        $description = preg_replace('/\s+/', ' ', $description) ?? $description;
+        if ($description === '') {
+            continue;
+        }
+
+        $rows[] = [
+            'quantity' => $quantity,
+            'unit_text' => $unit,
+            'item_description' => $description,
+            'unit_cost' => $unitCost,
+            'total_cost' => $totalCost,
+            'serial_no' => '',
+        ];
+    }
+
+    return $rows;
+}
+
+function legacy_asset_normalize_amount(string $value): string
+{
+    $value = trim($value);
+    if ($value === '' || preg_match('/[A-Za-z]/', $value)) {
+        return '';
+    }
+
+    $value = str_replace([',', 'PHP', 'Php', 'php', 'P', '₱'], '', $value);
+    $value = trim($value);
+    if ($value === '' || !is_numeric($value) || (float) $value < 0) {
+        return '';
+    }
+
+    return number_format((float) $value, 2, '.', '');
+}
+
+function legacy_asset_unit_id_from_text(array $unitOfMeasures, string $unitText): string
+{
+    $needle = strtolower(trim($unitText));
+    $needle = rtrim($needle, '.');
+    if ($needle === '') {
+        return '';
+    }
+
+    $aliases = [
+        'pc' => 'pcs',
+        'piece' => 'pcs',
+        'pieces' => 'pcs',
+        'unit' => 'unit',
+        'units' => 'unit',
+        'set' => 'sets',
+        'bottle' => 'bottles',
+    ];
+    $needle = $aliases[$needle] ?? $needle;
+
+    foreach ($unitOfMeasures as $unitRow) {
+        $name = strtolower(trim((string) ($unitRow['uom_name'] ?? '')));
+        $abbr = strtolower(trim((string) ($unitRow['abbreviation'] ?? '')));
+        $name = rtrim($name, '.');
+        $abbr = rtrim($abbr, '.');
+        $candidates = array_unique(array_filter([
+            $name,
+            $abbr,
+            $aliases[$name] ?? '',
+            $aliases[$abbr] ?? '',
+        ]));
+        if (in_array($needle, $candidates, true)) {
+            return (string) ((int) ($unitRow['id'] ?? 0));
+        }
+    }
+
+    return '';
+}
+
+function legacy_asset_lookup_label(array $rows, string $idValue, string $idKey, string $labelKey): string
+{
+    foreach ($rows as $row) {
+        if ((int) ($row[$idKey] ?? 0) === (int) $idValue) {
+            return trim((string) ($row[$labelKey] ?? ''));
+        }
+    }
+
+    return '';
+}
+
 if ($db) {
     ensure_legacy_assets_fund_column($db);
     ensure_legacy_assets_unit_of_measure_column($db);
@@ -129,6 +279,341 @@ if ($db) {
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $postAction = trim((string) ($_POST['action'] ?? 'single'));
+
+        if ($postAction === 'bulk_import') {
+            $bulkDefaults = [
+                'po_number' => trim((string) ($_POST['bulk_po_number'] ?? '')),
+                'item_type' => trim((string) ($_POST['bulk_item_type'] ?? 'equipment')),
+                'classification_id' => trim((string) ($_POST['bulk_classification_id'] ?? '')),
+                'account_code_id' => trim((string) ($_POST['bulk_account_code_id'] ?? '')),
+                'fund_id' => trim((string) ($_POST['bulk_fund_id'] ?? '')),
+                'supplier_id' => trim((string) ($_POST['bulk_supplier_id'] ?? '')),
+                'acquisition_date' => trim((string) ($_POST['bulk_acquisition_date'] ?? '')),
+                'unit_cost' => trim((string) ($_POST['bulk_unit_cost'] ?? '')),
+                'office_id' => trim((string) ($_POST['bulk_office_id'] ?? '')),
+                'employee_id' => trim((string) ($_POST['bulk_employee_id'] ?? '')),
+                'responsibility_code_id' => trim((string) ($_POST['bulk_responsibility_code_id'] ?? '')),
+                'condition_status' => trim((string) ($_POST['bulk_condition_status'] ?? 'good')),
+                'remarks' => trim((string) ($_POST['bulk_remarks'] ?? 'Bulk import from beginning balance PAR/ICS.')),
+            ];
+            $bulkRows = legacy_asset_parse_bulk_rows((string) ($_POST['bulk_items'] ?? ''));
+
+            if (!csrf_verify()) {
+                add_validation_error($errors, 'Invalid CSRF token.');
+            }
+            if (!$bulkRows) {
+                add_validation_error($errors, 'Paste at least one item row to import.');
+            }
+            if (!is_allowed_value($bulkDefaults['item_type'], ['semi_expendable', 'equipment'])) {
+                add_validation_error($errors, 'Inventory type must be semi-expendable or equipment.');
+            }
+            if ($bulkDefaults['account_code_id'] === '') {
+                add_validation_error($errors, 'Account code is required to generate property numbers.');
+            }
+            if ($bulkDefaults['acquisition_date'] !== '' && !is_valid_date_string($bulkDefaults['acquisition_date'])) {
+                add_validation_error($errors, 'Acquisition date format is invalid.');
+            }
+            if ($bulkDefaults['unit_cost'] !== '' && (!is_numeric($bulkDefaults['unit_cost']) || (float) $bulkDefaults['unit_cost'] < 0)) {
+                add_validation_error($errors, 'Unit cost must be a valid amount or left blank if unknown.');
+            }
+            if (!is_allowed_value($bulkDefaults['condition_status'], ['good', 'serviceable', 'repair_needed', 'unserviceable'])) {
+                add_validation_error($errors, 'Condition status is invalid.');
+            }
+
+            $editableRowFields = [
+                'quantity' => 'bulk_row_quantity',
+                'unit_text' => 'bulk_row_unit_text',
+                'item_description' => 'bulk_row_item_description',
+                'unit_cost' => 'bulk_row_unit_cost',
+                'total_cost' => 'bulk_row_total_cost',
+                'serial_no' => 'bulk_row_serial_no',
+            ];
+            foreach ($bulkRows as $idx => $bulkRow) {
+                foreach ($editableRowFields as $rowKey => $postKey) {
+                    $postedValues = $_POST[$postKey] ?? [];
+                    if (!is_array($postedValues) || !array_key_exists($idx, $postedValues)) {
+                        continue;
+                    }
+                    $postedValue = trim((string) $postedValues[$idx]);
+                    if (in_array($rowKey, ['unit_cost', 'total_cost'], true)) {
+                        $postedValue = legacy_asset_normalize_amount($postedValue);
+                    }
+                    $bulkRows[$idx][$rowKey] = $postedValue;
+                }
+                $bulkRows[$idx]['item_description'] = preg_replace('/\s+/', ' ', (string) ($bulkRows[$idx]['item_description'] ?? '')) ?? (string) ($bulkRows[$idx]['item_description'] ?? '');
+            }
+
+            $bulkOfficeId = $bulkDefaults['office_id'] !== '' ? (int) $bulkDefaults['office_id'] : 0;
+            $bulkEmployeeId = $bulkDefaults['employee_id'] !== '' ? (int) $bulkDefaults['employee_id'] : 0;
+            $bulkRcId = $bulkDefaults['responsibility_code_id'] !== '' ? (int) $bulkDefaults['responsibility_code_id'] : 0;
+            if ($bulkOfficeId <= 0) {
+                add_validation_error($errors, 'Office assignment is required for PAR/ICS printing.');
+            }
+            if ($bulkEmployeeId <= 0) {
+                add_validation_error($errors, 'Accountable employee is required for PAR/ICS printing.');
+            }
+
+            $bulkOfficeCode = '';
+            $officeExists = false;
+            foreach ($offices as $officeRow) {
+                if ((int) ($officeRow['id'] ?? 0) === $bulkOfficeId) {
+                    $officeExists = true;
+                    $bulkOfficeCode = trim((string) ($officeRow['office_code'] ?? ''));
+                    break;
+                }
+            }
+            if ($bulkOfficeId > 0 && !$officeExists) {
+                add_validation_error($errors, 'Selected office is invalid.');
+            }
+
+            $employeeOfficeId = 0;
+            foreach ($employees as $employeeRow) {
+                if ((int) ($employeeRow['id'] ?? 0) === $bulkEmployeeId) {
+                    $employeeOfficeId = (int) ($employeeRow['office_id'] ?? 0);
+                    break;
+                }
+            }
+            if ($bulkEmployeeId > 0 && $employeeOfficeId <= 0) {
+                add_validation_error($errors, 'Selected employee is invalid.');
+            } elseif ($bulkOfficeId > 0 && $employeeOfficeId > 0 && $employeeOfficeId !== $bulkOfficeId) {
+                add_validation_error($errors, 'Selected employee does not belong to the selected office.');
+            }
+
+            if ($bulkRcId > 0) {
+                $rcOfficeId = 0;
+                foreach ($responsibilityCodes as $rcRow) {
+                    if ((int) ($rcRow['id'] ?? 0) === $bulkRcId) {
+                        $rcOfficeId = (int) ($rcRow['office_id'] ?? 0);
+                        break;
+                    }
+                }
+                if ($rcOfficeId <= 0) {
+                    add_validation_error($errors, 'Selected responsibility code is invalid.');
+                } elseif ($bulkOfficeId > 0 && $rcOfficeId !== $bulkOfficeId) {
+                    add_validation_error($errors, 'Selected responsibility code does not belong to the selected office.');
+                }
+            }
+
+            $bulkFundCode = '';
+            foreach ($funds as $fundRow) {
+                if ($bulkDefaults['fund_id'] !== '' && (int) ($fundRow['id'] ?? 0) === (int) $bulkDefaults['fund_id']) {
+                    $bulkFundCode = fund_number_from_source((string) ($fundRow['fund_code'] ?? ''), (string) ($fundRow['fund_source'] ?? ''));
+                    if ($bulkFundCode === '') {
+                        $bulkFundCode = trim((string) ($fundRow['fund_code'] ?? ''));
+                    }
+                    break;
+                }
+            }
+            if ($bulkDefaults['fund_id'] !== '' && $bulkFundCode === '') {
+                add_validation_error($errors, 'Selected fund is invalid.');
+            }
+
+            $bulkAccountCode = '';
+            $bulkAccountGroup = '';
+            foreach ($accountCodes as $accountCodeRow) {
+                if ($bulkDefaults['account_code_id'] !== '' && (int) ($accountCodeRow['id'] ?? 0) === (int) $bulkDefaults['account_code_id']) {
+                    $bulkAccountCode = trim((string) ($accountCodeRow['account_code'] ?? ''));
+                    $bulkAccountGroup = trim((string) ($accountCodeRow['account_group'] ?? ''));
+                    break;
+                }
+            }
+            $expectedBulkGroups = $bulkDefaults['item_type'] === 'equipment' ? ['asset', 'fixed_asset'] : ['semi_expendable'];
+            if ($bulkDefaults['account_code_id'] !== '' && $bulkAccountCode === '') {
+                add_validation_error($errors, 'Selected account code is invalid.');
+            } elseif ($bulkAccountCode !== '' && !in_array($bulkAccountGroup, $expectedBulkGroups, true)) {
+                add_validation_error($errors, 'Selected account code does not match the inventory type.');
+            }
+
+            foreach ($bulkRows as $idx => $bulkRow) {
+                if (!ctype_digit((string) $bulkRow['quantity']) || (int) $bulkRow['quantity'] <= 0) {
+                    add_validation_error($errors, 'Row ' . ($idx + 1) . ' has an invalid quantity.');
+                }
+                if (trim((string) ($bulkRow['item_description'] ?? '')) === '') {
+                    add_validation_error($errors, 'Row ' . ($idx + 1) . ' description is required.');
+                }
+                if ((string) ($bulkRow['unit_cost'] ?? '') !== '' && (!is_numeric((string) $bulkRow['unit_cost']) || (float) $bulkRow['unit_cost'] < 0)) {
+                    add_validation_error($errors, 'Row ' . ($idx + 1) . ' has an invalid unit cost.');
+                }
+                if ((string) ($bulkRow['total_cost'] ?? '') !== '' && (!is_numeric((string) $bulkRow['total_cost']) || (float) $bulkRow['total_cost'] < 0)) {
+                    add_validation_error($errors, 'Row ' . ($idx + 1) . ' has an invalid total cost.');
+                }
+            }
+
+            $bulkRowClassificationIds = $_POST['bulk_row_classification_id'] ?? [];
+            if (!is_array($bulkRowClassificationIds)) {
+                $bulkRowClassificationIds = [];
+            }
+            foreach ($bulkRows as $idx => $bulkRow) {
+                $rowClassificationId = trim((string) ($bulkRowClassificationIds[$idx] ?? ''));
+                if ($rowClassificationId === '') {
+                    $rowClassificationId = $bulkDefaults['classification_id'];
+                }
+                if ($rowClassificationId === '') {
+                    $bulkRows[$idx]['classification_id'] = '';
+                    continue;
+                }
+
+                $classificationFound = false;
+                $classificationGroup = '';
+                $classificationAccountCodeId = 0;
+                foreach ($classifications as $classificationRow) {
+                    if ((int) ($classificationRow['id'] ?? 0) === (int) $rowClassificationId) {
+                        $classificationFound = true;
+                        $classificationGroup = trim((string) ($classificationRow['classification_group'] ?? ''));
+                        $classificationAccountCodeId = (int) ($classificationRow['account_code_id'] ?? 0);
+                        break;
+                    }
+                }
+                if ($classificationFound && $classificationGroup === '' && $classificationAccountCodeId > 0) {
+                    foreach ($accountCodes as $accountCodeRow) {
+                        if ((int) ($accountCodeRow['id'] ?? 0) === $classificationAccountCodeId) {
+                            $classificationGroup = trim((string) ($accountCodeRow['account_group'] ?? ''));
+                            break;
+                        }
+                    }
+                }
+                if (!$classificationFound || $classificationGroup === '') {
+                    add_validation_error($errors, 'Row ' . ($idx + 1) . ' has an invalid classification.');
+                } elseif (!in_array($classificationGroup, $expectedBulkGroups, true)) {
+                    add_validation_error($errors, 'Row ' . ($idx + 1) . ' classification does not match the inventory type.');
+                }
+                $bulkRows[$idx]['classification_id'] = $rowClassificationId;
+            }
+
+            if (!$errors) {
+                $bulkYear = date('Y');
+                if ($bulkDefaults['acquisition_date'] !== '') {
+                    $timestamp = strtotime($bulkDefaults['acquisition_date']);
+                    if ($timestamp !== false) {
+                        $bulkYear = date('Y', $timestamp);
+                    }
+                }
+                $hasOfficialNumberInputs = $bulkDefaults['acquisition_date'] !== ''
+                    && $bulkDefaults['fund_id'] !== ''
+                    && $bulkFundCode !== ''
+                    && $bulkAccountCode !== '';
+                $accountCodeId = $bulkDefaults['account_code_id'] !== '' ? (int) $bulkDefaults['account_code_id'] : null;
+                $fundId = $bulkDefaults['fund_id'] !== '' ? (int) $bulkDefaults['fund_id'] : null;
+                $supplierId = $bulkDefaults['supplier_id'] !== '' ? (int) $bulkDefaults['supplier_id'] : null;
+                $defaultUnitCost = $bulkDefaults['unit_cost'] !== '' ? (float) $bulkDefaults['unit_cost'] : 0.0;
+                $userId = current_user_id();
+
+                $stmt = $db->prepare("
+                    INSERT INTO legacy_assets
+                        (system_reference, po_number, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_of_measure_id, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, '', '', NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+
+                if (!$stmt) {
+                    $errors[] = 'Unable to prepare the bulk import.';
+                } else {
+                    $db->begin_transaction();
+                    $insertedCount = 0;
+
+                    try {
+                        foreach ($bulkRows as $bulkRow) {
+                            $propertyNumber = $hasOfficialNumberInputs
+                                ? generate_property_number($db, $bulkYear, $bulkFundCode, $bulkAccountCode, $bulkOfficeCode)
+                                : legacy_asset_temp_property_number($db, $bulkOfficeCode);
+                            $systemReference = next_module_code($db, 'stock_items');
+                            $quantity = (int) $bulkRow['quantity'];
+                            $unitOfMeasureId = legacy_asset_unit_id_from_text($unitOfMeasures, (string) $bulkRow['unit_text']);
+                            $unitOfMeasureIdValue = $unitOfMeasureId !== '' ? (int) $unitOfMeasureId : null;
+                            $rowUnitCost = (string) ($bulkRow['unit_cost'] ?? '') !== '' ? (float) $bulkRow['unit_cost'] : $defaultUnitCost;
+                            $rowTotalCost = (string) ($bulkRow['total_cost'] ?? '') !== '' ? (float) $bulkRow['total_cost'] : null;
+                            if ($rowUnitCost <= 0.0 && $rowTotalCost !== null && $quantity > 0) {
+                                $rowUnitCost = round($rowTotalCost / $quantity, 2);
+                            }
+                            $acquisitionCost = $rowTotalCost !== null ? round($rowTotalCost, 2) : round($quantity * $rowUnitCost, 2);
+                            $description = (string) $bulkRow['item_description'];
+                            $serialNo = (string) $bulkRow['serial_no'];
+                            $classificationId = ((string) ($bulkRow['classification_id'] ?? '')) !== '' ? (int) $bulkRow['classification_id'] : null;
+                            $itemName = legacy_asset_lookup_label($classifications, (string) $classificationId, 'id', 'classification_name');
+                            if ($itemName === '') {
+                                $itemName = legacy_asset_lookup_label($accountCodes, (string) $accountCodeId, 'id', 'account_name');
+                            }
+
+                            $bulkRcIdValue = $bulkRcId > 0 ? $bulkRcId : null;
+                            $stmt->bind_param(
+                                'sssssiiiissiiddiiissi',
+                                $systemReference,
+                                $bulkDefaults['po_number'],
+                                $propertyNumber,
+                                $bulkDefaults['item_type'],
+                                $description,
+                                $classificationId,
+                                $accountCodeId,
+                                $fundId,
+                                $supplierId,
+                                $serialNo,
+                                $bulkDefaults['acquisition_date'],
+                                $quantity,
+                                $unitOfMeasureIdValue,
+                                $rowUnitCost,
+                                $acquisitionCost,
+                                $bulkOfficeId,
+                                $bulkEmployeeId,
+                                $bulkRcIdValue,
+                                $bulkDefaults['condition_status'],
+                                $bulkDefaults['remarks'],
+                                $userId
+                            );
+                            if (!$stmt->execute()) {
+                                throw new RuntimeException($stmt->error ?: 'Unable to insert bulk legacy asset row.');
+                            }
+                            $legacyAssetId = (int) $stmt->insert_id;
+                            $insertedCount++;
+
+                            if ($legacyAssetId > 0 && schema_has_column($db, 'legacy_assets', 'item_name')) {
+                                $itemNameStmt = $db->prepare("UPDATE legacy_assets SET item_name = NULLIF(?, '') WHERE id = ?");
+                                if ($itemNameStmt) {
+                                    $itemNameStmt->bind_param('si', $itemName, $legacyAssetId);
+                                    $itemNameStmt->execute();
+                                    $itemNameStmt->close();
+                                }
+                            }
+
+                            write_audit_log($db, [
+                                'action' => 'insert',
+                                'table_name' => 'legacy_assets',
+                                'record_id' => $legacyAssetId,
+                                'module_name' => 'property',
+                                'record_type' => 'legacy_asset',
+                                'action_name' => 'bulk_create_legacy_asset',
+                                'new_values' => [
+                                    'system_reference' => $systemReference,
+                                    'property_number' => $propertyNumber,
+                                    'item_type' => $bulkDefaults['item_type'],
+                                    'item_name' => $itemName,
+                                    'item_description' => $description,
+                                    'fund_id' => $fundId,
+                                    'acquisition_date' => $bulkDefaults['acquisition_date'],
+                                    'quantity' => $quantity,
+                                    'unit_of_measure_id' => $unitOfMeasureIdValue,
+                                    'unit_cost' => $rowUnitCost,
+                                    'acquisition_cost' => $acquisitionCost,
+                                    'office_id' => $bulkOfficeId,
+                                    'employee_id' => $bulkEmployeeId,
+                                    'responsibility_code_id' => $bulkRcId,
+                                ],
+                                'description' => 'Bulk imported beginning balance asset.',
+                            ]);
+                        }
+
+                        $stmt->close();
+                        $db->commit();
+                        set_flash('success', number_format($insertedCount) . ' beginning balance assets imported successfully.');
+                        redirect('modules/property/legacy_assets.php');
+                    } catch (Throwable $e) {
+                        $db->rollback();
+                        $stmt->close();
+                        error_log('Bulk legacy asset import failed: ' . $e->getMessage());
+                        $errors[] = 'Bulk import failed. No rows were saved.';
+                    }
+                }
+            }
+        } else {
         foreach ($form as $key => $value) {
             $form[$key] = trim((string) ($_POST[$key] ?? ''));
         }
@@ -431,6 +916,7 @@ if ($db) {
                 $errors[] = 'Unable to save the beginning balance asset.';
             }
         }
+        }
     }
 }
 
@@ -450,9 +936,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <h4 class="mb-1">Encode Legacy Asset</h4>
                         <div class="small text-muted">Record an existing asset already owned by the university. If date or fund is still unknown, the system saves a temporary property number first.</div>
                     </div>
-                    <a href="<?php echo h(base_url('modules/property/legacy_assets.php')); ?>" class="btn btn-outline-secondary">
-                        <i class="bi bi-arrow-left me-1"></i>Back to List
-                    </a>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a href="#bulkImportPanel" class="btn btn-success">
+                            <i class="bi bi-upload me-1"></i>Bulk Import
+                        </a>
+                        <a href="<?php echo h(base_url('modules/property/legacy_assets.php')); ?>" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-1"></i>Back to List
+                        </a>
+                    </div>
                 </div>
             </div>
             <div class="card-body p-4">
@@ -665,6 +1156,178 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <a href="<?php echo h(base_url('modules/property/legacy_assets.php')); ?>" class="btn btn-outline-secondary">Cancel</a>
                             <button type="submit" class="btn btn-primary px-4">
                                 <i class="bi bi-floppy me-1"></i>Save Encoded Asset
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-12" id="bulkImportPanel">
+        <div class="card">
+            <div class="card-header border-0 pb-0 bg-transparent">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                    <div>
+                        <div class="text-uppercase small text-muted fw-semibold">Bulk Beginning Balance</div>
+                        <h4 class="mb-1">Import PAR / ICS Items</h4>
+                        <div class="small text-muted">Paste typed or OCR rows from a hard-copy PAR/ICS, set the shared assignment once, then save all rows together.</div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-4">
+                <form method="post" class="workspace-form-section" id="legacyBulkImportForm">
+                    <input type="hidden" name="_csrf" value="<?php echo h($csrfToken); ?>">
+                    <input type="hidden" name="action" value="bulk_import">
+
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Item Rows <span class="text-danger">*</span></label>
+                            <textarea class="form-control font-monospace" name="bulk_items" id="bulk_items" rows="10" required placeholder="11 pcs Fingerprint Brushes&#10;6 pcs Fingerprint Rollers&#10;1 unit I.D. Laminator / Laminating Machine&#10;SN-002062"></textarea>
+                            <div class="form-text">Accepted format: quantity, unit, optional unit cost, optional total cost, description. A serial number line starting with SN is attached to the previous item.</div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Inventory Type</label>
+                            <select name="bulk_item_type" class="form-select" id="bulk_item_type">
+                                <option value="equipment">Equipment</option>
+                                <option value="semi_expendable">Semi-Expendable</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">PO Number</label>
+                            <input type="text" class="form-control" name="bulk_po_number" placeholder="Enter PO number if available">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Acquisition Date</label>
+                            <input type="date" class="form-control" name="bulk_acquisition_date">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Account Code <span class="text-danger">*</span></label>
+                            <select name="bulk_account_code_id" class="form-select" id="bulk_account_code_id" data-placeholder="Select account code" required>
+                                <option value="">Select account code</option>
+                                <?php foreach ($accountCodes as $accountCode): ?>
+                                    <option value="<?php echo (int) $accountCode['id']; ?>" data-account-group="<?php echo h((string) ($accountCode['account_group'] ?? '')); ?>">
+                                        <?php echo h(($accountCode['account_code'] ?? '') . ' - ' . ($accountCode['account_name'] ?? '')); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Default Item Classification</label>
+                            <select name="bulk_classification_id" class="form-select" id="bulk_classification_id" data-placeholder="Select classification">
+                                <option value="">Select classification</option>
+                                <?php foreach ($classifications as $classification): ?>
+                                    <option value="<?php echo (int) $classification['id']; ?>" data-account-code-id="<?php echo (int) ($classification['account_code_id'] ?? 0); ?>" data-classification-group="<?php echo h((string) ($classification['classification_group'] ?? '')); ?>">
+                                        <?php echo h(trim(($classification['classification_family'] ?? '') . ' / ' . ($classification['classification_name'] ?? ''))); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-text">Used only for rows where you do not choose a specific classification in the preview.</div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Fund</label>
+                            <select name="bulk_fund_id" class="form-select" id="bulk_fund_id" data-placeholder="Select fund">
+                                <option value="">Select fund</option>
+                                <?php foreach ($funds as $fund): ?>
+                                    <option value="<?php echo (int) $fund['id']; ?>">
+                                        <?php echo h(($fund['fund_code'] ?? '') . ' - ' . ($fund['fund_name'] ?? '') . (($fund['fund_source'] ?? '') !== '' ? ' - ' . ($fund['fund_source'] ?? '') : '')); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Supplier</label>
+                            <select name="bulk_supplier_id" class="form-select" id="bulk_supplier_id" data-placeholder="Select supplier">
+                                <option value="">Select supplier</option>
+                                <?php foreach ($suppliers as $supplier): ?>
+                                    <option value="<?php echo (int) $supplier['id']; ?>"><?php echo h($supplier['supplier_name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Unit Cost</label>
+                            <input type="number" min="0" step="0.01" class="form-control" name="bulk_unit_cost" placeholder="Leave blank if unknown">
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Office <span class="text-danger">*</span></label>
+                            <select name="bulk_office_id" class="form-select" id="bulk_office_id" data-placeholder="Select office" required>
+                                <option value="">Select office</option>
+                                <?php foreach ($offices as $office): ?>
+                                    <option value="<?php echo (int) $office['id']; ?>"><?php echo h($office['office_name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-text">Choose CCJE-Laboratory for this batch.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Accountable Employee <span class="text-danger">*</span></label>
+                            <select name="bulk_employee_id" class="form-select" id="bulk_employee_id" data-placeholder="Select employee" required>
+                                <option value="">Select employee</option>
+                                <?php foreach ($employees as $employee): ?>
+                                    <option value="<?php echo (int) $employee['id']; ?>" data-office-id="<?php echo (int) ($employee['office_id'] ?? 0); ?>" data-responsibility-code-id="<?php echo (int) ($employee['responsibility_code_id'] ?? 0); ?>" data-is-unit-head="<?php echo (int) ($employee['is_unit_head'] ?? 0); ?>">
+                                        <?php echo h(employee_display_name($employee)); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Responsibility Code</label>
+                            <select name="bulk_responsibility_code_id" class="form-select" id="bulk_responsibility_code_id" data-placeholder="Select RC">
+                                <option value="">Select RC</option>
+                                <?php foreach ($responsibilityCodes as $rc): ?>
+                                    <option value="<?php echo (int) $rc['id']; ?>" data-office-id="<?php echo (int) ($rc['office_id'] ?? 0); ?>">
+                                        <?php echo h(($rc['code'] ?? '') . ' - ' . ($rc['description'] ?? '')); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Condition</label>
+                            <select name="bulk_condition_status" class="form-select">
+                                <?php foreach (['good' => 'Good', 'serviceable' => 'Serviceable', 'repair_needed' => 'Needs Repair', 'unserviceable' => 'Unserviceable'] as $value => $label): ?>
+                                    <option value="<?php echo h($value); ?>"><?php echo h($label); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Remarks</label>
+                            <input type="text" class="form-control" name="bulk_remarks" value="Bulk import from beginning balance PAR/ICS.">
+                        </div>
+
+                        <div class="col-12">
+                            <div class="table-responsive border rounded">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 90px;">Qty</th>
+                                            <th style="width: 110px;">Unit</th>
+                                            <th style="width: 130px;">Unit Cost</th>
+                                            <th style="width: 130px;">Total Cost</th>
+                                            <th>Description</th>
+                                            <th style="min-width: 300px;">
+                                                <div class="d-flex align-items-center justify-content-between gap-2">
+                                                    <span>Classification</span>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Add new classification" aria-label="Add new classification" data-qa-modal="qaClassificationModal" data-qa-context="bulk">
+                                                        <i class="bi bi-plus-lg"></i>
+                                                    </button>
+                                                </div>
+                                            </th>
+                                            <th style="width: 160px;">Serial No.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bulkImportPreview">
+                                        <tr><td colspan="7" class="text-muted text-center py-3">Paste rows above to preview the import.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2 border-top mt-2">
+                            <button type="submit" class="btn btn-success px-4" id="bulkImportSubmit">
+                                <i class="bi bi-upload me-1"></i>Import Beginning Balance Items
                             </button>
                         </div>
                     </div>
@@ -1012,6 +1675,276 @@ require_once __DIR__ . '/../../includes/topbar.php';
         syncFromOffice(false);
     }
 
+    function setupBulkImportPreview() {
+        var textarea = document.getElementById('bulk_items');
+        var preview = document.getElementById('bulkImportPreview');
+        if (!textarea || !preview) { return; }
+
+        function currentRowSelections() {
+            var values = {};
+            Array.prototype.forEach.call(preview.querySelectorAll('select[name="bulk_row_classification_id[]"]'), function(select) {
+                var key = select.getAttribute('data-row-key') || '';
+                if (key) {
+                    values[key] = values[key] || {};
+                    values[key].classificationId = select.value || '';
+                }
+            });
+            Array.prototype.forEach.call(preview.querySelectorAll('[data-edit-field]'), function(input) {
+                var key = input.getAttribute('data-row-key') || '';
+                var field = input.getAttribute('data-edit-field') || '';
+                if (key && field) {
+                    values[key] = values[key] || {};
+                    values[key][field] = input.value || '';
+                }
+            });
+            return values;
+        }
+
+        function buildInput(name, value, rowKey, field, type, classes) {
+            var input = document.createElement('input');
+            input.type = type || 'text';
+            input.name = name;
+            input.value = value || '';
+            input.className = classes || 'form-control form-control-sm';
+            input.setAttribute('data-row-key', rowKey);
+            input.setAttribute('data-edit-field', field);
+            return input;
+        }
+
+        function buildTextarea(name, value, rowKey, field) {
+            var textareaEl = document.createElement('textarea');
+            textareaEl.name = name;
+            textareaEl.value = value || '';
+            textareaEl.rows = 2;
+            textareaEl.className = 'form-control form-control-sm';
+            textareaEl.setAttribute('data-row-key', rowKey);
+            textareaEl.setAttribute('data-edit-field', field);
+            return textareaEl;
+        }
+
+        function classificationChoices() {
+            var itemTypeSelect = document.getElementById('bulk_item_type');
+            var expectedGroups = expectedAssetGroups(itemTypeSelect ? itemTypeSelect.value : 'equipment');
+            return classificationOptions.filter(function(optionData) {
+                return classificationGroupMatches(optionData, expectedGroups);
+            });
+        }
+
+        function normalizeAmount(value) {
+            value = String(value || '').trim();
+            if (!value || /[A-Za-z]/.test(value)) { return ''; }
+            value = value.replace(/[,₱]/g, '').replace(/^PHP\s*/i, '').replace(/^P\s*/i, '').trim();
+            var numberValue = Number(value);
+            if (!Number.isFinite(numberValue) || numberValue < 0) { return ''; }
+            return numberValue.toFixed(2);
+        }
+
+        function parseRows(text) {
+            var rows = [];
+            text.split(/\r?\n/).forEach(function(line) {
+                line = line.trim();
+                if (!line) { return; }
+                var serialMatch = line.match(/^(?:s\/?n|serial(?:\s+no\.?)?)\s*[:#-]?\s*(.+)$/i);
+                if (serialMatch && rows.length) {
+                    rows[rows.length - 1].serialNo = serialMatch[1].trim();
+                    return;
+                }
+                var qty = '1';
+                var unit = '';
+                var unitCost = '';
+                var totalCost = '';
+                var description = line;
+                var tabParts = line.split(/\t+/);
+                var textMatch = line.match(/^(\d+)\s+([A-Za-z.\/-]+)\s+(.+)$/);
+                if (tabParts.length >= 3 && /^\d+$/.test(tabParts[0].trim())) {
+                    qty = tabParts[0].trim();
+                    unit = tabParts[1].trim();
+                    var descriptionParts = [];
+                    tabParts.slice(2).map(function(part) { return part.trim(); }).filter(Boolean).forEach(function(part) {
+                        var amount = normalizeAmount(part);
+                        if (amount && descriptionParts.length === 0) {
+                            if (!unitCost) {
+                                unitCost = amount;
+                                return;
+                            }
+                            if (!totalCost) {
+                                totalCost = amount;
+                                return;
+                            }
+                        }
+                        descriptionParts.push(part);
+                    });
+                    description = descriptionParts.join(' ').trim();
+                } else if (textMatch) {
+                    qty = textMatch[1];
+                    unit = textMatch[2];
+                    description = textMatch[3].trim();
+                }
+                if (description) {
+                    rows.push({ qty: qty, unit: unit, unitCost: unitCost, totalCost: totalCost, description: description, serialNo: '', key: [qty, unit, unitCost, totalCost, description, rows.length].join('|') });
+                }
+            });
+            return rows;
+        }
+
+        function renderPreview() {
+            var rows = parseRows(textarea.value);
+            var savedSelections = currentRowSelections();
+            var choices = classificationChoices();
+            preview.innerHTML = '';
+            if (!rows.length) {
+                preview.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-3">Paste rows above to preview the import.</td></tr>';
+                return;
+            }
+            rows.forEach(function(row) {
+                var tr = document.createElement('tr');
+                var saved = savedSelections[row.key] || {};
+
+                var qtyTd = document.createElement('td');
+                qtyTd.appendChild(buildInput('bulk_row_quantity[]', saved.quantity || row.qty, row.key, 'quantity', 'number'));
+                tr.appendChild(qtyTd);
+
+                var unitTd = document.createElement('td');
+                unitTd.appendChild(buildInput('bulk_row_unit_text[]', saved.unitText || row.unit || '', row.key, 'unitText'));
+                tr.appendChild(unitTd);
+
+                var unitCostTd = document.createElement('td');
+                unitCostTd.appendChild(buildInput('bulk_row_unit_cost[]', saved.unitCost || row.unitCost || '', row.key, 'unitCost', 'number'));
+                tr.appendChild(unitCostTd);
+
+                var totalCostTd = document.createElement('td');
+                totalCostTd.appendChild(buildInput('bulk_row_total_cost[]', saved.totalCost || row.totalCost || '', row.key, 'totalCost', 'number'));
+                tr.appendChild(totalCostTd);
+
+                var descTd = document.createElement('td');
+                descTd.appendChild(buildTextarea('bulk_row_item_description[]', saved.description || row.description, row.key, 'description'));
+                tr.appendChild(descTd);
+
+                var classificationTd = document.createElement('td');
+                var select = document.createElement('select');
+                select.className = 'form-select form-select-sm';
+                select.name = 'bulk_row_classification_id[]';
+                select.setAttribute('data-row-key', row.key);
+                select.appendChild(new Option('Use default classification', '', false, false));
+                choices.forEach(function(optionData) {
+                    select.appendChild(new Option(optionData.text, optionData.value, false, optionData.value === (saved.classificationId || '')));
+                });
+                classificationTd.appendChild(select);
+                tr.appendChild(classificationTd);
+
+                var serialTd = document.createElement('td');
+                serialTd.appendChild(buildInput('bulk_row_serial_no[]', saved.serialNo || row.serialNo || '', row.key, 'serialNo'));
+                tr.appendChild(serialTd);
+                preview.appendChild(tr);
+            });
+        }
+
+        textarea.addEventListener('input', renderPreview);
+        document.addEventListener('change', function(e) {
+            if (e.target && (e.target.id === 'bulk_item_type' || e.target.id === 'bulk_classification_id')) {
+                renderPreview();
+            }
+        });
+        renderPreview();
+        window.legacyAssetRenderBulkPreview = renderPreview;
+    }
+
+    function setupBulkAccountFilters() {
+        var itemTypeSelect = document.getElementById('bulk_item_type');
+        var accountCodeSelect = document.getElementById('bulk_account_code_id');
+        var classificationSelect = document.getElementById('bulk_classification_id');
+        if (!itemTypeSelect || !accountCodeSelect || !classificationSelect) { return; }
+
+        function filterBulkOptions() {
+            var expectedGroups = expectedAssetGroups(itemTypeSelect.value);
+            var previousAccount = accountCodeSelect.value || '';
+            var previousClassification = classificationSelect.value || '';
+            accountCodeSelect.innerHTML = '';
+            accountCodeSelect.add(new Option('Select account code', '', false, false));
+            accountCodeOptions.forEach(function(optionData) {
+                if (expectedGroups.indexOf(optionData.accountGroup) === -1) { return; }
+                var option = new Option(optionData.text, optionData.value, false, optionData.value === previousAccount);
+                option.setAttribute('data-account-group', optionData.accountGroup);
+                accountCodeSelect.add(option);
+            });
+            if (previousAccount && !Array.from(accountCodeSelect.options).some(function(option) { return option.value === previousAccount; })) {
+                accountCodeSelect.value = '';
+            }
+
+            classificationSelect.innerHTML = '';
+            classificationSelect.add(new Option('Select classification', '', false, false));
+            classificationOptions.forEach(function(optionData) {
+                if (!classificationGroupMatches(optionData, expectedGroups)) { return; }
+                var option = new Option(optionData.text, optionData.value, false, optionData.value === previousClassification);
+                option.setAttribute('data-account-code-id', optionData.accountCodeId || '0');
+                option.setAttribute('data-classification-group', optionData.classificationGroup || '');
+                classificationSelect.add(option);
+            });
+            if (previousClassification && !Array.from(classificationSelect.options).some(function(option) { return option.value === previousClassification; })) {
+                classificationSelect.value = '';
+            }
+            refreshEnhancedSelect(accountCodeSelect);
+            refreshEnhancedSelect(classificationSelect);
+            if (typeof window.legacyAssetRenderBulkPreview === 'function') {
+                window.legacyAssetRenderBulkPreview();
+            }
+        }
+
+        itemTypeSelect.addEventListener('change', filterBulkOptions);
+        if (window.jQuery) {
+            jQuery(itemTypeSelect).off('change.bulkImportType').on('change.bulkImportType', filterBulkOptions);
+        }
+        filterBulkOptions();
+    }
+
+    function setupBulkOfficeEmployeeFilter() {
+        var officeSelect = document.getElementById('bulk_office_id');
+        var employeeSelect = document.getElementById('bulk_employee_id');
+        var rcSelect = document.getElementById('bulk_responsibility_code_id');
+        if (!officeSelect || !employeeSelect || !rcSelect) { return; }
+
+        function setValue(select, value) {
+            select.value = String(value || '');
+            refreshEnhancedSelect(select);
+        }
+
+        function firstEmployeeForOffice(officeId) {
+            var unitHeadId = '';
+            var firstId = '';
+            Array.prototype.forEach.call(employeeSelect.options, function(option) {
+                if (!option.value || (option.getAttribute('data-office-id') || '') !== officeId) { return; }
+                if (!firstId) { firstId = option.value; }
+                if (!unitHeadId && option.getAttribute('data-is-unit-head') === '1') { unitHeadId = option.value; }
+            });
+            return unitHeadId || firstId;
+        }
+
+        function firstRcForOffice(officeId, employeeId) {
+            var employeeOption = Array.prototype.find.call(employeeSelect.options, function(option) { return option.value === employeeId; });
+            var employeeRc = employeeOption ? (employeeOption.getAttribute('data-responsibility-code-id') || '') : '';
+            var firstId = '';
+            Array.prototype.forEach.call(rcSelect.options, function(option) {
+                if (!option.value || (option.getAttribute('data-office-id') || '') !== officeId) { return; }
+                if (employeeRc && option.value === employeeRc) { firstId = option.value; }
+                if (!firstId) { firstId = option.value; }
+            });
+            return firstId;
+        }
+
+        function syncBulkAssignment() {
+            var officeId = officeSelect.value || '';
+            if (!officeId) { return; }
+            var employeeId = employeeSelect.value || firstEmployeeForOffice(officeId);
+            setValue(employeeSelect, employeeId);
+            setValue(rcSelect, firstRcForOffice(officeId, employeeId));
+        }
+
+        officeSelect.addEventListener('change', syncBulkAssignment);
+        if (window.jQuery) {
+            jQuery(officeSelect).off('change.bulkOffice').on('change.bulkOffice', syncBulkAssignment);
+        }
+    }
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () {
             [
@@ -1022,11 +1955,21 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 document.getElementById('brand_id'),
                 document.getElementById('model_id'),
                 document.getElementById('office_id'),
-                document.getElementById('employee_id')
+                document.getElementById('employee_id'),
+                document.getElementById('bulk_account_code_id'),
+                document.getElementById('bulk_classification_id'),
+                document.getElementById('bulk_fund_id'),
+                document.getElementById('bulk_supplier_id'),
+                document.getElementById('bulk_office_id'),
+                document.getElementById('bulk_employee_id'),
+                document.getElementById('bulk_responsibility_code_id')
             ].forEach(refreshEnhancedSelect);
             setupAccountCodeTypeFilter();
             setupBrandModelFilter();
             setupOfficeEmployeeFilter();
+            setupBulkImportPreview();
+            setupBulkAccountFilters();
+            setupBulkOfficeEmployeeFilter();
         });
     } else {
         [
@@ -1037,11 +1980,21 @@ require_once __DIR__ . '/../../includes/topbar.php';
             document.getElementById('brand_id'),
             document.getElementById('model_id'),
             document.getElementById('office_id'),
-            document.getElementById('employee_id')
+            document.getElementById('employee_id'),
+            document.getElementById('bulk_account_code_id'),
+            document.getElementById('bulk_classification_id'),
+            document.getElementById('bulk_fund_id'),
+            document.getElementById('bulk_supplier_id'),
+            document.getElementById('bulk_office_id'),
+            document.getElementById('bulk_employee_id'),
+            document.getElementById('bulk_responsibility_code_id')
         ].forEach(refreshEnhancedSelect);
         setupAccountCodeTypeFilter();
         setupBrandModelFilter();
         setupOfficeEmployeeFilter();
+        setupBulkImportPreview();
+        setupBulkAccountFilters();
+        setupBulkOfficeEmployeeFilter();
     }
 })();
 </script>
@@ -1224,11 +2177,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
     'use strict';
 
     var qaEndpoint = <?php echo json_encode(base_url('modules/property/legacy_assets_quickadd.php')); ?>;
+    var qaContext = 'single';
 
     document.addEventListener('click', function (e) {
         var btn = e.target.closest('[data-qa-modal]');
         if (!btn) return;
         e.preventDefault();
+        qaContext = btn.getAttribute('data-qa-context') || 'single';
         var modalId = btn.getAttribute('data-qa-modal');
         var modalEl = document.getElementById(modalId);
         if (!modalEl) return;
@@ -1358,7 +2313,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
         },
         buildPayload: function () {
             var name = document.getElementById('qa_classification_name').value.trim();
-            var accountCodeSelect = document.getElementById('account_code_id');
+            var accountCodeSelect = document.getElementById(qaContext === 'bulk' ? 'bulk_account_code_id' : 'account_code_id');
             var accountCodeId = accountCodeSelect ? accountCodeSelect.value : '';
             if (!name) return { error: 'Classification Name is required.' };
             if (!accountCodeId) return { error: 'Select Account Code first before adding classification.' };
@@ -1370,7 +2325,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
         },
         onSuccess: function (data) {
             appendOption('classification_id', data.id, data.label, { account_code_id: data.account_code_id || 0, classification_group: data.classification_group || '' });
-            if (window.legacyAssetClassificationOptions) {
+            appendOption('bulk_classification_id', data.id, data.label, { account_code_id: data.account_code_id || 0, classification_group: data.classification_group || '' });
+            if (window.legacyAssetClassificationOptions && !window.legacyAssetClassificationOptions.some(function (option) { return String(option.value) === String(data.id); })) {
                 window.legacyAssetClassificationOptions.push({
                     value: String(data.id),
                     text: data.label,
@@ -1387,6 +2343,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         window.SPAMS.refreshSelect2(classificationSelect);
                     }
                 }
+            }
+            if (typeof window.legacyAssetRenderBulkPreview === 'function') {
+                var bulkClassificationSelect = document.getElementById('bulk_classification_id');
+                if (bulkClassificationSelect) {
+                    bulkClassificationSelect.value = String(data.id);
+                    if (window.SPAMS && window.SPAMS.refreshSelect2) {
+                        window.SPAMS.refreshSelect2(bulkClassificationSelect);
+                    }
+                }
+                window.legacyAssetRenderBulkPreview();
             }
         }
     });
