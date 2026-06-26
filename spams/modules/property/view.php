@@ -3110,123 +3110,198 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    if (!window.SPAMS || typeof window.SPAMS.setupRequiredSummaryValidation !== 'function') {
-        return;
-    }
-
     var officeSelect = document.getElementById('asset_office_id');
     var employeeSelect = document.getElementById('asset_employee_id');
     var rcSelect = document.getElementById('asset_responsibility_code_id');
+    var assignmentSyncing = false;
 
-    function filterResponsibilityCodes() {
+    function refreshAssignmentSelects() {
+        refreshSelect(officeSelect);
+        refreshSelect(employeeSelect);
+        refreshSelect(rcSelect);
+    }
+
+    function selectedOption(select) {
+        return select && select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+    }
+
+    function setSelectValue(select, value) {
+        if (!select) {
+            return;
+        }
+        select.value = String(value || '0');
+        refreshSelect(select);
+    }
+
+    function enableAssignmentOptions(select) {
+        if (!select) {
+            return;
+        }
+        Array.prototype.forEach.call(select.options, function (option) {
+            option.hidden = false;
+            option.disabled = false;
+        });
+    }
+
+    function preferredEmployeeForOffice(officeId, preferredRcId) {
+        var unitHeadId = '0';
+        var firstEmployeeId = '0';
+        var rcEmployeeId = '0';
+        if (!employeeSelect || officeId === '0') {
+            return '0';
+        }
+        Array.prototype.forEach.call(employeeSelect.options, function (option) {
+            if (!option.value || option.value === '0' || String(option.getAttribute('data-office-id') || '0') !== officeId) {
+                return;
+            }
+            if (firstEmployeeId === '0') {
+                firstEmployeeId = option.value;
+            }
+            if (option.getAttribute('data-is-unit-head') === '1' && unitHeadId === '0') {
+                unitHeadId = option.value;
+            }
+            if (preferredRcId !== '0' && String(option.getAttribute('data-responsibility-code-id') || '0') === preferredRcId && rcEmployeeId === '0') {
+                rcEmployeeId = option.value;
+            }
+        });
+        return rcEmployeeId !== '0' ? rcEmployeeId : (unitHeadId !== '0' ? unitHeadId : firstEmployeeId);
+    }
+
+    function preferredRcForOffice(officeId, preferredEmployeeId) {
+        var employeeOption = null;
+        var employeeRcId = '0';
+        var firstRcId = '0';
+        if (!rcSelect || officeId === '0') {
+            return '0';
+        }
+        if (employeeSelect && preferredEmployeeId !== '0') {
+            employeeOption = Array.prototype.find.call(employeeSelect.options, function (option) {
+                return option.value === preferredEmployeeId;
+            });
+            employeeRcId = employeeOption ? String(employeeOption.getAttribute('data-responsibility-code-id') || '0') : '0';
+        }
+        Array.prototype.forEach.call(rcSelect.options, function (option) {
+            if (!option.value || option.value === '0' || String(option.getAttribute('data-office-id') || '0') !== officeId) {
+                return;
+            }
+            if (employeeRcId !== '0' && option.value === employeeRcId) {
+                firstRcId = option.value;
+                return;
+            }
+            if (firstRcId === '0') {
+                firstRcId = option.value;
+            }
+        });
+        return firstRcId;
+    }
+
+    function syncFromOffice(forceFill) {
         if (!officeSelect || !employeeSelect || !rcSelect) {
             return;
         }
         var officeId = String(officeSelect.value || '0');
-        var selectedEmployeeOption = employeeSelect.options[employeeSelect.selectedIndex];
-        var employeeRcId = selectedEmployeeOption ? String(selectedEmployeeOption.getAttribute('data-responsibility-code-id') || '0') : '0';
-        var preferredRcId = '0';
-        Array.prototype.forEach.call(rcSelect.options, function (option) {
-            var optionOfficeId = String(option.getAttribute('data-office-id') || '0');
-            var isPlaceholder = option.value === '' || option.value === '0';
-            var shouldShow = isPlaceholder || optionOfficeId === officeId;
-            option.hidden = !shouldShow;
-            option.disabled = !shouldShow;
-            if (shouldShow && !isPlaceholder && employeeRcId !== '0' && option.value === employeeRcId) {
-                preferredRcId = option.value;
+        enableAssignmentOptions(employeeSelect);
+        enableAssignmentOptions(rcSelect);
+        if (officeId !== '0') {
+            var nextEmployeeId = preferredEmployeeForOffice(officeId, '0');
+            if (forceFill || employeeSelect.value === '0') {
+                setSelectValue(employeeSelect, nextEmployeeId);
             }
-            if (shouldShow && !isPlaceholder && preferredRcId === '0') {
-                preferredRcId = option.value;
+            var nextRcId = preferredRcForOffice(officeId, String(employeeSelect.value || '0'));
+            if (forceFill || rcSelect.value === '0') {
+                setSelectValue(rcSelect, nextRcId);
             }
-        });
-        if (rcSelect.selectedOptions.length && rcSelect.selectedOptions[0].disabled) {
-            rcSelect.value = '0';
         }
-        if (officeId !== '0' && rcSelect.value === '0' && preferredRcId !== '0') {
-            rcSelect.value = preferredRcId;
-        }
-        refreshSelect(rcSelect);
+        refreshAssignmentSelects();
     }
 
-    function filterEmployees() {
-        if (!officeSelect || !employeeSelect) {
+    function syncFromEmployee() {
+        if (!officeSelect || !employeeSelect || !rcSelect) {
             return;
         }
-        var officeId = String(officeSelect.value || '0');
-        var preferredEmployeeId = '0';
-        var firstEmployeeId = '0';
-        Array.prototype.forEach.call(employeeSelect.options, function (option) {
-            var optionOfficeId = String(option.getAttribute('data-office-id') || '0');
-            var isPlaceholder = option.value === '' || option.value === '0';
-            var shouldShow = isPlaceholder || optionOfficeId === officeId;
-            option.hidden = !shouldShow;
-            option.disabled = !shouldShow;
-            if (shouldShow && !isPlaceholder && firstEmployeeId === '0') {
-                firstEmployeeId = option.value;
-            }
-            if (shouldShow && !isPlaceholder && option.getAttribute('data-is-unit-head') === '1' && preferredEmployeeId === '0') {
-                preferredEmployeeId = option.value;
-            }
-        });
-        if (employeeSelect.selectedOptions.length && employeeSelect.selectedOptions[0].disabled) {
-            employeeSelect.value = '0';
+        var employeeOption = selectedOption(employeeSelect);
+        var employeeId = employeeOption ? String(employeeOption.value || '0') : '0';
+        if (employeeId === '0') {
+            syncFromOffice(false);
+            return;
         }
-        if (preferredEmployeeId === '0') {
-            preferredEmployeeId = firstEmployeeId;
+        var officeId = String(employeeOption.getAttribute('data-office-id') || '0');
+        if (officeId !== '0') {
+            setSelectValue(officeSelect, officeId);
+            enableAssignmentOptions(employeeSelect);
+            enableAssignmentOptions(rcSelect);
+            setSelectValue(employeeSelect, employeeId);
+            setSelectValue(rcSelect, preferredRcForOffice(officeId, employeeId));
         }
-        if (officeId !== '0' && employeeSelect.value === '0' && preferredEmployeeId !== '0') {
-            employeeSelect.value = preferredEmployeeId;
-        }
-        refreshSelect(employeeSelect);
-        filterResponsibilityCodes();
+        refreshAssignmentSelects();
     }
 
-    function syncOfficeFromEmployee() {
-        if (!officeSelect || !employeeSelect) {
+    function syncFromResponsibilityCode() {
+        if (!officeSelect || !employeeSelect || !rcSelect) {
             return;
         }
-        var selectedOption = employeeSelect.options[employeeSelect.selectedIndex];
-        if (!selectedOption || !selectedOption.value || selectedOption.value === '0') {
-            filterResponsibilityCodes();
+        var rcOption = selectedOption(rcSelect);
+        var rcId = rcOption ? String(rcOption.value || '0') : '0';
+        if (rcId === '0') {
+            syncFromOffice(false);
             return;
         }
-        var selectedOfficeId = String(selectedOption.getAttribute('data-office-id') || '0');
-        if (selectedOfficeId !== '0' && officeSelect.value !== selectedOfficeId) {
-            officeSelect.value = selectedOfficeId;
-            refreshSelect(officeSelect);
-            filterEmployees();
-            employeeSelect.value = selectedOption.value;
-            refreshSelect(employeeSelect);
+        var officeId = String(rcOption.getAttribute('data-office-id') || '0');
+        if (officeId !== '0') {
+            setSelectValue(officeSelect, officeId);
+            enableAssignmentOptions(employeeSelect);
+            enableAssignmentOptions(rcSelect);
+            setSelectValue(rcSelect, rcId);
+            setSelectValue(employeeSelect, preferredEmployeeForOffice(officeId, rcId));
         }
-        filterResponsibilityCodes();
+        refreshAssignmentSelects();
     }
 
-    if (officeSelect) {
-        officeSelect.addEventListener('change', filterEmployees);
+    function guarded(handler) {
+        return function () {
+            if (assignmentSyncing) {
+                return;
+            }
+            assignmentSyncing = true;
+            try {
+                handler();
+            } finally {
+                assignmentSyncing = false;
+            }
+        };
+    }
+
+    if (officeSelect && employeeSelect && rcSelect) {
+        var handleOfficeChange = guarded(function () { syncFromOffice(true); });
+        var handleEmployeeChange = guarded(syncFromEmployee);
+        var handleRcChange = guarded(syncFromResponsibilityCode);
+
+        officeSelect.addEventListener('change', handleOfficeChange);
+        employeeSelect.addEventListener('change', handleEmployeeChange);
+        rcSelect.addEventListener('change', handleRcChange);
         if (window.jQuery) {
             jQuery(officeSelect)
                 .off('select2:select.assetOfficeFilter select2:clear.assetOfficeFilter change.assetOfficeFilter')
-                .on('select2:select.assetOfficeFilter select2:clear.assetOfficeFilter change.assetOfficeFilter', filterEmployees);
-        }
-        filterEmployees();
-    }
-
-    if (employeeSelect) {
-        employeeSelect.addEventListener('change', syncOfficeFromEmployee);
-        if (window.jQuery) {
+                .on('select2:select.assetOfficeFilter select2:clear.assetOfficeFilter change.assetOfficeFilter', handleOfficeChange);
             jQuery(employeeSelect)
                 .off('select2:select.assetEmployeeFilter select2:clear.assetEmployeeFilter change.assetEmployeeFilter')
-                .on('select2:select.assetEmployeeFilter select2:clear.assetEmployeeFilter change.assetEmployeeFilter', syncOfficeFromEmployee);
+                .on('select2:select.assetEmployeeFilter select2:clear.assetEmployeeFilter change.assetEmployeeFilter', handleEmployeeChange);
+            jQuery(rcSelect)
+                .off('select2:select.assetRcFilter select2:clear.assetRcFilter change.assetRcFilter')
+                .on('select2:select.assetRcFilter select2:clear.assetRcFilter change.assetRcFilter', handleRcChange);
         }
+        syncFromOffice(false);
     }
 
-    window.SPAMS.setupRequiredSummaryValidation({
-        formId: 'assetEditForm',
-        summaryId: 'asset_edit_form_feedback',
-        requiredFields: [
-            { id: 'asset_property_number', label: 'Property number', feedbackId: 'asset_property_number_feedback', events: ['input', 'change'] }
-        ]
-    });
+    if (window.SPAMS && typeof window.SPAMS.setupRequiredSummaryValidation === 'function') {
+        window.SPAMS.setupRequiredSummaryValidation({
+            formId: 'assetEditForm',
+            summaryId: 'asset_edit_form_feedback',
+            requiredFields: [
+                { id: 'asset_property_number', label: 'Property number', feedbackId: 'asset_property_number_feedback', events: ['input', 'change'] }
+            ]
+        });
+    }
 });
 </script>
 
