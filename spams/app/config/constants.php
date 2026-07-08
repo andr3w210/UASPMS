@@ -1,7 +1,7 @@
 <?php
 
 // Application constants
-define('APP_VERSION', 'v1.3.8');
+define('APP_VERSION', 'v2.0');
 define('APP_ROOT', dirname(__DIR__, 2) . DIRECTORY_SEPARATOR);
 
 if (!function_exists('spams_load_env')) {
@@ -65,13 +65,32 @@ if (!function_exists('spams_env')) {
     }
 }
 
+if (!function_exists('spams_required_env')) {
+    function spams_required_env(string $key): string
+    {
+        $value = spams_env($key);
+        if ($value !== null && trim($value) !== '') {
+            return $value;
+        }
+
+        $message = 'Missing required environment setting: ' . $key . '. Copy spams/.env.example to spams/.env and set production-safe values.';
+        error_log($message);
+        if (PHP_SAPI === 'cli') {
+            throw new RuntimeException($message);
+        }
+
+        http_response_code(500);
+        exit($message);
+    }
+}
+
 spams_load_env(APP_ROOT . '.env');
 
 // Database
 define('DB_HOST', spams_env('DB_HOST', '127.0.0.1'));
 define('DB_NAME', spams_env('DB_NAME', 'spamsdb'));
-define('DB_USER', spams_env('DB_USER', 'root'));
-define('DB_PASS', spams_env('DB_PASS', ''));
+define('DB_USER', spams_required_env('DB_USER'));
+define('DB_PASS', spams_required_env('DB_PASS'));
 define('TRIP_DB_HOST', spams_env('TRIP_DB_HOST', DB_HOST));
 define('TRIP_DB_NAME', spams_env('TRIP_DB_NAME', 'uaspms_tripdb'));
 define('TRIP_DB_USER', spams_env('TRIP_DB_USER', DB_USER));

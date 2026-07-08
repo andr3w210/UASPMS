@@ -19,7 +19,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\analyze_ome_list_candidates.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\analysis\\analyze_ome_list_candidates.php'"
 			],
 			"isBackground": false
 		},
@@ -30,7 +30,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\find_ome_delta_subset.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\analysis\\find_ome_delta_subset.php'"
 			],
 			"isBackground": false
 		},
@@ -41,18 +41,18 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\search_ome_exclusions.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\analysis\\search_ome_exclusions.php'"
 			],
 			"isBackground": false
 		},
 		{
-			"label": "apply-ome-fund01-14859918.75",
+			"label": "dry-run-ome-fund01-14859918.75",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\apply_exact_ome_fund01_14859918_75.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\reconciliation\\apply_exact_ome_fund01_14859918_75.php'"
 			],
 			"isBackground": false
 		},
@@ -63,7 +63,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\report_batch14_fund_account_totals.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\reports\\report_batch14_fund_account_totals.php'"
 			],
 			"isBackground": false
 		},
@@ -85,7 +85,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\find_cs_fund01_subset_7000000.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\analysis\\find_cs_fund01_subset_7000000.php'"
 			],
 			"isBackground": false
 		},
@@ -96,7 +96,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\inspect_computer_software_candidates.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\analysis\\inspect_computer_software_candidates.php'"
 			],
 			"isBackground": false
 		},
@@ -107,7 +107,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\verify_cs_fund01_list_total.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\checks\\verify_cs_fund01_list_total.php'"
 			],
 			"isBackground": false
 		},
@@ -118,18 +118,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' -r \"$m=new mysqli('127.0.0.1','root','','spamsdb'); $q=\\\"SELECT COUNT(*) c FROM rpcppe_batch_items WHERE batch_id=14 AND (account_code IS NULL OR account_name IS NULL OR fund_code IS NULL OR fund_source IS NULL OR fund_number IS NULL)\\\"; $r=$m->query($q)->fetch_assoc(); echo 'null_critical_rows='.$r['c'].PHP_EOL; $q2=\\\"SELECT id,property_number,item_description,account_code,account_name,fund_code,fund_source,fund_number FROM rpcppe_batch_items WHERE batch_id=14 AND (account_code IS NULL OR account_name IS NULL OR fund_code IS NULL OR fund_source IS NULL OR fund_number IS NULL) ORDER BY id LIMIT 30\\\"; $res=$m->query($q2); while($row=$res->fetch_assoc()){ echo $row['id'].'|'.$row['property_number'].'|'.$row['account_code'].'|'.$row['fund_code'].'/'.$row['fund_source'].'/'.$row['fund_number'].'|'.substr(str_replace([\\\"\\\\r\\\",\\\"\\\\n\\\"],' ',$row['item_description']),0,90).PHP_EOL; }\""
-			],
-			"isBackground": false
-		},
-		{
-			"label": "scan-null-critical-fields",
-			"type": "shell",
-			"command": "powershell",
-			"args": [
-				"-NoProfile",
-				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\scan_null_critical_fields.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\audits\\scan_null_critical_fields.php'"
 			],
 			"isBackground": false
 		},
@@ -140,7 +129,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\scan_null_critical_fields.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\audits\\scan_null_critical_fields.php'"
 			],
 			"isBackground": false
 		},
@@ -151,7 +140,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' -r \"$m=new mysqli('127.0.0.1','root','','spamsdb'); $res=$m->query('SHOW COLUMNS FROM rpcppe_batch_items'); while($r=$res->fetch_assoc()){ echo $r['Field'].'|'.$r['Type'].'|'.$r['Null'].'|'.$r['Key'].PHP_EOL; }\""
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\checks\\describe_rpcppe_batch_items.php'"
 			],
 			"isBackground": false
 		},
@@ -162,7 +151,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\analyze_null_rows_sources.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\analysis\\analyze_null_rows_sources.php'"
 			],
 			"isBackground": false
 		},
@@ -173,7 +162,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\repair_null_legacy_snapshot_batch14.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\reconciliation\\repair_null_legacy_snapshot_batch14.php'"
 			],
 			"isBackground": false
 		},
@@ -184,7 +173,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\repair_null_legacy_snapshot_batch14.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\reconciliation\\repair_null_legacy_snapshot_batch14.php'"
 			],
 			"isBackground": false
 		},
@@ -195,7 +184,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\inspect_rpcppe_tags.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\analysis\\inspect_rpcppe_tags.php'"
 			],
 			"isBackground": false
 		},
@@ -206,7 +195,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\repair_unlinked_legacy_rows_from_property_pattern.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\reconciliation\\repair_unlinked_legacy_rows_from_property_pattern.php'"
 			],
 			"isBackground": false
 		},
@@ -217,7 +206,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\scan_null_critical_fields.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\audits\\scan_null_critical_fields.php'"
 			],
 			"isBackground": false
 		},
@@ -228,7 +217,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\inspect_rpcppe_tags.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\analysis\\inspect_rpcppe_tags.php'"
 			],
 			"isBackground": false
 		},
@@ -239,7 +228,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\report_batch14_fund_account_totals.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\reports\\report_batch14_fund_account_totals.php'"
 			],
 			"isBackground": false
 		},
@@ -250,7 +239,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\normalize_batch14_fund_number.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\reconciliation\\normalize_batch14_fund_number.php'"
 			],
 			"isBackground": false
 		},
@@ -261,7 +250,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\report_batch14_fund_account_totals.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\reports\\report_batch14_fund_account_totals.php'"
 			],
 			"isBackground": false
 		},
@@ -272,7 +261,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\normalize_batch14_fund_number.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\reconciliation\\normalize_batch14_fund_number.php'"
 			],
 			"isBackground": false
 		},
@@ -283,7 +272,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\report_batch14_fund_account_totals.php'"
+				"& 'C:\\xampp\\php\\php.exe' 'C:\\xampp\\htdocs\\UASPMS\\tools\\reports\\report_batch14_fund_account_totals.php'"
 			],
 			"isBackground": false
 		},

@@ -3,8 +3,13 @@ require_once __DIR__ . '/../spams/app/config/constants.php';
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
+$apply = in_array('--apply', $argv, true);
+
 $tripDb = new mysqli(TRIP_DB_HOST, TRIP_DB_USER, TRIP_DB_PASS, TRIP_DB_NAME);
 $tripDb->set_charset('utf8mb4');
+if (!$apply) {
+    echo "Dry-run only. Re-run with --apply to persist fuel RIS Excel-field backfill updates." . PHP_EOL;
+}
 
 $sql = 'SELECT id, station_name, fuel_type, liters_purchased, liters_consumed, quantity, unit, purpose, driver_name, remarks
         FROM trip_fuel_ris_entries
@@ -17,6 +22,7 @@ if (!$update) {
 }
 
 $updated = 0;
+$tripDb->begin_transaction();
 while ($row = $res->fetch_assoc()) {
     $id = (int) $row['id'];
     $quantity = isset($row['quantity']) ? (float) $row['quantity'] : 0.0;
@@ -50,5 +56,10 @@ while ($row = $res->fetch_assoc()) {
 }
 
 $update->close();
+if ($apply) {
+    $tripDb->commit();
+} else {
+    $tripDb->rollback();
+}
 
-echo "Backfill complete. Updated rows: {$updated}\n";
+echo ($apply ? "Backfill complete. Updated rows: " : "Dry run complete. Rows that would update: ") . "{$updated}\n";

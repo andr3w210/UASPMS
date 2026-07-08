@@ -10,23 +10,39 @@ ini_set('display_startup_errors', '0');
 ini_set('log_errors', '1');
 ini_set('session.use_strict_mode', '1');
 
+$isCli = PHP_SAPI === 'cli';
 $isHttps = (
     (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
     || (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] === '443')
     || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
 );
 
-session_set_cookie_params([
-    'lifetime' => 60 * 60 * 8,
-    'path' => '/',
-    'domain' => '',
-    'secure' => $isHttps,
-    'httponly' => true,
-    'samesite' => 'Strict',
-]);
+if (!headers_sent()) {
+    header('X-Frame-Options: SAMEORIGIN');
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('Permissions-Policy: geolocation=(self), camera=(self), microphone=()');
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+    if ($isHttps) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
+}
+
+if ($isCli) {
+    $_SESSION = $_SESSION ?? [];
+} else {
+    session_set_cookie_params([
+        'lifetime' => 60 * 60 * 8,
+        'path' => '/',
+        'domain' => '',
+        'secure' => $isHttps,
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 }
 
 date_default_timezone_set(TIMEZONE);
@@ -138,5 +154,4 @@ if (!empty($_SESSION['user_id']) && function_exists('db') && function_exists('au
 }
 
 ?>
-
 

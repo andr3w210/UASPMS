@@ -2,28 +2,29 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_role('Administrator', 'Supply Officer', 'Property Officer', 'Property Custodian');
 
+$propertyScanDebugLoggingEnabled = function_exists('spams_env') && spams_env('UPLOAD_DEBUG_LOG', '0') === '1';
+
 // Global request debug: log minimal request info to help diagnose upload issues.
-try {
-    $reqLogPath = APP_ROOT . 'logs/upload_debug.log';
-    $summary = [
-        'time' => date('c'),
-        'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
-        'uri' => $_SERVER['REQUEST_URI'] ?? '',
-        'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? '',
-        'content_length' => $_SERVER['CONTENT_LENGTH'] ?? null,
-        'post_keys' => array_keys($_POST),
-        'files_keys' => array_keys($_FILES),
-    ];
-    // Attempt to capture raw input for POSTs (note: may be binary for file uploads)
-    if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
-        $raw = @file_get_contents('php://input');
-        if ($raw !== false && strlen($raw) > 0 && strlen($raw) < 2000) {
-            $summary['raw'] = substr($raw, 0, 2000);
+if ($propertyScanDebugLoggingEnabled) {
+    try {
+        $reqLogPath = APP_ROOT . 'logs/upload_debug.log';
+        $summary = [
+            'time' => date('c'),
+            'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+            'uri' => $_SERVER['REQUEST_URI'] ?? '',
+            'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'content_length' => $_SERVER['CONTENT_LENGTH'] ?? null,
+            'post_keys' => array_keys($_POST),
+            'files_keys' => array_keys($_FILES),
+        ];
+        // Avoid logging raw body in production-like environments.
+        if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+            $summary['post_present'] = !empty($_POST);
         }
+        @file_put_contents($reqLogPath, json_encode($summary) . PHP_EOL, FILE_APPEND | LOCK_EX);
+    } catch (Throwable $_) {
+        // ignore
     }
-    @file_put_contents($reqLogPath, json_encode($summary) . PHP_EOL, FILE_APPEND | LOCK_EX);
-} catch (Throwable $_) {
-    // ignore
 }
 
 $ref = trim((string) ($_GET['ref'] ?? ''));
@@ -70,110 +71,111 @@ $isAdministrator = user_has_any_role('Administrator');
 $canUseAnnualMobileUpdate = user_has_any_role('Supply Officer', 'Property Officer', 'Property Custodian');
 $hasActiveAnnualInventory = false;
 $canManageAssetUpdates = false;
-$officeOptions = [];
-$employeeOptions = [];
-$locationOptions = [];
-$selectedLocationId = 0;
+$canUploadQuickUpdatePhoto = false;
+ $officeOptions = [];
+ $employeeOptions = [];
+ $locationOptions = [];
+ $selectedLocationId = 0;
 
-function employee_display_name_from_row(array $row): string
-{
-    if (function_exists('employee_display_name')) {
-        return employee_display_name($row);
-    }
+ function employee_display_name_from_row(array $row): string
+ {
+     if (function_exists('employee_display_name')) {
+         return employee_display_name($row);
+     }
 
-    $parts = [trim((string) ($row['first_name'] ?? '')), trim((string) ($row['middle_name'] ?? '')), trim((string) ($row['last_name'] ?? '')), trim((string) ($row['suffix_name'] ?? ''))];
-    return trim(implode(' ', array_filter($parts)));
-}
+     $parts = [trim((string) ($row['first_name'] ?? '')), trim((string) ($row['middle_name'] ?? '')), trim((string) ($row['last_name'] ?? '')), trim((string) ($row['suffix_name'] ?? ''))];
+     return trim(implode(' ', array_filter($parts)));
+ }
 
-function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $assetId): ?array
-{
-    if ($assetId <= 0) {
-        return null;
-    }
+ function load_property_lookup_row_by_asset(mysqli $db, string $sourceType, int $assetId): ?array
+ {
+     if ($assetId <= 0) {
+         return null;
+     }
 
-    if ($sourceType === 'system') {
-        $stmt = $db->prepare(
-            "SELECT si.system_reference, did.property_number, si.item_description, si.item_type, si.unit_cost, si.quantity_received,
-                    poi.item_description AS original_description,
-                    c.classification_name,
-                    ac.account_code, ac.account_name,
-                    u.uom_name,
-                    r.ris_no, r.received_date,
-                    po.po_number,
-                    s.supplier_name,
-                    did.brand, did.model, did.serial_no, did.qr_tag_code, did.location_id, did.manual_location,
-                    loc.location_code, loc.location_name,
-                    d.document_no, d.document_type, d.distribution_date,
-                    COALESCE(did.current_office_id, d.office_id) AS office_id,
-                    o.office_name,
-                    COALESCE(did.current_employee_id, d.employee_id) AS employee_id,
-                    e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
-                    '' AS condition_status,
-                    did.id AS distribution_item_detail_id,
-                    0 AS legacy_asset_id,
-                    'system' AS source_type
-             FROM distribution_item_details did
-             LEFT JOIN receiving_item_details rid ON rid.id = did.receiving_item_detail_id
-             LEFT JOIN stock_items si ON si.id = rid.stock_item_id
-             LEFT JOIN receiving_items ri ON ri.id = rid.receiving_item_id
-             LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
-             LEFT JOIN classifications c ON c.id = COALESCE(poi.classification_id, si.classification_id)
-             LEFT JOIN account_codes ac ON ac.id = COALESCE(poi.account_code_id, si.account_code_id)
-             LEFT JOIN unit_of_measures u ON u.id = COALESCE(poi.unit_of_measure_id, si.unit_of_measure_id)
-             LEFT JOIN receivings r ON r.id = COALESCE(ri.receiving_id, si.receiving_id)
-             LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
-             LEFT JOIN suppliers s ON s.id = po.supplier_id
-             LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
-             LEFT JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
-             LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
-             LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
-             LEFT JOIN locations loc ON loc.id = did.location_id
-             WHERE did.id = ?
-             LIMIT 1"
-        );
-        if ($stmt) {
-            $stmt->bind_param('i', $assetId);
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc() ?: null;
-            $stmt->close();
-            return $row;
-        }
-    }
+     if ($sourceType === 'system') {
+         $stmt = $db->prepare(
+             "SELECT si.system_reference, did.property_number, si.item_description, si.item_type, si.unit_cost, si.quantity_received,
+                     poi.item_description AS original_description,
+                     c.classification_name,
+                     ac.account_code, ac.account_name,
+                     u.uom_name,
+                     r.ris_no, r.received_date,
+                     po.po_number,
+                     s.supplier_name,
+                     did.brand, did.model, did.serial_no, did.qr_tag_code, did.location_id, did.manual_location,
+                     loc.location_code, loc.location_name,
+                     d.document_no, d.document_type, d.distribution_date,
+                     COALESCE(did.current_office_id, d.office_id) AS office_id,
+                     o.office_name,
+                     COALESCE(did.current_employee_id, d.employee_id) AS employee_id,
+                     e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
+                     '' AS condition_status,
+                     did.id AS distribution_item_detail_id,
+                     0 AS legacy_asset_id,
+                     'system' AS source_type
+              FROM distribution_item_details did
+              LEFT JOIN receiving_item_details rid ON rid.id = did.receiving_item_detail_id
+              LEFT JOIN stock_items si ON si.id = rid.stock_item_id
+              LEFT JOIN receiving_items ri ON ri.id = rid.receiving_item_id
+              LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+              LEFT JOIN classifications c ON c.id = COALESCE(poi.classification_id, si.classification_id)
+              LEFT JOIN account_codes ac ON ac.id = COALESCE(poi.account_code_id, si.account_code_id)
+              LEFT JOIN unit_of_measures u ON u.id = COALESCE(poi.unit_of_measure_id, si.unit_of_measure_id)
+              LEFT JOIN receivings r ON r.id = COALESCE(ri.receiving_id, si.receiving_id)
+              LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+              LEFT JOIN suppliers s ON s.id = po.supplier_id
+              LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
+              LEFT JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
+              LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
+              LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
+              LEFT JOIN locations loc ON loc.id = did.location_id
+              WHERE did.id = ?
+              LIMIT 1"
+         );
+         if ($stmt) {
+             $stmt->bind_param('i', $assetId);
+             $stmt->execute();
+             $row = $stmt->get_result()->fetch_assoc() ?: null;
+             $stmt->close();
+             return $row;
+         }
+     }
 
-    if ($sourceType === 'legacy') {
-        $stmt = $db->prepare(
-            "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, la.quantity AS quantity_received,
-                    la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
-                    '' AS ris_no, la.acquisition_date AS received_date, la.po_number, '' AS supplier_name,
-                    la.brand, la.model, la.serial_no, la.qr_tag_code, la.location_id, la.manual_location,
-                    loc.location_code, loc.location_name, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
-                    la.acquisition_date AS distribution_date, la.office_id,
-                    o.office_name, la.employee_id,
-                    e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
-                    la.condition_status,
-                    0 AS distribution_item_detail_id,
-                    la.id AS legacy_asset_id,
-                    'legacy' AS source_type
-             FROM legacy_assets la
-             LEFT JOIN classifications c ON c.id = la.classification_id
-             LEFT JOIN account_codes ac ON ac.id = la.account_code_id
-             LEFT JOIN offices o ON o.id = la.office_id
-             LEFT JOIN employees e ON e.id = la.employee_id
-             LEFT JOIN locations loc ON loc.id = la.location_id
-             WHERE la.id = ?
-             LIMIT 1"
-        );
-        if ($stmt) {
-            $stmt->bind_param('i', $assetId);
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc() ?: null;
-            $stmt->close();
-            return $row;
-        }
-    }
+     if ($sourceType === 'legacy') {
+         $stmt = $db->prepare(
+             "SELECT la.system_reference, la.property_number, la.property_number AS item_description, 'equipment' AS item_type, la.acquisition_cost AS unit_cost, la.quantity AS quantity_received,
+                     la.item_description AS original_description, c.classification_name, ac.account_code, ac.account_name, '' AS uom_name,
+                     '' AS ris_no, la.acquisition_date AS received_date, la.po_number, '' AS supplier_name,
+                     la.brand, la.model, la.serial_no, la.qr_tag_code, la.location_id, la.manual_location,
+                     loc.location_code, loc.location_name, 'Beginning Balance' AS document_no, 'legacy' AS document_type,
+                     la.acquisition_date AS distribution_date, la.office_id,
+                     o.office_name, la.employee_id,
+                     e.first_name, e.middle_name, e.last_name, e.suffix_name, e.position_title,
+                     la.condition_status,
+                     0 AS distribution_item_detail_id,
+                     la.id AS legacy_asset_id,
+                     'legacy' AS source_type
+              FROM legacy_assets la
+              LEFT JOIN classifications c ON c.id = la.classification_id
+              LEFT JOIN account_codes ac ON ac.id = la.account_code_id
+              LEFT JOIN offices o ON o.id = la.office_id
+              LEFT JOIN employees e ON e.id = la.employee_id
+              LEFT JOIN locations loc ON loc.id = la.location_id
+              WHERE la.id = ?
+              LIMIT 1"
+         );
+         if ($stmt) {
+             $stmt->bind_param('i', $assetId);
+             $stmt->execute();
+             $row = $stmt->get_result()->fetch_assoc() ?: null;
+             $stmt->close();
+             return $row;
+         }
+     }
 
-    return null;
-}
+     return null;
+ }
 
 function load_property_lookup_row_by_reference(mysqli $db, string $ref): ?array
 {
@@ -555,7 +557,8 @@ if ($db) {
         $officeId = (int) ($row['office_id'] ?? 0);
         $matches = find_active_inventory_match($db, $propertyNumber, $officeId);
         $hasActiveAnnualInventory = property_scan_has_active_annual_inventory($db);
-        $canManageAssetUpdates = $isAdministrator || ($canUseAnnualMobileUpdate && $hasActiveAnnualInventory);
+        $canManageAssetUpdates = $isAdministrator;
+        $canUploadQuickUpdatePhoto = $isAdministrator;
         $selectedLocationId = (int) ($_GET['new_location_id'] ?? ($row['location_id'] ?? 0));
     }
 
@@ -563,7 +566,7 @@ if ($db) {
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
         } elseif (!$canManageAssetUpdates) {
-            $errors[] = 'Location quick add is available only during an active annual inventory, unless you are an administrator.';
+            $errors[] = 'Location quick add is available to administrators only.';
         } else {
             $locationName = trim((string) ($_POST['location_name'] ?? ''));
             $locationCode = $locationName !== '' ? property_scan_location_code_from_name($db, $locationName) : '';
@@ -624,7 +627,7 @@ if ($db) {
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
         } elseif (!$canManageAssetUpdates) {
-            $errors[] = 'Mobile updates are available only during an active annual inventory, unless you are an administrator.';
+            $errors[] = 'Mobile quick update is available to administrators only.';
         } else {
             $sourceType = (string) ($row['source_type'] ?? 'system');
             $newOfficeId = (int) ($_POST['office_id'] ?? 0);
@@ -633,9 +636,17 @@ if ($db) {
             $newManualLocation = '';
             $newConditionStatus = strtolower(trim((string) ($_POST['condition_status'] ?? '')));
             $mobileNote = trim((string) ($_POST['mobile_note'] ?? ''));
+            $uploadedQuickUpdatePhoto = ($_FILES['quick_update_photo']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
+                ? ($_FILES['quick_update_photo'] ?? [])
+                : [];
+            $quickUpdatePhotoPath = null;
 
             if ($newOfficeId <= 0) {
                 $errors[] = 'Select an office assignment.';
+            }
+
+            if (!empty($uploadedQuickUpdatePhoto) && !$canUploadQuickUpdatePhoto) {
+                $errors[] = 'Only administrators can upload photos from field quick update.';
             }
 
             if ($newLocationId > 0) {
@@ -656,6 +667,16 @@ if ($db) {
             $allowedConditions = ['good', 'fair', 'needs_repair', 'unserviceable', 'disposed'];
             if (!in_array($newConditionStatus, $allowedConditions, true)) {
                 $newConditionStatus = 'good';
+            }
+
+            if (empty($errors) && !empty($uploadedQuickUpdatePhoto)) {
+                $photoRoot = $db ? trim(get_system_setting($db, 'inventory_photo_root', 'assets')) : 'assets';
+                $photoRoot = trim(str_replace(['..', '\\'], ['', '/'], $photoRoot), " /\t\n\r\0\x0B");
+                if ($photoRoot === '') {
+                    $photoRoot = 'assets';
+                }
+                $photoFolder = $photoRoot . '/' . date('Y') . '/field-quick-update';
+                $quickUpdatePhotoPath = store_uploaded_image($uploadedQuickUpdatePhoto, $photoFolder, $errors);
             }
 
             if (empty($errors)) {
@@ -736,6 +757,71 @@ if ($db) {
                         }
                     }
 
+                    if ($quickUpdatePhotoPath !== null && $quickUpdatePhotoPath !== '') {
+                        $assetSource = $sourceType;
+                        $assetId = $assetSource === 'legacy'
+                            ? (int) ($row['legacy_asset_id'] ?? 0)
+                            : (int) ($row['distribution_item_detail_id'] ?? 0);
+
+                        if ($assetId > 0) {
+                            $caption = 'Field quick update photo - ' . date('M d, Y g:i A');
+                            $existingPhoto = null;
+                            $existingPhotoStmt = $db->prepare(
+                                "SELECT id, photo_path
+                                 FROM asset_photos
+                                 WHERE asset_source = ? AND asset_id = ?
+                                 ORDER BY is_primary DESC, created_at DESC, id DESC
+                                 LIMIT 1"
+                            );
+                            if ($existingPhotoStmt) {
+                                $existingPhotoStmt->bind_param('si', $assetSource, $assetId);
+                                $existingPhotoStmt->execute();
+                                $existingPhoto = $existingPhotoStmt->get_result()->fetch_assoc() ?: null;
+                                $existingPhotoStmt->close();
+                            }
+
+                            if ($existingPhoto) {
+                                $resetPrimaryStmt = $db->prepare(
+                                    "UPDATE asset_photos
+                                     SET is_primary = 0
+                                     WHERE asset_source = ? AND asset_id = ?"
+                                );
+                                if ($resetPrimaryStmt) {
+                                    $resetPrimaryStmt->bind_param('si', $assetSource, $assetId);
+                                    $resetPrimaryStmt->execute();
+                                    $resetPrimaryStmt->close();
+                                }
+
+                                $updatePhotoStmt = $db->prepare(
+                                    "UPDATE asset_photos
+                                     SET photo_path = ?, caption = ?, uploaded_by = ?, is_primary = 1
+                                     WHERE id = ? LIMIT 1"
+                                );
+                                if ($updatePhotoStmt) {
+                                    $existingPhotoId = (int) ($existingPhoto['id'] ?? 0);
+                                    $updatePhotoStmt->bind_param('ssii', $quickUpdatePhotoPath, $caption, $userId, $existingPhotoId);
+                                    $updatePhotoStmt->execute();
+                                    $updatePhotoStmt->close();
+
+                                    $oldPhotoPath = trim((string) ($existingPhoto['photo_path'] ?? ''));
+                                    if ($oldPhotoPath !== '' && $oldPhotoPath !== $quickUpdatePhotoPath) {
+                                        delete_uploaded_file($oldPhotoPath);
+                                    }
+                                }
+                            } else {
+                                $photoStmt = $db->prepare(
+                                    "INSERT INTO asset_photos (asset_source, asset_id, photo_path, caption, is_primary, uploaded_by)
+                                     VALUES (?, ?, ?, ?, 1, ?)"
+                                );
+                                if ($photoStmt) {
+                                    $photoStmt->bind_param('sissi', $assetSource, $assetId, $quickUpdatePhotoPath, $caption, $userId);
+                                    $photoStmt->execute();
+                                    $photoStmt->close();
+                                }
+                            }
+                        }
+                    }
+
                     if (function_exists('write_audit_log')) {
                         write_audit_log($db, [
                             'action' => 'update',
@@ -757,6 +843,7 @@ if ($db) {
                                 'manual_location' => $newManualLocation,
                                 'condition_status' => $newConditionStatus,
                                 'mobile_note' => $mobileNote,
+                                'quick_update_photo_path' => $quickUpdatePhotoPath,
                                 'property_reference' => $assetRef,
                             ],
                             'description' => 'Updated assignment/condition from mobile QR asset page.',
@@ -764,10 +851,13 @@ if ($db) {
                     }
 
                     $db->commit();
-                    set_flash('success', 'Asset assignment updated from mobile page.');
+                    set_flash('success', 'Asset assignment updated from mobile page.' . ($quickUpdatePhotoPath ? ' Photo uploaded.' : ''));
                     redirect('modules/property/scan.php?ref=' . urlencode($ref));
                 } catch (Throwable $e) {
                     $db->rollback();
+                    if ($quickUpdatePhotoPath !== null && $quickUpdatePhotoPath !== '') {
+                        delete_uploaded_file($quickUpdatePhotoPath);
+                    }
                     $errors[] = 'Unable to update asset assignment.';
                 }
             }
@@ -779,18 +869,20 @@ if ($db) {
             $errors[] = 'Invalid CSRF token.';
         } else {
             // Debug: log incoming POST and FILES to help diagnose upload failures
-            try {
-                $logData = [
-                    'time' => date('c'),
-                    'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? '',
-                    'content_length' => $_SERVER['CONTENT_LENGTH'] ?? null,
-                    'post_keys' => array_keys($_POST),
-                    'files_keys' => array_keys($_FILES),
-                    'files_summary' => array_map(function($f){ return [ 'name'=>($f['name']??''), 'error'=>($f['error']??null), 'tmp_name'=>($f['tmp_name']??''), 'size'=>($f['size']??null) ]; }, $_FILES),
-                ];
-                @file_put_contents(APP_ROOT . 'logs/upload_debug.log', json_encode($logData) . PHP_EOL, FILE_APPEND | LOCK_EX);
-            } catch (Throwable $e) {
-                // Ignore logging errors
+            if ($propertyScanDebugLoggingEnabled) {
+                try {
+                    $logData = [
+                        'time' => date('c'),
+                        'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? '',
+                        'content_length' => $_SERVER['CONTENT_LENGTH'] ?? null,
+                        'post_keys' => array_keys($_POST),
+                        'files_keys' => array_keys($_FILES),
+                        'files_summary' => array_map(function($f){ return [ 'name'=>($f['name']??''), 'error'=>($f['error']??null), 'size'=>($f['size']??null) ]; }, $_FILES),
+                    ];
+                    @file_put_contents(APP_ROOT . 'logs/upload_debug.log', json_encode($logData) . PHP_EOL, FILE_APPEND | LOCK_EX);
+                } catch (Throwable $e) {
+                    // Ignore logging errors
+                }
             }
             $propertyNumber = trim((string) ($row['property_number'] ?? $row['system_reference'] ?? ''));
             $officeId = (int) ($row['office_id'] ?? 0);
@@ -800,18 +892,7 @@ if ($db) {
                 $errors[] = 'This asset does not have exactly one open inventory session match, so it cannot be marked as found from this page.';
             } else {
                 $match = $matches[0];
-                // Use single input `proof_photo` for uploads from mobile/webview.
-                $uploadedProofFile = ($_FILES['proof_photo']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
-                    ? ($_FILES['proof_photo'] ?? [])
-                    : [];
-                // Use a single uploads folder for asset photos. Default to 'assets'.
-                $photoRoot = $db ? trim(get_system_setting($db, 'inventory_photo_root', 'assets')) : 'assets';
-                $photoRoot = trim(str_replace(['..', '\\'], ['', '/'], $photoRoot), " /\t\n\r\0\x0B");
-                if ($photoRoot === '') {
-                    $photoRoot = 'inventory_counts';
-                }
-                $sessionFolder = $photoRoot . '/' . date('Y') . '/session-' . (int) ($match['session_id'] ?? 0);
-                $proofPhotoPath = store_uploaded_image($uploadedProofFile, $sessionFolder, $errors);
+                $proofPhotoPath = null;
 
                 if (($match['status'] ?? '') === 'found' && $proofPhotoPath === null) {
                     set_flash('success', 'This asset is already marked as found in the active inventory session.');
@@ -831,8 +912,8 @@ if ($db) {
                              remarks = CASE
                                  WHEN remarks IS NULL OR remarks = '' THEN 'Marked found via QR asset page'
                                  ELSE remarks
-                             END
-                         WHERE id = ? AND session_id = ?"
+                              END
+                          WHERE id = ? AND session_id = ?"
                     );
                     if ($updateStmt) {
                         $updateStmt->bind_param('isii', $userId, $proofPhotoPath, $itemId, $sessionId);
@@ -840,77 +921,6 @@ if ($db) {
                         $updateStmt->close();
 
                         if ($ok) {
-                            if ($proofPhotoPath !== null && $proofPhotoPath !== '') {
-                                $assetSource = (string) ($row['source_type'] ?? 'system');
-                                $assetId = $assetSource === 'legacy'
-                                    ? (int) ($row['legacy_asset_id'] ?? 0)
-                                    : (int) ($row['distribution_item_detail_id'] ?? 0);
-                                if ($assetId > 0) {
-                                    $sessionReference = (string) ($match['session_reference'] ?? '');
-                                    $countDateLabel = !empty($match['count_date']) ? date('M d, Y', strtotime((string) $match['count_date'])) : date('M d, Y');
-                                    $caption = 'Annual inventory photo';
-                                    if ($sessionReference !== '') {
-                                        $caption .= ' - ' . $sessionReference;
-                                    }
-                                    $caption .= ' - ' . $countDateLabel;
-
-                                    $existingPhoto = null;
-                                    $existingPhotoStmt = $db->prepare(
-                                        "SELECT id, photo_path
-                                         FROM asset_photos
-                                         WHERE asset_source = ? AND asset_id = ?
-                                         ORDER BY is_primary DESC, created_at DESC, id DESC
-                                         LIMIT 1"
-                                    );
-                                    if ($existingPhotoStmt) {
-                                        $existingPhotoStmt->bind_param('si', $assetSource, $assetId);
-                                        $existingPhotoStmt->execute();
-                                        $existingPhoto = $existingPhotoStmt->get_result()->fetch_assoc() ?: null;
-                                        $existingPhotoStmt->close();
-                                    }
-
-                                    if ($existingPhoto) {
-                                        $resetPrimaryStmt = $db->prepare(
-                                            "UPDATE asset_photos
-                                             SET is_primary = 0
-                                             WHERE asset_source = ? AND asset_id = ?"
-                                        );
-                                        if ($resetPrimaryStmt) {
-                                            $resetPrimaryStmt->bind_param('si', $assetSource, $assetId);
-                                            $resetPrimaryStmt->execute();
-                                            $resetPrimaryStmt->close();
-                                        }
-
-                                        $updatePhotoStmt = $db->prepare(
-                                            "UPDATE asset_photos
-                                             SET photo_path = ?, caption = ?, uploaded_by = ?, is_primary = 1
-                                             WHERE id = ? LIMIT 1"
-                                        );
-                                        if ($updatePhotoStmt) {
-                                            $existingPhotoId = (int) ($existingPhoto['id'] ?? 0);
-                                            $updatePhotoStmt->bind_param('ssii', $proofPhotoPath, $caption, $userId, $existingPhotoId);
-                                            $updatePhotoStmt->execute();
-                                            $updatePhotoStmt->close();
-
-                                            $oldPhotoPath = trim((string) ($existingPhoto['photo_path'] ?? ''));
-                                            if ($oldPhotoPath !== '' && $oldPhotoPath !== $proofPhotoPath) {
-                                                delete_uploaded_file($oldPhotoPath);
-                                            }
-                                        }
-                                    } else {
-                                        $photoStmt = $db->prepare(
-                                            "INSERT INTO asset_photos (asset_source, asset_id, photo_path, caption, is_primary, uploaded_by)
-                                             VALUES (?, ?, ?, ?, 1, ?)"
-                                        );
-                                        if ($photoStmt) {
-                                            $photoStmt->bind_param('sissi', $assetSource, $assetId, $proofPhotoPath, $caption, $userId);
-                                            $photoStmt->execute();
-                                            $photoStmt->close();
-                                        }
-                                    }
-                                }
-                            }
-
                             if (function_exists('write_audit_log')) {
                                 write_audit_log($db, [
                                     'action' => 'update',
@@ -923,13 +933,13 @@ if ($db) {
                                     'new_values' => [
                                         'status' => 'found',
                                         'property_number' => $propertyNumber,
-                                        'proof_photo_path' => $proofPhotoPath !== null ? $proofPhotoPath : ($match['proof_photo_path'] ?? ''),
+                                        'proof_photo_path' => (string) ($match['proof_photo_path'] ?? ''),
                                     ],
                                     'description' => 'Marked inventory count item as found from the QR asset page.',
                                 ]);
                             }
 
-                            set_flash('success', 'Asset ' . $propertyNumber . ' marked as found.' . ($proofPhotoPath ? ' Photo proof saved.' : ''));
+                            set_flash('success', 'Asset ' . $propertyNumber . ' marked as found.');
                             redirect('modules/property/scan.php?ref=' . urlencode($ref));
                         }
                     }
@@ -1113,7 +1123,7 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                         </div>
                         <span class="badge text-bg-info">Field Update</span>
                     </div>
-                    <form method="post" class="row g-3 align-items-end">
+                    <form method="post" enctype="multipart/form-data" class="row g-3 align-items-end">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="update_asset_profile">
                         <div class="col-md-4">
@@ -1175,6 +1185,13 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                             <label class="form-label">Field Note (optional)</label>
                             <input type="text" class="form-control" name="mobile_note" maxlength="255" placeholder="Location update, condition observation, or accountability note">
                         </div>
+                        <?php if ($canUploadQuickUpdatePhoto): ?>
+                            <div class="col-12">
+                                <label for="quick_update_photo" class="form-label">Attach Photo (Admin only)</label>
+                                <input type="file" class="form-control" id="quick_update_photo" name="quick_update_photo" accept="image/*" capture="environment">
+                                <div class="form-text">Upload a photo during field quick update even without an active annual inventory.</div>
+                            </div>
+                        <?php endif; ?>
                         <div class="col-12 d-grid d-md-flex gap-2 justify-content-md-end">
                             <button type="submit" class="btn btn-primary">Save Mobile Update</button>
                         </div>
@@ -1285,17 +1302,12 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                             <div class="value-block h-100">
                                 <div class="kv mb-2">Update Count Status</div>
                                 <?php if (($inventoryMatch['status'] ?? '') === 'found'): ?>
-                                    <div class="alert alert-success small">This asset is already marked as found. You can still upload a proof photo to keep with the count record.</div>
+                                    <div class="alert alert-success small">This asset is already marked as found in the active inventory session.</div>
                                 <?php endif; ?>
-                                <form method="post" enctype="multipart/form-data" class="d-grid gap-3">
+                                <form method="post" class="d-grid gap-3">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                     <input type="hidden" name="action" value="mark_found">
-                                    <div>
-                                        <label for="proof_photo" class="form-label">Photo (tap to open camera or choose file)</label>
-                                        <input type="file" class="form-control" id="proof_photo" name="proof_photo" accept="image/*" capture="environment">
-                                        <div class="form-text">Tap to open the camera on mobile or choose an existing image. JPG, PNG, GIF, or WEBP up to 5 MB.</div>
-                                    </div>
-                                    <button type="submit" class="btn btn-primary btn-lg"><?php echo ($inventoryMatch['status'] ?? '') === 'found' ? 'Save Proof Photo' : 'Mark as Found'; ?></button>
+                                    <button type="submit" class="btn btn-primary btn-lg">Mark as Found</button>
                                     <?php if ($inventoryUrl !== ''): ?>
                                         <a href="<?php echo h($inventoryUrl); ?>" class="btn btn-outline-secondary">Open Inventory Workspace</a>
                                     <?php endif; ?>

@@ -44,6 +44,12 @@ $classificationGroup = $itemType === 'equipment' ? 'asset' : $itemType;
 $usefulLife = $usefulLifeYears !== '' ? (int) $usefulLifeYears : null;
 $classificationFamily = '';
 
+if ($usefulLifeYears !== '' && !preg_match('/^\d+$/', $usefulLifeYears)) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'Useful life must be a whole number.']);
+    exit;
+}
+
 if ($usefulLife !== null && $usefulLife < 0) {
     http_response_code(422);
     echo json_encode(['ok' => false, 'error' => 'Useful life must be zero or greater.']);
@@ -92,6 +98,13 @@ if ($accountCodeId > 0) {
     }
 }
 
+if ($usefulLifeYears === '') {
+    $defaultUsefulLife = classification_default_useful_life_years($db, $accountCodeId, $classificationGroup);
+    if ($defaultUsefulLife !== null) {
+        $usefulLifeYears = (string) $defaultUsefulLife;
+    }
+}
+
 $duplicateStmt = $db->prepare("SELECT id, classification_name, classification_family, classification_group, account_code_id, useful_life_years FROM classifications WHERE account_code_id = ? AND LOWER(TRIM(classification_name)) = LOWER(TRIM(?)) AND LOWER(TRIM(COALESCE(classification_family, ''))) = LOWER(TRIM(?)) LIMIT 1");
 if (!$duplicateStmt) {
     http_response_code(500);
@@ -124,7 +137,7 @@ $userId = current_user_id();
 $insertStmt = $db->prepare("
     INSERT INTO classifications
     (classification_code, system_reference, classification_name, classification_family, classification_group, useful_life_years, account_code_id, description, is_active, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, 1, ?)
+    VALUES (?, ?, ?, ?, ?, NULLIF(?, 0), ?, ?, 1, ?)
 ");
 if (!$insertStmt) {
     http_response_code(500);

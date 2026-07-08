@@ -1722,12 +1722,46 @@ body.auth-login-page .footer {
 }
 
 .dashboard-hub {
-    --dashboard-ink: #12304d;
-    --dashboard-muted: #61748a;
-    --dashboard-border: rgba(15, 40, 66, 0.12);
-    --dashboard-shadow: 0 22px 44px rgba(14, 40, 72, 0.08);
+    --dashboard-ink: #0f2740;
+    --dashboard-muted: #5a7088;
+    --dashboard-border: rgba(18, 39, 61, 0.12);
+    --dashboard-shadow: 0 24px 52px rgba(10, 27, 47, 0.09);
+    position: relative;
+    overflow: hidden;
     display: grid;
     gap: 1.25rem;
+    padding: 0.35rem;
+    border-radius: 30px;
+    background:
+        radial-gradient(circle at 0% 0%, rgba(20, 184, 166, 0.1), transparent 36%),
+        radial-gradient(circle at 100% 0%, rgba(245, 158, 11, 0.1), transparent 32%),
+        linear-gradient(180deg, #f3f7fb 0%, #edf3f9 100%);
+    font-family: "Manrope", "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+.dashboard-hub::before,
+.dashboard-hub::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    border-radius: 999px;
+    filter: blur(2px);
+}
+
+.dashboard-hub::before {
+    width: 220px;
+    height: 220px;
+    top: -70px;
+    right: -80px;
+    background: radial-gradient(circle, rgba(14, 116, 144, 0.14), transparent 68%);
+}
+
+.dashboard-hub::after {
+    width: 260px;
+    height: 260px;
+    bottom: -100px;
+    left: -100px;
+    background: radial-gradient(circle, rgba(15, 118, 110, 0.14), transparent 72%);
 }
 
 .dashboard-hub-hero {
@@ -1750,10 +1784,11 @@ body.auth-login-page .footer {
     overflow: hidden;
     border-radius: 28px;
     background:
-        radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 34%),
-        radial-gradient(circle at right center, rgba(249, 115, 22, 0.12), transparent 28%),
-        linear-gradient(135deg, #f6fbff 0%, #eef6ff 45%, #ffffff 100%);
+        radial-gradient(circle at 5% 8%, rgba(15, 118, 110, 0.2), transparent 34%),
+        radial-gradient(circle at 96% 6%, rgba(245, 158, 11, 0.18), transparent 32%),
+        linear-gradient(135deg, #f8fcff 0%, #f1f8ff 42%, #ffffff 100%);
     padding: 1.8rem;
+    isolation: isolate;
 }
 
 .dashboard-hub-hero-main::before {
@@ -1772,7 +1807,7 @@ body.auth-login-page .footer {
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
-    color: #36516d;
+    color: #2f4f6f;
     font-size: 0.78rem;
     font-weight: 800;
     letter-spacing: 0.08em;
@@ -1790,12 +1825,12 @@ body.auth-login-page .footer {
 
 .dashboard-hub-title {
     color: var(--dashboard-ink);
-    font-size: clamp(2rem, 3vw, 3rem);
+    font-size: clamp(2.15rem, 3.2vw, 3.2rem);
     font-weight: 800;
     letter-spacing: -0.04em;
-    line-height: 1.02;
+    line-height: 0.98;
     margin: 0.8rem 0 0.9rem;
-    max-width: 12ch;
+    max-width: 13ch;
 }
 
 .dashboard-hub-copy {
@@ -1820,18 +1855,20 @@ body.auth-login-page .footer {
     min-height: 46px;
     padding: 0.85rem 1rem;
     border-radius: 16px;
-    background: rgba(255, 255, 255, 0.78);
+    background: rgba(255, 255, 255, 0.82);
     border: 1px solid rgba(18, 48, 77, 0.09);
     color: var(--dashboard-ink);
     font-weight: 700;
     text-decoration: none;
-    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    backdrop-filter: blur(2px);
 }
 
 .dashboard-hub-action:hover {
-    transform: translateY(-1px);
+    transform: translateY(-2px);
     border-color: rgba(15, 118, 110, 0.28);
-    box-shadow: 0 16px 24px rgba(15, 118, 110, 0.12);
+    box-shadow: 0 18px 28px rgba(15, 118, 110, 0.14);
+    background: #ffffff;
     color: var(--dashboard-ink);
 }
 
@@ -1927,20 +1964,22 @@ body.auth-login-page .footer {
 .dashboard-hub-status-card {
     border-radius: 28px;
     padding: 1.35rem;
-    background: linear-gradient(180deg, #12304d 0%, #0f2740 100%);
+    background:
+        radial-gradient(circle at top right, rgba(56, 189, 248, 0.22), transparent 30%),
+        linear-gradient(180deg, #102b45 0%, #0d243a 100%);
     color: #f5f9ff;
 }
 
 .dashboard-hub-status-card.tone-warning {
     background:
-        radial-gradient(circle at top right, rgba(245, 158, 11, 0.24), transparent 28%),
-        linear-gradient(180deg, #12304d 0%, #0f2740 100%);
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.3), transparent 30%),
+    linear-gradient(180deg, #102b45 0%, #0d243a 100%);
 }
 
 .dashboard-hub-status-card.tone-success {
     background:
-        radial-gradient(circle at top right, rgba(34, 197, 94, 0.18), transparent 28%),
-        linear-gradient(180deg, #12304d 0%, #0f2740 100%);
+    radial-gradient(circle at top right, rgba(34, 197, 94, 0.22), transparent 30%),
+    linear-gradient(180deg, #102b45 0%, #0d243a 100%);
 }
 
 .dashboard-hub-status-name {
@@ -2034,8 +2073,13 @@ body.auth-login-page .footer {
     flex-wrap: wrap;
     padding: 0.45rem;
     border-radius: 22px;
-    background: rgba(238, 246, 255, 0.82);
+    background: rgba(247, 251, 255, 0.9);
     border: 1px solid rgba(18, 48, 77, 0.08);
+    box-shadow: 0 10px 22px rgba(12, 33, 56, 0.08);
+    position: sticky;
+    top: 0.9rem;
+    z-index: 4;
+    backdrop-filter: blur(4px);
 }
 
 .dashboard-hub-switch {
@@ -2053,9 +2097,9 @@ body.auth-login-page .footer {
 }
 
 .dashboard-hub-switch.is-active {
-    background: #12304d;
+    background: linear-gradient(135deg, #12304d 0%, #0f4a6d 100%);
     color: #fff;
-    box-shadow: 0 14px 24px rgba(18, 48, 77, 0.22);
+    box-shadow: 0 14px 24px rgba(18, 48, 77, 0.26);
 }
 
 .dashboard-hub-switch:hover {
@@ -2087,8 +2131,9 @@ body.auth-login-page .footer {
 
 .dashboard-hub-surface {
     border-radius: 24px;
-    background: #fff;
+    background: rgba(255, 255, 255, 0.94);
     padding: 1.2rem;
+    backdrop-filter: blur(2px);
 }
 
 .dashboard-hub-surface-strong {
@@ -2225,9 +2270,58 @@ body.auth-login-page .footer {
 }
 
 .dashboard-hub-task-card:hover {
-    transform: translateY(-1px);
+    transform: translateY(-2px);
     box-shadow: 0 14px 26px rgba(18, 48, 77, 0.08);
     color: inherit;
+}
+
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-hero-main,
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-hero-side,
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-band-card,
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-surface,
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-switcher {
+    animation: dashboardFadeSlide 480ms ease both;
+}
+
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-band-card:nth-child(1),
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-surface:nth-child(1) {
+    animation-delay: 60ms;
+}
+
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-band-card:nth-child(2),
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-surface:nth-child(2) {
+    animation-delay: 120ms;
+}
+
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-band-card:nth-child(3),
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-surface:nth-child(3) {
+    animation-delay: 180ms;
+}
+
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-band-card:nth-child(4),
+.dashboard-hub[data-dashboard-ready="1"] .dashboard-hub-surface:nth-child(4) {
+    animation-delay: 220ms;
+}
+
+@keyframes dashboardFadeSlide {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-hub *,
+    .dashboard-hub *::before,
+    .dashboard-hub *::after {
+        animation: none !important;
+        transition: none !important;
+    }
 }
 
 .dashboard-hub-task-icon {

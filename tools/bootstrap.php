@@ -14,10 +14,17 @@ require_once dirname(__DIR__) . '/spams/app/config/constants.php';
 
 function tools_db(): mysqli
 {
-    $host   = defined('DB_HOST') ? DB_HOST : '127.0.0.1';
-    $user   = defined('DB_USER') ? DB_USER : 'root';
-    $pass   = defined('DB_PASS') ? DB_PASS : '';
-    $dbname = defined('DB_NAME') ? DB_NAME : 'spamsdb';
+    foreach (['DB_HOST', 'DB_USER', 'DB_PASS', 'DB_NAME'] as $constantName) {
+        if (!defined($constantName) || trim((string) constant($constantName)) === '') {
+            fwrite(STDERR, 'Missing required database configuration: ' . $constantName . PHP_EOL);
+            exit(1);
+        }
+    }
+
+    $host   = DB_HOST;
+    $user   = DB_USER;
+    $pass   = DB_PASS;
+    $dbname = DB_NAME;
 
     $m = new mysqli($host, $user, $pass, $dbname);
     if ($m->connect_errno) {

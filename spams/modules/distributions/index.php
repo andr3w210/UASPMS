@@ -53,27 +53,59 @@ $editForm = [
 ];
 
 function preview_distribution_doc_no($db, string $docType, string $date, string $semiType = 'high_value'): string {
-    $year  = date('Y', strtotime($date) ?: time());
+    $timestamp = strtotime($date) ?: time();
+    $year  = date('Y', $timestamp);
+    $month = date('m', $timestamp);
+    $seriesPrefix = '';
     if ($docType === 'par') {
-        $prefix = 'PAR';
+        $prefix = 'PAR-' . $year . '-' . $month;
+        $like = 'PAR-' . $year . '-%';
+        $seriesPrefix = 'PAR-' . $year;
     } elseif ($semiType === 'low_value') {
-        $prefix = 'SPLV';
+        $prefix = 'SPLV-' . $year . '-' . $month;
+        $like = 'SPLV-' . $year . '-%';
+        $seriesPrefix = 'SPLV-' . $year;
     } else {
-        $prefix = 'SPHV';
+        $prefix = 'SPHV-' . $year . '-' . $month;
+        $like = 'SPHV-' . $year . '-%';
+        $seriesPrefix = 'SPHV-' . $year;
     }
 
-    // Keep one running sequence per year, while still recognizing older month-based entries.
-    $like = $prefix . '-' . $year . '-%';
-    $nextSeq = 1;
-    $stmt = $db->prepare("SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(document_no, '-', -1) AS UNSIGNED)), 0) + 1 AS next_seq FROM distributions WHERE document_no LIKE ?");
+    // Keep one running sequence per year, following counters and both old/new stored formats.
+    $currentValue = 0;
+
+    $counterKey = 'distribution_doc_no|' . $seriesPrefix;
+    $counterStmt = $db->prepare("SELECT current_value FROM series_numbers WHERE module_key = ? LIMIT 1");
+    if ($counterStmt) {
+        $counterStmt->bind_param('s', $counterKey);
+        $counterStmt->execute();
+        $counterRow = $counterStmt->get_result()->fetch_assoc();
+        $currentValue = max($currentValue, (int) ($counterRow['current_value'] ?? 0));
+        $counterStmt->close();
+    }
+
+    $stmt = $db->prepare("SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(document_no, '-', -1) AS UNSIGNED)), 0) AS current_value FROM distributions WHERE document_no LIKE ?");
     if ($stmt) {
         $stmt->bind_param('s', $like);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
-        $nextSeq = (int)($row['next_seq'] ?? 1);
+        $currentValue = max($currentValue, (int)($row['current_value'] ?? 0));
         $stmt->close();
     }
-    return $prefix . '-' . $year . '-' . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT);
+
+    if (function_exists('schema_has_column') && schema_has_column($db, 'legacy_assets', 'accountability_no')) {
+        $legacyStmt = $db->prepare("SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(accountability_no, '-', -1) AS UNSIGNED)), 0) AS current_value FROM legacy_assets WHERE accountability_no LIKE ?");
+        if ($legacyStmt) {
+            $legacyStmt->bind_param('s', $like);
+            $legacyStmt->execute();
+            $legacyRow = $legacyStmt->get_result()->fetch_assoc();
+            $currentValue = max($currentValue, (int) ($legacyRow['current_value'] ?? 0));
+            $legacyStmt->close();
+        }
+    }
+
+    $nextSeq = $currentValue + 1;
+    return $prefix . '-' . str_pad((string)$nextSeq, 4, '0', STR_PAD_LEFT);
 }
 
 function distribution_sync_system_property_number(mysqli $db, int $detailId, string $propertyNumber): bool

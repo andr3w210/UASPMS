@@ -5,8 +5,13 @@ Reclassify 73 misplaced items to Fund 01 Office Equipment (1.06.05.020.00)
 */
 
 $mysqli = tools_db();
+$apply = in_array('--apply', $argv, true);
 if ($mysqli->connect_error) {
     die("Connection failed: " . $mysqli->connect_error);
+}
+
+if (!$apply) {
+    echo "DRY RUN: no database changes will be committed. Re-run with --apply to reclassify these rows.\n";
 }
 
 // IDs to reclassify to Office Equipment account
@@ -31,6 +36,7 @@ $acct_id = $acct['id'];
 echo "Target Account: {$acct['account_code']} ({$acct['account_name']}) - ID: $acct_id\n\n";
 
 // Update the items
+$mysqli->begin_transaction();
 $idCount = count($idsToMove);
 $placeholders = implode(',', array_fill(0, $idCount, '?'));
 $typeStr = str_repeat('i', $idCount);
@@ -51,7 +57,7 @@ if (!$stmt) {
 }
 
 // Bind values
-$acctName = $acct['name'];
+$acctName = $acct['account_name'] ?? 'Office Equipment';
 $fundCode = '1';
 $fundSource = '1';
 $fundNumber = '01';
@@ -65,9 +71,13 @@ $types = 'ssss' . $typeStr;
 $stmt->bind_param($types, ...$params);
 $result = $stmt->execute();
 
-if ($result) {
+try {
+    if (!$result) {
+        throw new RuntimeException("Error executing update: " . $stmt->error);
+    }
+
     $affected = $stmt->affected_rows;
-    echo "✓ Successfully reclassified $affected rows\n\n";
+    echo ($apply ? "Successfully reclassified " : "Would reclassify ") . "$affected rows\n\n";
     
     // Verify the update
     $verifyQuery = "SELECT COUNT(*) as cnt, SUM(unit_cost * qty_physical_count) as total
@@ -78,8 +88,17 @@ if ($result) {
     echo "Office Equipment (1.06.05.020.00) now has:\n";
     echo "  Rows: " . $row['cnt'] . "\n";
     echo "  Total: " . number_format($row['total'], 2) . " PHP\n";
-} else {
-    echo "✗ Error executing update: " . $stmt->error . "\n";
+
+    if ($apply) {
+        $mysqli->commit();
+        echo "COMMITTED. Database was updated.\n";
+    } else {
+        $mysqli->rollback();
+        echo "ROLLED BACK. No database changes were committed.\n";
+    }
+} catch (Throwable $e) {
+    $mysqli->rollback();
+    throw $e;
 }
 
 $stmt->close();

@@ -6,8 +6,13 @@ and target an exact total of 14,859,918.75.
 */
 
 $m = tools_db();
+$apply = in_array('--apply', $argv, true);
 if ($m->connect_error) {
     die("Connection failed\n");
+}
+
+if (!$apply) {
+    echo "DRY RUN: no database changes will be committed. Re-run with --apply to apply the authoritative OME Fund 01 set.\n";
 }
 
 $target = 14859918.75;
@@ -68,14 +73,20 @@ try {
         throw new RuntimeException('Verification failed: target mismatch after update.');
     }
 
-    $m->commit();
-
     echo "Demoted rows: $demoted\n";
     echo "Promoted rows: $promoted\n";
     echo "Final Fund01 OME rows: {$verify['cnt']}\n";
     echo "Final Fund01 OME total: " . number_format($finalTotal, 2) . "\n";
     echo "Expected total: " . number_format($target, 2) . "\n";
     echo "Delta: " . number_format($delta, 2) . "\n";
+
+    if ($apply) {
+        $m->commit();
+        echo "COMMITTED. Database was updated.\n";
+    } else {
+        $m->rollback();
+        echo "ROLLED BACK. No database changes were committed.\n";
+    }
 } catch (Throwable $e) {
     $m->rollback();
     throw $e;

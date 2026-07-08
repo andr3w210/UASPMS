@@ -250,7 +250,7 @@ if (!$db) {
                                 $currentTypeRow = $currentTypeStmt->get_result()->fetch_assoc();
                                 $currentTypeStmt->close();
                                 if ($currentTypeRow && ($currentTypeRow['item_type'] ?? '') !== $form['item_type']) {
-                                    $warnings[] = 'This item is already referenced by active PO lines. Type was changed anyway, so please review dependent records carefully.';
+                                    $errors[] = 'Item type cannot be changed because this item is already referenced by active PO lines. Create a new catalog item for the new type instead.';
                                 }
                             }
                         }

@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
 $db = db();
 $officeId = (int) ($_GET['office_id'] ?? 0);
@@ -12,11 +13,27 @@ $viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'g
 $isGrouped = $viewMode === 'grouped';
 $extraRows = max(0, min(50, (int) ($_GET['extra_rows'] ?? 0)));
 $copyCount = max(1, min(20, (int) ($_GET['copies'] ?? 1)));
+$requestedDocumentNo = trim((string) ($_GET['document_no'] ?? ''));
 $offices = [];
 $header = null;
 $rows = [];
 $validationError = '';
 $selectedOfficeName = '';
+$documentPrintNo = '';
+
+$deriveLegacyDocumentNo = static function (string $propertyNumber): string {
+    $propertyNumber = trim($propertyNumber);
+    if ($propertyNumber === '') {
+        return '';
+    }
+
+    $parts = explode('-', $propertyNumber);
+    if (count($parts) >= 5) {
+        return implode('-', array_slice($parts, 0, 4));
+    }
+
+    return $propertyNumber;
+};
 
 $resolveOfficeHead = static function (mysqli $db, int $officeId): array {
     return employee_resolve_office_head($db, $officeId);
@@ -70,6 +87,7 @@ $buildPropertyRange = static function (array $propertyNumbers): string {
 if ($db) {
     ensure_legacy_assets_rpcppe_tracking_columns($db);
     ensure_distribution_item_rpcppe_tracking_columns($db);
+    ensure_legacy_assets_accountability_no_column($db);
 
     $officeRes = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeRes) {
@@ -96,7 +114,7 @@ if ($db) {
 
     if ($legacyAssetId > 0) {
         $legacyValidationStmt = $db->prepare(
-            "SELECT property_number, item_description, office_id, employee_id, item_type
+            "SELECT property_number, item_description, office_id, employee_id, item_type, system_reference, po_number, accountability_no, unit_cost, acquisition_date
              FROM legacy_assets
              WHERE id = ?
              LIMIT 1"
@@ -110,6 +128,14 @@ if ($db) {
             if (!$legacyRow) {
                 $validationError = 'Legacy asset record not found for printing.';
             } else {
+                $documentPrintNo = ensure_legacy_asset_accountability_no(
+                    $db,
+                    $legacyAssetId,
+                    (string) ($legacyRow['item_type'] ?? ''),
+                    (float) ($legacyRow['unit_cost'] ?? 0),
+                    (string) ($legacyRow['accountability_no'] ?? ''),
+                    (string) ($legacyRow['acquisition_date'] ?? '')
+                );
                 $missing = [];
                 if (trim((string) ($legacyRow['property_number'] ?? '')) === '') {
                     $missing[] = 'Property Number';
@@ -423,7 +449,22 @@ $supplyHeadTitle = trim((string) ($supplyHead['position_title'] ?? ''));
 $supplyOfficeName = trim((string) ($supplyHead['office_name'] ?? 'Supply Office'));
 
 $fundCluster = '';
-if ($db && $officeId > 0 && $legacyAssetId <= 0) {
+if ($db && $legacyAssetId > 0) {
+    $fundStmt = $db->prepare(
+        "SELECT COALESCE(NULLIF(TRIM(f.fund_source), ''), NULLIF(TRIM(f.fund_code), ''), NULLIF(TRIM(f.fund_name), '')) AS fund_label
+         FROM legacy_assets la
+         LEFT JOIN funds f ON f.id = la.fund_id
+         WHERE la.id = ?
+         LIMIT 1"
+    );
+    if ($fundStmt) {
+        $fundStmt->bind_param('i', $legacyAssetId);
+        $fundStmt->execute();
+        $fundRow = $fundStmt->get_result()->fetch_assoc() ?: [];
+        $fundCluster = trim((string) ($fundRow['fund_label'] ?? ''));
+        $fundStmt->close();
+    }
+} elseif ($db && $officeId > 0 && $legacyAssetId <= 0) {
     $funds = [];
     $fundStmt = $db->prepare(
         "SELECT DISTINCT COALESCE(NULLIF(TRIM(f.fund_source), ''), NULLIF(TRIM(f.fund_code), '')) AS fund_label
@@ -459,6 +500,15 @@ if ($db && $officeId > 0 && $legacyAssetId <= 0) {
 }
 
 $officePrintNo = 'PAR-OFFICE-' . str_pad((string) max(1, $officeId), 4, '0', STR_PAD_LEFT);
+if ($legacyAssetId > 0 && $validationError === '' && $documentPrintNo === '') {
+    $validationError = 'Printing is blocked. Legacy PAR number could not be generated. Please retry from Asset Details.';
+}
+
+$displayPrintNo = $legacyAssetId > 0
+    ? ($documentPrintNo !== '' ? $documentPrintNo : $requestedDocumentNo)
+    : ($requestedDocumentNo !== ''
+        ? ($documentPrintNo !== '' ? $documentPrintNo : $requestedDocumentNo)
+        : ($documentPrintNo !== '' ? $documentPrintNo : $officePrintNo));
 $blankRows = $extraRows;
 $shortSheetCount = (int) ceil($copyCount / 2);
 ?><!doctype html>
@@ -602,7 +652,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                         <td style="width:14%;" class="label">Entity Name :</td>
                         <td style="width:39%;"><span class="line-value long"><?php echo h(APP_NAME); ?></span></td>
                         <td style="width:14%;" class="label">PAR No. :</td>
-                        <td style="width:33%;"><span class="line-value"><?php echo h($officePrintNo); ?></span></td>
+                        <td style="width:33%;"><span class="line-value"><?php echo h($displayPrintNo); ?></span></td>
                     </tr>
                     <tr>
                         <td class="label">Fund Cluster :</td>

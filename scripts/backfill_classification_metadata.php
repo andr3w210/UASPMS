@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../spams/app/config/init.php';
 
+$apply = in_array('--apply', $argv, true);
+
 function meta_out(string $message): void
 {
     fwrite(STDOUT, $message . PHP_EOL);
@@ -120,8 +122,26 @@ if (!$update) {
     exit(1);
 }
 
+$conflictCheck = $db->prepare("
+    SELECT id
+    FROM classifications
+    WHERE classification_group = ?
+      AND classification_family = ?
+      AND classification_name = ?
+      AND id <> ?
+    LIMIT 1
+");
+if (!$conflictCheck) {
+    fwrite(STDERR, "Unable to prepare metadata conflict check." . PHP_EOL);
+    exit(1);
+}
+
 $updated = 0;
+$skippedConflicts = 0;
 $db->begin_transaction();
+if (!$apply) {
+    meta_out('Dry-run only. Re-run with --apply to persist classification metadata updates.');
+}
 
 try {
     while ($row = $res->fetch_assoc()) {
@@ -133,6 +153,16 @@ try {
         $family = (string) $meta['family'];
         $usefulLife = (int) ($meta['useful_life_years'] ?? 0);
         $recordId = (int) $row['id'];
+        $group = (string) ($row['classification_group'] ?? 'asset');
+        $name = (string) ($row['classification_name'] ?? '');
+
+        $conflictCheck->bind_param('sssi', $group, $family, $name, $recordId);
+        $conflictCheck->execute();
+        if ($conflictCheck->get_result()->fetch_assoc()) {
+            $skippedConflicts++;
+            continue;
+        }
+
         $update->bind_param('sii', $family, $usefulLife, $recordId);
         if (!$update->execute()) {
             throw new RuntimeException('Failed updating classification ID ' . $recordId . ': ' . $update->error);
@@ -140,8 +170,13 @@ try {
         $updated++;
     }
 
-    $db->commit();
-    meta_out('Updated: ' . $updated);
+    if ($apply) {
+        $db->commit();
+    } else {
+        $db->rollback();
+    }
+    meta_out(($apply ? 'Updated: ' : 'Rows that would update: ') . $updated);
+    meta_out('Skipped unique-key conflicts: ' . $skippedConflicts);
 } catch (Throwable $e) {
     $db->rollback();
     $update->close();
@@ -150,4 +185,5 @@ try {
 }
 
 $update->close();
+$conflictCheck->close();
 exit(0);

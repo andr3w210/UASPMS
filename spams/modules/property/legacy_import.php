@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 if (isset($_GET['download_template'])) {
     $templatePath = dirname(__DIR__, 3) . '/database/templates/legacy_assets_import_template.csv';
@@ -154,12 +155,13 @@ function li_find_or_create_classification(mysqli $db, array &$maps, string $clas
 
     $classificationCode = next_module_code($db, 'classifications');
     $classificationGroup = li_classification_group_from_item_type($itemType);
+    $usefulLifeYears = classification_default_useful_life_years($db, $accountCodeId, $classificationGroup);
     $description = 'Auto-created from legacy asset import.';
-    $insert = $db->prepare("INSERT INTO classifications (classification_code, classification_name, classification_group, account_code_id, description, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, ?)");
+    $insert = $db->prepare("INSERT INTO classifications (classification_code, classification_name, classification_group, useful_life_years, account_code_id, description, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, 1, ?)");
     if (!$insert) {
         throw new RuntimeException('Unable to create missing classification during import.');
     }
-    $insert->bind_param('sssisi', $classificationCode, $classificationName, $classificationGroup, $accountCodeId, $description, $userId);
+    $insert->bind_param('sssiisi', $classificationCode, $classificationName, $classificationGroup, $usefulLifeYears, $accountCodeId, $description, $userId);
     $saved = $insert->execute();
     $newId = (int) $insert->insert_id;
     $insert->close();

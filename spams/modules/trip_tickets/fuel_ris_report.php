@@ -152,8 +152,8 @@ if (!$tripDb) {
         try {
             [$vehicleSql, $vehicleTypes, $vehicleParams] = $buildVehicleFilterSql($selectedVehicleId);
             $consumedExpr = $hasQuantity
-                ? 'CASE WHEN COALESCE(e.liters_consumed, 0) > 0 THEN e.liters_consumed WHEN COALESCE(e.quantity, 0) > 0 THEN e.quantity ELSE 0 END'
-                : 'COALESCE(e.liters_consumed, 0)';
+                ? 'CASE WHEN COALESCE(e.liters_consumed, 0) > 0 THEN e.liters_consumed WHEN COALESCE(e.quantity, 0) > 0 THEN e.quantity WHEN COALESCE(e.liters_purchased, 0) > 0 THEN e.liters_purchased ELSE 0 END'
+                : 'CASE WHEN COALESCE(e.liters_consumed, 0) > 0 THEN e.liters_consumed WHEN COALESCE(e.liters_purchased, 0) > 0 THEN e.liters_purchased ELSE 0 END';
             $purchasedExpr = $hasQuantity
                 ? 'CASE WHEN COALESCE(e.liters_consumed, 0) <= 0 AND COALESCE(e.quantity, 0) > 0 AND ABS(COALESCE(e.liters_purchased, 0) - COALESCE(e.quantity, 0)) < 0.0001 THEN 0 ELSE COALESCE(e.liters_purchased, 0) END'
                 : 'COALESCE(e.liters_purchased, 0)';

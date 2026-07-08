@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_role('admin');
+require_role('Administrator');
 
 $db = db();
 

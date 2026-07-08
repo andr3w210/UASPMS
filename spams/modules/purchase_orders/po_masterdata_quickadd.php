@@ -69,15 +69,16 @@ switch ($action) {
             $dup->close();
         }
 
+        $defaultUsefulLifeYears = account_code_default_useful_life_years($code, $group);
         $stmt = $db->prepare(
-            'INSERT INTO account_codes (account_code, account_name, account_group, is_active, created_by) VALUES (?, ?, ?, 1, ?)'
+            'INSERT INTO account_codes (account_code, account_name, account_group, default_useful_life_years, is_active, created_by) VALUES (?, ?, ?, ?, 1, ?)'
         );
         if (!$stmt) {
             http_response_code(500);
             echo json_encode(['ok' => false, 'error' => 'Database error: ' . $db->error]);
             exit;
         }
-        $stmt->bind_param('sssi', $code, $name, $group, $userId);
+        $stmt->bind_param('sssii', $code, $name, $group, $defaultUsefulLifeYears, $userId);
         if (!$stmt->execute()) {
             $err = $stmt->error;
             $stmt->close();
@@ -95,6 +96,7 @@ switch ($action) {
                 'account_code' => $code,
                 'account_name' => $name,
                 'account_group' => $group,
+                'default_useful_life_years' => $defaultUsefulLifeYears,
             ],
         ]);
         exit;

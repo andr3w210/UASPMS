@@ -914,8 +914,12 @@ function cli_find_existing_legacy_asset_id(mysqli $db, int $legacyId, string $sy
 
 $filePath = $argv[1] ?? '';
 if ($filePath === '') {
-    fwrite(STDERR, "Usage: php scripts/import_legacy_assets_cli.php <csv-path>" . PHP_EOL);
+    fwrite(STDERR, "Usage: php scripts/import_legacy_assets_cli.php <csv-path> [--apply]" . PHP_EOL);
     exit(1);
+}
+$apply = in_array('--apply', $argv, true);
+if (!$apply) {
+    cli_out('Dry-run only. Re-run with --apply to persist legacy asset import changes.');
 }
 
 if (!is_file($filePath)) {
@@ -1280,9 +1284,14 @@ try {
         $inserted++;
     }
 
-    $db->commit();
-    cli_out('Inserted: ' . $inserted);
-    cli_out('Updated: ' . $updated);
+    if ($apply) {
+        $db->commit();
+    } else {
+        $db->rollback();
+    }
+
+    cli_out(($apply ? 'Inserted: ' : 'Rows that would insert: ') . $inserted);
+    cli_out(($apply ? 'Updated: ' : 'Rows that would update: ') . $updated);
     cli_out('Skipped: ' . $skipped);
     if ($failures) {
         cli_out('Failures:');

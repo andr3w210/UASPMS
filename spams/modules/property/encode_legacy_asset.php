@@ -1,11 +1,13 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $db = db();
 $errors = [];
 $offices = [];
 $employees = [];
+$employeeAssignments = [];
 $responsibilityCodes = [];
 $classifications = [];
 $accountCodes = [];
@@ -231,6 +233,45 @@ if ($db) {
     if ($res instanceof mysqli_result) { $offices = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, office_id, responsibility_code_id, is_unit_head, position_title, first_name, middle_name, last_name, suffix_name FROM employees WHERE is_active = 1 ORDER BY office_id ASC, is_unit_head DESC, last_name ASC, first_name ASC");
     if ($res instanceof mysqli_result) { $employees = $res->fetch_all(MYSQLI_ASSOC); }
+    if (schema_has_table($db, 'employee_assignments')) {
+        $res = $db->query("
+            SELECT ea.employee_id, ea.office_id, ea.responsibility_code_id, ea.is_unit_head, ea.is_primary
+            FROM employee_assignments ea
+            INNER JOIN employees e ON e.id = ea.employee_id
+            WHERE ea.is_active = 1 AND e.is_active = 1
+            ORDER BY ea.is_primary DESC, ea.is_unit_head DESC, e.last_name ASC, e.first_name ASC, ea.id ASC
+        ");
+        if ($res instanceof mysqli_result) { $employeeAssignments = $res->fetch_all(MYSQLI_ASSOC); }
+    }
+    if (!$employeeAssignments) {
+        foreach ($employees as $employeeRow) {
+            $employeeAssignments[] = [
+                'employee_id' => (int) ($employeeRow['id'] ?? 0),
+                'office_id' => (int) ($employeeRow['office_id'] ?? 0),
+                'responsibility_code_id' => (int) ($employeeRow['responsibility_code_id'] ?? 0),
+                'is_unit_head' => (int) ($employeeRow['is_unit_head'] ?? 0),
+                'is_primary' => 1,
+            ];
+        }
+    } else {
+        $assignedEmployeeIds = [];
+        foreach ($employeeAssignments as $assignmentRow) {
+            $assignedEmployeeIds[(int) ($assignmentRow['employee_id'] ?? 0)] = true;
+        }
+        foreach ($employees as $employeeRow) {
+            $employeeId = (int) ($employeeRow['id'] ?? 0);
+            if ($employeeId <= 0 || isset($assignedEmployeeIds[$employeeId])) {
+                continue;
+            }
+            $employeeAssignments[] = [
+                'employee_id' => $employeeId,
+                'office_id' => (int) ($employeeRow['office_id'] ?? 0),
+                'responsibility_code_id' => (int) ($employeeRow['responsibility_code_id'] ?? 0),
+                'is_unit_head' => (int) ($employeeRow['is_unit_head'] ?? 0),
+                'is_primary' => 1,
+            ];
+        }
+    }
     $res = $db->query("SELECT id, office_id, code, description FROM responsibility_codes WHERE is_active = 1 ORDER BY code ASC");
     if ($res instanceof mysqli_result) { $responsibilityCodes = $res->fetch_all(MYSQLI_ASSOC); }
     $res = $db->query("SELECT id, classification_name, classification_family, classification_group, account_code_id FROM classifications WHERE is_active = 1 ORDER BY classification_family ASC, classification_name ASC");
@@ -342,6 +383,12 @@ if ($db) {
                     $bulkRows[$idx][$rowKey] = $postedValue;
                 }
                 $bulkRows[$idx]['item_description'] = preg_replace('/\s+/', ' ', (string) ($bulkRows[$idx]['item_description'] ?? '')) ?? (string) ($bulkRows[$idx]['item_description'] ?? '');
+                if (
+                    legacy_asset_should_split_per_unit($bulkDefaults['item_type'], (int) ($bulkRows[$idx]['quantity'] ?? 0))
+                    && trim((string) ($bulkRows[$idx]['serial_no'] ?? '')) !== ''
+                ) {
+                    add_validation_error($errors, 'Bulk row ' . ($idx + 1) . ' has quantity greater than 1 with a serial number. Encode serialized items as separate rows.');
+                }
             }
 
             $bulkOfficeId = $bulkDefaults['office_id'] !== '' ? (int) $bulkDefaults['office_id'] : 0;
@@ -368,15 +415,24 @@ if ($db) {
             }
 
             $employeeOfficeId = 0;
+            $employeeExists = false;
+            $hasSelectedOfficeAssignment = false;
             foreach ($employees as $employeeRow) {
                 if ((int) ($employeeRow['id'] ?? 0) === $bulkEmployeeId) {
+                    $employeeExists = true;
                     $employeeOfficeId = (int) ($employeeRow['office_id'] ?? 0);
                     break;
                 }
             }
-            if ($bulkEmployeeId > 0 && $employeeOfficeId <= 0) {
+            foreach ($employeeAssignments as $assignmentRow) {
+                if ((int) ($assignmentRow['employee_id'] ?? 0) === $bulkEmployeeId && (int) ($assignmentRow['office_id'] ?? 0) === $bulkOfficeId) {
+                    $hasSelectedOfficeAssignment = true;
+                    break;
+                }
+            }
+            if ($bulkEmployeeId > 0 && !$employeeExists) {
                 add_validation_error($errors, 'Selected employee is invalid.');
-            } elseif ($bulkOfficeId > 0 && $employeeOfficeId > 0 && $employeeOfficeId !== $bulkOfficeId) {
+            } elseif ($bulkOfficeId > 0 && $employeeOfficeId !== $bulkOfficeId && !$hasSelectedOfficeAssignment) {
                 add_validation_error($errors, 'Selected employee does not belong to the selected office.');
             }
 
@@ -498,26 +554,17 @@ if ($db) {
                 $supplierId = $bulkDefaults['supplier_id'] !== '' ? (int) $bulkDefaults['supplier_id'] : null;
                 $defaultUnitCost = $bulkDefaults['unit_cost'] !== '' ? (float) $bulkDefaults['unit_cost'] : 0.0;
                 $userId = current_user_id();
-
-                $stmt = $db->prepare("
-                    INSERT INTO legacy_assets
-                        (system_reference, po_number, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_of_measure_id, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, '', '', NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?)
-                ");
-
-                if (!$stmt) {
-                    $errors[] = 'Unable to prepare the bulk import.';
-                } else {
+                if (!$errors) {
                     $db->begin_transaction();
                     $insertedCount = 0;
 
                     try {
                         foreach ($bulkRows as $bulkRow) {
+                            $quantity = (int) $bulkRow['quantity'];
+                            $splitRecords = legacy_asset_should_split_per_unit($bulkDefaults['item_type'], $quantity);
                             $propertyNumber = $hasOfficialNumberInputs
                                 ? generate_property_number($db, $bulkYear, $bulkFundCode, $bulkAccountCode, $bulkOfficeCode)
                                 : legacy_asset_temp_property_number($db, $bulkOfficeCode);
-                            $systemReference = next_module_code($db, 'stock_items');
-                            $quantity = (int) $bulkRow['quantity'];
                             $unitOfMeasureId = legacy_asset_unit_id_from_text($unitOfMeasures, (string) $bulkRow['unit_text']);
                             $unitOfMeasureIdValue = $unitOfMeasureId !== '' ? (int) $unitOfMeasureId : null;
                             $rowUnitCost = (string) ($bulkRow['unit_cost'] ?? '') !== '' ? (float) $bulkRow['unit_cost'] : $defaultUnitCost;
@@ -535,79 +582,86 @@ if ($db) {
                             }
 
                             $bulkRcIdValue = $bulkRcId > 0 ? $bulkRcId : null;
-                            $stmt->bind_param(
-                                'sssssiiiissiiddiiissi',
-                                $systemReference,
-                                $bulkDefaults['po_number'],
-                                $propertyNumber,
-                                $bulkDefaults['item_type'],
-                                $description,
-                                $classificationId,
-                                $accountCodeId,
-                                $fundId,
-                                $supplierId,
-                                $serialNo,
-                                $bulkDefaults['acquisition_date'],
-                                $quantity,
-                                $unitOfMeasureIdValue,
-                                $rowUnitCost,
-                                $acquisitionCost,
-                                $bulkOfficeId,
-                                $bulkEmployeeId,
-                                $bulkRcIdValue,
-                                $bulkDefaults['condition_status'],
-                                $bulkDefaults['remarks'],
-                                $userId
-                            );
-                            if (!$stmt->execute()) {
-                                throw new RuntimeException($stmt->error ?: 'Unable to insert bulk legacy asset row.');
-                            }
-                            $legacyAssetId = (int) $stmt->insert_id;
-                            $insertedCount++;
+                            $recordsToCreate = $splitRecords ? $quantity : 1;
+                            for ($unitIndex = 0; $unitIndex < $recordsToCreate; $unitIndex++) {
+                                $rowPropertyNumber = $unitIndex === 0
+                                    ? $propertyNumber
+                                    : ($hasOfficialNumberInputs
+                                        ? generate_property_number($db, $bulkYear, $bulkFundCode, $bulkAccountCode, $bulkOfficeCode)
+                                        : legacy_asset_temp_property_number($db, $bulkOfficeCode));
+                                $rowQuantityValue = $splitRecords ? 1 : $quantity;
+                                $rowAcquisitionCostValue = $splitRecords
+                                    ? round($rowUnitCost * $rowQuantityValue, 2)
+                                    : $acquisitionCost;
+                                $rowSerialNo = $splitRecords && $unitIndex > 0 ? '' : $serialNo;
+                                $systemReference = next_module_code($db, 'stock_items');
 
-                            if ($legacyAssetId > 0 && schema_has_column($db, 'legacy_assets', 'item_name')) {
-                                $itemNameStmt = $db->prepare("UPDATE legacy_assets SET item_name = NULLIF(?, '') WHERE id = ?");
-                                if ($itemNameStmt) {
-                                    $itemNameStmt->bind_param('si', $itemName, $legacyAssetId);
-                                    $itemNameStmt->execute();
-                                    $itemNameStmt->close();
-                                }
-                            }
-
-                            write_audit_log($db, [
-                                'action' => 'insert',
-                                'table_name' => 'legacy_assets',
-                                'record_id' => $legacyAssetId,
-                                'module_name' => 'property',
-                                'record_type' => 'legacy_asset',
-                                'action_name' => 'bulk_create_legacy_asset',
-                                'new_values' => [
+                                $legacyAssetId = legacy_asset_insert_record($db, [
                                     'system_reference' => $systemReference,
-                                    'property_number' => $propertyNumber,
+                                    'po_number' => $bulkDefaults['po_number'],
+                                    'property_number' => $rowPropertyNumber,
                                     'item_type' => $bulkDefaults['item_type'],
-                                    'item_name' => $itemName,
                                     'item_description' => $description,
+                                    'classification_id' => $classificationId,
+                                    'account_code_id' => $accountCodeId,
                                     'fund_id' => $fundId,
+                                    'supplier_id' => $supplierId,
+                                    'brand_id' => null,
+                                    'model_id' => null,
+                                    'brand' => '',
+                                    'model' => '',
+                                    'serial_no' => $rowSerialNo,
                                     'acquisition_date' => $bulkDefaults['acquisition_date'],
-                                    'quantity' => $quantity,
+                                    'quantity' => $rowQuantityValue,
                                     'unit_of_measure_id' => $unitOfMeasureIdValue,
                                     'unit_cost' => $rowUnitCost,
-                                    'acquisition_cost' => $acquisitionCost,
+                                    'acquisition_cost' => $rowAcquisitionCostValue,
                                     'office_id' => $bulkOfficeId,
                                     'employee_id' => $bulkEmployeeId,
-                                    'responsibility_code_id' => $bulkRcId,
-                                ],
-                                'description' => 'Bulk imported beginning balance asset.',
-                            ]);
+                                    'responsibility_code_id' => $bulkRcIdValue,
+                                    'condition_status' => $bulkDefaults['condition_status'],
+                                    'remarks' => $bulkDefaults['remarks'],
+                                    'created_by' => $userId,
+                                    'item_name' => $itemName,
+                                ]);
+                                if ($legacyAssetId <= 0) {
+                                    throw new RuntimeException('Unable to insert bulk legacy asset row.');
+                                }
+                                $insertedCount++;
+
+                                write_audit_log($db, [
+                                    'action' => 'insert',
+                                    'table_name' => 'legacy_assets',
+                                    'record_id' => $legacyAssetId,
+                                    'module_name' => 'property',
+                                    'record_type' => 'legacy_asset',
+                                    'action_name' => 'bulk_create_legacy_asset',
+                                    'new_values' => [
+                                        'system_reference' => $systemReference,
+                                        'property_number' => $rowPropertyNumber,
+                                        'item_type' => $bulkDefaults['item_type'],
+                                        'item_name' => $itemName,
+                                        'item_description' => $description,
+                                        'fund_id' => $fundId,
+                                        'acquisition_date' => $bulkDefaults['acquisition_date'],
+                                        'quantity' => $rowQuantityValue,
+                                        'unit_of_measure_id' => $unitOfMeasureIdValue,
+                                        'unit_cost' => $rowUnitCost,
+                                        'acquisition_cost' => $rowAcquisitionCostValue,
+                                        'office_id' => $bulkOfficeId,
+                                        'employee_id' => $bulkEmployeeId,
+                                        'responsibility_code_id' => $bulkRcId,
+                                    ],
+                                    'description' => 'Bulk imported beginning balance asset.',
+                                ]);
+                            }
                         }
 
-                        $stmt->close();
                         $db->commit();
                         set_flash('success', number_format($insertedCount) . ' beginning balance assets imported successfully.');
                         redirect('modules/property/legacy_assets.php');
                     } catch (Throwable $e) {
                         $db->rollback();
-                        $stmt->close();
                         error_log('Bulk legacy asset import failed: ' . $e->getMessage());
                         $errors[] = 'Bulk import failed. No rows were saved.';
                     }
@@ -729,15 +783,24 @@ if ($db) {
 
         if ($employeeIdValue > 0) {
             $employeeOfficeId = 0;
+            $employeeExists = false;
+            $hasSelectedOfficeAssignment = false;
             foreach ($employees as $employeeRow) {
                 if ((int) ($employeeRow['id'] ?? 0) === $employeeIdValue) {
+                    $employeeExists = true;
                     $employeeOfficeId = (int) ($employeeRow['office_id'] ?? 0);
                     break;
                 }
             }
-            if ($employeeOfficeId <= 0) {
+            foreach ($employeeAssignments as $assignmentRow) {
+                if ((int) ($assignmentRow['employee_id'] ?? 0) === $employeeIdValue && (int) ($assignmentRow['office_id'] ?? 0) === $officeIdValue) {
+                    $hasSelectedOfficeAssignment = true;
+                    break;
+                }
+            }
+            if (!$employeeExists) {
                 add_validation_error($errors, 'Selected employee is invalid.');
-            } elseif ($officeIdValue > 0 && $employeeOfficeId !== $officeIdValue) {
+            } elseif ($officeIdValue > 0 && $employeeOfficeId !== $officeIdValue && !$hasSelectedOfficeAssignment) {
                 add_validation_error($errors, 'Selected employee does not belong to the selected office.');
             }
         }
@@ -773,6 +836,7 @@ if ($db) {
             }
         }
 
+        $hasOfficialNumberInputs = false;
         if (!$errors) {
             $hasOfficialNumberInputs = $form['acquisition_date'] !== ''
                 && $form['fund_id'] !== ''
@@ -798,8 +862,15 @@ if ($db) {
             }
         }
 
+        if (
+            !$errors
+            && legacy_asset_should_split_per_unit($form['item_type'], (int) $form['quantity'])
+            && trim((string) $form['serial_no']) !== ''
+        ) {
+            add_validation_error($errors, 'Items with quantity greater than 1 and a serial number must be encoded as separate rows.');
+        }
+
         if (!$errors) {
-            $systemReference = next_module_code($db, 'stock_items');
             $userId = current_user_id();
             $classificationId = $form['classification_id'] !== '' ? (int) $form['classification_id'] : null;
             $accountCodeId = $form['account_code_id'] !== '' ? (int) $form['account_code_id'] : null;
@@ -811,6 +882,7 @@ if ($db) {
             $employeeId = $form['employee_id'] !== '' ? (int) $form['employee_id'] : null;
             $rcId = $form['responsibility_code_id'] !== '' ? (int) $form['responsibility_code_id'] : null;
             $quantity = (int) $form['quantity'];
+            $splitRecords = legacy_asset_should_split_per_unit($form['item_type'], $quantity);
             $unitOfMeasureId = $form['unit_of_measure_id'] !== '' ? (int) $form['unit_of_measure_id'] : null;
             $unitCost = $form['unit_cost'] !== '' ? (float) $form['unit_cost'] : 0.0;
             $acquisitionCost = round($quantity * $unitCost, 2);
@@ -838,81 +910,88 @@ if ($db) {
                 if ((int) $modelRow['id'] === (int) $modelId) { $modelName = (string) $modelRow['model_name']; break; }
             }
 
-            $stmt = $db->prepare("
-                INSERT INTO legacy_assets
-                    (system_reference, po_number, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_of_measure_id, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            if ($stmt) {
-                $stmt->bind_param(
-                    'sssssiiiiiissssiiddiiissi',
-                    $systemReference,
-                    $form['po_number'],
-                    $form['property_number'],
-                    $form['item_type'],
-                    $form['item_description'],
-                    $classificationId,
-                    $accountCodeId,
-                    $fundId,
-                    $supplierId,
-                    $brandId,
-                    $modelId,
-                    $brandName,
-                    $modelName,
-                    $form['serial_no'],
-                    $form['acquisition_date'],
-                    $quantity,
-                    $unitOfMeasureId,
-                    $unitCost,
-                    $acquisitionCost,
-                    $officeId,
-                    $employeeId,
-                    $rcId,
-                    $form['condition_status'],
-                    $form['remarks'],
-                    $userId
-                );
-                $stmt->execute();
-                $legacyAssetId = (int) $stmt->insert_id;
-                $stmt->close();
+            $db->begin_transaction();
+            try {
+                $createdCount = 0;
+                $recordsToCreate = $splitRecords ? $quantity : 1;
+                for ($unitIndex = 0; $unitIndex < $recordsToCreate; $unitIndex++) {
+                    $rowPropertyNumber = $unitIndex === 0
+                        ? $form['property_number']
+                        : ($hasOfficialNumberInputs
+                            ? generate_property_number($db, $yearValue, $fundCodeValue, $accountCodeValue, $officeCodeValue)
+                            : legacy_asset_temp_property_number($db, $officeCodeValue));
+                    $rowQuantity = $splitRecords ? 1 : $quantity;
+                    $rowAcquisitionCost = $splitRecords ? round($unitCost * $rowQuantity, 2) : $acquisitionCost;
+                    $rowSerialNo = $splitRecords && $unitIndex > 0 ? '' : $form['serial_no'];
+                    $systemReference = next_module_code($db, 'stock_items');
 
-                if ($legacyAssetId > 0 && schema_has_column($db, 'legacy_assets', 'item_name')) {
-                    $itemNameStmt = $db->prepare("UPDATE legacy_assets SET item_name = NULLIF(?, '') WHERE id = ?");
-                    if ($itemNameStmt) {
-                        $itemNameStmt->bind_param('si', $itemName, $legacyAssetId);
-                        $itemNameStmt->execute();
-                        $itemNameStmt->close();
-                    }
-                }
-
-                write_audit_log($db, [
-                    'action' => 'insert',
-                    'table_name' => 'legacy_assets',
-                    'record_id' => $legacyAssetId,
-                    'module_name' => 'property',
-                    'record_type' => 'legacy_asset',
-                    'action_name' => 'create_legacy_asset',
-                    'new_values' => [
+                    $legacyAssetId = legacy_asset_insert_record($db, [
                         'system_reference' => $systemReference,
-                        'property_number' => $form['property_number'],
+                        'po_number' => $form['po_number'],
+                        'property_number' => $rowPropertyNumber,
                         'item_type' => $form['item_type'],
-                        'item_name' => $itemName,
                         'item_description' => $form['item_description'],
+                        'classification_id' => $classificationId,
+                        'account_code_id' => $accountCodeId,
                         'fund_id' => $fundId,
+                        'supplier_id' => $supplierId,
+                        'brand_id' => $brandId,
+                        'model_id' => $modelId,
+                        'brand' => $brandName,
+                        'model' => $modelName,
+                        'serial_no' => $rowSerialNo,
                         'acquisition_date' => $form['acquisition_date'],
-                        'quantity' => $quantity,
+                        'quantity' => $rowQuantity,
                         'unit_of_measure_id' => $unitOfMeasureId,
                         'unit_cost' => $unitCost,
-                        'acquisition_cost' => $acquisitionCost,
+                        'acquisition_cost' => $rowAcquisitionCost,
                         'office_id' => $officeId,
                         'employee_id' => $employeeId,
                         'responsibility_code_id' => $rcId,
-                    ],
-                    'description' => 'Created beginning balance asset.',
-                ]);
-                set_flash('success', 'Beginning balance asset recorded successfully.');
+                        'condition_status' => $form['condition_status'],
+                        'remarks' => $form['remarks'],
+                        'created_by' => $userId,
+                        'item_name' => $itemName,
+                    ]);
+                    if ($legacyAssetId <= 0) {
+                        throw new RuntimeException('Unable to save the beginning balance asset.');
+                    }
+                    $createdCount++;
+
+                    write_audit_log($db, [
+                        'action' => 'insert',
+                        'table_name' => 'legacy_assets',
+                        'record_id' => $legacyAssetId,
+                        'module_name' => 'property',
+                        'record_type' => 'legacy_asset',
+                        'action_name' => 'create_legacy_asset',
+                        'new_values' => [
+                            'system_reference' => $systemReference,
+                            'property_number' => $rowPropertyNumber,
+                            'item_type' => $form['item_type'],
+                            'item_name' => $itemName,
+                            'item_description' => $form['item_description'],
+                            'fund_id' => $fundId,
+                            'acquisition_date' => $form['acquisition_date'],
+                            'quantity' => $rowQuantity,
+                            'unit_of_measure_id' => $unitOfMeasureId,
+                            'unit_cost' => $unitCost,
+                            'acquisition_cost' => $rowAcquisitionCost,
+                            'office_id' => $officeId,
+                            'employee_id' => $employeeId,
+                            'responsibility_code_id' => $rcId,
+                        ],
+                        'description' => 'Created beginning balance asset.',
+                    ]);
+                }
+
+                $db->commit();
+                set_flash('success', $createdCount > 1
+                    ? number_format($createdCount) . ' beginning balance assets recorded successfully.'
+                    : 'Beginning balance asset recorded successfully.');
                 redirect('modules/property/legacy_assets.php');
-            } else {
+            } catch (Throwable $e) {
+                $db->rollback();
                 $errors[] = 'Unable to save the beginning balance asset.';
             }
         }
@@ -934,7 +1013,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div>
                         <div class="text-uppercase small text-muted fw-semibold">Beginning Balance Encoding</div>
                         <h4 class="mb-1">Encode Legacy Asset</h4>
-                        <div class="small text-muted">Record an existing asset already owned by the university. If date or fund is still unknown, the system saves a temporary property number first.</div>
+                        <div class="small text-muted">Record an existing asset already owned by the university. One physical unit corresponds to one property number. If quantity is greater than 1, the system creates separate records and separate property numbers per unit. If date or fund is still unknown, the system saves a temporary property number first.</div>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
                         <a href="#bulkImportPanel" class="btn btn-success">
@@ -990,6 +1069,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-4">
                             <label class="form-label">Quantity</label>
                             <input type="number" min="1" step="1" class="form-control" name="quantity" value="<?php echo h($form['quantity']); ?>" required>
+                            <div class="form-text">Rule: 1 unit quantity = 1 property number. Quantity above 1 creates separate records with separate property numbers.</div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Unit of Measure</label>
@@ -1183,7 +1263,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-12">
                             <label class="form-label">Item Rows <span class="text-danger">*</span></label>
                             <textarea class="form-control font-monospace" name="bulk_items" id="bulk_items" rows="10" required placeholder="11 pcs Fingerprint Brushes&#10;6 pcs Fingerprint Rollers&#10;1 unit I.D. Laminator / Laminating Machine&#10;SN-002062"></textarea>
-                            <div class="form-text">Accepted format: quantity, unit, optional unit cost, optional total cost, description. A serial number line starting with SN is attached to the previous item.</div>
+                            <div class="form-text">Accepted format: quantity, unit, optional unit cost, optional total cost, description. Rule: 1 unit quantity = 1 property number, so quantity above 1 is split into separate records. A serial number line starting with SN is attached to the previous item.</div>
                         </div>
 
                         <div class="col-md-4">
@@ -1405,6 +1485,23 @@ require_once __DIR__ . '/../../includes/topbar.php';
         }, $classifications);
         echo json_encode($classificationDataset, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     ?>;
+    var employeeAssignmentOptions = <?php
+        $employeeAssignmentDataset = array_values(array_filter(array_map(static function ($assignment) {
+            $employeeId = (int) ($assignment['employee_id'] ?? 0);
+            $officeId = (int) ($assignment['office_id'] ?? 0);
+            if ($employeeId <= 0 || $officeId <= 0) {
+                return null;
+            }
+            return [
+                'employeeId' => (string) $employeeId,
+                'officeId' => (string) $officeId,
+                'responsibilityCodeId' => (string) ((int) ($assignment['responsibility_code_id'] ?? 0)),
+                'isUnitHead' => (int) ($assignment['is_unit_head'] ?? 0),
+                'isPrimary' => (int) ($assignment['is_primary'] ?? 0),
+            ];
+        }, $employeeAssignments)));
+        echo json_encode($employeeAssignmentDataset, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    ?>;
 
     function expectedAssetGroups(itemType) {
         return itemType === 'equipment' ? ['asset', 'fixed_asset'] : ['semi_expendable'];
@@ -1551,42 +1648,69 @@ require_once __DIR__ . '/../../includes/topbar.php';
             });
         }
 
+        function employeeAssignments(employeeId) {
+            return employeeAssignmentOptions.filter(function(assignment) {
+                return assignment.employeeId === String(employeeId || '');
+            });
+        }
+
+        function bestAssignmentForEmployee(employeeId, officeId, rcId) {
+            var assignments = employeeAssignments(employeeId);
+            if (!assignments.length) { return null; }
+            var matches = assignments;
+            if (officeId) {
+                var officeMatches = matches.filter(function(assignment) {
+                    return assignment.officeId === officeId;
+                });
+                if (officeMatches.length) {
+                    matches = officeMatches;
+                }
+            }
+            if (rcId) {
+                var rcMatches = matches.filter(function(assignment) {
+                    return assignment.responsibilityCodeId === rcId;
+                });
+                if (rcMatches.length) {
+                    matches = rcMatches;
+                }
+            }
+            return matches.find(function(assignment) { return assignment.isPrimary === 1; })
+                || matches.find(function(assignment) { return assignment.isUnitHead === 1; })
+                || matches[0];
+        }
+
         function preferredEmployeeForOffice(officeId, preferredRcId) {
-            var firstEmployeeId = '';
-            var unitHeadId = '';
-            var rcEmployeeId = '';
+            var firstAssignment = null;
+            var unitHeadAssignment = null;
+            var rcAssignment = null;
             if (!officeId) { return ''; }
-            Array.prototype.forEach.call(employeeSelect.options, function(option) {
-                if (!option.value || (option.getAttribute('data-office-id') || '') !== officeId) { return; }
-                if (firstEmployeeId === '') {
-                    firstEmployeeId = option.value;
+            employeeAssignmentOptions.forEach(function(assignment) {
+                if (assignment.officeId !== officeId) { return; }
+                if (!firstAssignment) {
+                    firstAssignment = assignment;
                 }
-                if (option.getAttribute('data-is-unit-head') === '1' && unitHeadId === '') {
-                    unitHeadId = option.value;
+                if (assignment.isUnitHead === 1 && !unitHeadAssignment) {
+                    unitHeadAssignment = assignment;
                 }
-                if (preferredRcId !== '' && (option.getAttribute('data-responsibility-code-id') || '') === preferredRcId && rcEmployeeId === '') {
-                    rcEmployeeId = option.value;
+                if (preferredRcId !== '' && assignment.responsibilityCodeId === preferredRcId && !rcAssignment) {
+                    rcAssignment = assignment;
                 }
             });
-            return rcEmployeeId !== '' ? rcEmployeeId : (unitHeadId !== '' ? unitHeadId : firstEmployeeId);
+            var selectedAssignment = rcAssignment || unitHeadAssignment || firstAssignment;
+            return selectedAssignment ? selectedAssignment.employeeId : '';
         }
 
         function preferredRcForOffice(officeId, preferredEmployeeId) {
-            var employeeRcId = '';
             var firstRcId = '';
             if (!officeId) { return ''; }
             if (preferredEmployeeId) {
-                var employeeOption = Array.prototype.find.call(employeeSelect.options, function(option) {
-                    return option.value === preferredEmployeeId;
-                });
-                employeeRcId = employeeOption ? (employeeOption.getAttribute('data-responsibility-code-id') || '') : '';
+                var assignment = bestAssignmentForEmployee(preferredEmployeeId, officeId, '');
+                if (assignment && assignment.responsibilityCodeId !== '0') {
+                    return assignment.responsibilityCodeId;
+                }
             }
             Array.prototype.forEach.call(rcSelect.options, function(option) {
                 if (!option.value || (option.getAttribute('data-office-id') || '') !== officeId) { return; }
-                if (employeeRcId !== '' && option.value === employeeRcId) {
-                    firstRcId = option.value;
-                    return;
-                }
                 if (firstRcId === '') {
                     firstRcId = option.value;
                 }
@@ -1619,13 +1743,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 syncFromOffice(false);
                 return;
             }
-            var officeId = option.getAttribute('data-office-id') || '';
-            if (officeId) {
-                setSelectValue(officeSelect, officeId);
+            var currentOfficeId = officeSelect.value || '';
+            var assignment = bestAssignmentForEmployee(employeeId, currentOfficeId, '');
+            if (assignment && assignment.officeId) {
+                setSelectValue(officeSelect, assignment.officeId);
                 enableAssignmentOptions(employeeSelect);
                 enableAssignmentOptions(rcSelect);
                 setSelectValue(employeeSelect, employeeId);
-                setSelectValue(rcSelect, preferredRcForOffice(officeId, employeeId));
+                setSelectValue(rcSelect, assignment.responsibilityCodeId !== '0' ? assignment.responsibilityCodeId : preferredRcForOffice(assignment.officeId, employeeId));
             }
         }
 
@@ -1908,40 +2033,84 @@ require_once __DIR__ . '/../../includes/topbar.php';
             refreshEnhancedSelect(select);
         }
 
-        function firstEmployeeForOffice(officeId) {
-            var unitHeadId = '';
-            var firstId = '';
-            Array.prototype.forEach.call(employeeSelect.options, function(option) {
-                if (!option.value || (option.getAttribute('data-office-id') || '') !== officeId) { return; }
-                if (!firstId) { firstId = option.value; }
-                if (!unitHeadId && option.getAttribute('data-is-unit-head') === '1') { unitHeadId = option.value; }
+        function employeeAssignments(employeeId) {
+            return employeeAssignmentOptions.filter(function(assignment) {
+                return assignment.employeeId === String(employeeId || '');
             });
-            return unitHeadId || firstId;
+        }
+
+        function bestAssignmentForEmployee(employeeId, officeId) {
+            var assignments = employeeAssignments(employeeId);
+            if (!assignments.length) { return null; }
+            if (officeId) {
+                var officeMatches = assignments.filter(function(assignment) { return assignment.officeId === officeId; });
+                if (officeMatches.length) { assignments = officeMatches; }
+            }
+            return assignments.find(function(assignment) { return assignment.isPrimary === 1; })
+                || assignments.find(function(assignment) { return assignment.isUnitHead === 1; })
+                || assignments[0];
+        }
+
+        function firstEmployeeForOffice(officeId, rcId) {
+            var firstAssignment = null;
+            var unitHeadAssignment = null;
+            var rcAssignment = null;
+            employeeAssignmentOptions.forEach(function(assignment) {
+                if (assignment.officeId !== officeId) { return; }
+                if (!firstAssignment) { firstAssignment = assignment; }
+                if (assignment.isUnitHead === 1 && !unitHeadAssignment) { unitHeadAssignment = assignment; }
+                if (rcId && assignment.responsibilityCodeId === rcId && !rcAssignment) { rcAssignment = assignment; }
+            });
+            var selectedAssignment = rcAssignment || unitHeadAssignment || firstAssignment;
+            return selectedAssignment ? selectedAssignment.employeeId : '';
         }
 
         function firstRcForOffice(officeId, employeeId) {
-            var employeeOption = Array.prototype.find.call(employeeSelect.options, function(option) { return option.value === employeeId; });
-            var employeeRc = employeeOption ? (employeeOption.getAttribute('data-responsibility-code-id') || '') : '';
+            var assignment = bestAssignmentForEmployee(employeeId, officeId);
+            if (assignment && assignment.responsibilityCodeId !== '0') {
+                return assignment.responsibilityCodeId;
+            }
             var firstId = '';
             Array.prototype.forEach.call(rcSelect.options, function(option) {
                 if (!option.value || (option.getAttribute('data-office-id') || '') !== officeId) { return; }
-                if (employeeRc && option.value === employeeRc) { firstId = option.value; }
                 if (!firstId) { firstId = option.value; }
             });
             return firstId;
         }
 
-        function syncBulkAssignment() {
+        function syncBulkFromOffice() {
             var officeId = officeSelect.value || '';
             if (!officeId) { return; }
-            var employeeId = employeeSelect.value || firstEmployeeForOffice(officeId);
+            var employeeId = employeeSelect.value || firstEmployeeForOffice(officeId, '');
             setValue(employeeSelect, employeeId);
             setValue(rcSelect, firstRcForOffice(officeId, employeeId));
         }
 
-        officeSelect.addEventListener('change', syncBulkAssignment);
+        function syncBulkFromEmployee() {
+            var assignment = bestAssignmentForEmployee(employeeSelect.value || '', officeSelect.value || '');
+            if (!assignment) { return; }
+            setValue(officeSelect, assignment.officeId);
+            setValue(employeeSelect, assignment.employeeId);
+            setValue(rcSelect, assignment.responsibilityCodeId !== '0' ? assignment.responsibilityCodeId : firstRcForOffice(assignment.officeId, assignment.employeeId));
+        }
+
+        function syncBulkFromRc() {
+            var option = rcSelect.options[rcSelect.selectedIndex];
+            var rcId = option ? (option.value || '') : '';
+            var officeId = option ? (option.getAttribute('data-office-id') || '') : '';
+            if (!officeId) { return; }
+            setValue(officeSelect, officeId);
+            setValue(rcSelect, rcId);
+            setValue(employeeSelect, firstEmployeeForOffice(officeId, rcId));
+        }
+
+        officeSelect.addEventListener('change', syncBulkFromOffice);
+        employeeSelect.addEventListener('change', syncBulkFromEmployee);
+        rcSelect.addEventListener('change', syncBulkFromRc);
         if (window.jQuery) {
-            jQuery(officeSelect).off('change.bulkOffice').on('change.bulkOffice', syncBulkAssignment);
+            jQuery(officeSelect).off('change.bulkOffice').on('change.bulkOffice', syncBulkFromOffice);
+            jQuery(employeeSelect).off('change.bulkEmployee').on('change.bulkEmployee', syncBulkFromEmployee);
+            jQuery(rcSelect).off('change.bulkRc').on('change.bulkRc', syncBulkFromRc);
         }
     }
 

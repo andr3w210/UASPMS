@@ -17,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Invalid form submission. Please try again.';
     } elseif ($username === '' || $password === '') {
         $error = 'Please enter username and password.';
-    } elseif (rate_limit_check('login')) {
+    } elseif (rate_limit_check('login', 5, 15, true)) {
         $retryAfter = rate_limit_retry_after('login');
         $retryMinutes = $retryAfter > 0 ? (int) ceil($retryAfter / 60) : 15;
         $error = 'Too many login attempts from your IP address. Please try again in ' . $retryMinutes . ' minute(s).';

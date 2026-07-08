@@ -7,6 +7,11 @@ Set Office Equipment (1.06.05.020.00) based on the authoritative list provided
 */
 
 $mysqli = tools_db();
+$apply = in_array('--apply', $argv, true);
+
+if (!$apply) {
+    echo "DRY RUN: no database changes will be committed. Re-run with --apply to update Office Equipment classification.\n\n";
+}
 
 // AUTHORITATIVE LIST - serial numbers that MUST be in Office Equipment
 $authoritySerialNumbers = [
@@ -88,6 +93,8 @@ while ($row = $result->fetch_assoc()) {
 }
 echo "\nTotal to remove: " . count($itemsToRemove) . " items / " . number_format($removeTotal, 2) . " PHP\n\n";
 
+$mysqli->begin_transaction();
+try {
 // Remove these items (move to null account or flag as unclassified)
 if (count($itemsToRemove) > 0) {
     $removeIds = implode(',', $itemsToRemove);
@@ -101,7 +108,7 @@ if (count($itemsToRemove) > 0) {
                   updated_at = NOW()
               WHERE id IN ($removeIds)";
     if ($mysqli->query($query)) {
-        echo "✓ Removed " . $mysqli->affected_rows . " incorrect items from Office Equipment\n\n";
+        echo ($apply ? "Removed " : "Would remove ") . $mysqli->affected_rows . " incorrect items from Office Equipment\n\n";
     }
 }
 
@@ -144,7 +151,7 @@ if (count($itemsToMove) > 0) {
                   updated_at = NOW()
               WHERE id IN ($moveIds)";
     if ($mysqli->query($query)) {
-        echo "✓ Moved " . $mysqli->affected_rows . " items into Office Equipment\n\n";
+        echo ($apply ? "Moved " : "Would move ") . $mysqli->affected_rows . " items into Office Equipment\n\n";
     }
 }
 
@@ -172,6 +179,18 @@ if ($rowFinal['total']) {
     echo "Expected total (from list): " . number_format($expected, 2) . " PHP\n";
     echo "Actual total: " . number_format($rowFinal['total'], 2) . " PHP\n";
     echo "Gap: " . number_format($gap, 2) . " PHP (" . round(($gap / $expected) * 100, 2) . "%)\n";
+}
+
+if ($apply) {
+    $mysqli->commit();
+    echo "\nCOMMITTED. Database was updated.\n";
+} else {
+    $mysqli->rollback();
+    echo "\nROLLED BACK. No database changes were committed.\n";
+}
+} catch (Throwable $e) {
+    $mysqli->rollback();
+    throw $e;
 }
 
 $mysqli->close();

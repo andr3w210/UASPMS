@@ -14,7 +14,12 @@ require_once __DIR__ . '/../bootstrap.php';
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
 
+$apply = in_array('--apply', $argv, true);
+
 $db = tools_db();
+if (!$apply) {
+    echo 'Dry-run only. Re-run with --apply to persist property-number suffix corrections.' . PHP_EOL;
+}
 
 function has_column(mysqli $db, string $table, string $column): bool
 {
@@ -245,13 +250,17 @@ try {
         }
     }
 
-    $db->commit();
+    if ($apply) {
+        $db->commit();
+    } else {
+        $db->rollback();
+    }
 
     foreach ($statements as $stmt) {
         $stmt->close();
     }
 
-    echo 'Correction committed.' . PHP_EOL;
+    echo $apply ? 'Correction committed.' . PHP_EOL : 'Dry run complete; no changes were saved.' . PHP_EOL;
     ksort($updatedByTable);
     foreach ($updatedByTable as $table => $count) {
         echo $table . '_updated=' . (int) $count . PHP_EOL;

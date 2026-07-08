@@ -16,110 +16,48 @@ if (!in_array($itemFilter, ['all', 'included', 'excluded', 'disposed'], true)) {
     $itemFilter = 'all';
 }
 
-function ensure_rpcppe_batch_tables(mysqli $db): void
+function rpcppe_validate_batch_schema(mysqli $db): array
 {
-    ensure_legacy_assets_fund_column($db);
-    ensure_legacy_assets_rpcppe_tracking_columns($db);
-    ensure_distribution_item_rpcppe_tracking_columns($db);
+    $errors = [];
 
-    $db->query("CREATE TABLE IF NOT EXISTS rpcppe_batches (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        batch_year SMALLINT UNSIGNED NOT NULL,
-        batch_name VARCHAR(150) NOT NULL,
-        as_of_date DATE NOT NULL,
-        status ENUM('draft', 'finalized') NOT NULL DEFAULT 'draft',
-        notes TEXT NULL,
-        created_by BIGINT UNSIGNED NULL,
-        finalized_by BIGINT UNSIGNED NULL,
-        finalized_at DATETIME NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_rpcppe_batches_year_status (batch_year, status),
-        KEY idx_rpcppe_batches_as_of_date (as_of_date)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    if (!schema_has_column($db, 'legacy_assets', 'fund_id')) {
+        $errors[] = 'Database schema is outdated: legacy_assets.fund_id is missing. Apply latest migrations before continuing.';
+    }
+    if (!schema_has_column($db, 'legacy_assets', 'is_rpcppe_candidate')
+        || !schema_has_column($db, 'legacy_assets', 'rpcppe_status')
+        || !schema_has_column($db, 'legacy_assets', 'rpcppe_batch_id')) {
+        $errors[] = 'Database schema is outdated: legacy_assets RPCPPE tracking columns are missing. Apply latest migrations before continuing.';
+    }
+    if (!schema_has_column($db, 'distribution_item_details', 'is_rpcppe_candidate')
+        || !schema_has_column($db, 'distribution_item_details', 'rpcppe_status')
+        || !schema_has_column($db, 'distribution_item_details', 'rpcppe_batch_id')) {
+        $errors[] = 'Database schema is outdated: distribution_item_details RPCPPE tracking columns are missing. Apply latest migrations before continuing.';
+    }
+    if (function_exists('schema_has_table') && !schema_has_table($db, 'rpcppe_batches')) {
+        $errors[] = 'Database schema is outdated: rpcppe_batches table is missing. Apply latest migrations before continuing.';
+    }
+    if (function_exists('schema_has_table') && !schema_has_table($db, 'rpcppe_batch_items')) {
+        $errors[] = 'Database schema is outdated: rpcppe_batch_items table is missing. Apply latest migrations before continuing.';
+    }
+    if (!schema_has_column($db, 'rpcppe_batch_items', 'item_name')
+        || !schema_has_column($db, 'rpcppe_batch_items', 'item_name_id')
+        || !schema_has_column($db, 'rpcppe_batch_items', 'reconciliation_status')
+        || !schema_has_column($db, 'rpcppe_batch_items', 'submitted_to_accounting_at')
+        || !schema_has_column($db, 'rpcppe_batch_items', 'reconciled_at')) {
+        $errors[] = 'Database schema is outdated: rpcppe_batch_items required columns are missing. Apply latest migrations before continuing.';
+    }
+    if (function_exists('schema_has_table') && !schema_has_table($db, 'item_names')) {
+        $errors[] = 'Database schema is outdated: item_names table is missing. Apply latest migrations before continuing.';
+    }
 
-    $db->query("CREATE TABLE IF NOT EXISTS rpcppe_batch_items (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        batch_id BIGINT UNSIGNED NOT NULL,
-        source_type ENUM('system', 'legacy') NOT NULL,
-        distribution_item_detail_id BIGINT UNSIGNED NULL,
-        legacy_asset_id BIGINT UNSIGNED NULL,
-        property_number VARCHAR(120) NOT NULL,
-        item_name VARCHAR(255) NULL,
-        item_name_id BIGINT UNSIGNED NULL,
-        item_description TEXT NOT NULL,
-        description_detail TEXT NULL,
-        classification_name VARCHAR(255) NULL,
-        classification_family VARCHAR(255) NULL,
-        uom_name VARCHAR(120) NULL,
-        abbreviation VARCHAR(60) NULL,
-        unit_cost DECIMAL(14,2) NOT NULL DEFAULT 0.00,
-        brand VARCHAR(200) NULL,
-        model VARCHAR(200) NULL,
-        serial_no VARCHAR(200) NULL,
-        office_id BIGINT UNSIGNED NULL,
-        office_name VARCHAR(255) NULL,
-        employee_id BIGINT UNSIGNED NULL,
-        employee_name VARCHAR(255) NULL,
-        account_code_id BIGINT UNSIGNED NULL,
-        account_code VARCHAR(100) NULL,
-        account_name VARCHAR(255) NULL,
-        fund_code VARCHAR(100) NULL,
-        fund_source VARCHAR(150) NULL,
-        fund_number VARCHAR(10) NULL,
-        remarks VARCHAR(120) NULL,
-        is_included TINYINT(1) NOT NULL DEFAULT 1,
-        is_disposed TINYINT(1) NOT NULL DEFAULT 0,
-        disposed_at DATE NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_rpcppe_batch_items_batch_include (batch_id, is_included, is_disposed),
-        KEY idx_rpcppe_batch_items_property (property_number),
-        KEY idx_rpcppe_batch_items_item_name_id (item_name_id),
-        KEY idx_rpcppe_batch_items_system_asset (distribution_item_detail_id),
-        KEY idx_rpcppe_batch_items_legacy_asset (legacy_asset_id),
-        UNIQUE KEY uq_rpcppe_batch_system_item (batch_id, distribution_item_detail_id),
-        UNIQUE KEY uq_rpcppe_batch_legacy_item (batch_id, legacy_asset_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-    $db->query("ALTER TABLE rpcppe_batch_items
-        ADD COLUMN IF NOT EXISTS item_name VARCHAR(255) NULL AFTER property_number,
-        ADD COLUMN IF NOT EXISTS item_name_id BIGINT UNSIGNED NULL AFTER item_name");
-    $db->query("ALTER TABLE legacy_assets
-        ADD COLUMN IF NOT EXISTS item_name VARCHAR(255) NULL AFTER item_description,
-        ADD COLUMN IF NOT EXISTS item_name_id BIGINT UNSIGNED NULL AFTER item_name");
-
-    $db->query("UPDATE rpcppe_batch_items
-        SET item_name = TRIM(classification_name)
-        WHERE (item_name IS NULL OR item_name = '')
-          AND classification_name IS NOT NULL
-          AND TRIM(classification_name) <> ''");
-    $db->query("UPDATE legacy_assets la
-        LEFT JOIN classifications c ON c.id = la.classification_id
-        SET la.item_name = TRIM(c.classification_name)
-        WHERE (la.item_name IS NULL OR la.item_name = '')
-          AND c.classification_name IS NOT NULL
-          AND TRIM(c.classification_name) <> ''");
-
-    rpcppe_sync_item_name_references($db);
-    ensure_rpcppe_batch_tracking_columns($db);
+    return $errors;
 }
 
 function rpcppe_sync_item_name_references(mysqli $db): void
 {
-    $db->query("CREATE TABLE IF NOT EXISTS item_names (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        item_name VARCHAR(255) NOT NULL,
-        normalized_name VARCHAR(255) NOT NULL,
-        is_active TINYINT(1) NOT NULL DEFAULT 1,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        UNIQUE KEY uq_item_names_normalized (normalized_name),
-        KEY idx_item_names_item_name (item_name)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    if (function_exists('schema_has_table') && !schema_has_table($db, 'item_names')) {
+        return;
+    }
 
     $db->query("INSERT INTO item_names (item_name, normalized_name, is_active)
         SELECT src.item_name, LOWER(src.item_name), 1
@@ -204,10 +142,6 @@ function rpcppe_batch_label(array $batch): string
 
 function rpcppe_fetch_live_rows(mysqli $db, string $asOf): array
 {
-    ensure_legacy_assets_fund_column($db);
-    ensure_legacy_assets_rpcppe_tracking_columns($db);
-    ensure_distribution_item_rpcppe_tracking_columns($db);
-    ensure_rpcppe_batch_tracking_columns($db);
     $rows = [];
 
     $systemSql = "
@@ -1113,14 +1047,15 @@ function rpcppe_find_or_create_classification(mysqli $db, string $classification
 
     $classificationCode = next_module_code($db, 'classifications');
     $group = 'asset';
+    $usefulLifeYears = classification_default_useful_life_years($db, $accountCodeId, $group);
     $description = 'Auto-created from RPCPPE workbook import.';
-    $insert = $db->prepare("INSERT INTO classifications (classification_code, classification_name, classification_group, account_code_id, description, is_active, created_by) VALUES (?, ?, ?, NULLIF(?, 0), ?, 1, ?)");
+    $insert = $db->prepare("INSERT INTO classifications (classification_code, classification_name, classification_group, useful_life_years, account_code_id, description, is_active, created_by) VALUES (?, ?, ?, ?, NULLIF(?, 0), ?, 1, ?)");
     if (!$insert) {
         return null;
     }
 
     $accountCodeValue = $accountCodeId ?? 0;
-    $insert->bind_param('sssisi', $classificationCode, $classificationName, $group, $accountCodeValue, $description, $userId);
+    $insert->bind_param('sssiisi', $classificationCode, $classificationName, $group, $usefulLifeYears, $accountCodeValue, $description, $userId);
     $saved = $insert->execute();
     $newId = (int) $insert->insert_id;
     $insert->close();
@@ -1929,7 +1864,7 @@ function rpcppe_update_batch_item_snapshot(mysqli $db, int $batchItemId, array $
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    ensure_rpcppe_batch_tables($db);
+    $errors = array_merge($errors, rpcppe_validate_batch_schema($db));
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = trim((string) ($_POST['action'] ?? ''));

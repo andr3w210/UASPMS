@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/roles.php';
 
 require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Property Custodian', 'Viewer');
 
 $db = db();
 $detailId = (int) ($_GET['detail_id'] ?? 0);

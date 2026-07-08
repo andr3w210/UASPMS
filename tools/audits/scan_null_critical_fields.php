@@ -20,7 +20,11 @@ $q2 = "SELECT id, property_number,
        ORDER BY id";
 $res = $m->query($q2);
 
-$csv = __DIR__ . DIRECTORY_SEPARATOR . 'exports' . DIRECTORY_SEPARATOR . 'batch14_null_critical_rows.csv';
+$exportDir = __DIR__ . DIRECTORY_SEPARATOR . 'exports';
+if (!is_dir($exportDir)) {
+    mkdir($exportDir, 0775, true);
+}
+$csv = $exportDir . DIRECTORY_SEPARATOR . 'batch14_null_critical_rows.csv';
 $f = fopen($csv, 'w');
 fputcsv($f, ['id','property_number','account_code','account_name','fund_code','fund_source','fund_number','total','item_description']);
 
