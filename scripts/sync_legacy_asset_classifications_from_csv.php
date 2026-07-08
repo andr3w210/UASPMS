@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../spams/app/config/init.php';
 
+$apply = in_array('--apply', $argv, true);
+
 function sync_out(string $message): void
 {
     fwrite(STDOUT, $message . PHP_EOL);
@@ -131,6 +133,9 @@ if (!$lookup) {
 }
 
 $db->begin_transaction();
+if (!$apply) {
+    sync_out('Dry-run only. Re-run with --apply to persist CSV classification sync updates.');
+}
 $updated = 0;
 $createdOrMatched = 0;
 $missingProperty = 0;
@@ -187,8 +192,12 @@ try {
         }
     }
 
-    $db->commit();
-    sync_out('Updated: ' . $updated);
+    if ($apply) {
+        $db->commit();
+    } else {
+        $db->rollback();
+    }
+    sync_out(($apply ? 'Updated: ' : 'Rows that would update: ') . $updated);
     sync_out('Rows with blank property_number: ' . $missingProperty);
     sync_out('Rows with blank classification: ' . $missingClassification);
     sync_out('Rows with no matching imported asset: ' . $notFound);

@@ -146,6 +146,15 @@ function ensure_upload_directory(string $relativeDirectory): ?string
     return $absoluteDirectory;
 }
 
+function uploads_debug_logging_enabled(): bool
+{
+    if (!function_exists('spams_env')) {
+        return false;
+    }
+
+    return spams_env('UPLOAD_DEBUG_LOG', '0') === '1';
+}
+
 function store_uploaded_image(array $file, string $relativeDirectory, array &$errors, int $maxBytes = 5242880): ?string
 {
     // Normalize error code to int — sometimes values arrive as strings from multipart implementations.
@@ -157,19 +166,23 @@ function store_uploaded_image(array $file, string $relativeDirectory, array &$er
     if ($errorCode !== UPLOAD_ERR_OK) {
         $errors[] = 'Upload failed (code: ' . $errorCode . '). Please try again.';
         // Server-side debug log: capture full file array to inspect types and nested structures.
-        $debug = [
-            'time' => date('c'),
-            'error_code' => $errorCode,
-            'file_snapshot' => $file,
-        ];
-        @file_put_contents(APP_ROOT . 'logs/upload_debug.log', json_encode($debug, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+        if (uploads_debug_logging_enabled()) {
+            $debug = [
+                'time' => date('c'),
+                'error_code' => $errorCode,
+                'file_snapshot' => $file,
+            ];
+            @file_put_contents(APP_ROOT . 'logs/upload_debug.log', json_encode($debug, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+        }
         return null;
     }
 
     $tmpName = (string) ($file['tmp_name'] ?? '');
     if ($tmpName === '' || !is_uploaded_file($tmpName)) {
         $errors[] = 'Uploaded file could not be verified.';
-        @file_put_contents(APP_ROOT . 'logs/upload_debug.log', date('c') . " - Uploaded file not recognized: tmp_name=" . $tmpName . PHP_EOL, FILE_APPEND | LOCK_EX);
+        if (uploads_debug_logging_enabled()) {
+            @file_put_contents(APP_ROOT . 'logs/upload_debug.log', date('c') . " - Uploaded file not recognized: tmp_name=" . $tmpName . PHP_EOL, FILE_APPEND | LOCK_EX);
+        }
         return null;
     }
 
@@ -208,7 +221,9 @@ function store_uploaded_image(array $file, string $relativeDirectory, array &$er
     $absolutePath = $directory . DIRECTORY_SEPARATOR . $fileName;
     if (!move_uploaded_file($tmpName, $absolutePath)) {
         $errors[] = 'Unable to save the uploaded image.';
-        @file_put_contents(APP_ROOT . 'logs/upload_debug.log', date('c') . " - move_uploaded_file failed: tmp=" . $tmpName . " dst=" . $absolutePath . " - perms=" . substr(sprintf('%o', fileperms(uploads_base_directory())), -4) . PHP_EOL, FILE_APPEND | LOCK_EX);
+        if (uploads_debug_logging_enabled()) {
+            @file_put_contents(APP_ROOT . 'logs/upload_debug.log', date('c') . " - move_uploaded_file failed: tmp=" . $tmpName . " dst=" . $absolutePath . " - perms=" . substr(sprintf('%o', fileperms(uploads_base_directory())), -4) . PHP_EOL, FILE_APPEND | LOCK_EX);
+        }
         return null;
     }
 

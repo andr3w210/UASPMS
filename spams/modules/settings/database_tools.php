@@ -163,44 +163,37 @@ function db_tools_create_backup_file(array &$errors): ?array
 
 function db_tools_restore_from_file(string $sqlPath, array &$errors): bool
 {
+    if (!is_file($sqlPath) || !db_tools_path_is_inside($sqlPath, db_tools_uploaded_dir())) {
+        $errors[] = 'Restore refused: SQL file must be an uploaded backup stored inside database/backups/uploaded.';
+        return false;
+    }
+
     $sql = file_get_contents($sqlPath);
     if ($sql === false || trim($sql) === '') {
         $errors[] = 'Unable to read the SQL dump file.';
         return false;
     }
 
+    if (db_tools_sql_contains_unsafe_restore_statement($sql)) {
+        $errors[] = 'Restore refused: SQL dump contains destructive or server-level statements. Use a data/schema update dump for the configured database only, without DROP/TRUNCATE, CREATE DATABASE, USE, user, privilege, or global server commands.';
+        return false;
+    }
+
+    $backupErrors = [];
+    $preRestoreBackup = db_tools_create_backup_file($backupErrors);
+    if ($preRestoreBackup === null) {
+        $errors[] = 'Restore refused: a pre-restore backup could not be created. ' . implode(' ', $backupErrors);
+        return false;
+    }
+
     mysqli_report(MYSQLI_REPORT_OFF);
-    $conn = new mysqli(DB_HOST, DB_USER, DB_PASS);
+    $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
     if ($conn->connect_errno) {
         $errors[] = 'Unable to connect to MySQL: ' . $conn->connect_error;
         return false;
     }
 
     $conn->set_charset('utf8mb4');
-
-    $dropCreateSql = sprintf(
-        'DROP DATABASE IF EXISTS `%s`; CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;',
-        $conn->real_escape_string(DB_NAME),
-        $conn->real_escape_string(DB_NAME)
-    );
-
-    if (!$conn->multi_query($dropCreateSql)) {
-        $errors[] = 'Unable to recreate the database: ' . $conn->error;
-        $conn->close();
-        return false;
-    }
-
-    do {
-        if ($result = $conn->store_result()) {
-            $result->free();
-        }
-    } while ($conn->more_results() && $conn->next_result());
-
-    if (!$conn->select_db(DB_NAME)) {
-        $errors[] = 'Unable to select the recreated database: ' . $conn->error;
-        $conn->close();
-        return false;
-    }
 
     if (!$conn->multi_query($sql)) {
         $errors[] = 'Import failed: ' . $conn->error;
@@ -222,6 +215,54 @@ function db_tools_restore_from_file(string $sqlPath, array &$errors): bool
 
     $conn->close();
     return true;
+}
+
+function db_tools_sql_contains_unsafe_restore_statement(string $sql): bool
+{
+    $withoutBlockComments = preg_replace('/\/\*.*?\*\//s', '', $sql);
+    if (!is_string($withoutBlockComments)) {
+        return true;
+    }
+
+    $lines = preg_split('/\R/', $withoutBlockComments);
+    if (!is_array($lines)) {
+        return true;
+    }
+
+    $cleanSql = [];
+    foreach ($lines as $line) {
+        $line = preg_replace('/(^|[[:space:]])--.*$/', '', (string) $line);
+        $line = preg_replace('/(^|[[:space:]])#.*$/', '', (string) $line);
+        $cleanSql[] = is_string($line) ? $line : '';
+    }
+
+    $normalized = implode("\n", $cleanSql);
+    $unsafePatterns = [
+        '/(^|;)\s*DROP\s+DATABASE\b/i',
+        '/(^|;)\s*DROP\s+TABLE\b/i',
+        '/(^|;)\s*TRUNCATE\s+TABLE\b/i',
+        '/(^|;)\s*CREATE\s+DATABASE\b/i',
+        '/(^|;)\s*ALTER\s+DATABASE\b/i',
+        '/(^|;)\s*USE\s+`?[^`;]+`?\s*(;|$)/i',
+        '/(^|;)\s*CREATE\s+USER\b/i',
+        '/(^|;)\s*ALTER\s+USER\b/i',
+        '/(^|;)\s*DROP\s+USER\b/i',
+        '/(^|;)\s*GRANT\b/i',
+        '/(^|;)\s*REVOKE\b/i',
+        '/(^|;)\s*SET\s+GLOBAL\b/i',
+        '/(^|;)\s*RESET\b/i',
+        '/(^|;)\s*SHUTDOWN\b/i',
+        '/(^|;)\s*INSTALL\s+PLUGIN\b/i',
+        '/\bINTO\s+(OUTFILE|DUMPFILE)\b/i',
+    ];
+
+    foreach ($unsafePatterns as $pattern) {
+        if (preg_match($pattern, $normalized) === 1) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function db_tools_collect_files(): array
@@ -1189,9 +1230,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <h5 class="mb-0">Upload SQL Dump</h5>
                                     </div>
                                 </div>
-                                <p class="text-muted small mb-3">Upload a `.sql` file to drop, recreate, and restore <strong><?php echo h(DB_NAME); ?></strong>. The uploaded file is kept in `database/backups/uploaded` for traceability.</p>
+                                <p class="text-muted small mb-3">Upload a `.sql` file for <strong><?php echo h(DB_NAME); ?></strong>. The tool creates a pre-restore backup, rejects server-level SQL, and keeps the upload in `database/backups/uploaded` for traceability.</p>
                                 <div class="alert alert-warning small py-2">
-                                    This action replaces the current database contents. Create a backup first if you need to keep the current data.
+                                    This action can overwrite tables in the current database. Review the dump and keep the generated pre-restore backup.
                                 </div>
                                 <form method="post" enctype="multipart/form-data">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
@@ -1201,7 +1242,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <input type="file" class="form-control" id="sql_dump" name="sql_dump" accept=".sql,text/plain" required>
                                         <div class="form-text">Only `.sql` files up to <?php echo h(db_tools_format_bytes($maxUploadBytes)); ?> are accepted.</div>
                                     </div>
-                                    <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Restore the database from this uploaded SQL file? This will overwrite the current database.');">
+                                    <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Restore the database from this uploaded SQL file? A pre-restore backup will be created first, but matching tables can still be overwritten.');">
                                         <i class="bi bi-arrow-repeat me-1"></i>Upload And Restore
                                     </button>
                                 </form>

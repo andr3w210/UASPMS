@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
 $db = db();
 $distributionId = (int) ($_GET['id'] ?? 0);
@@ -496,7 +497,7 @@ $tagPrintUrl = $detailId > 0
                             <?php
                                 $itemClass = trim((string) ($it['classification_name'] ?? ''));
                                 $itemDescription = trim((string) ($it['item_description'] ?? ''));
-                                $parDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                                $parDescription = report_short_text(trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription));
                                 $identityLines = $itemIdentityLines((array) $it);
                             ?>
                             <?php echo nl2br(h($parDescription)); ?>
@@ -636,7 +637,7 @@ $tagPrintUrl = $detailId > 0
                             <?php
                                 $itemClass = trim((string) ($it['classification_name'] ?? ''));
                                 $itemDescription = trim((string) ($it['item_description'] ?? ''));
-                                $parDescription = trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription);
+                                $parDescription = report_short_text(trim(($itemClass !== '' ? $itemClass : '') . ($itemClass !== '' && $itemDescription !== '' ? ' - ' : '') . $itemDescription));
                                 $identityLines = $itemIdentityLines((array) $it);
                             ?>
                             <?php echo nl2br(h($parDescription)); ?>

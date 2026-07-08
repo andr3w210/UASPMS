@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!csrf_verify()) {
         $error = 'Invalid CSRF token.';
-    } elseif (rate_limit_check('reset_password')) {
+    } elseif (rate_limit_check('reset_password', 5, 15, true)) {
         $retryAfter = rate_limit_retry_after('reset_password');
         $retryMinutes = $retryAfter > 0 ? (int) ceil($retryAfter / 60) : 15;
         $error = 'Too many requests from your IP address. Please try again in ' . $retryMinutes . ' minute(s).';

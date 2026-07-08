@@ -43,6 +43,11 @@ function rpcppe_label(array $row): string
     ])));
 }
 
+function rpcppe_display_label(array $row): string
+{
+    return report_short_text(rpcppe_label($row));
+}
+
 function rpcppe_office_employee(array $row): string
 {
     return trim(implode(' / ', array_filter([
@@ -69,63 +74,20 @@ function rpcppe_line_total(array $row): float
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
-    ensure_legacy_assets_fund_column($db);
-    $db->query("CREATE TABLE IF NOT EXISTS rpcppe_batches (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        batch_year SMALLINT UNSIGNED NOT NULL,
-        batch_name VARCHAR(150) NOT NULL,
-        as_of_date DATE NOT NULL,
-        status ENUM('draft', 'finalized') NOT NULL DEFAULT 'draft',
-        notes TEXT NULL,
-        created_by BIGINT UNSIGNED NULL,
-        finalized_by BIGINT UNSIGNED NULL,
-        finalized_at DATETIME NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_rpcppe_batches_year_status (batch_year, status)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-    $db->query("CREATE TABLE IF NOT EXISTS rpcppe_batch_items (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        batch_id BIGINT UNSIGNED NOT NULL,
-        source_type ENUM('system', 'legacy') NOT NULL,
-        distribution_item_detail_id BIGINT UNSIGNED NULL,
-        legacy_asset_id BIGINT UNSIGNED NULL,
-        property_number VARCHAR(120) NOT NULL,
-        item_description TEXT NOT NULL,
-        description_detail TEXT NULL,
-        classification_name VARCHAR(255) NULL,
-        classification_family VARCHAR(255) NULL,
-        uom_name VARCHAR(120) NULL,
-        abbreviation VARCHAR(60) NULL,
-        unit_cost DECIMAL(14,2) NOT NULL DEFAULT 0.00,
-        brand VARCHAR(200) NULL,
-        model VARCHAR(200) NULL,
-        serial_no VARCHAR(200) NULL,
-        office_id BIGINT UNSIGNED NULL,
-        office_name VARCHAR(255) NULL,
-        employee_id BIGINT UNSIGNED NULL,
-        employee_name VARCHAR(255) NULL,
-        account_code_id BIGINT UNSIGNED NULL,
-        account_code VARCHAR(100) NULL,
-        account_name VARCHAR(255) NULL,
-        fund_code VARCHAR(100) NULL,
-        fund_source VARCHAR(150) NULL,
-        fund_number VARCHAR(10) NULL,
-        remarks VARCHAR(120) NULL,
-        is_included TINYINT(1) NOT NULL DEFAULT 1,
-        is_disposed TINYINT(1) NOT NULL DEFAULT 0,
-        disposed_at DATE NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_rpcppe_batch_items_batch_include (batch_id, is_included, is_disposed)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-    // Backward-compatible columns for older rpcppe_batch_items schemas.
-    $db->query("ALTER TABLE rpcppe_batch_items ADD COLUMN IF NOT EXISTS acquisition_date DATE NULL AFTER unit_cost");
-    $db->query("ALTER TABLE rpcppe_batch_items ADD COLUMN IF NOT EXISTS qty_property_card INT(10) UNSIGNED NOT NULL DEFAULT 1 AFTER acquisition_date");
-    $db->query("ALTER TABLE rpcppe_batch_items ADD COLUMN IF NOT EXISTS qty_physical_count INT(10) UNSIGNED NOT NULL DEFAULT 1 AFTER qty_property_card");
+    if (!schema_has_column($db, 'legacy_assets', 'fund_id')) {
+        $errors[] = 'Database schema is outdated: legacy_assets.fund_id is missing. Apply latest migrations before continuing.';
+    }
+    if (function_exists('schema_has_table') && !schema_has_table($db, 'rpcppe_batches')) {
+        $errors[] = 'Database schema is outdated: rpcppe_batches table is missing. Apply latest migrations before continuing.';
+    }
+    if (function_exists('schema_has_table') && !schema_has_table($db, 'rpcppe_batch_items')) {
+        $errors[] = 'Database schema is outdated: rpcppe_batch_items table is missing. Apply latest migrations before continuing.';
+    }
+    if (!schema_has_column($db, 'rpcppe_batch_items', 'acquisition_date')
+        || !schema_has_column($db, 'rpcppe_batch_items', 'qty_property_card')
+        || !schema_has_column($db, 'rpcppe_batch_items', 'qty_physical_count')) {
+        $errors[] = 'Database schema is outdated: RPCPPE batch item quantity columns are missing. Apply latest migrations before continuing.';
+    }
 
     $officeResult = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeResult) {
@@ -613,7 +575,7 @@ if ($isPrint) {
                             <?php foreach ($pageRows as $row): ?>
                                 <tr>
                                     <td><?php echo h(rpcppe_article($row)); ?></td>
-                                    <td><?php echo h(rpcppe_label($row)); ?></td>
+                                    <td><?php echo h(rpcppe_display_label($row)); ?></td>
                                     <td><?php echo h($row['property_number'] ?? ''); ?></td>
                                     <td class="uom"><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
                                     <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
@@ -834,7 +796,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <?php foreach ($rows as $row): ?>
                                         <tr>
                                             <td><?php echo h(rpcppe_article($row)); ?></td>
-                                            <td><?php echo h(rpcppe_label($row)); ?></td>
+                                            <td><?php echo h(rpcppe_display_label($row)); ?></td>
                                             <td><?php echo h($row['property_number'] ?? ''); ?></td>
                                             <td class="text-center"><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
                                             <td><?php echo h($row['fund_number'] ?? ''); ?></td>

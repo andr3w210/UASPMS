@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 function responsibility_codes_has_reference(mysqli $db, int $recordId): bool
 {

@@ -271,6 +271,52 @@ function add_validation_error(array &$errors, string $message): void
     }
 }
 
+function schema_migration_required(string $message): void
+{
+    $fullMessage = 'Database schema is outdated: ' . $message . ' Apply latest migrations before continuing.';
+
+    if (PHP_SAPI === 'cli') {
+        throw new RuntimeException($fullMessage);
+    }
+
+    if (function_exists('set_flash')) {
+        set_flash('error', $fullMessage);
+    }
+
+    if (!headers_sent() && function_exists('redirect')) {
+        redirect('dashboard/index.php');
+    }
+
+    http_response_code(500);
+    echo '<div class="alert alert-danger">' . h($fullMessage) . '</div>';
+    exit;
+}
+
+function schema_require_table(mysqli $db, string $table): void
+{
+    if (!function_exists('schema_has_table') || !schema_has_table($db, $table)) {
+        schema_migration_required($table . ' table is missing.');
+    }
+}
+
+function schema_require_columns(mysqli $db, string $table, array $columns): void
+{
+    if (!function_exists('schema_has_column')) {
+        schema_migration_required('schema inspection helpers are unavailable.');
+    }
+
+    $missing = [];
+    foreach ($columns as $column) {
+        if (!schema_has_column($db, $table, (string) $column)) {
+            $missing[] = $table . '.' . $column;
+        }
+    }
+
+    if ($missing) {
+        schema_migration_required('missing required column(s): ' . implode(', ', $missing) . '.');
+    }
+}
+
 function is_valid_date_string(string $value, string $format = 'Y-m-d'): bool
 {
     $value = trim($value);
@@ -643,6 +689,107 @@ function stock_catalog_next_number(mysqli $db, ?int $classificationId, string $i
     $nextSeries = ((int) ($seriesRow['max_series'] ?? 0)) + 1;
 
     return $prefix . '-' . str_pad((string) $nextSeries, 3, '0', STR_PAD_LEFT);
+}
+
+function account_code_default_useful_life_years(string $accountCode, string $accountGroup): ?int
+{
+    $accountCode = trim($accountCode);
+    $accountGroup = trim($accountGroup);
+
+    if ($accountGroup === 'supply' || $accountCode === '1.06.01.010.00') {
+        return null;
+    }
+    if ($accountGroup === 'semi_expendable') {
+        return 3;
+    }
+
+    $defaultsByAccount = [
+        '1.06.02.010.00' => 20,
+        '1.06.02.020.00' => 20,
+        '1.06.02.990.00' => 20,
+        '1.06.03.010.00' => 20,
+        '1.06.03.020.00' => 20,
+        '1.06.03.030.00' => 20,
+        '1.06.03.040.00' => 20,
+        '1.06.03.050.00' => 20,
+        '1.06.03.060.00' => 20,
+        '1.06.03.070.00' => 20,
+        '1.06.03.090.00' => 20,
+        '1.06.03.100.00' => 20,
+        '1.06.04.010.00' => 30,
+        '1.06.04.020.00' => 30,
+        '1.06.04.030.00' => 30,
+        '1.06.04.040.00' => 30,
+        '1.06.04.050.00' => 30,
+        '1.06.04.060.00' => 30,
+        '1.06.04.990.00' => 20,
+        '1.06.05.010.00' => 10,
+        '1.06.05.020.00' => 5,
+        '1.06.05.030.00' => 5,
+        '1.06.05.040.00' => 10,
+        '1.06.05.050.00' => 10,
+        '1.06.05.060.00' => 10,
+        '1.06.05.070.00' => 10,
+        '1.06.05.080.00' => 10,
+        '1.06.05.090.00' => 10,
+        '1.06.05.100.00' => 10,
+        '1.06.05.110.00' => 10,
+        '1.06.05.120.00' => 5,
+        '1.06.05.130.00' => 5,
+        '1.06.05.140.00' => 10,
+        '1.06.05.990.00' => 10,
+        '1.06.06.010.00' => 7,
+        '1.06.06.990.00' => 7,
+        '1.06.07.010.00' => 10,
+        '1.06.07.020.00' => 5,
+        '1.06.08.010.00' => 10,
+        '1.06.99.990.00' => 10,
+        '1.08.01.020.00' => 10,
+    ];
+
+    return $defaultsByAccount[$accountCode] ?? null;
+}
+
+function classification_default_useful_life_years(mysqli $db, ?int $accountCodeId, string $classificationGroup = ''): ?int
+{
+    $accountCodeId = (int) ($accountCodeId ?? 0);
+    if ($accountCodeId <= 0) {
+        return null;
+    }
+
+    if (function_exists('schema_has_column') && schema_has_column($db, 'account_codes', 'default_useful_life_years')) {
+        $accountDefaultStmt = $db->prepare("
+            SELECT default_useful_life_years
+            FROM account_codes
+            WHERE id = ?
+            LIMIT 1
+        ");
+        if ($accountDefaultStmt) {
+            $accountDefaultStmt->bind_param('i', $accountCodeId);
+            $accountDefaultStmt->execute();
+            $accountDefault = $accountDefaultStmt->get_result()->fetch_assoc();
+            $accountDefaultStmt->close();
+            $defaultLife = (int) ($accountDefault['default_useful_life_years'] ?? 0);
+            if ($defaultLife > 0) {
+                return $defaultLife;
+            }
+        }
+    }
+
+    $accountStmt = $db->prepare("SELECT account_code, account_group FROM account_codes WHERE id = ? LIMIT 1");
+    if (!$accountStmt) {
+        return null;
+    }
+
+    $accountStmt->bind_param('i', $accountCodeId);
+    $accountStmt->execute();
+    $account = $accountStmt->get_result()->fetch_assoc();
+    $accountStmt->close();
+
+    $accountCode = trim((string) ($account['account_code'] ?? ''));
+    $accountGroup = trim((string) ($account['account_group'] ?? $classificationGroup));
+
+    return account_code_default_useful_life_years($accountCode, $accountGroup);
 }
 
 function csrf_token(): string
@@ -1084,74 +1231,50 @@ function render_inventory_committee_signature_grid(string $tableClass): void
 
 function ensure_legacy_assets_fund_column(mysqli $db): void
 {
-    if (function_exists('schema_has_column') && !schema_has_column($db, 'legacy_assets', 'fund_id')) {
-        $db->query("ALTER TABLE legacy_assets ADD COLUMN fund_id INT NULL AFTER account_code_id");
-    }
+    // Migration-owned schema: runtime requests must not alter table structure.
 }
 
 function ensure_legacy_assets_unit_of_measure_column(mysqli $db): void
 {
-    if (function_exists('schema_has_column') && !schema_has_column($db, 'legacy_assets', 'unit_of_measure_id')) {
-        $db->query("ALTER TABLE legacy_assets ADD COLUMN unit_of_measure_id INT UNSIGNED NULL AFTER quantity");
-    }
+    schema_require_columns($db, 'legacy_assets', ['unit_of_measure_id']);
 }
 
 function ensure_legacy_assets_rpcppe_tracking_columns(mysqli $db): void
 {
-    $db->query("ALTER TABLE legacy_assets
-        ADD COLUMN IF NOT EXISTS is_rpcppe_candidate TINYINT(1) NOT NULL DEFAULT 0 AFTER fund_id,
-        ADD COLUMN IF NOT EXISTS rpcppe_status VARCHAR(30) NOT NULL DEFAULT 'excluded' AFTER is_rpcppe_candidate,
-        ADD COLUMN IF NOT EXISTS rpcppe_batch_id BIGINT UNSIGNED NULL AFTER rpcppe_status,
-        ADD COLUMN IF NOT EXISTS rpcppe_submitted_at DATETIME NULL AFTER rpcppe_batch_id,
-        ADD COLUMN IF NOT EXISTS rpcppe_reconciled_at DATETIME NULL AFTER rpcppe_submitted_at");
-
-    $db->query("UPDATE legacy_assets
-        SET rpcppe_status = CASE
-            WHEN COALESCE(is_rpcppe_candidate, 0) = 1 THEN 'included_draft'
-            ELSE 'excluded'
-        END
-        WHERE rpcppe_status IS NULL OR TRIM(rpcppe_status) = ''");
+    schema_require_columns($db, 'legacy_assets', [
+        'is_rpcppe_candidate',
+        'rpcppe_status',
+        'rpcppe_submitted_at',
+        'rpcppe_reconciled_at',
+    ]);
 }
 
 function ensure_distribution_item_rpcppe_tracking_columns(mysqli $db): void
 {
-    $db->query("ALTER TABLE distribution_item_details
-        ADD COLUMN IF NOT EXISTS is_rpcppe_candidate TINYINT(1) NOT NULL DEFAULT 0 AFTER is_disposed,
-        ADD COLUMN IF NOT EXISTS rpcppe_status VARCHAR(30) NOT NULL DEFAULT 'excluded' AFTER is_rpcppe_candidate,
-        ADD COLUMN IF NOT EXISTS rpcppe_batch_id BIGINT UNSIGNED NULL AFTER rpcppe_status,
-        ADD COLUMN IF NOT EXISTS rpcppe_submitted_at DATETIME NULL AFTER rpcppe_batch_id,
-        ADD COLUMN IF NOT EXISTS rpcppe_reconciled_at DATETIME NULL AFTER rpcppe_submitted_at");
-
-    $db->query("UPDATE distribution_item_details
-        SET rpcppe_status = CASE
-            WHEN COALESCE(is_rpcppe_candidate, 0) = 1 THEN 'included_draft'
-            ELSE 'excluded'
-        END
-        WHERE rpcppe_status IS NULL OR TRIM(rpcppe_status) = ''");
+    schema_require_columns($db, 'distribution_item_details', [
+        'is_rpcppe_candidate',
+        'rpcppe_status',
+        'rpcppe_submitted_at',
+        'rpcppe_reconciled_at',
+    ]);
 }
 
 function ensure_receiving_item_variance_columns(mysqli $db): void
 {
-    $db->query("ALTER TABLE receiving_items
-        ADD COLUMN IF NOT EXISTS actual_item_description TEXT NULL AFTER purchase_order_item_id,
-        ADD COLUMN IF NOT EXISTS variance_type VARCHAR(40) NOT NULL DEFAULT 'none' AFTER actual_item_description,
-        ADD COLUMN IF NOT EXISTS variance_note TEXT NULL AFTER variance_type,
-        ADD COLUMN IF NOT EXISTS accepted_no_additional_cost TINYINT(1) NOT NULL DEFAULT 0 AFTER variance_note");
+    schema_require_columns($db, 'receiving_items', [
+        'actual_item_description',
+        'variance_type',
+        'variance_note',
+        'accepted_no_additional_cost',
+    ]);
 }
 
 function ensure_rpcppe_batch_tracking_columns(mysqli $db): void
 {
-    $db->query("ALTER TABLE rpcppe_batch_items
-        ADD COLUMN IF NOT EXISTS reconciliation_status VARCHAR(30) NOT NULL DEFAULT 'included_draft' AFTER is_included,
-        ADD COLUMN IF NOT EXISTS submitted_to_accounting_at DATETIME NULL AFTER reconciliation_status,
-        ADD COLUMN IF NOT EXISTS reconciled_at DATETIME NULL AFTER submitted_to_accounting_at");
-
-    $db->query("UPDATE rpcppe_batch_items
-        SET reconciliation_status = CASE
-            WHEN COALESCE(is_included, 0) = 1 THEN 'included_draft'
-            ELSE 'excluded'
-        END
-        WHERE reconciliation_status IS NULL OR TRIM(reconciliation_status) = ''");
+    schema_require_columns($db, 'rpcppe_batch_items', [
+        'reconciliation_status',
+        'is_included',
+    ]);
 }
 
 function rpcppe_status_options(): array
@@ -1205,80 +1328,200 @@ function rpcppe_status_label(string $status): string
 
 function ensure_legacy_assets_po_number_column(mysqli $db): void
 {
-    if (function_exists('schema_has_column') && !schema_has_column($db, 'legacy_assets', 'po_number')) {
-        $db->query("ALTER TABLE legacy_assets ADD COLUMN po_number VARCHAR(100) NULL AFTER system_reference");
+    schema_require_columns($db, 'legacy_assets', ['po_number']);
+}
+
+function ensure_legacy_assets_accountability_no_column(mysqli $db): void
+{
+    schema_require_columns($db, 'legacy_assets', ['accountability_no']);
+}
+
+function legacy_asset_distribution_prefix(mysqli $db, string $itemType, float $unitCost): string
+{
+    if ($itemType === 'equipment') {
+        return 'PAR';
     }
+
+    $threshold = get_active_threshold($db);
+    $semiHighValueMin = (float) ($threshold['semi_hv_min'] ?? 5000.01);
+
+    return $unitCost >= $semiHighValueMin ? 'SPHV' : 'SPLV';
+}
+
+function next_distribution_style_document_no(mysqli $db, string $prefix, int $year, ?int $month = null): string
+{
+    $prefix = strtoupper(trim($prefix));
+    $seriesPrefix = $prefix . '-' . $year;
+    $docPrefix = $month !== null
+        ? sprintf('%s-%04d-%02d', $prefix, $year, $month)
+        : $seriesPrefix;
+    $moduleKey = 'distribution_doc_no|' . $seriesPrefix;
+    $padding = 4;
+    $nextSeq = 1;
+    $currentValue = 0;
+    $counterExists = false;
+
+    $stmt = $db->prepare("SELECT current_value FROM series_numbers WHERE module_key = ? LIMIT 1");
+    if ($stmt) {
+        $stmt->bind_param('s', $moduleKey);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if ($row) {
+            $counterExists = true;
+            $currentValue = max($currentValue, (int) ($row['current_value'] ?? 0));
+        }
+    }
+
+    $like = $seriesPrefix . '-%';
+
+    $distributionStmt = $db->prepare(
+        "SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(document_no, '-', -1) AS UNSIGNED)), 0) AS current_value
+         FROM distributions
+         WHERE document_no LIKE ?"
+    );
+    if ($distributionStmt) {
+        $distributionStmt->bind_param('s', $like);
+        $distributionStmt->execute();
+        $distributionRow = $distributionStmt->get_result()->fetch_assoc();
+        $currentValue = max($currentValue, (int) ($distributionRow['current_value'] ?? 0));
+        $distributionStmt->close();
+    }
+
+    if (function_exists('schema_has_column') && schema_has_column($db, 'legacy_assets', 'accountability_no')) {
+        $legacyStmt = $db->prepare(
+            "SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(accountability_no, '-', -1) AS UNSIGNED)), 0) AS current_value
+             FROM legacy_assets
+             WHERE accountability_no LIKE ?"
+        );
+        if ($legacyStmt) {
+            $legacyStmt->bind_param('s', $like);
+            $legacyStmt->execute();
+            $legacyRow = $legacyStmt->get_result()->fetch_assoc();
+            $currentValue = max($currentValue, (int) ($legacyRow['current_value'] ?? 0));
+            $legacyStmt->close();
+        }
+    }
+
+    if (!$counterExists) {
+        $insertStmt = $db->prepare(
+            "INSERT INTO series_numbers (module_key, prefix, year_value, current_value, padding_length)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE module_key = module_key"
+        );
+        if ($insertStmt) {
+            $insertStmt->bind_param('ssiii', $moduleKey, $seriesPrefix, $year, $currentValue, $padding);
+            $insertStmt->execute();
+            $insertStmt->close();
+        }
+    }
+
+    $nextSeq = $currentValue + 1;
+
+    $updateStmt = $db->prepare("UPDATE series_numbers SET current_value = ? WHERE module_key = ?");
+    if ($updateStmt) {
+        $currentValue = $nextSeq;
+        $updateStmt->bind_param('is', $currentValue, $moduleKey);
+        $updateStmt->execute();
+        $updateStmt->close();
+    }
+
+    return $docPrefix . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT);
+}
+
+function ensure_legacy_asset_accountability_no(
+    mysqli $db,
+    int $legacyAssetId,
+    string $itemType,
+    float $unitCost,
+    string $currentValue = '',
+    ?string $documentDate = null
+): string {
+    ensure_legacy_assets_accountability_no_column($db);
+
+    $currentValue = trim($currentValue);
+    $isEquipment = $itemType === 'equipment';
+    $isCurrentFormatValid = $currentValue !== '' && (
+        ($isEquipment && preg_match('/^PAR-\d{4}-\d{2}-\d{4}$/', $currentValue))
+        || (!$isEquipment && preg_match('/^(SPHV|SPLV)-\d{4}-\d{2}-\d{4}$/', $currentValue))
+    );
+    if ($isCurrentFormatValid) {
+        return $currentValue;
+    }
+
+    $prefix = legacy_asset_distribution_prefix($db, $itemType, $unitCost);
+    $timestamp = strtotime((string) $documentDate);
+    if ($timestamp === false) {
+        $timestamp = time();
+    }
+    $year = (int) date('Y', $timestamp);
+    $month = (int) date('m', $timestamp);
+    $documentNo = next_distribution_style_document_no($db, $prefix, $year, $month);
+
+    $stmt = $db->prepare("UPDATE legacy_assets SET accountability_no = ? WHERE id = ?");
+    if ($stmt) {
+        $stmt->bind_param('si', $documentNo, $legacyAssetId);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    return $documentNo;
 }
 
 function ensure_asset_location_tracking_schema(mysqli $db): void
 {
     ensure_locations_schema($db);
 
-    $db->query("ALTER TABLE distribution_item_details
-        ADD COLUMN IF NOT EXISTS manual_location VARCHAR(255) NULL AFTER current_responsibility_code_id,
-        ADD COLUMN IF NOT EXISTS location_id BIGINT UNSIGNED NULL AFTER manual_location,
-        ADD COLUMN IF NOT EXISTS location_lat DECIMAL(10,7) NULL AFTER location_id,
-        ADD COLUMN IF NOT EXISTS location_lng DECIMAL(10,7) NULL AFTER location_lat,
-        ADD COLUMN IF NOT EXISTS location_updated_at DATETIME NULL AFTER location_lng,
-        ADD COLUMN IF NOT EXISTS location_updated_by BIGINT UNSIGNED NULL AFTER location_updated_at");
-
-    $db->query("ALTER TABLE legacy_assets
-        ADD COLUMN IF NOT EXISTS manual_location VARCHAR(255) NULL AFTER responsibility_code_id,
-        ADD COLUMN IF NOT EXISTS location_id BIGINT UNSIGNED NULL AFTER manual_location,
-        ADD COLUMN IF NOT EXISTS location_lat DECIMAL(10,7) NULL AFTER location_id,
-        ADD COLUMN IF NOT EXISTS location_lng DECIMAL(10,7) NULL AFTER location_lat,
-        ADD COLUMN IF NOT EXISTS location_updated_at DATETIME NULL AFTER location_lng,
-        ADD COLUMN IF NOT EXISTS location_updated_by BIGINT UNSIGNED NULL AFTER location_updated_at");
-
-    $db->query("CREATE TABLE IF NOT EXISTS asset_location_history (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        asset_source ENUM('system', 'legacy') NOT NULL,
-        asset_id BIGINT UNSIGNED NOT NULL,
-        inventory_session_id INT UNSIGNED NULL,
-        inventory_count_item_id INT UNSIGNED NULL,
-        changed_by BIGINT UNSIGNED NULL,
-        change_reason VARCHAR(120) NOT NULL DEFAULT 'manual_update',
-        old_manual_location VARCHAR(255) NULL,
-        old_location_id BIGINT UNSIGNED NULL,
-        old_latitude DECIMAL(10,7) NULL,
-        old_longitude DECIMAL(10,7) NULL,
-        new_manual_location VARCHAR(255) NULL,
-        new_location_id BIGINT UNSIGNED NULL,
-        new_latitude DECIMAL(10,7) NULL,
-        new_longitude DECIMAL(10,7) NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_asset_location_history_asset (asset_source, asset_id),
-        KEY idx_asset_location_history_session (inventory_session_id),
-        KEY idx_asset_location_history_item (inventory_count_item_id),
-        KEY idx_asset_location_history_created (created_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-    if (function_exists('schema_has_column') && !schema_has_column($db, 'asset_location_history', 'old_location_id')) {
-        $db->query("ALTER TABLE asset_location_history ADD COLUMN old_location_id BIGINT UNSIGNED NULL AFTER old_manual_location");
-    }
-    if (function_exists('schema_has_column') && !schema_has_column($db, 'asset_location_history', 'new_location_id')) {
-        $db->query("ALTER TABLE asset_location_history ADD COLUMN new_location_id BIGINT UNSIGNED NULL AFTER new_manual_location");
-    }
+    schema_require_columns($db, 'distribution_item_details', [
+        'manual_location',
+        'location_id',
+        'location_lat',
+        'location_lng',
+        'location_updated_at',
+        'location_updated_by',
+    ]);
+    schema_require_columns($db, 'legacy_assets', [
+        'manual_location',
+        'location_id',
+        'location_lat',
+        'location_lng',
+        'location_updated_at',
+        'location_updated_by',
+    ]);
+    schema_require_table($db, 'asset_location_history');
+    schema_require_columns($db, 'asset_location_history', [
+        'asset_source',
+        'asset_id',
+        'inventory_session_id',
+        'inventory_count_item_id',
+        'changed_by',
+        'change_reason',
+        'old_manual_location',
+        'old_location_id',
+        'old_latitude',
+        'old_longitude',
+        'new_manual_location',
+        'new_location_id',
+        'new_latitude',
+        'new_longitude',
+        'created_at',
+    ]);
 }
 
 function ensure_locations_schema(mysqli $db): void
 {
-    $db->query("CREATE TABLE IF NOT EXISTS locations (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        location_code VARCHAR(50) NOT NULL,
-        location_name VARCHAR(180) NOT NULL,
-        description TEXT NULL,
-        is_active TINYINT(1) NOT NULL DEFAULT 1,
-        created_by BIGINT UNSIGNED NULL,
-        updated_by BIGINT UNSIGNED NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        UNIQUE KEY uq_locations_code (location_code),
-        UNIQUE KEY uq_locations_name (location_name),
-        KEY idx_locations_active (is_active)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    schema_require_table($db, 'locations');
+    schema_require_columns($db, 'locations', [
+        'location_code',
+        'location_name',
+        'description',
+        'is_active',
+        'created_by',
+        'updated_by',
+        'created_at',
+        'updated_at',
+    ]);
 }
 
 function update_asset_location_snapshot(
@@ -1388,20 +1631,17 @@ function update_asset_location_snapshot(
 
 function ensure_office_location_pin_schema(mysqli $db): void
 {
-    $db->query("CREATE TABLE IF NOT EXISTS office_location_pins (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        office_id INT UNSIGNED NOT NULL,
-        office_name_snapshot VARCHAR(255) NULL,
-        manual_location VARCHAR(255) NULL,
-        location_lat DECIMAL(10,7) NOT NULL,
-        location_lng DECIMAL(10,7) NOT NULL,
-        updated_by BIGINT UNSIGNED NULL,
-        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        UNIQUE KEY uq_office_location_pins_office (office_id),
-        KEY idx_office_location_pins_updated (updated_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    schema_require_table($db, 'office_location_pins');
+    schema_require_columns($db, 'office_location_pins', [
+        'office_id',
+        'office_name_snapshot',
+        'manual_location',
+        'location_lat',
+        'location_lng',
+        'updated_by',
+        'updated_at',
+        'created_at',
+    ]);
 }
 
 function get_office_location_pin(mysqli $db, int $officeId): ?array
@@ -1605,4 +1845,115 @@ function generate_property_number(
         return $prefix
             . '-' . str_pad((string) $nextSeq, $padding, '0', STR_PAD_LEFT)
             . '-' . $officeSuffix;
+}
+
+function legacy_asset_should_split_per_unit(string $itemType, int $quantity): bool
+{
+    return in_array(trim($itemType), ['equipment', 'semi_expendable'], true) && $quantity > 1;
+}
+
+function legacy_asset_sync_item_name(mysqli $db, int $legacyAssetId, string $itemName, int $itemNameId = 0): void
+{
+    if ($legacyAssetId <= 0 || !schema_has_column($db, 'legacy_assets', 'item_name')) {
+        return;
+    }
+
+    $itemNameSql = schema_has_column($db, 'legacy_assets', 'item_name_id')
+        ? "UPDATE legacy_assets SET item_name = NULLIF(?, ''), item_name_id = NULLIF(?, 0) WHERE id = ?"
+        : "UPDATE legacy_assets SET item_name = NULLIF(?, '') WHERE id = ?";
+    $itemNameStmt = $db->prepare($itemNameSql);
+    if (!$itemNameStmt) {
+        return;
+    }
+
+    if (schema_has_column($db, 'legacy_assets', 'item_name_id')) {
+        $itemNameStmt->bind_param('sii', $itemName, $itemNameId, $legacyAssetId);
+    } else {
+        $itemNameStmt->bind_param('si', $itemName, $legacyAssetId);
+    }
+    $itemNameStmt->execute();
+    $itemNameStmt->close();
+}
+
+function legacy_asset_insert_record(mysqli $db, array $payload): int
+{
+    $stmt = $db->prepare(
+        "INSERT INTO legacy_assets
+            (system_reference, po_number, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_of_measure_id, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    if (!$stmt) {
+        return 0;
+    }
+
+    $systemReference = (string) ($payload['system_reference'] ?? '');
+    $poNumber = (string) ($payload['po_number'] ?? '');
+    $propertyNumber = (string) ($payload['property_number'] ?? '');
+    $itemType = (string) ($payload['item_type'] ?? 'equipment');
+    $itemDescription = (string) ($payload['item_description'] ?? '');
+    $classificationId = isset($payload['classification_id']) ? (int) $payload['classification_id'] : null;
+    $accountCodeId = isset($payload['account_code_id']) ? (int) $payload['account_code_id'] : null;
+    $fundId = isset($payload['fund_id']) ? (int) $payload['fund_id'] : null;
+    $supplierId = isset($payload['supplier_id']) ? (int) $payload['supplier_id'] : null;
+    $brandId = isset($payload['brand_id']) ? (int) $payload['brand_id'] : null;
+    $modelId = isset($payload['model_id']) ? (int) $payload['model_id'] : null;
+    $brand = (string) ($payload['brand'] ?? '');
+    $model = (string) ($payload['model'] ?? '');
+    $serialNo = (string) ($payload['serial_no'] ?? '');
+    $acquisitionDate = (string) ($payload['acquisition_date'] ?? '');
+    $quantity = max(1, (int) ($payload['quantity'] ?? 1));
+    $unitOfMeasureId = isset($payload['unit_of_measure_id']) ? (int) $payload['unit_of_measure_id'] : null;
+    $unitCost = round((float) ($payload['unit_cost'] ?? 0), 2);
+    $acquisitionCost = round((float) ($payload['acquisition_cost'] ?? 0), 2);
+    $officeId = isset($payload['office_id']) ? (int) $payload['office_id'] : null;
+    $employeeId = isset($payload['employee_id']) ? (int) $payload['employee_id'] : null;
+    $responsibilityCodeId = isset($payload['responsibility_code_id']) ? (int) $payload['responsibility_code_id'] : null;
+    $conditionStatus = (string) ($payload['condition_status'] ?? 'good');
+    $remarks = (string) ($payload['remarks'] ?? '');
+    $createdBy = isset($payload['created_by']) ? (int) $payload['created_by'] : null;
+
+    $stmt->bind_param(
+        'sssssiiiiiissssiiddiiissi',
+        $systemReference,
+        $poNumber,
+        $propertyNumber,
+        $itemType,
+        $itemDescription,
+        $classificationId,
+        $accountCodeId,
+        $fundId,
+        $supplierId,
+        $brandId,
+        $modelId,
+        $brand,
+        $model,
+        $serialNo,
+        $acquisitionDate,
+        $quantity,
+        $unitOfMeasureId,
+        $unitCost,
+        $acquisitionCost,
+        $officeId,
+        $employeeId,
+        $responsibilityCodeId,
+        $conditionStatus,
+        $remarks,
+        $createdBy
+    );
+    if (!$stmt->execute()) {
+        $stmt->close();
+        return 0;
+    }
+
+    $legacyAssetId = (int) $stmt->insert_id;
+    $stmt->close();
+
+    legacy_asset_sync_item_name(
+        $db,
+        $legacyAssetId,
+        (string) ($payload['item_name'] ?? ''),
+        isset($payload['item_name_id']) ? (int) $payload['item_name_id'] : 0
+    );
+
+    return $legacyAssetId;
 }

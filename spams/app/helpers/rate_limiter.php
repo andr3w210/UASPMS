@@ -3,7 +3,7 @@
  * IP-based rate limiting helper.
  *
  * Uses the application database to track attempts per IP address and action
- * key. The table is created automatically on first use.
+ * key. Required schema must be created by migrations.
  *
  * Usage:
  *   if (rate_limit_check('login')) { $error = 'Too many attempts...'; }
@@ -11,27 +11,35 @@
  */
 
 /**
- * Ensure the rate_limit_attempts table exists.
- * Uses a static flag so the CREATE TABLE query runs at most once per request.
+ * Ensure required rate limiter schema exists.
+ * Uses a static flag so the check runs at most once per request.
  */
-function _rate_limit_ensure_table(mysqli $db): void
+function _rate_limit_schema_ready(mysqli $db): bool
 {
     static $checked = false;
+    static $ready = false;
     if ($checked) {
-        return;
+        return $ready;
     }
     $checked = true;
 
-    $db->query("
-        CREATE TABLE IF NOT EXISTS rate_limit_attempts (
-            id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            ip_address  VARCHAR(45)     NOT NULL,
-            action_key  VARCHAR(64)     NOT NULL,
-            attempted_at DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            INDEX idx_rla_lookup (ip_address, action_key, attempted_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    $stmt = $db->prepare("
+        SELECT 1
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'rate_limit_attempts'
+        LIMIT 1
     ");
+    if (!$stmt) {
+        return false;
+    }
+
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_row();
+    $stmt->close();
+    $ready = $row !== null;
+
+    return $ready;
 }
 
 /**
@@ -50,17 +58,20 @@ function _rate_limit_ip(): string
  * @param int    $maxAttempts   Maximum allowed attempts within the window.
  * @param int    $windowMinutes Rolling time window in minutes.
  *
+ * @param bool   $failClosed    When true, block requests if the limiter backend is unavailable.
+ *
  * @return bool  True if the limit is exceeded (request should be blocked).
- *               Returns false (allow) if the database is unavailable.
  */
-function rate_limit_check(string $key, int $maxAttempts = 5, int $windowMinutes = 15): bool
+function rate_limit_check(string $key, int $maxAttempts = 5, int $windowMinutes = 15, bool $failClosed = false): bool
 {
     $db = db();
     if (!$db) {
-        return false; // fail open when DB is unavailable
+        return $failClosed;
     }
 
-    _rate_limit_ensure_table($db);
+    if (!_rate_limit_schema_ready($db)) {
+        return $failClosed;
+    }
 
     $ip   = _rate_limit_ip();
     $stmt = $db->prepare("
@@ -72,7 +83,7 @@ function rate_limit_check(string $key, int $maxAttempts = 5, int $windowMinutes 
     ");
 
     if (!$stmt) {
-        return false;
+        return $failClosed;
     }
 
     $stmt->bind_param('ssi', $ip, $key, $windowMinutes);
@@ -97,7 +108,9 @@ function rate_limit_record(string $key): void
         return;
     }
 
-    _rate_limit_ensure_table($db);
+    if (!_rate_limit_schema_ready($db)) {
+        return;
+    }
 
     $ip   = _rate_limit_ip();
     $stmt = $db->prepare("

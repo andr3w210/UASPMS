@@ -4,12 +4,7 @@ This project already contains a working baseline database dump that can recreate
 
 ## Current database settings
 
-- Database: `spamsdb`
-- Host: `127.0.0.1`
-- User: `root`
-- Password: blank
-
-These values are defined in [constants.php](/f:/xampp/htdocs/UASPMS/spams/app/config/constants.php).
+The application reads database settings from the project `.env` file, falling back to `spams/.env` when needed. Do not rely on hard-coded `root` or blank-password values for production recovery.
 
 ## Recovery baseline
 
@@ -17,37 +12,35 @@ The saved baseline dump is:
 
 - [spamsdb_recovery_baseline_2026-03-26.sql](/f:/xampp/htdocs/UASPMS/database/backups/spamsdb_recovery_baseline_2026-03-26.sql)
 
-This baseline contains:
+This baseline is an emergency recovery seed only. It contains:
 
 - Full schema for the recovered system
 - Seed/master data needed by the app
-- A working `admin` user
+- Administrator records that must be reviewed and reset before user access is enabled
 
-This baseline does **not** contain your old operational records. The current database has no purchase orders, receivings, issuances, distributions, returns, or disposals yet.
+This baseline does **not** contain current operational records. Before using it, confirm that restoring it is the intended recovery path for the target environment.
 
 ## One-command restore
 
-Run this from PowerShell:
+Run this from PowerShell only after confirming the target database and backup location:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\restore_database.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\restore_database.ps1 -ConfirmDestructiveRestore
 ```
 
 The restore script will:
 
+- Create a pre-restore backup using `scripts/backup_database.ps1`
 - Drop and recreate `spamsdb`
 - Import the saved baseline dump
 
 Script path:
 
-- [restore_database.ps1](/f:/xampp/htdocs/UASPMS/scripts/restore_database.ps1)
+- `scripts/restore_database.ps1`
 
-## Default login after restore
+## Administrator access after restore
 
-- Username: `admin`
-- Password: `password`
-
-Change the password immediately after logging in.
+Do not use or publish default credentials for production. After any restore, verify the active administrator accounts in the restored database and force a password reset before enabling user access.
 
 ## Alternative importer already in the project
 

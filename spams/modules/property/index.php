@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Property Custodian', 'Viewer');
 
 $db = db();
 $officeId = isset($_GET['office_id']) ? (int) $_GET['office_id'] : 0;
@@ -31,6 +32,17 @@ if (!in_array($rpcppeFilter, ['', 'excluded', 'included_draft', 'submitted_to_ac
     $rpcppeFilter = '';
 }
 
+$searchTerms = [];
+if ($search !== '') {
+    $searchTerms = preg_split('/\s+/', $search);
+    if (!is_array($searchTerms)) {
+        $searchTerms = [];
+    }
+    $searchTerms = array_values(array_filter(array_map('trim', $searchTerms), static function ($term) {
+        return $term !== '';
+    }));
+}
+
 $parseAmountFilter = static function (string $value): ?float {
     if ($value === '') {
         return null;
@@ -53,6 +65,7 @@ $offices = [];
 $summary = ['total' => 0, 'equipment' => 0, 'semi_expendable' => 0, 'legacy' => 0];
 $total = 0;
 $totalPages = 0;
+$hasNextPage = false;
 
 if ($db) {
     if (function_exists('ensure_receiving_item_variance_columns')) {
@@ -118,23 +131,32 @@ if ($db) {
             $types .= 'i';
             $params[] = $officeId;
         }
-        if ($search !== '') {
-            $systemSql .= " AND (
-                did.property_number LIKE ?
-                OR COALESCE(NULLIF(ri.actual_item_description, ''), poi.item_description) LIKE ?
-                OR c.classification_name LIKE ?
-                OR c.classification_family LIKE ?
-                OR COALESCE(curr_o.office_name, o.office_name) LIKE ?
-                OR COALESCE(curr_e.first_name, e.first_name) LIKE ?
-                OR COALESCE(curr_e.last_name, e.last_name) LIKE ?
-                OR did.brand LIKE ?
-                OR did.model LIKE ?
-                OR did.serial_no LIKE ?
-            )";
-            $searchLike = '%' . $search . '%';
-            $types .= 'ssssssssss';
-            for ($index = 0; $index < 10; $index++) {
-                $params[] = $searchLike;
+        if ($searchTerms !== []) {
+            $systemSearchColumns = [
+                'did.property_number',
+                "COALESCE(NULLIF(ri.actual_item_description, ''), poi.item_description)",
+                'c.classification_name',
+                'c.classification_family',
+                'COALESCE(curr_o.office_name, o.office_name)',
+                'COALESCE(curr_e.first_name, e.first_name)',
+                'COALESCE(curr_e.last_name, e.last_name)',
+                'did.brand',
+                'did.model',
+                'did.serial_no',
+            ];
+
+            foreach ($searchTerms as $term) {
+                $orParts = [];
+                foreach ($systemSearchColumns as $column) {
+                    $orParts[] = $column . ' LIKE ?';
+                }
+                $systemSql .= ' AND (' . implode(' OR ', $orParts) . ')';
+
+                $searchLike = '%' . $term . '%';
+                $types .= str_repeat('s', count($systemSearchColumns));
+                foreach ($systemSearchColumns as $_unused) {
+                    $params[] = $searchLike;
+                }
             }
         }
         if ($itemType !== '') {
@@ -228,23 +250,32 @@ if ($db) {
             $types .= 'i';
             $params[] = $officeId;
         }
-        if ($search !== '') {
-            $legacySql .= " AND (
-                la.property_number LIKE ?
-                OR la.item_description LIKE ?
-                OR c.classification_name LIKE ?
-                OR c.classification_family LIKE ?
-                OR o.office_name LIKE ?
-                OR e.first_name LIKE ?
-                OR e.last_name LIKE ?
-                OR la.brand LIKE ?
-                OR la.model LIKE ?
-                OR la.serial_no LIKE ?
-            )";
-            $searchLike = '%' . $search . '%';
-            $types .= 'ssssssssss';
-            for ($index = 0; $index < 10; $index++) {
-                $params[] = $searchLike;
+        if ($searchTerms !== []) {
+            $legacySearchColumns = [
+                'la.property_number',
+                'la.item_description',
+                'c.classification_name',
+                'c.classification_family',
+                'o.office_name',
+                'e.first_name',
+                'e.last_name',
+                'la.brand',
+                'la.model',
+                'la.serial_no',
+            ];
+
+            foreach ($searchTerms as $term) {
+                $orParts = [];
+                foreach ($legacySearchColumns as $column) {
+                    $orParts[] = $column . ' LIKE ?';
+                }
+                $legacySql .= ' AND (' . implode(' OR ', $orParts) . ')';
+
+                $searchLike = '%' . $term . '%';
+                $types .= str_repeat('s', count($legacySearchColumns));
+                foreach ($legacySearchColumns as $_unused) {
+                    $params[] = $searchLike;
+                }
             }
         }
         if ($itemType !== '') {
@@ -316,6 +347,32 @@ if ($db) {
         $total = $pageData['total'];
         $page = $pageData['page'];
         $totalPages = $pageData['total_pages'];
+        $hasNextPage = $page < $totalPages;
+
+        if (!$hasNextPage && !empty($rows) && count($rows) === $perPage) {
+            $probeSql = "SELECT 1 FROM (" . $unionSql . ") asset_registry_rows ORDER BY record_date DESC, property_no DESC, detail_id DESC LIMIT 1 OFFSET ?";
+            $probeStmt = $db->prepare($probeSql);
+            if ($probeStmt) {
+                $probeTypes = $types . 'i';
+                $probeParams = $params;
+                $probeParams[] = $page * $perPage;
+
+                $refs = [$probeTypes];
+                foreach ($probeParams as $key => $value) {
+                    $refs[] = &$probeParams[$key];
+                }
+                call_user_func_array([$probeStmt, 'bind_param'], $refs);
+
+                $probeStmt->execute();
+                $probeResult = $probeStmt->get_result();
+                $hasNextPage = $probeResult instanceof mysqli_result && (bool) $probeResult->fetch_row();
+                $probeStmt->close();
+            }
+        }
+
+        if ($hasNextPage && $totalPages <= $page) {
+            $totalPages = $page + 1;
+        }
 
         $summaryStmt = $db->prepare($summarySql);
         if ($summaryStmt) {
@@ -460,12 +517,43 @@ function build_registry_url(array $overrides = []): string
     }));
 }
 
+function render_registry_pagination(int $page, int $totalPages, bool $hasNextPage): string
+{
+    $startPage = max(1, $page - 2);
+    $endPage = min($totalPages, $page + 2);
+    $nextDisabled = !$hasNextPage && $page >= $totalPages;
+
+    ob_start();
+    ?>
+    <nav aria-label="Asset registry pagination">
+        <ul class="pagination pagination-sm mb-0">
+            <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
+                <a class="page-link" href="<?php echo $page <= 1 ? '#' : h(build_registry_url(['page' => $page - 1])); ?>">Previous</a>
+            </li>
+            <?php for ($pageNumber = $startPage; $pageNumber <= $endPage; $pageNumber++): ?>
+                <li class="page-item <?php echo $pageNumber === $page ? 'active' : ''; ?>">
+                    <a class="page-link" href="<?php echo h(build_registry_url(['page' => $pageNumber])); ?>">
+                        <?php echo number_format($pageNumber); ?>
+                    </a>
+                </li>
+            <?php endfor; ?>
+            <li class="page-item <?php echo $nextDisabled ? 'disabled' : ''; ?>">
+                <a class="page-link" href="<?php echo $nextDisabled ? '#' : h(build_registry_url(['page' => $page + 1])); ?>">Next</a>
+            </li>
+        </ul>
+    </nav>
+    <?php
+
+    return (string) ob_get_clean();
+}
+
 require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 
 $rangeStart = $total > 0 ? (($page - 1) * $perPage) + 1 : 0;
 $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
+$shouldShowPagination = $total > $perPage || $totalPages > 1 || $page > 1 || $hasNextPage;
 $activeFilterCount = 0;
 foreach ([$officeId, $search, $itemType, $sourceFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $filterValue) {
     if ((string) $filterValue !== '') {
@@ -760,6 +848,15 @@ if ($dateFrom !== '' || $dateTo !== '') {
                         <div class="small text-muted"><?php echo $activeFilterCount > 0 ? number_format($activeFilterCount) . ' active filter(s)' : 'No active filters'; ?></div>
                     </div>
 
+                    <?php if ($shouldShowPagination): ?>
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <div class="small text-muted">
+                                Page <?php echo number_format($page); ?> of <?php echo number_format(max($totalPages, $page)); ?>
+                            </div>
+                            <?php echo render_registry_pagination($page, max($totalPages, $page), $hasNextPage); ?>
+                        </div>
+                    <?php endif; ?>
+
                 <div class="table-responsive mobile-table-frame asset-registry-table-frame workspace-filter-panel" id="assetRegistryTableFrame">
                     <table class="table table-sm align-middle" id="assetRegistryTable" data-no-table-search>
                         <thead>
@@ -868,32 +965,12 @@ if ($dateFrom !== '' || $dateTo !== '') {
                     </table>
                 </div>
 
-                <?php if ($totalPages > 1): ?>
+                <?php if ($shouldShowPagination): ?>
                     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
                         <div class="small text-muted">
-                            Page <?php echo number_format($page); ?> of <?php echo number_format($totalPages); ?>
+                            Page <?php echo number_format($page); ?> of <?php echo number_format(max($totalPages, $page)); ?>
                         </div>
-                        <nav aria-label="Asset registry pagination">
-                            <ul class="pagination pagination-sm mb-0">
-                                <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
-                                    <a class="page-link" href="<?php echo $page <= 1 ? '#' : h(build_registry_url(['page' => $page - 1])); ?>">Previous</a>
-                                </li>
-                                <?php
-                                $startPage = max(1, $page - 2);
-                                $endPage = min($totalPages, $page + 2);
-                                for ($pageNumber = $startPage; $pageNumber <= $endPage; $pageNumber++):
-                                ?>
-                                    <li class="page-item <?php echo $pageNumber === $page ? 'active' : ''; ?>">
-                                        <a class="page-link" href="<?php echo h(build_registry_url(['page' => $pageNumber])); ?>">
-                                            <?php echo number_format($pageNumber); ?>
-                                        </a>
-                                    </li>
-                                <?php endfor; ?>
-                                <li class="page-item <?php echo $page >= $totalPages ? 'disabled' : ''; ?>">
-                                    <a class="page-link" href="<?php echo $page >= $totalPages ? '#' : h(build_registry_url(['page' => $page + 1])); ?>">Next</a>
-                                </li>
-                            </ul>
-                        </nav>
+                        <?php echo render_registry_pagination($page, max($totalPages, $page), $hasNextPage); ?>
                     </div>
                 <?php endif; ?>
             </div>

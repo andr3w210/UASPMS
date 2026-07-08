@@ -5,6 +5,11 @@ REVERT: Undo the reclassification - move items back to their original accounts
 */
 
 $mysqli = tools_db();
+$apply = in_array('--apply', $argv, true);
+
+if (!$apply) {
+    echo "DRY RUN: no database changes will be committed. Re-run with --apply to revert these rows.\n";
+}
 
 // Get the IDs we moved and find their original account from legacy_assets
 $idsToRevert = [
@@ -34,6 +39,7 @@ echo "  Total moved: " . number_format($totalMoved, 2) . " PHP\n\n";
 
 // The issue is that we moved items that are NOW in 1.06.05.020.00
 // We need to move them back to 1.06.05.030.00 (Communications Equipment)
+$mysqli->begin_transaction();
 $query = "UPDATE rpcppe_batch_items 
           SET account_code = '1.06.05.030.00', 
               account_code_id = 27,
@@ -44,8 +50,12 @@ $query = "UPDATE rpcppe_batch_items
               updated_at = NOW()
           WHERE id IN (" . implode(',', $idsToRevert) . ")";
 
-if ($mysqli->query($query)) {
-    echo "✓ Reverted " . $mysqli->affected_rows . " rows back to Communications Equipment (1.06.05.030.00)\n\n";
+try {
+    if (!$mysqli->query($query)) {
+        throw new RuntimeException("Error reverting: " . $mysqli->error);
+    }
+
+    echo ($apply ? "Reverted " : "Would revert ") . $mysqli->affected_rows . " rows back to Communications Equipment (1.06.05.030.00)\n\n";
     
     // Verify
     $verifyQuery = "SELECT COUNT(*) as cnt, SUM(unit_cost * qty_physical_count) as total
@@ -56,8 +66,17 @@ if ($mysqli->query($query)) {
     echo "Office Equipment (1.06.05.020.00) now has:\n";
     echo "  Rows: " . $row['cnt'] . "\n";
     echo "  Total: " . number_format($row['total'], 2) . " PHP\n";
-} else {
-    echo "✗ Error reverting: " . $mysqli->error . "\n";
+
+    if ($apply) {
+        $mysqli->commit();
+        echo "COMMITTED. Database was updated.\n";
+    } else {
+        $mysqli->rollback();
+        echo "ROLLED BACK. No database changes were committed.\n";
+    }
+} catch (Throwable $e) {
+    $mysqli->rollback();
+    throw $e;
 }
 
 $mysqli->close();

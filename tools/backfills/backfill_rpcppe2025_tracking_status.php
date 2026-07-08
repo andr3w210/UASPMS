@@ -1,10 +1,16 @@
 ﻿<?php
 require_once __DIR__ . '/../bootstrap.php';
+$apply = in_array('--apply', $argv, true);
 $db = tools_db();
 if ($db->connect_error) {
     die("Connection failed\n");
 }
 
+if (!$apply) {
+    echo "Dry-run only. Re-run with --apply to persist RPCPPE 2025 tracking-status backfill updates." . PHP_EOL;
+}
+
+require_once dirname(__DIR__, 2) . '/spams/app/helpers/roles.php';
 require_once dirname(__DIR__, 2) . '/spams/app/helpers/common.php';
 
 ensure_legacy_assets_rpcppe_tracking_columns($db);
@@ -83,9 +89,13 @@ try {
         GROUP BY reconciliation_status
         ORDER BY reconciliation_status")->fetch_all(MYSQLI_ASSOC);
 
-    $db->commit();
+    if ($apply) {
+        $db->commit();
+    } else {
+        $db->rollback();
+    }
 
-    echo "Applied SQL updates:\n";
+    echo $apply ? "Applied SQL updates:\n" : "SQL updates that would be applied:\n";
     foreach ($sqlLog as $entry) {
         echo "- rows={$entry['rows']}\n";
         echo $entry['sql'] . "\n\n";

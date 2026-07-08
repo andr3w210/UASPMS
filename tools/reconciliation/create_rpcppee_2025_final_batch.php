@@ -1,10 +1,18 @@
 ﻿<?php
 
 require_once __DIR__ . '/../bootstrap.php';
+$apply = in_array('--apply', $argv, true);
+
 $db = tools_db();
 if ($db->connect_error) {
     fwrite(STDERR, "Connection failed: {$db->connect_error}\n");
     exit(1);
+}
+
+if (!$apply) {
+    echo "Dry-run only. Re-run with --apply to create or replace the RPCPPEE 2025 final batch items." . PHP_EOL;
+    $db->close();
+    exit(0);
 }
 
 $sourceBatchId = 14;

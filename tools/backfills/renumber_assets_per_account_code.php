@@ -13,10 +13,16 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
+$apply = in_array('--apply', $argv, true);
+
 $db = tools_db();
 if ($db->connect_error) {
     fwrite(STDERR, "Connection failed: {$db->connect_error}\n");
     exit(1);
+}
+
+if (!$apply) {
+    echo "Dry-run only. Re-run with --apply to update property numbers, sync RPCPPE batch items, and rebuild series numbers." . PHP_EOL;
 }
 
 // --- 1. Fetch all rows: prefix derived from FULL account code (not stored pn) -
@@ -112,8 +118,10 @@ foreach ($byPrefix as $prefix => $items) {
         if ($item['old'] === $newPn) {
             continue;
         }
-        $updateStmt->bind_param('si', $newPn, $item['id']);
-        $updateStmt->execute();
+        if ($apply) {
+            $updateStmt->bind_param('si', $newPn, $item['id']);
+            $updateStmt->execute();
+        }
         $bucketChanged++;
     }
     if ($bucketChanged > 0) {
@@ -123,58 +131,66 @@ foreach ($byPrefix as $prefix => $items) {
 }
 $updateStmt->close();
 
-echo 'Rows changed: '    . $totalChanged . PHP_EOL;
-echo 'Buckets changed: ' . $totalBuckets . PHP_EOL;
+echo ($apply ? 'Rows changed: ' : 'Rows that would change: ') . $totalChanged . PHP_EOL;
+echo ($apply ? 'Buckets changed: ' : 'Buckets that would change: ') . $totalBuckets . PHP_EOL;
 
 // --- 3. Sync rpcppe_batch_items ------------------------------------------
-$db->query(
-    "UPDATE rpcppe_batch_items rbi
-     INNER JOIN distribution_item_details did
-         ON did.id = rbi.distribution_item_detail_id
-     SET rbi.property_number = did.property_number
-     WHERE rbi.source_type = 'system'"
-);
-echo 'rpcppe_batch_items synced: ' . $db->affected_rows . PHP_EOL;
+if ($apply) {
+    $db->query(
+        "UPDATE rpcppe_batch_items rbi
+         INNER JOIN distribution_item_details did
+             ON did.id = rbi.distribution_item_detail_id
+         SET rbi.property_number = did.property_number
+         WHERE rbi.source_type = 'system'"
+    );
+    echo 'rpcppe_batch_items synced: ' . $db->affected_rows . PHP_EOL;
+} else {
+    echo 'rpcppe_batch_items sync skipped in dry run.' . PHP_EOL;
+}
 
 // --- 4. Rebuild series_numbers per prefix --------------------------------
 // seq_no is the 4th dash-segment (position between 3rd dash and office suffix)
-$db->query("DELETE FROM series_numbers WHERE module_key LIKE 'property_number|%'");
+if ($apply) {
+    $db->query("DELETE FROM series_numbers WHERE module_key LIKE 'property_number|%'");
 
-$db->query(
-    "INSERT INTO series_numbers (module_key, prefix, year_value, current_value, padding_length)
-     SELECT
-         CONCAT('property_number|', src.prefix) AS module_key,
-         src.prefix                              AS prefix,
-         NULL                                   AS year_value,
-         MAX(src.seq_no)                        AS current_value,
-         4                                      AS padding_length
-     FROM (
+    $db->query(
+        "INSERT INTO series_numbers (module_key, prefix, year_value, current_value, padding_length)
          SELECT
-             SUBSTRING_INDEX(property_number, '-', 3) AS prefix,
-             CAST(
-                 SUBSTRING_INDEX(SUBSTRING_INDEX(property_number, '-', 4), '-', -1)
-             AS UNSIGNED) AS seq_no
-         FROM distribution_item_details
-         WHERE property_number
-               REGEXP '^[0-9]{4}-[0-9]{2}-[A-Za-z0-9.]+-[0-9]+-[A-Za-z0-9]+'
-         UNION ALL
-         SELECT
-             SUBSTRING_INDEX(property_number, '-', 3) AS prefix,
-             CAST(
-                 SUBSTRING_INDEX(SUBSTRING_INDEX(property_number, '-', 4), '-', -1)
-             AS UNSIGNED) AS seq_no
-         FROM legacy_assets
-         WHERE property_number
-               REGEXP '^[0-9]{4}-[0-9]{2}-[A-Za-z0-9.]+-[0-9]+-[A-Za-z0-9]+'
-     ) AS src
-     WHERE src.prefix REGEXP '^[0-9]{4}-[0-9]{2}-[A-Za-z0-9.]+$'
-       AND src.seq_no > 0
-     GROUP BY src.prefix"
-);
+             CONCAT('property_number|', src.prefix) AS module_key,
+             src.prefix                              AS prefix,
+             NULL                                   AS year_value,
+             MAX(src.seq_no)                        AS current_value,
+             4                                      AS padding_length
+         FROM (
+             SELECT
+                 SUBSTRING_INDEX(property_number, '-', 3) AS prefix,
+                 CAST(
+                     SUBSTRING_INDEX(SUBSTRING_INDEX(property_number, '-', 4), '-', -1)
+                 AS UNSIGNED) AS seq_no
+             FROM distribution_item_details
+             WHERE property_number
+                   REGEXP '^[0-9]{4}-[0-9]{2}-[A-Za-z0-9.]+-[0-9]+-[A-Za-z0-9]+'
+             UNION ALL
+             SELECT
+                 SUBSTRING_INDEX(property_number, '-', 3) AS prefix,
+                 CAST(
+                     SUBSTRING_INDEX(SUBSTRING_INDEX(property_number, '-', 4), '-', -1)
+                 AS UNSIGNED) AS seq_no
+             FROM legacy_assets
+             WHERE property_number
+                   REGEXP '^[0-9]{4}-[0-9]{2}-[A-Za-z0-9.]+-[0-9]+-[A-Za-z0-9]+'
+         ) AS src
+         WHERE src.prefix REGEXP '^[0-9]{4}-[0-9]{2}-[A-Za-z0-9.]+$'
+           AND src.seq_no > 0
+         GROUP BY src.prefix"
+    );
 
-$cr = $db->query("SELECT COUNT(*) AS c FROM series_numbers WHERE module_key LIKE 'property_number|%'");
-$seriesRows = $cr ? (int) $cr->fetch_assoc()['c'] : 0;
-echo 'series_numbers rebuilt: ' . $seriesRows . PHP_EOL;
+    $cr = $db->query("SELECT COUNT(*) AS c FROM series_numbers WHERE module_key LIKE 'property_number|%'");
+    $seriesRows = $cr ? (int) $cr->fetch_assoc()['c'] : 0;
+    echo 'series_numbers rebuilt: ' . $seriesRows . PHP_EOL;
+} else {
+    echo 'series_numbers rebuild skipped in dry run.' . PHP_EOL;
+}
 
 // --- 5. Sample -----------------------------------------------------------
 $sample = $db->query(

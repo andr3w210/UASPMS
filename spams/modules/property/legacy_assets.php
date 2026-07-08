@@ -1,9 +1,11 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Property Custodian', 'Viewer');
 
 $db = db();
 $flash = get_flash();
+$canManageLegacyAssets = user_has_any_role('Administrator', 'Supply Officer', 'Property Officer');
 $rows = [];
 $encodedSummary = [
     'count'    => 0,
@@ -28,14 +30,12 @@ if ($db) {
     ensure_legacy_assets_fund_column($db);
     ensure_legacy_assets_rpcppe_tracking_columns($db);
 
-    if (!isset($_SESSION['legacy_assets_normalized_once'])) {
-        $db->query("UPDATE legacy_assets SET item_type = 'equipment' WHERE item_type IS NULL OR item_type = ''");
-        $db->query("UPDATE legacy_assets SET quantity = 1 WHERE quantity IS NULL OR quantity <= 0");
-        $db->query("UPDATE legacy_assets SET unit_cost = acquisition_cost WHERE unit_cost IS NULL OR unit_cost = 0");
-        $_SESSION['legacy_assets_normalized_once'] = 1;
-    }
-
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') === 'update_rpcppe_tracking') {
+        if (!$canManageLegacyAssets) {
+            set_flash('error', 'You do not have permission to update legacy asset RPCPPE tracking.');
+            redirect('modules/property/legacy_assets.php');
+        }
+
         if (!csrf_verify()) {
             set_flash('error', 'Invalid CSRF token.');
             redirect('modules/property/legacy_assets.php');
@@ -413,9 +413,11 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
                                                 <a href="<?php echo h(base_url('modules/property/view.php?source=legacy&id=' . (int) ($row['id'] ?? 0))); ?>" class="btn btn-sm btn-outline-secondary" title="View details" aria-label="View details">
                                                     <i class="bi bi-eye"></i>View
                                                 </a>
-                                                <a href="<?php echo h(base_url('modules/property/encode_legacy_asset.php?duplicate_id=' . (int) ($row['id'] ?? 0))); ?>" class="btn btn-sm btn-outline-primary" title="Duplicate asset" aria-label="Duplicate asset">
-                                                    <i class="bi bi-copy"></i>Duplicate
-                                                </a>
+                                                <?php if ($canManageLegacyAssets): ?>
+                                                    <a href="<?php echo h(base_url('modules/property/encode_legacy_asset.php?duplicate_id=' . (int) ($row['id'] ?? 0))); ?>" class="btn btn-sm btn-outline-primary" title="Duplicate asset" aria-label="Duplicate asset">
+                                                        <i class="bi bi-copy"></i>Duplicate
+                                                    </a>
+                                                <?php endif; ?>
                                             </div>
                                         </td>
                                         <td><?php echo h($row['property_number']); ?></td>
@@ -432,6 +434,16 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
                                         <td><?php echo h(number_format((float) ($row['acquisition_cost'] ?? 0), 2)); ?></td>
                                         <td><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['condition_status'] ?? '')))); ?></td>
                                         <td class="legacy-rpcppe-col">
+                                            <?php if (!$canManageLegacyAssets): ?>
+                                                <div class="d-grid gap-2">
+                                                    <span class="badge <?php echo h(rpcppe_status_badge_class((string) ($row['rpcppe_status'] ?? 'excluded'))); ?>">
+                                                        <?php echo h(rpcppe_status_label((string) ($row['rpcppe_status'] ?? 'excluded'))); ?>
+                                                    </span>
+                                                    <span class="small text-muted">
+                                                        <?php echo ((int) ($row['is_rpcppe_candidate'] ?? 0) === 1) ? 'Included in RPCPPE' : 'Excluded from RPCPPE'; ?>
+                                                    </span>
+                                                </div>
+                                            <?php else: ?>
                                                 <form method="post" class="d-grid gap-2">
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="update_rpcppe_tracking">
@@ -456,6 +468,7 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
                                                     <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
                                                 </div>
                                                 </form>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; else: ?>

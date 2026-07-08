@@ -1,7 +1,13 @@
 ﻿<?php
 require_once __DIR__ . '/../bootstrap.php';
+$apply = in_array('--apply', $argv, true);
+
 $m = tools_db();
 if ($m->connect_error) die("Connection failed\n");
+
+if (!$apply) {
+    echo "Dry-run only. Re-run with --apply to persist unlinked legacy row repairs." . PHP_EOL;
+}
 
 $batchId = 14;
 
@@ -58,7 +64,11 @@ try {
                          AND source_type = 'legacy'
                          AND (account_code = '' OR account_name = '' OR fund_code = '' OR fund_source = '' OR fund_number = '')")->fetch_assoc();
 
-    $m->commit();
+    if ($apply) {
+        $m->commit();
+    } else {
+        $m->rollback();
+    }
 
     echo 'fixed_05_140=' . (int)$fixed140 . PHP_EOL;
     echo 'fixed_05_990=' . (int)$fixed990 . PHP_EOL;

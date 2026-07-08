@@ -5,7 +5,7 @@
  * Returns JSON: {success: bool, id: int, label: string} or {success: false, error: string}
  */
 require_once __DIR__ . '/../../app/config/init.php';
-require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -22,10 +22,9 @@ function qa_ensure_classification_family_unique_index(mysqli $db): void
         return;
     }
 
-    $db->query("UPDATE classifications SET classification_family = '' WHERE classification_family IS NULL");
-    $db->query("ALTER TABLE classifications MODIFY classification_family VARCHAR(150) NOT NULL DEFAULT ''");
-    $db->query("ALTER TABLE classifications DROP INDEX uk_classifications_group_name");
-    $db->query("ALTER TABLE classifications ADD UNIQUE KEY uk_classifications_group_family_name (classification_group, classification_family, classification_name)");
+    qa_json(false, [
+        'error' => 'Database schema is outdated for classifications unique indexing. Apply latest migrations before using quick add.'
+    ]);
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -121,9 +120,10 @@ switch ($action) {
         }
 
         $classificationCode = next_module_code($db, 'classifications');
-        $stmt = $db->prepare('INSERT INTO classifications (classification_code, classification_name, classification_family, classification_group, account_code_id, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, ?)');
+        $usefulLifeYears = classification_default_useful_life_years($db, $accountCodeId, $group);
+        $stmt = $db->prepare('INSERT INTO classifications (classification_code, classification_name, classification_family, classification_group, useful_life_years, account_code_id, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, 1, ?)');
         if (!$stmt) { qa_json(false, ['error' => 'Failed to prepare insert.']); }
-        $stmt->bind_param('ssssii', $classificationCode, $name, $family, $group, $accountCodeId, $userId);
+        $stmt->bind_param('ssssiii', $classificationCode, $name, $family, $group, $usefulLifeYears, $accountCodeId, $userId);
         $saved = $stmt->execute();
         $insertError = $stmt->error;
         $id = (int) $stmt->insert_id;
@@ -167,14 +167,15 @@ switch ($action) {
             $dup->close();
         }
 
-        $stmt = $db->prepare('INSERT INTO account_codes (account_code, account_name, account_group, is_active, created_by) VALUES (?, ?, ?, 1, ?)');
+        $defaultUsefulLifeYears = account_code_default_useful_life_years($code, $accountGroup);
+        $stmt = $db->prepare('INSERT INTO account_codes (account_code, account_name, account_group, default_useful_life_years, is_active, created_by) VALUES (?, ?, ?, ?, 1, ?)');
         if (!$stmt) { qa_json(false, ['error' => 'Failed to prepare insert.']); }
-        $stmt->bind_param('sssi', $code, $aname, $accountGroup, $userId);
+        $stmt->bind_param('sssii', $code, $aname, $accountGroup, $defaultUsefulLifeYears, $userId);
         $stmt->execute();
         $id = (int) $stmt->insert_id;
         $stmt->close();
 
-        qa_json(true, ['id' => $id, 'label' => $code . ' - ' . $aname, 'account_group' => $accountGroup]);
+        qa_json(true, ['id' => $id, 'label' => $code . ' - ' . $aname, 'account_group' => $accountGroup, 'default_useful_life_years' => $defaultUsefulLifeYears]);
     }
 
     // ── Brand ─────────────────────────────────────────────────────

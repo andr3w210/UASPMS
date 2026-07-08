@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../spams/app/config/init.php';
 
+$apply = in_array('--apply', $argv, true);
+
 function out(string $message): void
 {
     fwrite(STDOUT, $message . PHP_EOL);
@@ -94,6 +96,9 @@ if (!$update) {
 }
 
 $db->begin_transaction();
+if (!$apply) {
+    out('Dry-run only. Re-run with --apply to persist legacy asset classification backfill updates.');
+}
 $updated = 0;
 $skipped = 0;
 
@@ -123,8 +128,12 @@ try {
         $updated++;
     }
 
-    $db->commit();
-    out('Updated: ' . $updated);
+    if ($apply) {
+        $db->commit();
+    } else {
+        $db->rollback();
+    }
+    out(($apply ? 'Updated: ' : 'Rows that would update: ') . $updated);
     out('Skipped: ' . $skipped);
 } catch (Throwable $e) {
     $db->rollback();

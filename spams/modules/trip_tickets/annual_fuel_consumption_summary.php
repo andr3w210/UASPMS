@@ -38,8 +38,8 @@ if (!$tripDb) {
 
     if ($hasFuelTable && !$errors) {
         $consumedExpr = $hasQuantity
-            ? 'CASE WHEN COALESCE(e.liters_consumed, 0) > 0 THEN e.liters_consumed WHEN COALESCE(e.quantity, 0) > 0 THEN e.quantity ELSE 0 END'
-            : 'COALESCE(e.liters_consumed, 0)';
+            ? 'CASE WHEN COALESCE(e.liters_consumed, 0) > 0 THEN e.liters_consumed WHEN COALESCE(e.quantity, 0) > 0 THEN e.quantity WHEN COALESCE(e.liters_purchased, 0) > 0 THEN e.liters_purchased ELSE 0 END'
+            : 'CASE WHEN COALESCE(e.liters_consumed, 0) > 0 THEN e.liters_consumed WHEN COALESCE(e.liters_purchased, 0) > 0 THEN e.liters_purchased ELSE 0 END';
 
         $sql = "
             SELECT
@@ -132,7 +132,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3 no-print">
         <div>
             <h4 class="mb-1">Annual Vehicle Fuel Consumption Summary</h4>
-            <div class="text-muted">Printable all-vehicle summary based on encoded Fuel RIS consumption.</div>
+            <div class="text-muted">Printable all-vehicle summary based on encoded Fuel RIS data (consumed, quantity, or purchased liters).</div>
         </div>
         <div class="d-flex flex-wrap gap-2">
             <a href="<?php echo base_url('modules/trip_tickets/fuel_ris.php'); ?>" class="btn btn-outline-secondary">
@@ -165,6 +165,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <a href="<?php echo base_url('modules/trip_tickets/annual_fuel_consumption_summary.php'); ?>" class="btn btn-outline-secondary">Reset</a>
                 </div>
             </form>
+            <div class="small text-muted mt-2">
+                Monthly totals use this priority: <strong>Liters Consumed</strong>, then <strong>Quantity</strong>, then <strong>Liters Purchased</strong> when detailed RIS consumption is unavailable.
+            </div>
         </div>
     </div>
 

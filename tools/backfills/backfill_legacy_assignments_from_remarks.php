@@ -1,6 +1,8 @@
 ﻿<?php
 
 require_once __DIR__ . '/../bootstrap.php';
+$apply = in_array('--apply', $argv, true);
+
 $db = tools_db();
 if ($db->connect_error) {
     fwrite(STDERR, "Connection failed: {$db->connect_error}\n");
@@ -34,16 +36,35 @@ $selectSql = "
 
 $rows = $db->query($selectSql)->fetch_all(MYSQLI_ASSOC);
 
-$updateStmt = $db->prepare("
-    UPDATE legacy_assets
-    SET office_id = CASE WHEN office_id IS NULL AND ? > 0 THEN ? ELSE office_id END,
-        employee_id = CASE WHEN employee_id IS NULL AND ? > 0 THEN ? ELSE employee_id END,
-        updated_at = NOW()
-    WHERE id = ?
-");
+$hasUpdatedAt = false;
+$updatedAtCheck = $db->query("SHOW COLUMNS FROM legacy_assets LIKE 'updated_at'");
+if ($updatedAtCheck instanceof mysqli_result) {
+    $hasUpdatedAt = $updatedAtCheck->num_rows > 0;
+    $updatedAtCheck->close();
+}
+
+$updateStmt = null;
+if ($apply) {
+    $updatedAtSql = $hasUpdatedAt ? ", updated_at = NOW()" : "";
+    $updateStmt = $db->prepare("
+        UPDATE legacy_assets
+        SET office_id = CASE WHEN office_id IS NULL AND ? > 0 THEN ? ELSE office_id END,
+            employee_id = CASE WHEN employee_id IS NULL AND ? > 0 THEN ? ELSE employee_id END
+            {$updatedAtSql}
+        WHERE id = ?
+    ");
+    if (!$updateStmt) {
+        fwrite(STDERR, "Unable to prepare legacy assignment update: {$db->error}\n");
+        exit(1);
+    }
+}
 
 $applied = [];
 $skipped = [];
+
+if (!$apply) {
+    echo "Dry-run only. Re-run with --apply to persist legacy assignment updates." . PHP_EOL;
+}
 
 foreach ($rows as $row) {
     $remarks = strtolower(trim((string) ($row['remarks'] ?? '')));
@@ -74,8 +95,11 @@ foreach ($rows as $row) {
         continue;
     }
 
-    $updateStmt->bind_param('iiiii', $officeId, $officeId, $employeeId, $employeeId, $row['id']);
-    $ok = $updateStmt->execute();
+    $ok = true;
+    if ($apply && $updateStmt) {
+        $updateStmt->bind_param('iiiii', $officeId, $officeId, $employeeId, $employeeId, $row['id']);
+        $ok = $updateStmt->execute();
+    }
     if ($ok) {
         $applied[] = [
             'id' => (int) $row['id'],
@@ -87,7 +111,9 @@ foreach ($rows as $row) {
     }
 }
 
-$updateStmt->close();
+if ($updateStmt) {
+    $updateStmt->close();
+}
 
 echo "Legacy assignment backfill from remarks\n";
 echo "=====================================\n";

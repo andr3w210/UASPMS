@@ -54,17 +54,12 @@ function property_qr_looks_like_serial_number(string $value): bool
 function property_qr_ensure_schema(?mysqli $db): void
 {
     static $done = false;
-    if ($done || !$db || !function_exists('schema_has_column')) {
+    if ($done || !$db) {
         return;
     }
 
-    if (!schema_has_column($db, 'distribution_item_details', 'qr_tag_code')) {
-        $db->query("ALTER TABLE distribution_item_details ADD COLUMN qr_tag_code VARCHAR(80) NULL AFTER serial_no");
-    }
-
-    if (!schema_has_column($db, 'legacy_assets', 'qr_tag_code')) {
-        $db->query("ALTER TABLE legacy_assets ADD COLUMN qr_tag_code VARCHAR(80) NULL AFTER serial_no");
-    }
+    schema_require_columns($db, 'distribution_item_details', ['qr_tag_code']);
+    schema_require_columns($db, 'legacy_assets', ['qr_tag_code']);
 
     $done = true;
 }
@@ -93,6 +88,9 @@ function property_qr_resolve_tag_code(?mysqli $db, string $sourceType, int $asse
 
     property_qr_ensure_schema($db);
     $table = $sourceType === 'legacy' ? 'legacy_assets' : 'distribution_item_details';
+    if (function_exists('schema_has_column') && !schema_has_column($db, $table, 'qr_tag_code')) {
+        return $tagCode;
+    }
     $stmt = $db->prepare("UPDATE {$table} SET qr_tag_code = ? WHERE id = ? AND (qr_tag_code IS NULL OR qr_tag_code = '')");
     if ($stmt) {
         $stmt->bind_param('si', $tagCode, $assetId);

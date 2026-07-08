@@ -9,11 +9,12 @@ function action_main(array $argv): void
 {
     $filePathArg = $argv[1] ?? '';
     if ($filePathArg === '') {
-        fwrite(STDERR, "Usage: php scripts/import_fuel_consumption_workbook.php <xlsx-or-csv-path> [--quantity-mode=purchased|consumed]\n");
+        fwrite(STDERR, "Usage: php scripts/import_fuel_consumption_workbook.php <xlsx-or-csv-path> [--quantity-mode=purchased|consumed] [--apply]\n");
         exit(1);
     }
 
     $quantityMode = 'purchased';
+    $apply = in_array('--apply', $argv, true);
     foreach ($argv as $arg) {
         if (strpos($arg, '--quantity-mode=') === 0) {
             $value = trim(substr($arg, strlen('--quantity-mode=')));
@@ -35,6 +36,9 @@ function action_main(array $argv): void
 
     $tripDb = new mysqli(TRIP_DB_HOST, TRIP_DB_USER, TRIP_DB_PASS, TRIP_DB_NAME);
     $tripDb->set_charset('utf8mb4');
+    if (!$apply) {
+        echo "Dry-run only. Re-run with --apply to persist fuel consumption import rows." . PHP_EOL;
+    }
 
     if (!table_exists($tripDb, 'trip_fuel_ris_entries')) {
         fwrite(STDERR, "Table trip_fuel_ris_entries not found. Run database/097_trip_fuel_ris_entries.sql first.\n");
@@ -81,6 +85,8 @@ function action_main(array $argv): void
     $inserted = 0;
     $skipped = 0;
     $rowErrors = [];
+
+    $tripDb->begin_transaction();
 
     for ($i = 1; $i < count($rows); $i++) {
         $src = $rows[$i];
@@ -217,11 +223,16 @@ function action_main(array $argv): void
     }
 
     $insert->close();
+    if ($apply) {
+        $tripDb->commit();
+    } else {
+        $tripDb->rollback();
+    }
 
-    echo "Import complete\n";
+    echo $apply ? "Import complete\n" : "Dry run complete; no changes were saved.\n";
     echo "File: {$filePath}\n";
     echo "Quantity mode: {$quantityMode}\n";
-    echo "Inserted: {$inserted}\n";
+    echo ($apply ? "Inserted: " : "Rows that would insert: ") . "{$inserted}\n";
     echo "Skipped: {$skipped}\n";
     echo "Errors: " . count($rowErrors) . "\n";
 

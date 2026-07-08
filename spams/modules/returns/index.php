@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 function return_asset_label(array $row): string
 {
@@ -151,10 +152,10 @@ if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
     if (!schema_has_column($db, 'returns', 'source_type')) {
-        $db->query("ALTER TABLE returns ADD COLUMN source_type ENUM('system','legacy') NOT NULL DEFAULT 'system' AFTER system_reference");
+        $errors[] = 'Database schema is outdated: returns.source_type is missing. Apply latest migrations before continuing.';
     }
     if (!schema_has_column($db, 'returns', 'legacy_asset_id')) {
-        $db->query("ALTER TABLE returns ADD COLUMN legacy_asset_id BIGINT UNSIGNED NULL AFTER distribution_item_detail_id");
+        $errors[] = 'Database schema is outdated: returns.legacy_asset_id is missing. Apply latest migrations before continuing.';
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {

@@ -1,7 +1,13 @@
 ﻿<?php
 require_once __DIR__ . '/../bootstrap.php';
+$apply = in_array('--apply', $argv, true);
+
 $m = tools_db();
 if ($m->connect_error) die("Connection failed\n");
+
+if (!$apply) {
+    echo "Dry-run only. Re-run with --apply to persist batch 14 legacy snapshot repairs." . PHP_EOL;
+}
 
 $batchId = 14;
 
@@ -81,7 +87,11 @@ try {
                              WHERE batch_id=$batchId
                                AND (account_code IS NULL OR account_name IS NULL OR fund_code IS NULL OR fund_source IS NULL OR fund_number IS NULL)")->fetch_assoc();
 
-    $m->commit();
+    if ($apply) {
+        $m->commit();
+    } else {
+        $m->rollback();
+    }
 
     echo 'fixed_by_legacy_id=' . (int)$fixedById . PHP_EOL;
     echo 'fixed_by_property=' . (int)$fixedByProperty . PHP_EOL;
@@ -102,8 +112,15 @@ $reportSql = "SELECT id, property_number, account_code, account_name, fund_code,
                 AND (account_code='' OR account_name='' OR fund_code='' OR fund_source='' OR fund_number='')
               ORDER BY id";
 $res = $m->query($reportSql);
-$csv = __DIR__ . DIRECTORY_SEPARATOR . 'exports' . DIRECTORY_SEPARATOR . 'batch14_legacy_rows_still_blank_after_repair.csv';
+$exportDir = __DIR__ . DIRECTORY_SEPARATOR . 'exports';
+if (!is_dir($exportDir) && !mkdir($exportDir, 0775, true) && !is_dir($exportDir)) {
+    throw new RuntimeException('Unable to create export directory: ' . $exportDir);
+}
+$csv = $exportDir . DIRECTORY_SEPARATOR . 'batch14_legacy_rows_still_blank_after_repair.csv';
 $f = fopen($csv, 'w');
+if (!$f) {
+    throw new RuntimeException('Unable to open export file for writing: ' . $csv);
+}
 fputcsv($f, ['id','property_number','account_code','account_name','fund_code','fund_source','fund_number','total','item_description']);
 $left = 0;
 while($row = $res->fetch_assoc()) {

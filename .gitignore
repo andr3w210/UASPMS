@@ -7,6 +7,12 @@
 uploads/**/*.log
 uploads/**/*.txt
 spams/uploads/**/*.log
+logs/*.log
+
+# Generated reports and audit exports
+exports/*.csv
+tools/audits/exports/
+tools/reconciliation/exports/
 
 # Generated database backups
 spams/modules/settings/database/backups/generated/

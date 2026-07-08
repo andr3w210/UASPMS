@@ -1,7 +1,12 @@
 <?php
 require_once __DIR__ . '/../bootstrap.php';
 
+$apply = in_array('--apply', $argv, true);
+
 $db = tools_db();
+if (!$apply) {
+    echo 'Dry-run only. Re-run with --apply to restore temporary transfer property numbers.' . PHP_EOL;
+}
 
 $map = [
     6508 => 'TEMP-VPAF-2026-0001',
@@ -57,9 +62,13 @@ try {
     $stmtIc->close();
     $stmtRp->close();
 
-    $db->commit();
+    if ($apply) {
+        $db->commit();
+    } else {
+        $db->rollback();
+    }
 
-    echo 'temp_rows_restored=3' . PHP_EOL;
+    echo $apply ? 'temp_rows_restored=3' . PHP_EOL : 'temp_rows_that_would_be_restored=3' . PHP_EOL;
 } catch (Throwable $e) {
     $db->rollback();
     fwrite(STDERR, 'restore_failed=' . $e->getMessage() . PHP_EOL);

@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
-require_role('admin');
+require_role('Administrator');
 
 $db = db();
 $page_title = 'Edit Threshold';
@@ -30,6 +30,12 @@ if (!$row) {
     set_flash('error', 'Threshold not found.');
     redirect('modules/settings/thresholds.php');
 }
+
+$oldDesc = json_encode([
+    'equipment_min' => (float) ($row['equipment_min'] ?? 0),
+    'semi_hv_min' => (float) ($row['semi_hv_min'] ?? 0),
+    'effective_date' => (string) ($row['effective_date'] ?? ''),
+]);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify()) {

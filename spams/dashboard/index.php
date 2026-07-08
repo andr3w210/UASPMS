@@ -496,51 +496,51 @@ $focusItems = [
 
 $snapshotItems = [
     [
-        'label' => 'Active POs',
-        'value' => $summary['active_pos'],
-        'note' => 'Open procurement records',
-        'icon' => 'bi-journal-text',
-        'tone' => 'primary',
-    ],
-    [
-        'label' => 'Distributed Items',
+        'label' => 'Active Assets',
         'value' => $summary['distributed_items'],
-        'note' => 'Current accountable units',
+        'note' => 'Accountable equipment and semi-expendable assets',
         'icon' => 'bi-diagram-3',
         'tone' => 'success',
     ],
     [
-        'label' => 'Disposed This Year',
-        'value' => $summary['disposed_this_year'],
-        'note' => date('Y') . ' posted disposals',
-        'icon' => 'bi-trash3',
-        'tone' => 'danger',
-    ],
-    [
-        'label' => 'Returned This Year',
-        'value' => $summary['returned_this_year'],
-        'note' => date('Y') . ' posted returns',
-        'icon' => 'bi-arrow-counterclockwise',
+        'label' => 'Open Property Counts',
+        'value' => $summary['open_inventory_counts'],
+        'note' => 'Property inventory sessions in progress',
+        'icon' => 'bi-clipboard-check',
         'tone' => 'info',
     ],
     [
-        'label' => 'Property Discrepancies',
-        'value' => $summary['unresolved_property_discrepancies'],
-        'note' => 'Unresolved count exceptions',
-        'icon' => 'bi-exclamation-diamond',
-        'tone' => 'warning',
-    ],
-    [
-        'label' => 'Supply Count Sessions',
+        'label' => 'Open Supply Counts',
         'value' => $summary['open_supply_counts'],
-        'note' => 'Open supply count workspaces',
+        'note' => 'Supply inventory workspaces still open',
         'icon' => 'bi-boxes',
         'tone' => 'secondary',
     ],
     [
+        'label' => 'Discrepancies',
+        'value' => $summary['unresolved_property_discrepancies'],
+        'note' => 'Unresolved property inventory findings',
+        'icon' => 'bi-exclamation-diamond',
+        'tone' => 'warning',
+    ],
+    [
+        'label' => 'Pending Adjustments',
+        'value' => $summary['pending_stock_adjustments'],
+        'note' => 'Stock adjustments awaiting confirmation',
+        'icon' => 'bi-sliders2-vertical',
+        'tone' => 'danger',
+    ],
+    [
+        'label' => 'QR Tags Needed',
+        'value' => $summary['missing_qr_tags'],
+        'note' => 'Active assets waiting for generated tag codes',
+        'icon' => 'bi-qr-code',
+        'tone' => 'primary',
+    ],
+    [
         'label' => 'Unserviceable Review',
         'value' => $summary['unserviceable_review_items'],
-        'note' => 'Assets flagged for repair or disposal',
+        'note' => 'Assets flagged for repair or disposal review',
         'icon' => 'bi-tools',
         'tone' => 'dark',
     ],
@@ -550,7 +550,9 @@ $urgentWorkload = $summary['pending_receivings']
     + $summary['pending_distribution_units']
     + $summary['unresolved_property_discrepancies']
     + $summary['pending_stock_adjustments'];
-$activityThisYear = $summary['distributed_items'] + $summary['disposed_this_year'] + $summary['returned_this_year'];
+$inventoryAlertLoad = $summary['unresolved_property_discrepancies']
+    + $summary['pending_stock_adjustments']
+    + $summary['missing_qr_tags'];
 $stockRiskRate = $stockRiskSummary['total_supply_items'] > 0
     ? round(($stockRiskSummary['low_stock_items'] / $stockRiskSummary['total_supply_items']) * 100)
     : 0;
@@ -565,42 +567,42 @@ $topOfficePeak = 0;
 foreach ($topAccountableOffices as $row) {
     $topOfficePeak = max($topOfficePeak, (int) ($row['total_assets'] ?? 0));
 }
-$commandStatus = $urgentWorkload > 0 ? 'Priority Focus' : 'Steady State';
-$commandTone = $urgentWorkload > 0 ? 'warning' : 'success';
+$commandStatus = $inventoryAlertLoad > 0 ? 'Inventory Attention Needed' : 'Inventory Stable';
+$commandTone = $inventoryAlertLoad > 0 ? 'warning' : 'success';
 $heroMetrics = [
     [
-        'label' => 'Urgent workload',
-        'value' => $urgentWorkload,
-        'note' => 'Receiving, distribution, and control items waiting',
-        'icon' => 'bi-lightning-charge',
-        'tone' => 'warning',
-    ],
-    [
-        'label' => 'Active procurement',
-        'value' => $summary['active_pos'],
-        'note' => 'Purchase orders currently in the pipeline',
-        'icon' => 'bi-journal-richtext',
-        'tone' => 'primary',
-    ],
-    [
-        'label' => 'Movement this year',
-        'value' => $activityThisYear,
-        'note' => 'Distributed, returned, and disposed records posted',
-        'icon' => 'bi-arrow-left-right',
+        'label' => 'Active assets',
+        'value' => $summary['distributed_items'],
+        'note' => 'Tracked accountable assets in circulation',
+        'icon' => 'bi-diagram-3',
         'tone' => 'success',
+    ],
+    [
+        'label' => 'Open count sessions',
+        'value' => $summary['open_inventory_counts'] + $summary['open_supply_counts'],
+        'note' => 'Property and supply counts in progress',
+        'icon' => 'bi-clipboard-data',
+        'tone' => 'info',
+    ],
+    [
+        'label' => 'Exception workload',
+        'value' => $summary['unresolved_property_discrepancies'] + $summary['pending_stock_adjustments'],
+        'note' => 'Discrepancies and pending adjustments to resolve',
+        'icon' => 'bi-exclamation-triangle',
+        'tone' => 'warning',
     ],
 ];
 $operationsCards = [
-    $focusItems[0],
-    $focusItems[1],
+    $focusItems[2],
+    $focusItems[3],
     [
-        'label' => 'Low Stock Items',
-        'value' => count($lowStockItems),
-        'note' => 'Supply items at or below the threshold',
-        'icon' => 'bi-thermometer-low',
+        'label' => 'Inventory Discrepancies',
+        'value' => $summary['unresolved_property_discrepancies'],
+        'note' => 'Count findings pending reconciliation',
+        'icon' => 'bi-exclamation-octagon',
         'tone' => 'danger',
-        'href' => base_url('modules/stock_catalog/index.php'),
-        'cta' => 'Open Stock Catalog',
+        'href' => base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'),
+        'cta' => 'Resolve Findings',
     ],
 ];
 $workQueueCards = [
@@ -731,10 +733,10 @@ $analyticsCards = [
     ],
 ];
 $quickLinks = [
-    ['label' => 'Distribution', 'href' => base_url('modules/distributions/index.php'), 'icon' => 'bi-send-check'],
-    ['label' => 'Receiving', 'href' => base_url('modules/receivings/index.php'), 'icon' => 'bi-box-seam'],
     ['label' => 'Registry', 'href' => base_url('modules/property/index.php'), 'icon' => 'bi-grid-1x2'],
     ['label' => 'Counts', 'href' => base_url('modules/property/inventory_counts.php'), 'icon' => 'bi-clipboard-check'],
+    ['label' => 'Reconcile', 'href' => base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'), 'icon' => 'bi-clipboard2-x'],
+    ['label' => 'Distribution', 'href' => base_url('modules/distributions/index.php'), 'icon' => 'bi-send-check'],
 ];
 if ($isAdministrator) {
     $quickLinks[] = ['label' => 'Audit Log', 'href' => base_url('modules/audit_log/index.php'), 'icon' => 'bi-shield-check'];
@@ -792,9 +794,9 @@ require_once __DIR__ . '/../includes/topbar.php';
                 <span class="dashboard-hub-dot"></span>
                 <span><?php echo h($commandStatus); ?></span>
             </div>
-            <h1 class="dashboard-hub-title">Supply and property command center</h1>
+            <h1 class="dashboard-hub-title">Inventory and asset intelligence center</h1>
             <p class="dashboard-hub-copy">
-                Track procurement, receiving, accountability, and inventory controls from one responsive workspace built for both desktop and mobile.
+                Monitor accountability, count completion, stock integrity, and exception resolution from a modern command surface designed for daily inventory operations.
             </p>
             <div class="dashboard-hub-actions">
                 <?php foreach ($quickLinks as $link): ?>
@@ -832,9 +834,9 @@ require_once __DIR__ . '/../includes/topbar.php';
                     <?php endif; ?>
                 </div>
                 <div class="dashboard-hub-status-pills">
-                    <span class="dashboard-hub-pill">Receivings <?php echo number_format($summary['pending_receivings']); ?></span>
-                    <span class="dashboard-hub-pill">Distribution <?php echo number_format($summary['pending_distribution_units']); ?></span>
-                    <span class="dashboard-hub-pill">Controls <?php echo number_format($summary['unresolved_property_discrepancies'] + $summary['pending_stock_adjustments']); ?></span>
+                    <span class="dashboard-hub-pill">Open Counts <?php echo number_format($summary['open_inventory_counts'] + $summary['open_supply_counts']); ?></span>
+                    <span class="dashboard-hub-pill">Discrepancies <?php echo number_format($summary['unresolved_property_discrepancies']); ?></span>
+                    <span class="dashboard-hub-pill">QR Pending <?php echo number_format($summary['missing_qr_tags']); ?></span>
                 </div>
             </div>
 
@@ -866,13 +868,13 @@ require_once __DIR__ . '/../includes/topbar.php';
     </div>
 
     <div class="dashboard-hub-switcher">
-        <button type="button" class="dashboard-hub-switch is-active" data-dashboard-view="operations">
-            <i class="bi bi-kanban"></i>
-            <span>Operations</span>
-        </button>
-        <button type="button" class="dashboard-hub-switch" data-dashboard-view="inventory">
+        <button type="button" class="dashboard-hub-switch is-active" data-dashboard-view="inventory">
             <i class="bi bi-clipboard-data"></i>
             <span>Inventory</span>
+        </button>
+        <button type="button" class="dashboard-hub-switch" data-dashboard-view="operations">
+            <i class="bi bi-kanban"></i>
+            <span>Operations</span>
         </button>
         <button type="button" class="dashboard-hub-switch" data-dashboard-view="movement">
             <i class="bi bi-arrow-left-right"></i>
@@ -884,7 +886,7 @@ require_once __DIR__ . '/../includes/topbar.php';
         </button>
     </div>
 
-    <div class="dashboard-hub-panel is-active" data-dashboard-panel="operations">
+    <div class="dashboard-hub-panel" data-dashboard-panel="operations">
         <article class="dashboard-hub-surface dashboard-hub-surface-strong mb-4">
             <div class="dashboard-hub-section-head">
                 <div>
@@ -1035,7 +1037,7 @@ require_once __DIR__ . '/../includes/topbar.php';
         </div>
     </div>
 
-    <div class="dashboard-hub-panel" data-dashboard-panel="inventory">
+    <div class="dashboard-hub-panel is-active" data-dashboard-panel="inventory">
         <div class="dashboard-hub-grid dashboard-hub-grid-wide">
             <div class="dashboard-hub-stack">
                 <article class="dashboard-hub-surface dashboard-hub-surface-strong">
@@ -1370,6 +1372,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (initialButton) {
         activateDashboardView(initialButton.getAttribute('data-dashboard-view'));
     }
+
+    window.requestAnimationFrame(function () {
+        dashboardRoot.setAttribute('data-dashboard-ready', '1');
+    });
 });
 </script>
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

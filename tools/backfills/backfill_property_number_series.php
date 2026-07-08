@@ -2,10 +2,26 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
+$apply = in_array('--apply', $argv, true);
+
 $db = tools_db();
 if ($db->connect_error) {
     fwrite(STDERR, "Connection failed: {$db->connect_error}\n");
     exit(1);
+}
+
+if (!$apply) {
+    $verify = $db->query("SELECT COUNT(*) AS total_rows FROM series_numbers WHERE module_key LIKE 'property_number|%'");
+    $totalRows = 0;
+    if ($verify) {
+        $verifyRow = $verify->fetch_assoc();
+        $totalRows = (int) ($verifyRow['total_rows'] ?? 0);
+    }
+
+    echo "Dry-run only. Re-run with --apply to delete and rebuild property-number series rows." . PHP_EOL;
+    echo "Current property-number series rows: {$totalRows}" . PHP_EOL;
+    $db->close();
+    exit(0);
 }
 
 $sql = <<<SQL

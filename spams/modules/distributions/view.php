@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
+require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
 function distribution_doc_title(string $type): string
 {
@@ -49,32 +50,13 @@ function distribution_resolve_spmu_office_id(mysqli $db): int
 
 function distribution_ensure_correction_schema(mysqli $db): void
 {
-    if (!schema_has_column($db, 'distribution_item_details', 'correction_status')) {
-        $db->query("ALTER TABLE distribution_item_details ADD COLUMN correction_status VARCHAR(40) NULL AFTER is_disposed");
-    }
-    if (!schema_has_column($db, 'distribution_item_details', 'correction_reason')) {
-        $db->query("ALTER TABLE distribution_item_details ADD COLUMN correction_reason VARCHAR(80) NULL AFTER correction_status");
-    }
-    if (!schema_has_column($db, 'distribution_item_details', 'correction_remarks')) {
-        $db->query("ALTER TABLE distribution_item_details ADD COLUMN correction_remarks TEXT NULL AFTER correction_reason");
-    }
-    if (!schema_has_column($db, 'distribution_item_details', 'corrected_at')) {
-        $db->query("ALTER TABLE distribution_item_details ADD COLUMN corrected_at DATETIME NULL AFTER correction_remarks");
-    }
-    if (!schema_has_column($db, 'distribution_item_details', 'corrected_by')) {
-        $db->query("ALTER TABLE distribution_item_details ADD COLUMN corrected_by BIGINT UNSIGNED NULL AFTER corrected_at");
-    }
+    // Schema mutations are migration-only; keep request path read-only.
 }
 
 function distribution_ensure_schema(mysqli $db): void
 {
     if (!function_exists('schema_has_column')) {
         return;
-    }
-
-    // Ensure `updated_by` is present on distributions table (some DBs may be missing this column)
-    if (!schema_has_column($db, 'distributions', 'updated_by')) {
-        $db->query("ALTER TABLE distributions ADD COLUMN IF NOT EXISTS updated_by BIGINT UNSIGNED NULL AFTER created_by");
     }
 }
 
@@ -89,6 +71,16 @@ $canCancelDistribution = user_has_any_role('Administrator');
 if ($db) {
     distribution_ensure_correction_schema($db);
     distribution_ensure_schema($db);
+    if (!schema_has_column($db, 'distribution_item_details', 'correction_status')
+        || !schema_has_column($db, 'distribution_item_details', 'correction_reason')
+        || !schema_has_column($db, 'distribution_item_details', 'correction_remarks')
+        || !schema_has_column($db, 'distribution_item_details', 'corrected_at')
+        || !schema_has_column($db, 'distribution_item_details', 'corrected_by')) {
+        $errors[] = 'Database schema is outdated: distribution correction columns are missing. Apply latest migrations before continuing.';
+    }
+    if (!schema_has_column($db, 'distributions', 'updated_by')) {
+        $errors[] = 'Database schema is outdated: distributions.updated_by is missing. Apply latest migrations before continuing.';
+    }
 }
 
 if ($db && $distributionId > 0 && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'cancel_distribution') {
