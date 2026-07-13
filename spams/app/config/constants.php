@@ -73,7 +73,42 @@ if (!function_exists('spams_required_env')) {
             return $value;
         }
 
-        $message = 'Missing required environment setting: ' . $key . '. Copy spams/.env.example to spams/.env and set production-safe values.';
+        $message = 'Missing required environment setting: ' . $key . '. Copy .env.example to .env and set production-safe values.';
+        error_log($message);
+        if (PHP_SAPI === 'cli') {
+            throw new RuntimeException($message);
+        }
+
+        http_response_code(500);
+        exit($message);
+    }
+}
+
+if (!function_exists('spams_assert_safe_db_credentials')) {
+    function spams_assert_safe_db_credentials(string $label, string $username, string $password): void
+    {
+        $username = trim($username);
+        $password = trim($password);
+        $unsafe = [];
+
+        if ($username === '') {
+            $unsafe[] = 'blank username';
+        }
+        if ($password === '') {
+            $unsafe[] = 'blank password';
+        }
+        if (strcasecmp($username, 'root') === 0) {
+            $unsafe[] = 'root database user';
+        }
+        if (in_array($password, ['CHANGE_ME_STRONG_PASSWORD', 'password', 'root', 'admin'], true)) {
+            $unsafe[] = 'placeholder or weak password';
+        }
+
+        if (!$unsafe) {
+            return;
+        }
+
+        $message = 'Unsafe ' . $label . ' database credentials are not allowed: ' . implode(', ', $unsafe) . '. Create a named least-privilege MySQL user with a strong password and update .env.';
         error_log($message);
         if (PHP_SAPI === 'cli') {
             throw new RuntimeException($message);
@@ -87,14 +122,23 @@ if (!function_exists('spams_required_env')) {
 spams_load_env(APP_ROOT . '.env');
 
 // Database
+$dbUser = spams_required_env('DB_USER');
+$dbPass = spams_required_env('DB_PASS');
+spams_assert_safe_db_credentials('primary', $dbUser, $dbPass);
+
 define('DB_HOST', spams_env('DB_HOST', '127.0.0.1'));
 define('DB_NAME', spams_env('DB_NAME', 'spamsdb'));
-define('DB_USER', spams_required_env('DB_USER'));
-define('DB_PASS', spams_required_env('DB_PASS'));
+define('DB_USER', $dbUser);
+define('DB_PASS', $dbPass);
+
+$tripDbUser = spams_env('TRIP_DB_USER', DB_USER);
+$tripDbPass = spams_env('TRIP_DB_PASS', DB_PASS);
+spams_assert_safe_db_credentials('trip', $tripDbUser, $tripDbPass);
+
 define('TRIP_DB_HOST', spams_env('TRIP_DB_HOST', DB_HOST));
 define('TRIP_DB_NAME', spams_env('TRIP_DB_NAME', 'uaspms_tripdb'));
-define('TRIP_DB_USER', spams_env('TRIP_DB_USER', DB_USER));
-define('TRIP_DB_PASS', spams_env('TRIP_DB_PASS', DB_PASS));
+define('TRIP_DB_USER', $tripDbUser);
+define('TRIP_DB_PASS', $tripDbPass);
 
 // Misc
 define('APP_NAME', spams_env('APP_NAME', 'University of Antique'));
