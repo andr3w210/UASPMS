@@ -270,13 +270,89 @@ function employees_merge_records(mysqli $db, int $sourceEmployeeId, int $targetE
     }
 }
 
+function employees_generate_initial_password(int $length = 12): string
+{
+    $upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    $lower = 'abcdefghijkmnopqrstuvwxyz';
+    $digits = '23456789';
+    $symbols = '!@#$%*?';
+    $all = $upper . $lower . $digits . $symbols;
+
+    $password = [
+        $upper[random_int(0, strlen($upper) - 1)],
+        $lower[random_int(0, strlen($lower) - 1)],
+        $digits[random_int(0, strlen($digits) - 1)],
+        $symbols[random_int(0, strlen($symbols) - 1)],
+    ];
+
+    for ($i = count($password); $i < $length; $i++) {
+        $password[] = $all[random_int(0, strlen($all) - 1)];
+    }
+
+    shuffle($password);
+    return implode('', $password);
+}
+
+function employees_default_username(array $employee): string
+{
+    $firstName = preg_replace('/[^a-z0-9]/i', '', (string) ($employee['first_name'] ?? '')) ?? '';
+    $lastName = preg_replace('/[^a-z0-9]/i', '', (string) ($employee['last_name'] ?? '')) ?? '';
+    $username = strtolower(substr($firstName, 0, 1) . $lastName);
+
+    if ($username === '') {
+        $employeeNo = preg_replace('/[^a-z0-9]/i', '', (string) ($employee['employee_no'] ?? '')) ?? '';
+        $username = strtolower($employeeNo);
+    }
+
+    return $username;
+}
+
+function employees_unique_username(mysqli $db, string $baseUsername): string
+{
+    $baseUsername = strtolower(trim($baseUsername));
+    if ($baseUsername === '') {
+        $baseUsername = 'user';
+    }
+
+    $candidate = $baseUsername;
+    $suffix = 2;
+    while ($suffix < 1000) {
+        $stmt = $db->prepare("SELECT id FROM users WHERE username = ? LIMIT 1");
+        if (!$stmt) {
+            return $candidate;
+        }
+
+        $stmt->bind_param('s', $candidate);
+        $stmt->execute();
+        $exists = (bool) $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$exists) {
+            return $candidate;
+        }
+
+        $candidate = $baseUsername . $suffix;
+        $suffix++;
+    }
+
+    return $baseUsername . random_int(1000, 9999);
+}
+
+function employees_default_user_role_id(mysqli $db): int
+{
+    return rbac_employee_account_role_id($db);
+}
+
 $db = db();
 $page_title = 'Employees';
 $flash = get_flash();
+$employeeAccountModal = $_SESSION['employee_account_modal'] ?? null;
+unset($_SESSION['employee_account_modal']);
 $errors = [];
 $employees = [];
 $offices = [];
 $responsibilityCodes = [];
+$employeeUserMap = [];
 $hasDriverColumn = schema_has_column($db, 'employees', 'is_driver');
 $assignmentSummaryMap = [];
 $primaryAssignmentMap = [];
@@ -606,6 +682,111 @@ if (!$db) {
                 set_flash('error','Unable to merge employee records. Please check that both employees still exist and try again.');
             }
             redirect('modules/employees/index.php');
+        } elseif($action==='create_user_account'){
+            if(($_SESSION['user_role']??'')!=='Administrator'){
+                set_flash('error','Only administrators can create user accounts.');
+                redirect('modules/employees/index.php');
+            }
+
+            $recordId = (int) ($_POST['id'] ?? 0);
+            $stmt = $db->prepare("SELECT id, employee_no, first_name, middle_name, last_name, suffix_name, email, office_id, position_title FROM employees WHERE id = ? AND is_active = 1 LIMIT 1");
+            if (!$stmt) {
+                set_flash('error','Unable to load employee details for account creation.');
+                redirect('modules/employees/index.php');
+            }
+
+            $stmt->bind_param('i', $recordId);
+            $stmt->execute();
+            $employeeRow = $stmt->get_result()->fetch_assoc() ?: [];
+            $stmt->close();
+
+            if (!$employeeRow) {
+                set_flash('error','Only active employee records can be given user accounts.');
+                redirect('modules/employees/index.php');
+            }
+
+            $existingStmt = $db->prepare("SELECT id, username FROM users WHERE employee_id = ? LIMIT 1");
+            if ($existingStmt) {
+                $existingStmt->bind_param('i', $recordId);
+                $existingStmt->execute();
+                $existingUser = $existingStmt->get_result()->fetch_assoc() ?: [];
+                $existingStmt->close();
+                if ($existingUser) {
+                    set_flash('error','This employee already has a linked user account: ' . (string) ($existingUser['username'] ?? ''));
+                    redirect('modules/employees/index.php');
+                }
+            }
+
+            $roleId = employees_default_user_role_id($db);
+            if ($roleId <= 0) {
+                set_flash('error','Unable to create an account because no active employee login role is available. Open Users and create the Employee role first.');
+                redirect('modules/employees/index.php');
+            }
+
+            $primaryAssignment = $assignmentsEnabled ? employee_fetch_primary_assignment($db, $recordId) : [];
+            $officeId = !empty($primaryAssignment['office_id'])
+                ? (int) $primaryAssignment['office_id']
+                : (!empty($employeeRow['office_id']) ? (int) $employeeRow['office_id'] : null);
+            $username = employees_unique_username($db, employees_default_username($employeeRow));
+            $temporaryPassword = employees_generate_initial_password();
+            $passwordHash = password_hash($temporaryPassword, PASSWORD_DEFAULT);
+            $fullName = employee_display_name($employeeRow);
+            $email = trim((string) ($employeeRow['email'] ?? ''));
+            if ($email !== '') {
+                $emailStmt = $db->prepare("SELECT id FROM users WHERE email = ? LIMIT 1");
+                if ($emailStmt) {
+                    $emailStmt->bind_param('s', $email);
+                    $emailStmt->execute();
+                    $emailExists = (bool) $emailStmt->get_result()->fetch_assoc();
+                    $emailStmt->close();
+                    if ($emailExists) {
+                        set_flash('error','Unable to create the account because the employee email is already linked to another user.');
+                        redirect('modules/employees/index.php');
+                    }
+                }
+            }
+            $isActive = 1;
+            $mustChangePassword = 1;
+
+            $insertStmt = $db->prepare("INSERT INTO users (username, email, password_hash, full_name, role_id, employee_id, office_id, is_active, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            if ($insertStmt) {
+                $insertStmt->bind_param('ssssiiiii', $username, $email, $passwordHash, $fullName, $roleId, $recordId, $officeId, $isActive, $mustChangePassword);
+                $saved = $insertStmt->execute();
+                $newUserId = (int) $insertStmt->insert_id;
+                $insertStmt->close();
+
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'insert',
+                        'table_name' => 'users',
+                        'record_id' => $newUserId,
+                        'module_name' => 'employees',
+                        'record_type' => 'user',
+                        'action_name' => 'create_user_from_employee',
+                        'description' => 'Created user account from employee record.',
+                        'new_values' => [
+                            'username' => $username,
+                            'full_name' => $fullName,
+                            'email' => $email,
+                            'role_id' => $roleId,
+                            'employee_id' => $recordId,
+                            'office_id' => $officeId,
+                            'is_active' => 1,
+                            'must_change_password' => 1,
+                        ],
+                    ]);
+
+                    $_SESSION['employee_account_modal'] = [
+                        'name' => $fullName,
+                        'username' => $username,
+                        'password' => $temporaryPassword,
+                    ];
+                    set_flash('success','User account created. Give the temporary password to the employee; they must change it on first login.');
+                    redirect('modules/employees/index.php');
+                }
+            }
+
+            $errors[]='Unable to create the user account.';
         } elseif($action==='hard_delete'){
             if(($_SESSION['user_role']??'')!=='Administrator'){
                 set_flash('error','Only administrators can permanently delete records.');
@@ -713,6 +894,20 @@ if (!$db) {
     $listResult=$db->query($listSql);
     if($listResult){
         $employees=$listResult->fetch_all(MYSQLI_ASSOC);
+    }
+    $userResult = $db->query("SELECT id, employee_id, username, is_active FROM users WHERE employee_id IS NOT NULL");
+    if ($userResult instanceof mysqli_result) {
+        foreach ($userResult->fetch_all(MYSQLI_ASSOC) as $userRow) {
+            $employeeId = (int) ($userRow['employee_id'] ?? 0);
+            if ($employeeId > 0) {
+                $employeeUserMap[$employeeId] = [
+                    'id' => (int) ($userRow['id'] ?? 0),
+                    'username' => (string) ($userRow['username'] ?? ''),
+                    'is_active' => (int) ($userRow['is_active'] ?? 0),
+                ];
+            }
+        }
+        $userResult->close();
     }
     if ($assignmentsEnabled) {
         foreach ($employees as &$employeeRow) {
@@ -1221,8 +1416,21 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <td><span class="badge <?php echo (int)$employee['is_active']===1?'text-bg-success':'text-bg-secondary'; ?>"><?php echo (int)$employee['is_active']===1?'Active':'Inactive'; ?></span></td>
                                 <td><?php echo h(date('M d, Y', strtotime($employee['created_at']))); ?></td>
                                 <td class="text-end">
+                                    <?php $linkedUser = $employeeUserMap[(int) ($employee['id'] ?? 0)] ?? null; ?>
                                     <div class="d-inline-flex flex-wrap justify-content-end gap-2">
                                         <a href="<?php echo base_url('modules/employees/index.php?edit='.(int)$employee['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a>
+                                        <?php if(($_SESSION['user_role']??'')==='Administrator'): ?>
+                                            <?php if ($linkedUser): ?>
+                                                <span class="btn btn-sm btn-light border disabled"><i class="bi bi-person-check"></i> <?php echo h($linkedUser['username']); ?></span>
+                                            <?php elseif ((int)$employee['is_active']===1): ?>
+                                                <form method="post" onsubmit="return confirm('Create a login account for this employee? A temporary password will be generated.');" class="d-inline">
+                                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                    <input type="hidden" name="action" value="create_user_account">
+                                                    <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
+                                                    <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-person-plus"></i> Create Account</button>
+                                                </form>
+                                            <?php endif; ?>
+                                        <?php endif; ?>
                                         <?php if((int)$employee['is_active']===1): ?>
                                             <form method="post" onsubmit="return confirm('Deactivate this employee?');" class="d-inline">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
@@ -1306,6 +1514,39 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 <button type="submit" class="btn btn-primary">Merge Employee</button>
             </div>
         </form>
+    </div>
+</div>
+<?php endif; ?>
+<?php if (is_array($employeeAccountModal) && !empty($employeeAccountModal['username']) && !empty($employeeAccountModal['password'])): ?>
+<div class="modal fade" id="employeeAccountModal" tabindex="-1" aria-labelledby="employeeAccountModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="employeeAccountModalLabel">Employee Account Created</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Give these login details to <?php echo h((string) ($employeeAccountModal['name'] ?? 'the employee')); ?>. The password is temporary and must be changed on first login.</p>
+                <div class="mb-3">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-control" id="employeeAccountUsername" value="<?php echo h((string) $employeeAccountModal['username']); ?>" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Temporary Password</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="employeeAccountPassword" value="<?php echo h((string) $employeeAccountModal['password']); ?>" readonly>
+                        <button type="button" class="btn btn-outline-secondary" id="copyEmployeeAccountPassword">
+                            <i class="bi bi-clipboard"></i> Copy
+                        </button>
+                    </div>
+                    <div class="form-text" id="employeeAccountCopyFeedback"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <a href="<?php echo base_url('modules/users/index.php'); ?>" class="btn btn-outline-primary">Open Users</a>
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+            </div>
+        </div>
     </div>
 </div>
 <?php endif; ?>
@@ -1578,6 +1819,46 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function initEmployeeAccountModal() {
+        var modalEl = document.getElementById('employeeAccountModal');
+        if (modalEl && typeof bootstrap !== 'undefined') {
+            new bootstrap.Modal(modalEl).show();
+        }
+
+        var copyButton = document.getElementById('copyEmployeeAccountPassword');
+        var passwordInput = document.getElementById('employeeAccountPassword');
+        var feedback = document.getElementById('employeeAccountCopyFeedback');
+        if (!copyButton || !passwordInput) {
+            return;
+        }
+
+        copyButton.addEventListener('click', function () {
+            var onSuccess = function () {
+                if (feedback) {
+                    feedback.textContent = 'Temporary password copied.';
+                    feedback.className = 'form-text text-success';
+                }
+            };
+            var onFailure = function () {
+                passwordInput.removeAttribute('readonly');
+                passwordInput.focus();
+                passwordInput.select();
+                passwordInput.setSelectionRange(0, passwordInput.value.length);
+                passwordInput.setAttribute('readonly', 'readonly');
+                if (feedback) {
+                    feedback.textContent = 'Copy failed. Select the password manually and copy it.';
+                    feedback.className = 'form-text text-danger';
+                }
+            };
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(passwordInput.value).then(onSuccess).catch(onFailure);
+            } else {
+                onFailure();
+            }
+        });
+    }
+
     document.getElementById('office_id')?.addEventListener('change', function () {
         var officeSelect = document.getElementById('office_id');
         var codeSelect = document.getElementById('responsibility_code_id');
@@ -1587,6 +1868,7 @@ document.addEventListener('DOMContentLoaded', function () {
     initAssignmentEditor();
     initEmployeeTable();
     initEmployeeMergeModal();
+    initEmployeeAccountModal();
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

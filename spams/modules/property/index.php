@@ -1,7 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
-require_role('Administrator', 'Supply Officer', 'Property Officer', 'Property Custodian', 'Viewer');
 
 $db = db();
 $officeId = isset($_GET['office_id']) ? (int) $_GET['office_id'] : 0;
@@ -66,6 +65,8 @@ $summary = ['total' => 0, 'equipment' => 0, 'semi_expendable' => 0, 'legacy' => 
 $total = 0;
 $totalPages = 0;
 $hasNextPage = false;
+$registryAccessNotice = '';
+$canViewAllOffices = false;
 
 if ($db) {
     if (function_exists('ensure_receiving_item_variance_columns')) {
@@ -77,6 +78,18 @@ if ($db) {
     $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res instanceof mysqli_result) {
         $offices = $res->fetch_all(MYSQLI_ASSOC);
+    }
+    $canViewAllOffices = rbac_has_full_registry_access();
+    $allowedOfficeIds = $canViewAllOffices ? [] : current_user_active_designated_office_ids($db);
+    if (!$canViewAllOffices) {
+        $offices = array_values(array_filter($offices, static function (array $office) use ($allowedOfficeIds): bool {
+            return in_array((int) ($office['id'] ?? 0), $allowedOfficeIds, true);
+        }));
+
+        if ($officeId <= 0 || !in_array($officeId, $allowedOfficeIds, true)) {
+            $officeId = -1;
+            $registryAccessNotice = 'Select an office where you have an active designation to view its property registry.';
+        }
     }
 
     $queries = [];
@@ -126,7 +139,7 @@ if ($db) {
               AND UPPER(COALESCE(NULLIF(ri.actual_item_description, ''), poi.item_description)) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
               AND UPPER(TRIM(COALESCE(NULLIF(ri.actual_item_description, ''), poi.item_description))) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')";
 
-        if ($officeId > 0) {
+        if ($officeId !== 0) {
             $systemSql .= " AND COALESCE(did.current_office_id, d.office_id) = ?";
             $types .= 'i';
             $params[] = $officeId;
@@ -245,7 +258,7 @@ if ($db) {
               AND UPPER(TRIM(la.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')
               AND la.item_type IN ('equipment', 'semi_expendable')";
 
-        if ($officeId > 0) {
+        if ($officeId !== 0) {
             $legacySql .= " AND la.office_id = ?";
             $types .= 'i';
             $params[] = $officeId;
@@ -726,6 +739,12 @@ if ($dateFrom !== '' || $dateTo !== '') {
                         <a href="<?php echo h(build_registry_url(['rpcppe' => 'candidate_only', 'item_type' => '', 'source' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $rpcppeFilter === 'candidate_only' ? 'btn-primary' : 'btn-outline-secondary'; ?>">RPCPPE Candidates</a>
                     </div>
 
+                    <?php if ($registryAccessNotice !== ''): ?>
+                        <div class="alert alert-info">
+                            <?php echo h($registryAccessNotice); ?>
+                        </div>
+                    <?php endif; ?>
+
                     <form method="get" id="registryFiltersForm" class="asset-registry-filters border rounded-3 p-3 mb-3 bg-body-tertiary">
                         <input type="hidden" name="page" value="1" id="registryPageReset">
                         <div class="row g-3 align-items-end">
@@ -760,7 +779,11 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                 <div class="col-md-3">
                                     <label class="form-label">Office</label>
                                     <select name="office_id" class="form-select" data-autosubmit="true">
-                                        <option value="">All Offices</option>
+                                        <?php if (!empty($canViewAllOffices)): ?>
+                                            <option value="">All Offices</option>
+                                        <?php else: ?>
+                                            <option value="">Select Office</option>
+                                        <?php endif; ?>
                                         <?php foreach ($offices as $office): ?>
                                             <option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>>
                                                 <?php echo h($office['office_name']); ?>
@@ -921,9 +944,15 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                                 <?php endif; ?>
                                             </div>
                                             <div class="mt-2 d-flex flex-wrap gap-2 asset-registry-inline-actions">
-                                                <a href="<?php echo base_url('modules/property/view.php?source=' . urlencode((string) ($row['source_type'] ?? 'system')) . '&id=' . $detailId); ?>" class="btn btn-sm btn-outline-primary asset-registry-inline-open">Open Asset Details</a>
+                                                <?php if (!empty($canViewAllOffices)): ?>
+                                                    <a href="<?php echo base_url('modules/property/view.php?source=' . urlencode((string) ($row['source_type'] ?? 'system')) . '&id=' . $detailId); ?>" class="btn btn-sm btn-outline-primary asset-registry-inline-open">Open Asset Details</a>
+                                                <?php else: ?>
+                                                    <span class="badge text-bg-light border">Office registry view</span>
+                                                <?php endif; ?>
                                             </div>
-                                            <div class="small text-muted mt-1">All actions are available in Asset Details.</div>
+                                            <?php if (!empty($canViewAllOffices)): ?>
+                                                <div class="small text-muted mt-1">All actions are available in Asset Details.</div>
+                                            <?php endif; ?>
                                             <div class="asset-registry-compact-meta">
                                                 <div class="small text-muted">Item: <?php echo h($brandModel !== '' ? $brandModel : 'No brand / model'); ?> | SN: <?php echo h($row['serial_no'] !== '' ? $row['serial_no'] : '-'); ?></div>
                                                 <div class="small text-muted">Amount: <?php echo h(number_format($amountValue, 2)); ?> | Acquired: <?php echo h($dateAcquiredLabel); ?></div>

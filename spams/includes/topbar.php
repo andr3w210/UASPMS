@@ -716,7 +716,7 @@ $hasNotifications = $notificationBadgeCount > 0;
                         <div class="small text-muted"><?php echo h($roleName); ?></div>
                     </div>
                     <a class="dropdown-item" href="<?php echo base_url('modules/settings/profile.php'); ?>">
-                        <i class="bi bi-person-circle me-2"></i>Edit Profile
+                        <i class="bi bi-person-circle me-2"></i>My Profile
                     </a>
                     <a class="dropdown-item" href="<?php echo base_url('modules/settings/change_password.php'); ?>">
                         <i class="bi bi-key me-2"></i>Change Password

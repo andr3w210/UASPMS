@@ -93,6 +93,7 @@ $roles = [];
 $employees = [];
 $offices = [];
 $employeeOfficeMap = [];
+$employeeLoginRoleId = 0;
 $form = ['id'=>0,'username'=>'','email'=>'','full_name'=>'','role_id'=>'','employee_id'=>'','office_id'=>'','password'=>users_generate_initial_password(),'is_active'=>'1'];
 
 if (!$db) {
@@ -104,6 +105,7 @@ if (!$db) {
     $roleNameColumn = roles_name_column($db);
     $roleNameExpr = roles_name_expression($db, 'r');
     $roleActiveClause = roles_active_clause($db);
+    $employeeLoginRoleId = rbac_employee_account_role_id($db);
 
     $roleResult = $db->query("SELECT id, {$roleNameColumn} AS name FROM roles WHERE {$roleActiveClause} ORDER BY {$roleNameColumn} ASC");
     if ($roleResult) {
@@ -158,6 +160,24 @@ if (!$db) {
         $action = $_POST['action'] ?? 'save';
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
+        } elseif ($action === 'ensure_employee_role') {
+            $newRoleId = rbac_ensure_employee_account_role($db, (int) current_user_id());
+            if ($newRoleId > 0) {
+                write_audit_log($db, [
+                    'action' => 'insert',
+                    'table_name' => 'roles',
+                    'record_id' => $newRoleId,
+                    'module_name' => 'users',
+                    'record_type' => 'role',
+                    'action_name' => 'ensure_employee_role',
+                    'description' => 'Created baseline Employee login role.',
+                    'new_values' => ['role_name' => 'Employee', 'is_active' => 1],
+                ]);
+                set_flash('success', 'Employee login role created. You can now create linked employee accounts safely.');
+            } else {
+                set_flash('error', 'Unable to create the Employee login role. Please check the roles table setup.');
+            }
+            redirect('modules/users/index.php');
         } elseif ($action === 'save') {
             $form['id']=(int)($_POST['id']??0);
             $form['username']=old($_POST,'username');
@@ -560,6 +580,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
             </div>
 
+            <?php if ($employeeLoginRoleId <= 0): ?>
+                <div class="alert alert-warning d-flex justify-content-between align-items-start flex-wrap gap-3">
+                    <div>
+                        <div class="fw-semibold">Employee login role is missing.</div>
+                        <div>Create a baseline <strong>Employee</strong> role before generating employee login accounts. This keeps job titles separate from system permissions.</div>
+                    </div>
+                    <form method="post" class="m-0">
+                        <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="ensure_employee_role">
+                        <button type="submit" class="btn btn-sm btn-warning">Create Employee Role</button>
+                    </form>
+                </div>
+            <?php endif; ?>
+
             <div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?> mb-4" id="formCollapse">
                 <div class="master-data-editor">
                     <div class="master-data-editor-header">
@@ -618,8 +652,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <label class="form-label">Role</label>
                                                 <select class="form-select" id="role_id" name="role_id" data-placeholder="Select role" required>
                                                     <option value="">Select role</option>
-                                                    <?php foreach ($roles as $role): ?><option value="<?php echo (int) $role['id']; ?>" <?php echo $form['role_id'] === (string) $role['id'] ? 'selected' : ''; ?>><?php echo h($role['name']); ?></option><?php endforeach; ?>
+                                                    <?php foreach ($roles as $role): ?>
+                                                        <?php
+                                                        $roleId = (int) ($role['id'] ?? 0);
+                                                        $isEmployeeLoginRole = $employeeLoginRoleId > 0 && $roleId === $employeeLoginRoleId;
+                                                        ?>
+                                                        <option value="<?php echo $roleId; ?>" <?php echo $form['role_id'] === (string) $roleId ? 'selected' : ''; ?>>
+                                                            <?php echo h((string) ($role['name'] ?? '') . ($isEmployeeLoginRole ? ' (Employee Login)' : '')); ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
                                                 </select>
+                                                <div class="form-text">For ordinary employee logins, use Employee or User. Job titles like Budget Officer belong in the employee designation, not the app role.</div>
                                             </div>
                                             <div class="col-md-4">
                                                 <label class="form-label">Office</label>

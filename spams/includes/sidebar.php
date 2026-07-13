@@ -1,6 +1,9 @@
 <?php
 $path = $_SERVER['PHP_SELF'] ?? '';
 $currentRole = function_exists('current_user_role') ? current_user_role() : trim((string) ($_SESSION['user_role'] ?? ($_SESSION['role_name'] ?? '')));
+$registryFullAccessRoles = function_exists('rbac_full_registry_roles')
+    ? rbac_full_registry_roles()
+    : ['Administrator', 'Supply Officer', 'Property Officer', 'Property Custodian'];
 
 function nav_item_active(string $needle, string $path): bool
 {
@@ -100,7 +103,7 @@ $menuGroups = [
         'label' => 'Registry & Counts',
         'icon' => 'bi bi-journal-bookmark',
         'items' => [
-            ['label' => 'Asset Registry', 'path' => 'modules/property/index.php', 'needle' => '/property/index.php', 'icon' => 'bi bi-journal-bookmark', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer', 'Property Custodian']],
+            ['label' => 'Asset Registry', 'path' => 'modules/property/index.php', 'needle' => '/property/index.php', 'icon' => 'bi bi-journal-bookmark', 'roles' => $registryFullAccessRoles],
             ['label' => 'RPCPPE Inclusion', 'path' => 'modules/property/rpcppe_selection.php', 'needle' => '/property/rpcppe_selection', 'icon' => 'bi bi-ui-checks-grid', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
             ['label' => 'Beginning Balance Encoding', 'path' => 'modules/property/legacy_assets.php', 'needle' => '/property/legacy_assets', 'icon' => 'bi bi-box2-heart', 'roles' => ['Administrator', 'Property Officer']],
             ['label' => 'Import Legacy Assets', 'path' => 'modules/property/legacy_import.php', 'needle' => '/property/legacy_import', 'icon' => 'bi bi-file-earmark-arrow-up', 'roles' => ['Administrator', 'Property Officer']],

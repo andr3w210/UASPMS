@@ -1,7 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
-require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
 $db = db();
 $officeId = (int) ($_GET['office_id'] ?? 0);
@@ -24,6 +23,7 @@ $rows = [];
 $validationError = '';
 $selectedOfficeName = '';
 $documentPrintNo = '';
+$canViewAllOffices = false;
 
 $deriveLegacyDocumentNo = static function (string $propertyNumber): string {
     $propertyNumber = trim($propertyNumber);
@@ -97,9 +97,16 @@ if ($db) {
     $semiHvMin = (float) ($threshold['semi_hv_min'] ?? 5000);
     $poItemSupportsSemiType = function_exists('schema_has_column') ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type') : false;
 
+    $canViewAllOffices = rbac_has_full_accountability_access();
+    $allowedOfficeIds = $canViewAllOffices ? [] : current_user_active_designated_office_ids($db);
     $officeRes = $db->query("SELECT id, office_name, office_code FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeRes) {
         $offices = $officeRes->fetch_all(MYSQLI_ASSOC);
+        if (!$canViewAllOffices) {
+            $offices = array_values(array_filter($offices, static function (array $office) use ($allowedOfficeIds): bool {
+                return in_array((int) ($office['id'] ?? 0), $allowedOfficeIds, true);
+            }));
+        }
     }
 
     foreach ($offices as $office) {
@@ -118,6 +125,10 @@ if ($db) {
             $legacyOfficeStmt->close();
             $officeId = (int) ($legacyOffice['office_id'] ?? 0);
         }
+    }
+
+    if ($officeId > 0 && !user_has_accountability_office_access($db, $officeId)) {
+        $validationError = 'You can only view ICS records for offices where you have an active designation.';
     }
 
     if ($legacyAssetId > 0) {
@@ -601,7 +612,11 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                 <div class="small text-muted">Bulk print semi-expendable items currently accountable to one office.</div>
             </div>
             <div class="d-flex gap-2">
-                <a href="<?php echo base_url('modules/distributions/index.php?document_type=ics'); ?>" class="btn btn-outline-secondary">Back to Distribution</a>
+                <?php if ($canViewAllOffices): ?>
+                    <a href="<?php echo base_url('modules/distributions/index.php?document_type=ics'); ?>" class="btn btn-outline-secondary">Back to Distribution</a>
+                <?php else: ?>
+                    <a href="<?php echo base_url('modules/settings/profile.php'); ?>" class="btn btn-outline-secondary">Back to Profile</a>
+                <?php endif; ?>
                 <?php if (($officeId > 0 || $legacyAssetId > 0) && $rows): ?>
                     <a href="<?php echo h(base_url('modules/distributions/ics_office.php?office_id=' . $officeId . '&print_format=' . $printFormat . '&semi_type=' . urlencode($semiType) . '&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . ($isShort ? '&copies=' . $copyCount : '') . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : '') . '&print=1')); ?>" class="btn btn-primary">Print Current Result</a>
                 <?php endif; ?>

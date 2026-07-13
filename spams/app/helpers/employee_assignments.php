@@ -187,6 +187,57 @@ function employee_fetch_primary_assignment(mysqli $db, int $employeeId): array
     return $rows[0] ?? [];
 }
 
+function current_user_active_employee_assignments(mysqli $db): array
+{
+    $userId = function_exists('current_user_id') ? (int) (current_user_id() ?? 0) : 0;
+    if ($userId <= 0) {
+        return [];
+    }
+
+    $stmt = $db->prepare("SELECT employee_id FROM users WHERE id = ? LIMIT 1");
+    if (!$stmt) {
+        return [];
+    }
+
+    $stmt->bind_param('i', $userId);
+    $stmt->execute();
+    $userRow = $stmt->get_result()->fetch_assoc() ?: [];
+    $stmt->close();
+
+    $employeeId = (int) ($userRow['employee_id'] ?? 0);
+    if ($employeeId <= 0) {
+        return [];
+    }
+
+    return employee_fetch_assignments($db, $employeeId, true);
+}
+
+function current_user_active_designated_office_ids(mysqli $db): array
+{
+    $officeIds = [];
+    foreach (current_user_active_employee_assignments($db) as $assignment) {
+        $officeId = (int) ($assignment['office_id'] ?? 0);
+        if ($officeId > 0 && !in_array($officeId, $officeIds, true)) {
+            $officeIds[] = $officeId;
+        }
+    }
+
+    return $officeIds;
+}
+
+function user_has_accountability_office_access(mysqli $db, int $officeId): bool
+{
+    if ($officeId <= 0) {
+        return false;
+    }
+
+    if (function_exists('rbac_has_full_accountability_access') && rbac_has_full_accountability_access()) {
+        return true;
+    }
+
+    return in_array($officeId, current_user_active_designated_office_ids($db), true);
+}
+
 function employee_assignment_summary(array $assignments): string
 {
     $parts = [];
