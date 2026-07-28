@@ -33,6 +33,7 @@ if (!in_array($documentHistoryStatus, ['posted', 'cancelled', 'all'], true)) {
 $form = [
     'asset_key' => '',
     'transfer_date' => date('Y-m-d'),
+    'transfer_type' => '',
     'to_office_id' => '',
     'to_employee_id' => '',
     'to_responsibility_code_id' => '',
@@ -43,6 +44,7 @@ $bulkForm = [
     'source_office_id' => '',
     'source_employee_id' => '',
     'transfer_date' => date('Y-m-d'),
+    'transfer_type' => '',
     'to_office_id' => '',
     'to_employee_id' => '',
     'to_responsibility_code_id' => '',
@@ -56,12 +58,46 @@ $searchForm = [
     'current_office_id' => trim((string) ($_GET['search_current_office_id'] ?? '')),
     'current_employee_id' => trim((string) ($_GET['search_current_employee_id'] ?? '')),
     'transfer_date' => date('Y-m-d'),
+    'transfer_type' => '',
     'to_office_id' => '',
     'to_employee_id' => '',
     'to_responsibility_code_id' => '',
     'reason' => '',
     'remarks' => '',
 ];
+
+function transfer_type_options(): array
+{
+    return [
+        'donation' => 'Donation',
+        'relocate' => 'Relocate',
+        'reassignment' => 'Reassignment',
+        'others' => 'Others',
+    ];
+}
+
+function transfer_normalize_type(string $transferType): string
+{
+    $transferType = strtolower(trim($transferType));
+    return array_key_exists($transferType, transfer_type_options()) ? $transferType : '';
+}
+
+function transfer_type_select_html(string $name, string $selected, string $id = ''): string
+{
+    $attrs = 'name="' . h($name) . '" class="form-select" required';
+    if ($id !== '') {
+        $attrs .= ' id="' . h($id) . '"';
+    }
+
+    $html = '<select ' . $attrs . '>';
+    $html .= '<option value="">Select transfer type</option>';
+    foreach (transfer_type_options() as $value => $label) {
+        $html .= '<option value="' . h($value) . '"' . ($selected === $value ? ' selected' : '') . '>' . h($label) . '</option>';
+    }
+    $html .= '</select>';
+
+    return $html;
+}
 
 function transfer_name(array $row, string $prefix = ''): string
 {
@@ -342,6 +378,7 @@ function transfer_post_asset(
     int $toOfficeId,
     int $toEmployeeId,
     int $toRcId,
+    string $transferType,
     string $reason,
     string $remarks,
     int $userId,
@@ -364,11 +401,20 @@ function transfer_post_asset(
         'responsibility_code_id' => $fromRcId,
     ];
 
-    $stmt = $db->prepare("INSERT INTO asset_transfers (system_reference, transfer_date, source_type, distribution_item_detail_id, legacy_asset_id, batch_id, property_number, from_office_id, from_employee_id, from_responsibility_code_id, to_office_id, to_employee_id, to_responsibility_code_id, reason, remarks, created_by) VALUES (?, ?, ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), ?, ?, ?)");
+    $transferType = transfer_normalize_type($transferType);
+    if (schema_has_column($db, 'asset_transfers', 'transfer_type')) {
+        $stmt = $db->prepare("INSERT INTO asset_transfers (system_reference, transfer_date, source_type, distribution_item_detail_id, legacy_asset_id, batch_id, property_number, from_office_id, from_employee_id, from_responsibility_code_id, to_office_id, to_employee_id, to_responsibility_code_id, transfer_type, reason, remarks, created_by) VALUES (?, ?, ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,''), ?, ?, ?)");
+    } else {
+        $stmt = $db->prepare("INSERT INTO asset_transfers (system_reference, transfer_date, source_type, distribution_item_detail_id, legacy_asset_id, batch_id, property_number, from_office_id, from_employee_id, from_responsibility_code_id, to_office_id, to_employee_id, to_responsibility_code_id, reason, remarks, created_by) VALUES (?, ?, ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), ?, ?, ?)");
+    }
     if (!$stmt) {
         throw new RuntimeException('Unable to prepare transfer insert.');
     }
-    $stmt->bind_param('sssiiisiiiiiissi', $ref, $transferDate, $sourceType, $distributionItemDetailId, $legacyAssetId, $batchId, $propertyNumber, $fromOfficeId, $fromEmployeeId, $fromRcId, $toOfficeId, $toEmployeeId, $toRcId, $reason, $remarks, $userId);
+    if (schema_has_column($db, 'asset_transfers', 'transfer_type')) {
+        $stmt->bind_param('sssiiisiiiiiisssi', $ref, $transferDate, $sourceType, $distributionItemDetailId, $legacyAssetId, $batchId, $propertyNumber, $fromOfficeId, $fromEmployeeId, $fromRcId, $toOfficeId, $toEmployeeId, $toRcId, $transferType, $reason, $remarks, $userId);
+    } else {
+        $stmt->bind_param('sssiiisiiiiiissi', $ref, $transferDate, $sourceType, $distributionItemDetailId, $legacyAssetId, $batchId, $propertyNumber, $fromOfficeId, $fromEmployeeId, $fromRcId, $toOfficeId, $toEmployeeId, $toRcId, $reason, $remarks, $userId);
+    }
     if (!$stmt->execute()) {
         $err = $stmt->error;
         $stmt->close();
@@ -420,6 +466,7 @@ function transfer_post_asset(
             'source_type' => $sourceType,
             'property_number' => $propertyNumber,
             'batch_id' => $batchId,
+            'transfer_type' => $transferType,
             'office_id' => $toOfficeId,
             'employee_id' => $toEmployeeId,
             'responsibility_code_id' => $toRcId,
@@ -453,21 +500,36 @@ function transfer_create_batch(
     int $toOfficeId,
     int $toEmployeeId,
     int $toRcId,
+    string $transferType,
     string $reason,
     string $remarks,
     int $userId
 ): array {
     $reference = transfer_batch_reference($db, $documentType);
-    $stmt = $db->prepare("
-        INSERT INTO transfer_batches
-            (system_reference, document_type, transfer_date, source_office_id, source_employee_id, to_office_id, to_employee_id, to_responsibility_code_id, reason, remarks, created_by)
-        VALUES
-            (?, ?, ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), ?, ?, ?)
-    ");
+    $transferType = transfer_normalize_type($transferType);
+    if (schema_has_column($db, 'transfer_batches', 'transfer_type')) {
+        $stmt = $db->prepare("
+            INSERT INTO transfer_batches
+                (system_reference, document_type, transfer_date, source_office_id, source_employee_id, to_office_id, to_employee_id, to_responsibility_code_id, transfer_type, reason, remarks, created_by)
+            VALUES
+                (?, ?, ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,''), ?, ?, ?)
+        ");
+    } else {
+        $stmt = $db->prepare("
+            INSERT INTO transfer_batches
+                (system_reference, document_type, transfer_date, source_office_id, source_employee_id, to_office_id, to_employee_id, to_responsibility_code_id, reason, remarks, created_by)
+            VALUES
+                (?, ?, ?, NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), NULLIF(?,0), ?, ?, ?)
+        ");
+    }
     if (!$stmt) {
         throw new RuntimeException('Unable to prepare transfer batch insert.');
     }
-    $stmt->bind_param('sssiiiiissi', $reference, $documentType, $transferDate, $sourceOfficeId, $sourceEmployeeId, $toOfficeId, $toEmployeeId, $toRcId, $reason, $remarks, $userId);
+    if (schema_has_column($db, 'transfer_batches', 'transfer_type')) {
+        $stmt->bind_param('sssiiiiisssi', $reference, $documentType, $transferDate, $sourceOfficeId, $sourceEmployeeId, $toOfficeId, $toEmployeeId, $toRcId, $transferType, $reason, $remarks, $userId);
+    } else {
+        $stmt->bind_param('sssiiiiissi', $reference, $documentType, $transferDate, $sourceOfficeId, $sourceEmployeeId, $toOfficeId, $toEmployeeId, $toRcId, $reason, $remarks, $userId);
+    }
     if (!$stmt->execute()) {
         $err = $stmt->error;
         $stmt->close();
@@ -622,6 +684,7 @@ if (!$db) {
             $errors[] = 'Invalid CSRF token.';
         } elseif ($action === 'direct_transfer') {
             if ($form['asset_key'] === '') add_validation_error($errors, 'Select an asset to transfer.');
+            if (transfer_normalize_type($form['transfer_type']) === '') add_validation_error($errors, 'Transfer type is required.');
             if ($form['transfer_date'] === '') {
                 add_validation_error($errors, 'Transfer date is required.');
             } elseif (!is_valid_date_string($form['transfer_date'])) {
@@ -670,7 +733,7 @@ if (!$db) {
             if (!$errors && $asset) {
                 $db->begin_transaction();
                 try {
-                    transfer_post_asset($db, $asset, $form['transfer_date'], $toOfficeId, $toEmployeeId, $toRcId, $form['reason'], $form['remarks'], (int) current_user_id(), null, $toOfficeCode);
+                    transfer_post_asset($db, $asset, $form['transfer_date'], $toOfficeId, $toEmployeeId, $toRcId, $form['transfer_type'], $form['reason'], $form['remarks'], (int) current_user_id(), null, $toOfficeCode);
                     $db->commit();
                     set_flash('success', 'Transfer of accountability posted successfully.');
                     redirect('modules/transfers/index.php');
@@ -681,6 +744,7 @@ if (!$db) {
             }
         } elseif ($action === 'bulk_transfer') {
             if ($bulkForm['source_office_id'] === '') add_validation_error($errors, 'Source office is required.');
+            if (transfer_normalize_type($bulkForm['transfer_type']) === '') add_validation_error($errors, 'Transfer type is required.');
             if ($bulkForm['transfer_date'] === '') {
                 add_validation_error($errors, 'Transfer date is required.');
             } elseif (!is_valid_date_string($bulkForm['transfer_date'])) {
@@ -767,6 +831,7 @@ if (!$db) {
                             $toOfficeId,
                             $toEmployeeId,
                             $toRcId,
+                            $bulkForm['transfer_type'],
                             $bulkForm['reason'],
                             $bulkForm['remarks'],
                             (int) current_user_id()
@@ -780,6 +845,7 @@ if (!$db) {
                                 $toOfficeId,
                                 $toEmployeeId,
                                 $toRcId,
+                                $bulkForm['transfer_type'],
                                 $bulkForm['reason'],
                                 $bulkForm['remarks'],
                                 (int) current_user_id(),
@@ -800,6 +866,7 @@ if (!$db) {
             }
         } else {
             if ($searchForm['transfer_date'] === '') $errors[] = 'Transfer date is required.';
+            if (transfer_normalize_type($searchForm['transfer_type']) === '') $errors[] = 'Transfer type is required.';
             if ($searchForm['to_office_id'] === '') $errors[] = 'Receiving office is required.';
 
             $selectedAssetKeys = array_values(array_filter(array_map(static fn($value): string => trim((string) $value), (array) ($_POST['asset_keys'] ?? []))));
@@ -858,6 +925,7 @@ if (!$db) {
                             $toOfficeId,
                             $toEmployeeId,
                             $toRcId,
+                            $searchForm['transfer_type'],
                             $searchForm['reason'],
                             $searchForm['remarks'],
                             (int) current_user_id()
@@ -871,6 +939,7 @@ if (!$db) {
                                 $toOfficeId,
                                 $toEmployeeId,
                                 $toRcId,
+                                $searchForm['transfer_type'],
                                 $searchForm['reason'],
                                 $searchForm['remarks'],
                                 (int) current_user_id(),
@@ -893,6 +962,8 @@ if (!$db) {
         }
     }
 
+    $assetTransferTypeSelect = schema_has_column($db, 'asset_transfers', 'transfer_type') ? 'at.transfer_type' : "''";
+    $batchTransferTypeSelect = schema_has_column($db, 'transfer_batches', 'transfer_type') ? 'tb.transfer_type' : "''";
     $transferStatusSql = $transferHistoryStatus === 'all' ? '' : "WHERE at.status = '" . $db->real_escape_string($transferHistoryStatus) . "'";
     $stmt = $db->prepare("
         SELECT
@@ -902,6 +973,7 @@ if (!$db) {
             at.status,
             at.property_number,
             at.source_type,
+            {$assetTransferTypeSelect} AS transfer_type,
             at.reason,
             from_o.office_name AS from_office_name,
             to_o.office_name AS to_office_name,
@@ -975,6 +1047,7 @@ if (!$db) {
             tb.document_type,
             tb.transfer_date,
             tb.status,
+            {$batchTransferTypeSelect} AS transfer_type,
             tb.reason,
             from_o.office_name AS from_office_name,
             to_o.office_name AS to_office_name,
@@ -1406,8 +1479,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <label class="form-label">Transfer Date</label>
                             <input type="date" name="transfer_date" class="form-control" value="<?php echo h($form['transfer_date']); ?>" required>
                         </div>
-                        <div class="col-md-8">
-                            <label class="form-label">Reason</label>
+                        <div class="col-md-4">
+                            <label class="form-label">Transfer Type</label>
+                            <?php echo transfer_type_select_html('transfer_type', $form['transfer_type']); ?>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Reason / Details</label>
                             <input type="text" name="reason" class="form-control" value="<?php echo h($form['reason']); ?>">
                         </div>
                     </div>
@@ -1543,6 +1620,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <input type="date" name="transfer_date" class="form-control" value="<?php echo h($bulkForm['transfer_date']); ?>" required>
                                     </div>
                                     <div class="col-md-6">
+                                        <label class="form-label">Transfer Type</label>
+                                        <?php echo transfer_type_select_html('transfer_type', $bulkForm['transfer_type']); ?>
+                                    </div>
+                                    <div class="col-md-6">
                                         <label class="form-label">Receiving Office</label>
                                         <select name="to_office_id" id="bulk_to_office_id" class="form-select" data-placeholder="Select office" required>
                                             <option value="">Select office</option>
@@ -1576,7 +1657,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </select>
                                     </div>
                                     <div class="col-12">
-                                        <label class="form-label">Reason</label>
+                                        <label class="form-label">Reason / Details</label>
                                         <input type="text" name="reason" class="form-control" value="<?php echo h($bulkForm['reason']); ?>" placeholder="Example: office turnover / unit head change">
                                     </div>
                                     <div class="col-12">
@@ -1649,7 +1730,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
                 <?php endif; ?>
                 <?php if ($transferMode === 'search'): ?>
-                <form method="get" class="transfer-filter-card mb-4">
+                <form method="get" class="transfer-filter-card mb-4" id="searchFilterForm">
                     <input type="hidden" name="mode" value="search">
                     <div class="row g-3 align-items-end">
                         <div class="col-lg-4">
@@ -1722,6 +1803,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                 <input type="hidden" name="action" value="search_transfer">
                                 <input type="hidden" name="mode" value="search">
+                                <div id="searchSelectedInputs"></div>
                                 <input type="hidden" name="query" value="<?php echo h($searchForm['query']); ?>">
                                 <input type="hidden" name="source_type" value="<?php echo h($searchForm['source_type']); ?>">
                                 <input type="hidden" name="item_type" value="<?php echo h($searchForm['item_type']); ?>">
@@ -1731,6 +1813,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="col-md-6">
                                         <label class="form-label">Transfer Date</label>
                                         <input type="date" name="transfer_date" class="form-control" value="<?php echo h($searchForm['transfer_date']); ?>" required>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Transfer Type</label>
+                                        <?php echo transfer_type_select_html('transfer_type', $searchForm['transfer_type']); ?>
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label">Receiving Office</label>
@@ -1766,7 +1852,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </select>
                                     </div>
                                     <div class="col-12">
-                                        <label class="form-label">Reason</label>
+                                        <label class="form-label">Reason / Details</label>
                                         <input type="text" name="reason" class="form-control" value="<?php echo h($searchForm['reason']); ?>" placeholder="Example: targeted reassignment">
                                     </div>
                                     <div class="col-12">
@@ -1790,6 +1876,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <label class="form-check-label small" for="searchSelectAll">Select all</label>
                                     </div>
                                     <span class="badge text-bg-light"><span id="searchSelectedCount"><?php echo count($searchPreviewAssets); ?></span> selected</span>
+                                    <span class="badge text-bg-light"><span id="searchVisibleSelectedCount"><?php echo count($searchPreviewAssets); ?></span> in results</span>
                                 </div>
                             </div>
                             <div class="small text-muted mb-3">Use this workspace for targeted transfers across legacy and system assets, without relying on office turnover filters.</div>
@@ -1871,6 +1958,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <th data-sort="date">Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="type">Type <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="transfer_type">Transfer Type <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="from">From <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="to">To <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="items">Items <i class="bi bi-arrow-down-up text-muted small"></i></th>
@@ -1889,6 +1977,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <?php echo h(strtoupper((string) ($batch['status'] ?? 'posted'))); ?>
                                         </span>
                                     </td>
+                                    <td><?php echo h(transfer_type_options()[$batch['transfer_type'] ?? ''] ?? ''); ?></td>
                                     <td>
                                         <div><?php echo h($batch['from_office_name'] ?? ''); ?></div>
                                         <div class="small text-muted"><?php echo h(transfer_name($batch, 'from_')); ?></div>
@@ -1909,7 +1998,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </td>
                                 </tr>
                             <?php endforeach; else: ?>
-                                <tr><td colspan="9" class="text-center text-muted py-4">No transfer documents found for the selected status.</td></tr>
+                                <tr><td colspan="10" class="text-center text-muted py-4">No transfer documents found for the selected status.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -1948,6 +2037,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="asset">Asset <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="source">Source <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                <th data-sort="transfer_type">Transfer Type <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="from">From <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="to">To <i class="bi bi-arrow-down-up text-muted small"></i></th>
                                 <th data-sort="reason">Reason <i class="bi bi-arrow-down-up text-muted small"></i></th>
@@ -1983,6 +2073,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </div>
                                     </td>
                                     <td><?php echo h(($transfer['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : 'System Transaction'); ?></td>
+                                    <td><?php echo h(transfer_type_options()[$transfer['transfer_type'] ?? ''] ?? ''); ?></td>
                                     <td><div><?php echo h($transfer['from_office_name'] ?? ''); ?></div><div class="small text-muted"><?php echo h(transfer_name($transfer, 'from_')); ?><?php echo !empty($transfer['from_rc_code']) ? ' | ' . h($transfer['from_rc_code']) : ''; ?></div></td>
                                     <td><div><?php echo h($transfer['to_office_name'] ?? ''); ?></div><div class="small text-muted"><?php echo h(transfer_name($transfer, 'to_')); ?><?php echo !empty($transfer['to_rc_code']) ? ' | ' . h($transfer['to_rc_code']) : ''; ?></div></td>
                                     <td><?php echo h($transfer['reason'] ?? ''); ?></td>
@@ -1995,7 +2086,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </td>
                                 </tr>
                             <?php endforeach; else: ?>
-                                <tr><td colspan="9" class="text-center text-muted py-4">No transfers found for the selected status.</td></tr>
+                                <tr><td colspan="10" class="text-center text-muted py-4">No transfers found for the selected status.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -2032,10 +2123,17 @@ document.addEventListener('DOMContentLoaded', function () {
     var searchOfficeSelect = document.getElementById('search_to_office_id');
     var searchEmployeeSelect = document.getElementById('search_to_employee_id');
     var searchRcSelect = document.getElementById('search_to_responsibility_code_id');
+    var searchFilterForm = document.getElementById('searchFilterForm');
+    var searchTransferForm = document.getElementById('searchTransferForm');
+    var searchSelectedInputs = document.getElementById('searchSelectedInputs');
     var searchAssetCheckboxes = Array.prototype.slice.call(document.querySelectorAll('.search-asset-checkbox'));
     var searchSelectAll = document.getElementById('searchSelectAll');
     var searchSelectAllTable = document.getElementById('searchSelectAllTable');
     var searchSelectedCount = document.getElementById('searchSelectedCount');
+    var searchVisibleSelectedCount = document.getElementById('searchVisibleSelectedCount');
+    var searchSelectionStorageKey = 'spams.transfer.search.selectedAssetKeys.user<?php echo (int) current_user_id(); ?>';
+    var shouldClearSearchSelection = <?php echo ($transferMode === 'search' && $flash) ? 'true' : 'false'; ?>;
+    var searchSelectedKeys = new Set();
     function refreshSelect(select) { if (window.SPAMS && window.SPAMS.refreshSelect2) window.SPAMS.refreshSelect2(select); }
     function optionOfficeIds(option) {
         var ids = (option.getAttribute('data-office-ids') || '').split(',').map(function (value) {
@@ -2217,22 +2315,91 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     updateBulkSelectionState();
 
+    function getStoredSearchSelection() {
+        try {
+            var storedValue = window.localStorage ? window.localStorage.getItem(searchSelectionStorageKey) : null;
+            if (storedValue === null) return null;
+            var decoded = JSON.parse(storedValue);
+            return Array.isArray(decoded) ? decoded.map(String).filter(Boolean) : [];
+        } catch (error) {
+            return null;
+        }
+    }
+    function saveSearchSelection() {
+        try {
+            if (window.localStorage) {
+                window.localStorage.setItem(searchSelectionStorageKey, JSON.stringify(Array.from(searchSelectedKeys)));
+            }
+        } catch (error) {}
+    }
+    function clearSearchSelection() {
+        searchSelectedKeys.clear();
+        try {
+            if (window.localStorage) window.localStorage.removeItem(searchSelectionStorageKey);
+        } catch (error) {}
+    }
+    function renderSearchSelectedInputs() {
+        if (!searchSelectedInputs) return;
+        searchSelectedInputs.innerHTML = '';
+        Array.from(searchSelectedKeys).forEach(function (assetKey) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'asset_keys[]';
+            input.value = assetKey;
+            searchSelectedInputs.appendChild(input);
+        });
+    }
+    function syncSearchCheckboxesFromSelection() {
+        searchAssetCheckboxes.forEach(function (checkbox) {
+            checkbox.checked = searchSelectedKeys.has(checkbox.value);
+        });
+    }
+    function updateSearchSelectionState(persistSelection) {
+        syncSearchCheckboxesFromSelection();
+        var checkedCount = searchAssetCheckboxes.filter(function (checkbox) { return checkbox.checked; }).length;
+        var allChecked = searchAssetCheckboxes.length > 0 && checkedCount === searchAssetCheckboxes.length;
+        if (searchSelectedCount) searchSelectedCount.textContent = String(searchSelectedKeys.size);
+        if (searchVisibleSelectedCount) searchVisibleSelectedCount.textContent = String(checkedCount);
+        if (searchSelectAll) {
+            searchSelectAll.checked = allChecked;
+            searchSelectAll.indeterminate = checkedCount > 0 && !allChecked;
+        }
+        if (searchSelectAllTable) {
+            searchSelectAllTable.checked = allChecked;
+            searchSelectAllTable.indeterminate = checkedCount > 0 && !allChecked;
+        }
+        renderSearchSelectedInputs();
+        if (persistSelection !== false) {
+            saveSearchSelection();
+        }
+    }
     function setSearchSelectionState(checked) {
-        searchAssetCheckboxes.forEach(function (checkbox) { checkbox.checked = checked; });
+        searchAssetCheckboxes.forEach(function (checkbox) {
+            if (checked) {
+                searchSelectedKeys.add(checkbox.value);
+            } else {
+                searchSelectedKeys.delete(checkbox.value);
+            }
+        });
         updateSearchSelectionState();
     }
-    function updateSearchSelectionState() {
-        if (!searchAssetCheckboxes.length) {
-            if (searchSelectedCount) searchSelectedCount.textContent = '0';
-            if (searchSelectAll) searchSelectAll.checked = false;
-            if (searchSelectAllTable) searchSelectAllTable.checked = false;
+    function initializeSearchSelection() {
+        if (shouldClearSearchSelection) {
+            clearSearchSelection();
+            updateSearchSelectionState(false);
             return;
         }
-        var checkedCount = searchAssetCheckboxes.filter(function (checkbox) { return checkbox.checked; }).length;
-        var allChecked = checkedCount === searchAssetCheckboxes.length;
-        if (searchSelectedCount) searchSelectedCount.textContent = String(checkedCount);
-        if (searchSelectAll) searchSelectAll.checked = allChecked;
-        if (searchSelectAllTable) searchSelectAllTable.checked = allChecked;
+        var storedKeys = getStoredSearchSelection();
+        if (storedKeys === null) {
+            searchAssetCheckboxes.forEach(function (checkbox) {
+                if (checkbox.checked) searchSelectedKeys.add(checkbox.value);
+            });
+        } else {
+            storedKeys.forEach(function (assetKey) {
+                searchSelectedKeys.add(assetKey);
+            });
+        }
+        updateSearchSelectionState();
     }
     if (searchSelectAll) {
         searchSelectAll.addEventListener('change', function () { setSearchSelectionState(searchSelectAll.checked); });
@@ -2241,9 +2408,22 @@ document.addEventListener('DOMContentLoaded', function () {
         searchSelectAllTable.addEventListener('change', function () { setSearchSelectionState(searchSelectAllTable.checked); });
     }
     searchAssetCheckboxes.forEach(function (checkbox) {
-        checkbox.addEventListener('change', updateSearchSelectionState);
+        checkbox.addEventListener('change', function () {
+            if (checkbox.checked) {
+                searchSelectedKeys.add(checkbox.value);
+            } else {
+                searchSelectedKeys.delete(checkbox.value);
+            }
+            updateSearchSelectionState();
+        });
     });
-    updateSearchSelectionState();
+    if (searchFilterForm) {
+        searchFilterForm.addEventListener('submit', updateSearchSelectionState);
+    }
+    if (searchTransferForm) {
+        searchTransferForm.addEventListener('submit', renderSearchSelectedInputs);
+    }
+    initializeSearchSelection();
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

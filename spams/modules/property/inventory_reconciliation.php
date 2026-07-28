@@ -13,6 +13,7 @@ $resolutionActions = [
     'recounted_found' => 'Recounted / Found',
     'transfer_initiated' => 'Transfer Initiated',
     'accountability_corrected' => 'Accountability Corrected',
+    'unassigned_for_reconciliation' => 'Unassigned for Reconciliation',
     'repair_endorsed' => 'Repair Endorsed',
     'disposal_endorsed' => 'Disposal Endorsed',
     'tag_replacement' => 'Tag Replacement',
@@ -30,6 +31,10 @@ $selectedSessionId = (int) ($_GET['session_id'] ?? 0);
 $resolutionFilter = trim((string) ($_GET['resolution'] ?? 'unresolved'));
 if (!in_array($resolutionFilter, ['all', 'unresolved', 'resolved'], true)) {
     $resolutionFilter = 'unresolved';
+}
+
+if ($db) {
+    ensure_legacy_assets_accountability_tracking_columns($db);
 }
 
 function build_reconciliation_url(array $overrides = []): string
@@ -51,6 +56,137 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
+    }
+
+    if ($db) {
+        ensure_legacy_assets_accountability_tracking_columns($db);
+    }
+
+    if (empty($errors) && $action === 'mark_for_reconciliation') {
+        $itemId = (int) ($_POST['item_id'] ?? 0);
+        $sessionId = (int) ($_POST['session_id'] ?? 0);
+        $resolutionNotes = trim((string) ($_POST['resolution_notes'] ?? ''));
+
+        if ($itemId <= 0 || $sessionId <= 0) {
+            $errors[] = 'Invalid reconciliation item.';
+        }
+
+        if (empty($errors)) {
+            $lookupStmt = $db->prepare("
+                SELECT
+                    ici.id,
+                    ici.status,
+                    ici.source_type,
+                    ici.legacy_asset_id,
+                    ici.resolution_status,
+                    ici.resolution_action,
+                    ici.resolution_notes,
+                    la.property_number,
+                    la.office_id,
+                    la.employee_id,
+                    la.responsibility_code_id,
+                    la.accountability_status
+                FROM inventory_count_items ici
+                INNER JOIN legacy_assets la ON la.id = ici.legacy_asset_id
+                WHERE ici.id = ?
+                  AND ici.session_id = ?
+                  AND ici.source_type = 'legacy'
+                LIMIT 1
+            ");
+            $row = null;
+            if ($lookupStmt) {
+                $lookupStmt->bind_param('ii', $itemId, $sessionId);
+                $lookupStmt->execute();
+                $row = $lookupStmt->get_result()->fetch_assoc();
+                $lookupStmt->close();
+            }
+
+            if (!$row) {
+                $errors[] = 'Only legacy asset discrepancy items can be marked for reconciliation.';
+            } else {
+                $userId = (int) current_user_id();
+                $legacyAssetId = (int) ($row['legacy_asset_id'] ?? 0);
+                $notes = $resolutionNotes !== ''
+                    ? $resolutionNotes
+                    : 'Current accountability unassigned; previous office/person retained for reconciliation.';
+
+                $db->begin_transaction();
+                $saved = false;
+
+                $assetStmt = $db->prepare("
+                    UPDATE legacy_assets
+                    SET last_office_id = office_id,
+                        last_employee_id = employee_id,
+                        last_responsibility_code_id = responsibility_code_id,
+                        office_id = NULL,
+                        employee_id = NULL,
+                        responsibility_code_id = NULL,
+                        accountability_status = 'for_reconciliation',
+                        accountability_cleared_at = NOW(),
+                        accountability_cleared_by = ?
+                    WHERE id = ?
+                    LIMIT 1
+                ");
+                if ($assetStmt) {
+                    $assetStmt->bind_param('ii', $userId, $legacyAssetId);
+                    $saved = (bool) $assetStmt->execute();
+                    $assetStmt->close();
+                }
+
+                if ($saved) {
+                    $itemStmt = $db->prepare("
+                        UPDATE inventory_count_items
+                        SET resolution_status = 'unresolved',
+                            resolution_action = 'unassigned_for_reconciliation',
+                            resolution_notes = ?,
+                            resolved_at = NULL,
+                            resolved_by = NULL
+                        WHERE id = ?
+                          AND session_id = ?
+                    ");
+                    if ($itemStmt) {
+                        $itemStmt->bind_param('sii', $notes, $itemId, $sessionId);
+                        $saved = (bool) $itemStmt->execute();
+                        $itemStmt->close();
+                    } else {
+                        $saved = false;
+                    }
+                }
+
+                if ($saved) {
+                    write_audit_log($db, [
+                        'action' => 'update',
+                        'table_name' => 'legacy_assets',
+                        'record_id' => $legacyAssetId,
+                        'module_name' => 'inventory_reconciliation',
+                        'record_type' => 'legacy_asset',
+                        'action_name' => 'mark_for_reconciliation_unassign_accountability',
+                        'old_values' => [
+                            'office_id' => $row['office_id'] ?? null,
+                            'employee_id' => $row['employee_id'] ?? null,
+                            'responsibility_code_id' => $row['responsibility_code_id'] ?? null,
+                            'accountability_status' => $row['accountability_status'] ?? 'active',
+                        ],
+                        'new_values' => [
+                            'office_id' => null,
+                            'employee_id' => null,
+                            'responsibility_code_id' => null,
+                            'last_office_id' => $row['office_id'] ?? null,
+                            'last_employee_id' => $row['employee_id'] ?? null,
+                            'last_responsibility_code_id' => $row['responsibility_code_id'] ?? null,
+                            'accountability_status' => 'for_reconciliation',
+                        ],
+                        'description' => 'Marked legacy asset as For Reconciliation and unassigned current accountability.',
+                    ]);
+                    $db->commit();
+                    set_flash('success', 'Asset marked For Reconciliation. Current accountability was unassigned and last accountability was retained.');
+                    redirect('modules/property/inventory_reconciliation.php?session_id=' . $sessionId . '&resolution=' . urlencode($resolutionFilter));
+                }
+
+                $db->rollback();
+                $errors[] = 'Unable to mark the asset for reconciliation.';
+            }
+        }
     }
 
     if (empty($errors) && $action === 'resolve_item') {
@@ -159,10 +295,12 @@ $sql = "
         ici.*,
         ics.system_reference,
         ics.count_date,
-        o.office_name
+        o.office_name,
+        COALESCE(la.accountability_status, 'active') AS legacy_accountability_status
     FROM inventory_count_items ici
     INNER JOIN inventory_count_sessions ics ON ics.id = ici.session_id
     INNER JOIN offices o ON o.id = ics.office_id
+    LEFT JOIN legacy_assets la ON la.id = ici.legacy_asset_id AND ici.source_type = 'legacy'
     {$where}
     ORDER BY ics.id DESC, ici.status ASC, ici.property_number ASC
 ";
@@ -316,6 +454,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td>
                                         <div class="fw-semibold"><?php echo h($row['property_number']); ?></div>
                                         <div class="small text-muted"><?php echo h($isLegacy ? 'Beginning Balance' : 'System Transaction'); ?></div>
+                                        <?php if ($isLegacy && ($row['legacy_accountability_status'] ?? 'active') === 'for_reconciliation'): ?>
+                                            <span class="badge text-bg-info mt-1">For Reconciliation</span>
+                                        <?php endif; ?>
                                     </td>
                                     <td>
                                         <div class="fw-semibold"><?php echo h($row['item_description']); ?></div>
@@ -365,6 +506,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td>
                                         <div class="d-grid gap-2">
                                             <a class="btn btn-sm btn-outline-secondary" href="<?php echo h(base_url('modules/property/view.php?source=' . urlencode((string) $row['source_type']) . '&id=' . ($isLegacy ? (int) $row['legacy_asset_id'] : $detailId))); ?>">Open Asset</a>
+                                            <?php if ($isLegacy && ($row['legacy_accountability_status'] ?? 'active') !== 'for_reconciliation'): ?>
+                                                <form method="post" onsubmit="return confirm('Mark this legacy asset as For Reconciliation and unassign its current accountability?');">
+                                                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                    <input type="hidden" name="action" value="mark_for_reconciliation">
+                                                    <input type="hidden" name="session_id" value="<?php echo (int) $row['session_id']; ?>">
+                                                    <input type="hidden" name="item_id" value="<?php echo (int) $row['id']; ?>">
+                                                    <input type="hidden" name="resolution_notes" value="Current accountability unassigned from inventory reconciliation; last accountability retained.">
+                                                    <button type="submit" class="btn btn-sm btn-outline-warning w-100">Mark as For Reconciliation / Unassign Accountability</button>
+                                                </form>
+                                            <?php endif; ?>
                                             <?php if (in_array((string) ($row['status'] ?? ''), ['for_repair', 'for_disposal'], true)): ?>
                                                 <a class="btn btn-sm btn-outline-secondary" href="<?php echo h(base_url('modules/property/unserviceable_review.php?session_id=' . (int) $row['session_id'] . '&status=' . urlencode((string) $row['status']))); ?>">Open Review</a>
                                             <?php endif; ?>

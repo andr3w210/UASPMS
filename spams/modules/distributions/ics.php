@@ -337,9 +337,9 @@ $tagPrintUrl = $detailId > 0
         .print-shell.short table { font-size: 12px; }
         .print-shell.short { width: 7.5in; max-width: 7.5in !important; padding: 0; }
         .short-copies { width: 7.5in; }
-        .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: flex; flex-direction: column; }
+        .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: block; overflow: hidden; }
         .short-sheet + .short-sheet { margin-top: 0; }
-        .short-slot { height: 6.25in; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
+        .short-slot { height: 6.25in; box-sizing: border-box; display: block; overflow: hidden; }
         .short-slot + .short-slot { padding-top: 0.25in; }
         .short-slot + .short-slot { border-top: 1px dashed #bbb; }
         .short-copy { height: 6.25in; min-height: 6.25in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
@@ -374,9 +374,9 @@ $tagPrintUrl = $detailId > 0
             .no-print, .no-print * { display: none !important; }
             thead { display: table-header-group; }
             .print-shell.long .print-copy { break-inside: avoid; page-break-inside: avoid; }
-            .print-shell.short .short-copies { width: 7.5in !important; height: 12.5in !important; }
-            .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display: flex !important; flex-direction: column !important; }
-            .print-shell.short .short-slot { height: 6.25in !important; flex: 0 0 6.25in !important; overflow: hidden !important; }
+            .print-shell.short .short-copies { width: 7.5in !important; height: auto !important; overflow: visible !important; }
+            .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display: block !important; overflow: hidden !important; }
+            .print-shell.short .short-slot { height: 6.25in !important; display: block !important; overflow: hidden !important; }
             .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; }
             .print-shell.short .short-copy { height: 6.25in !important; min-height: 6.25in !important; }
             .print-shell.short .short-slot + .short-slot { border-top: none; }

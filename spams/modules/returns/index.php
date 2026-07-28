@@ -48,6 +48,35 @@ function return_next_reference(mysqli $db, string $itemType): string
     return next_module_code($db, 'returns');
 }
 
+function return_create_batch(mysqli $db, string $systemReference, string $itemType, array $form, int $userId): int
+{
+    if (!schema_has_table($db, 'return_batches') || !schema_has_column($db, 'returns', 'return_batch_id')) {
+        return 0;
+    }
+
+    $stmt = $db->prepare("
+        INSERT INTO return_batches (
+            system_reference,
+            item_type,
+            return_date,
+            reason,
+            remarks,
+            status,
+            created_by
+        ) VALUES (?, ?, ?, ?, ?, 'posted', ?)
+    ");
+    if (!$stmt) {
+        return 0;
+    }
+
+    $stmt->bind_param('sssssi', $systemReference, $itemType, $form['return_date'], $form['reason'], $form['remarks'], $userId);
+    $stmt->execute();
+    $batchId = (int) $stmt->insert_id;
+    $stmt->close();
+
+    return $batchId;
+}
+
 function return_resolve_spmu_office_id(mysqli $db): int
 {
     $stmt = $db->prepare("
@@ -125,11 +154,13 @@ $search = trim((string) ($_GET['q'] ?? ''));
 $preselectedDetailId = (int) ($_GET['detail_id'] ?? 0);
 $preselectedLegacyAssetId = (int) ($_GET['legacy_asset_id'] ?? 0);
 $preselectedSourceType = trim((string) ($_GET['source'] ?? ''));
+$requestMethod = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $form = [
     'source_type' => 'system',
     'distribution_item_detail_id' => '',
     'distribution_item_detail_ids' => [],
     'legacy_asset_id' => '',
+    'legacy_asset_ids' => [],
     'return_date' => date('Y-m-d'),
     'reason' => '',
     'remarks' => '',
@@ -158,7 +189,169 @@ if (!$db) {
         $errors[] = 'Database schema is outdated: returns.legacy_asset_id is missing. Apply latest migrations before continuing.';
     }
 
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($requestMethod === 'POST' && ($_POST['action'] ?? '') === 'cancel_return') {
+        if (!csrf_verify()) {
+            $errors[] = 'Invalid CSRF token.';
+        }
+
+        $cancelReturnId = (int) ($_POST['return_id'] ?? 0);
+        if ($cancelReturnId <= 0) {
+            $errors[] = 'Select a valid return record to cancel.';
+        }
+
+        if (!$errors) {
+            $stmt = $db->prepare("
+                SELECT
+                    rt.id,
+                    rt.system_reference,
+                    rt.source_type,
+                    rt.distribution_item_detail_id,
+                    rt.legacy_asset_id,
+                    rt.return_batch_id,
+                    rt.office_id,
+                    rt.employee_id,
+                    rt.status,
+                    dp.id AS disposal_id
+                FROM returns rt
+                LEFT JOIN disposals dp
+                  ON dp.status = 'posted'
+                 AND (
+                    (rt.source_type = 'system' AND dp.source_type = 'system' AND dp.distribution_item_detail_id = rt.distribution_item_detail_id)
+                    OR (rt.source_type = 'legacy' AND dp.source_type = 'legacy' AND dp.legacy_asset_id = rt.legacy_asset_id)
+                 )
+                WHERE rt.id = ?
+                LIMIT 1
+            ");
+            if (!$stmt) {
+                $errors[] = 'Unable to prepare the cancel return lookup.';
+            } else {
+                $stmt->bind_param('i', $cancelReturnId);
+                $stmt->execute();
+                $returnRow = $stmt->get_result()->fetch_assoc() ?: null;
+                $stmt->close();
+
+                if (!$returnRow) {
+                    $errors[] = 'Return record could not be found.';
+                } elseif (($returnRow['status'] ?? '') !== 'posted') {
+                    $errors[] = 'Only posted return records can be cancelled.';
+                } elseif (!empty($returnRow['disposal_id'])) {
+                    $errors[] = 'This return can no longer be cancelled because it already has a posted disposal.';
+                } else {
+                    $db->begin_transaction();
+                    try {
+                        $sourceType = (string) ($returnRow['source_type'] ?? 'system');
+                        $officeId = (int) ($returnRow['office_id'] ?? 0);
+                        $employeeId = (int) ($returnRow['employee_id'] ?? 0);
+
+                        if ($sourceType === 'legacy') {
+                            $legacyAssetId = (int) ($returnRow['legacy_asset_id'] ?? 0);
+                            $assetStmt = $db->prepare("
+                                UPDATE legacy_assets
+                                SET
+                                    office_id = NULLIF(?, 0),
+                                    employee_id = NULLIF(?, 0),
+                                    responsibility_code_id = (
+                                        SELECT e.responsibility_code_id
+                                        FROM employees e
+                                        WHERE e.id = NULLIF(?, 0)
+                                        LIMIT 1
+                                    )
+                                WHERE id = ?
+                            ");
+                            if (!$assetStmt) {
+                                throw new RuntimeException('Unable to prepare legacy asset restore.');
+                            }
+                            $assetStmt->bind_param('iiii', $officeId, $employeeId, $employeeId, $legacyAssetId);
+                            $assetStmt->execute();
+                            $assetStmt->close();
+                        } else {
+                            $detailId = (int) ($returnRow['distribution_item_detail_id'] ?? 0);
+                            $assetStmt = $db->prepare("
+                                UPDATE distribution_item_details
+                                SET
+                                    is_distributed = 1,
+                                    current_office_id = NULLIF(?, 0),
+                                    current_employee_id = NULLIF(?, 0),
+                                    current_responsibility_code_id = (
+                                        SELECT e.responsibility_code_id
+                                        FROM employees e
+                                        WHERE e.id = NULLIF(?, 0)
+                                        LIMIT 1
+                                    )
+                                WHERE id = ?
+                                  AND (is_disposed IS NULL OR is_disposed = 0)
+                            ");
+                            if (!$assetStmt) {
+                                throw new RuntimeException('Unable to prepare system asset restore.');
+                            }
+                            $assetStmt->bind_param('iiii', $officeId, $employeeId, $employeeId, $detailId);
+                            $assetStmt->execute();
+                            if ($assetStmt->affected_rows <= 0) {
+                                throw new RuntimeException('Unable to restore the returned asset.');
+                            }
+                            $assetStmt->close();
+                        }
+
+                        $cancelStmt = $db->prepare("
+                            UPDATE returns
+                            SET status = 'cancelled'
+                            WHERE id = ?
+                              AND status = 'posted'
+                            LIMIT 1
+                        ");
+                        if (!$cancelStmt) {
+                            throw new RuntimeException('Unable to prepare return cancellation.');
+                        }
+                        $cancelStmt->bind_param('i', $cancelReturnId);
+                        $cancelStmt->execute();
+                        if ($cancelStmt->affected_rows <= 0) {
+                            throw new RuntimeException('Unable to cancel the return record.');
+                        }
+                        $cancelStmt->close();
+
+                        $returnBatchId = (int) ($returnRow['return_batch_id'] ?? 0);
+                        if ($returnBatchId > 0 && schema_has_table($db, 'return_batches')) {
+                            $batchStmt = $db->prepare("
+                                UPDATE return_batches rb
+                                SET rb.status = 'cancelled'
+                                WHERE rb.id = ?
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM returns rt_keep
+                                      WHERE rt_keep.return_batch_id = rb.id
+                                        AND rt_keep.status = 'posted'
+                                  )
+                            ");
+                            if ($batchStmt) {
+                                $batchStmt->bind_param('i', $returnBatchId);
+                                $batchStmt->execute();
+                                $batchStmt->close();
+                            }
+                        }
+
+                        write_audit_log($db, [
+                            'action' => 'update',
+                            'table_name' => 'returns',
+                            'record_id' => $cancelReturnId,
+                            'module_name' => 'returns',
+                            'record_type' => 'return',
+                            'action_name' => 'cancel_return',
+                            'old_values' => ['status' => 'posted'],
+                            'new_values' => ['status' => 'cancelled'],
+                            'description' => 'Cancelled posted asset return and restored asset accountability.',
+                        ]);
+
+                        $db->commit();
+                        set_flash('success', 'Return ' . ($returnRow['system_reference'] ?? '#' . $cancelReturnId) . ' was cancelled and the asset was restored.');
+                        redirect('modules/returns/index.php');
+                    } catch (Throwable $e) {
+                        $db->rollback();
+                        $errors[] = 'Unable to cancel the return record.';
+                    }
+                }
+            }
+        }
+    } elseif ($requestMethod === 'POST') {
         $form['source_type'] = trim((string) ($_POST['source_type'] ?? 'system'));
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
@@ -171,6 +364,11 @@ if (!$db) {
             return $value !== '';
         }));
         $form['legacy_asset_id'] = trim((string) ($_POST['legacy_asset_id'] ?? ''));
+        $form['legacy_asset_ids'] = array_values(array_filter(array_map(static function ($value): string {
+            return trim((string) $value);
+        }, (array) ($_POST['legacy_asset_ids'] ?? [])), static function ($value): bool {
+            return $value !== '';
+        }));
         $form['return_date'] = trim((string) ($_POST['return_date'] ?? date('Y-m-d')));
         $form['reason'] = trim((string) ($_POST['reason'] ?? ''));
         $form['remarks'] = trim((string) ($_POST['remarks'] ?? ''));
@@ -183,14 +381,18 @@ if (!$db) {
         $detailId = (int) ($form['distribution_item_detail_id'] !== '' ? $form['distribution_item_detail_id'] : 0);
         $detailIds = array_values(array_unique(array_map('intval', $form['distribution_item_detail_ids'])));
         $legacyAssetId = (int) ($form['legacy_asset_id'] !== '' ? $form['legacy_asset_id'] : 0);
+        $legacyAssetIds = array_values(array_unique(array_map('intval', $form['legacy_asset_ids'])));
 
         if ($sourceType === 'system' && $detailId > 0 && !in_array($detailId, $detailIds, true)) {
             $detailIds[] = $detailId;
         }
+        if ($sourceType === 'legacy' && $legacyAssetId > 0 && !in_array($legacyAssetId, $legacyAssetIds, true)) {
+            $legacyAssetIds[] = $legacyAssetId;
+        }
 
         if ($sourceType === 'legacy') {
-            if ($legacyAssetId <= 0) {
-                $errors[] = 'Select a legacy asset to return.';
+            if (!$legacyAssetIds) {
+                $errors[] = 'Select at least one legacy asset to return.';
             }
         } elseif (!$detailIds) {
             $errors[] = 'Select at least one accountable asset to return.';
@@ -210,26 +412,39 @@ if (!$db) {
                     WHERE id = ? AND is_active = 1
                     LIMIT 1
                 ");
-                if ($assetStmt) {
-                    $assetStmt->bind_param('i', $legacyAssetId);
-                    $assetStmt->execute();
-                    $asset = $assetStmt->get_result()->fetch_assoc() ?: null;
-                    $assetStmt->close();
-                }
+                $dupStmt = $db->prepare("SELECT id FROM returns WHERE source_type = 'legacy' AND legacy_asset_id = ? AND status = 'posted' LIMIT 1");
 
-                if (!$asset) {
-                    $errors[] = 'The selected legacy asset could not be found.';
-                } else {
-                    $dupStmt = $db->prepare("SELECT id FROM returns WHERE source_type = 'legacy' AND legacy_asset_id = ? AND status = 'posted' LIMIT 1");
+                foreach ($legacyAssetIds as $selectedLegacyAssetId) {
+                    $asset = null;
+                    if ($assetStmt) {
+                        $assetStmt->bind_param('i', $selectedLegacyAssetId);
+                        $assetStmt->execute();
+                        $asset = $assetStmt->get_result()->fetch_assoc() ?: null;
+                    }
+
+                    if (!$asset) {
+                        $errors[] = 'One selected legacy asset could not be found.';
+                        continue;
+                    }
+
                     if ($dupStmt) {
-                        $dupStmt->bind_param('i', $legacyAssetId);
+                        $dupStmt->bind_param('i', $selectedLegacyAssetId);
                         $dupStmt->execute();
                         $existing = $dupStmt->get_result()->fetch_assoc();
-                        $dupStmt->close();
                         if ($existing) {
-                            $errors[] = 'A posted return already exists for the selected legacy asset.';
+                            $errors[] = 'One selected legacy asset already has a posted return.';
+                            continue;
                         }
                     }
+
+                    $assets[] = $asset;
+                }
+
+                if ($assetStmt) {
+                    $assetStmt->close();
+                }
+                if ($dupStmt) {
+                    $dupStmt->close();
                 }
             } else {
                 $assetStmt = $db->prepare("
@@ -294,7 +509,7 @@ if (!$db) {
             }
         }
 
-        if (!$errors && ($sourceType === 'legacy' ? !empty($asset) : !empty($assets))) {
+        if (!$errors && !empty($assets)) {
             $spmuOfficeId = return_resolve_spmu_office_id($db);
             if ($spmuOfficeId <= 0) {
                 $errors[] = 'SPMU office record could not be found. Please add or activate the Supply and Property Management Unit office first.';
@@ -305,7 +520,7 @@ if (!$db) {
             }
         }
 
-        if (!$errors && ($sourceType === 'legacy' ? !empty($asset) : !empty($assets))) {
+        if (!$errors && !empty($assets)) {
             $db->begin_transaction();
             try {
                 $userId = current_user_id();
@@ -317,29 +532,20 @@ if (!$db) {
                         return_date,
                         distribution_item_detail_id,
                         legacy_asset_id,
+                        return_batch_id,
                         office_id,
                         employee_id,
                         reason,
                         remarks,
                         status,
                         created_by
-                    ) VALUES (?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), ?, ?, 'posted', ?)
+                    ) VALUES (?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?, 'posted', ?)
                 ");
 
                 if (!$ins) {
                     throw new RuntimeException('Unable to prepare the return insert statement.');
                 }
                 if ($sourceType === 'legacy') {
-                    $systemRef = return_next_reference($db, (string) ($asset['item_type'] ?? ''));
-                    $officeId = (int) ($asset['current_office_id'] ?? 0);
-                    $employeeId = (int) ($asset['current_employee_id'] ?? 0);
-                    $detailIdToSave = null;
-                    $legacyIdToSave = $legacyAssetId;
-
-                    $ins->bind_param('sssiiiissi', $systemRef, $sourceType, $form['return_date'], $detailIdToSave, $legacyIdToSave, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
-                    $ins->execute();
-                    $returnId = (int) $ins->insert_id;
-
                     $upd = $db->prepare("
                         UPDATE legacy_assets
                         SET office_id = ?, employee_id = ?, responsibility_code_id = NULL
@@ -348,9 +554,57 @@ if (!$db) {
                     if (!$upd) {
                         throw new RuntimeException('Unable to update legacy asset accountability state.');
                     }
-                    $upd->bind_param('iii', $spmuOfficeId, $spmuEmployeeId, $legacyAssetId);
+                } else {
+                    $upd = $db->prepare("
+                        UPDATE distribution_item_details
+                        SET
+                            is_distributed = 0,
+                            current_office_id = ?,
+                            current_employee_id = ?,
+                            current_responsibility_code_id = NULL
+                        WHERE id = ?
+                    ");
+                    if (!$upd) {
+                        throw new RuntimeException('Unable to update the asset accountability state.');
+                    }
+                }
+
+                $assetCountsByType = [];
+                foreach ($assets as $assetRow) {
+                    $assetItemType = (string) ($assetRow['item_type'] ?? '');
+                    $assetCountsByType[$assetItemType] = ($assetCountsByType[$assetItemType] ?? 0) + 1;
+                }
+
+                $batchIdsByType = [];
+                foreach ($assetCountsByType as $assetItemType => $assetCount) {
+                    if ($assetCount > 1) {
+                        $batchReference = return_next_reference($db, $assetItemType);
+                        $batchIdsByType[$assetItemType] = return_create_batch($db, $batchReference, $assetItemType, $form, $userId);
+                        if ($batchIdsByType[$assetItemType] <= 0) {
+                            throw new RuntimeException('Unable to create the return batch record.');
+                        }
+                    }
+                }
+
+                foreach ($assets as $assetRow) {
+                    $assetItemType = (string) ($assetRow['item_type'] ?? '');
+                    $returnBatchId = (int) ($batchIdsByType[$assetItemType] ?? 0);
+                    $systemRef = $returnBatchId > 0 ? next_module_code($db, 'returns') : return_next_reference($db, $assetItemType);
+                    $officeId = (int) ($assetRow['current_office_id'] ?? 0);
+                    $employeeId = (int) ($assetRow['current_employee_id'] ?? 0);
+                    $detailIdToSave = $sourceType === 'legacy' ? null : (int) ($assetRow['id'] ?? 0);
+                    $legacyIdToSave = $sourceType === 'legacy' ? (int) ($assetRow['id'] ?? 0) : null;
+
+                    $ins->bind_param('sssiiiiissi', $systemRef, $sourceType, $form['return_date'], $detailIdToSave, $legacyIdToSave, $returnBatchId, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
+                    $ins->execute();
+                    $returnId = (int) $ins->insert_id;
+
+                    if ($sourceType === 'legacy') {
+                        $upd->bind_param('iii', $spmuOfficeId, $spmuEmployeeId, $legacyIdToSave);
+                    } else {
+                        $upd->bind_param('iii', $spmuOfficeId, $spmuEmployeeId, $detailIdToSave);
+                    }
                     $upd->execute();
-                    $upd->close();
 
                     write_audit_log($db, [
                         'action' => 'insert',
@@ -365,66 +619,19 @@ if (!$db) {
                             'return_date' => $form['return_date'],
                             'distribution_item_detail_id' => $detailIdToSave,
                             'legacy_asset_id' => $legacyIdToSave,
+                            'return_batch_id' => $returnBatchId,
                             'office_id' => $officeId,
                             'employee_id' => $employeeId,
                             'reason' => $form['reason'],
                         ],
                         'description' => 'Posted asset return.',
                     ]);
-                } else {
-                    $upd = $db->prepare("
-                        UPDATE distribution_item_details
-                        SET
-                            is_distributed = 0,
-                            current_office_id = ?,
-                            current_employee_id = ?,
-                            current_responsibility_code_id = NULL
-                        WHERE id = ?
-                    ");
-                    if (!$upd) {
-                        throw new RuntimeException('Unable to update the asset accountability state.');
-                    }
-
-                    foreach ($assets as $assetRow) {
-                        $systemRef = return_next_reference($db, (string) ($assetRow['item_type'] ?? ''));
-                        $officeId = (int) ($assetRow['current_office_id'] ?? 0);
-                        $employeeId = (int) ($assetRow['current_employee_id'] ?? 0);
-                        $detailIdToSave = (int) ($assetRow['id'] ?? 0);
-                        $legacyIdToSave = null;
-
-                        $ins->bind_param('sssiiiissi', $systemRef, $sourceType, $form['return_date'], $detailIdToSave, $legacyIdToSave, $officeId, $employeeId, $form['reason'], $form['remarks'], $userId);
-                        $ins->execute();
-                        $returnId = (int) $ins->insert_id;
-
-                        $upd->bind_param('iii', $spmuOfficeId, $spmuEmployeeId, $detailIdToSave);
-                        $upd->execute();
-
-                        write_audit_log($db, [
-                            'action' => 'insert',
-                            'table_name' => 'returns',
-                            'record_id' => $returnId,
-                            'module_name' => 'returns',
-                            'record_type' => 'return',
-                            'action_name' => 'post_return',
-                            'new_values' => [
-                                'system_reference' => $systemRef,
-                                'source_type' => $sourceType,
-                                'return_date' => $form['return_date'],
-                                'distribution_item_detail_id' => $detailIdToSave,
-                                'legacy_asset_id' => $legacyIdToSave,
-                                'office_id' => $officeId,
-                                'employee_id' => $employeeId,
-                                'reason' => $form['reason'],
-                            ],
-                            'description' => 'Posted asset return.',
-                        ]);
-                    }
-                    $upd->close();
                 }
+                $upd->close();
                 $ins->close();
 
                 $db->commit();
-                $returnCount = $sourceType === 'legacy' ? 1 : count($assets);
+                $returnCount = count($assets);
                 set_flash('success', $returnCount > 1 ? ('Bulk return recorded successfully for ' . number_format($returnCount) . ' assets.') : 'Return recorded successfully.');
                 redirect('modules/returns/index.php');
             } catch (Throwable $e) {
@@ -482,13 +689,16 @@ if (!$db) {
         $availableSql .= " AND (
             did.property_number LIKE CONCAT('%', ?, '%')
             OR did.serial_no LIKE CONCAT('%', ?, '%')
-            OR poi.item_description LIKE CONCAT('%', ?, '%')
+            OR COALESCE(poi.item_description, si.item_description) LIKE CONCAT('%', ?, '%')
             OR did.brand LIKE CONCAT('%', ?, '%')
             OR did.model LIKE CONCAT('%', ?, '%')
             OR o.office_name LIKE CONCAT('%', ?, '%')
+            OR e.first_name LIKE CONCAT('%', ?, '%')
+            OR e.middle_name LIKE CONCAT('%', ?, '%')
+            OR e.last_name LIKE CONCAT('%', ?, '%')
         )";
-        $types .= 'ssssss';
-        array_push($params, $search, $search, $search, $search, $search, $search);
+        $types .= 'sssssssss';
+        array_push($params, $search, $search, $search, $search, $search, $search, $search, $search, $search);
     }
     $availableSql .= " ORDER BY poi.item_type ASC, poi.item_description ASC, did.property_number ASC, did.serial_no ASC";
 
@@ -503,7 +713,7 @@ if (!$db) {
     }
     }
 
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $preselectedDetailId > 0) {
+    if ($requestMethod !== 'POST' && $preselectedDetailId > 0) {
         foreach ($available as $assetRow) {
             if ((int) ($assetRow['id'] ?? 0) === $preselectedDetailId) {
                 $form['source_type'] = 'system';
@@ -514,7 +724,7 @@ if (!$db) {
         }
     }
 
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $preselectedLegacyAssetId > 0 && $preselectedSourceType === 'legacy') {
+    if ($requestMethod !== 'POST' && $preselectedLegacyAssetId > 0 && $preselectedSourceType === 'legacy') {
         $legacyAssetStmt = $db->prepare("
             SELECT
                 la.id,
@@ -562,7 +772,7 @@ if (!$db) {
         }
     }
 
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $sourceFilter !== 'system' && $search !== '') {
+    if ($requestMethod !== 'POST' && $sourceFilter !== 'system') {
         $legacyListSql = "
             SELECT
                 la.id,
@@ -601,18 +811,26 @@ if (!$db) {
             WHERE la.is_active = 1
               AND la.item_type IN ('equipment', 'semi_expendable')
               AND rt.id IS NULL
-              AND (
-                  la.property_number LIKE CONCAT('%', ?, '%')
-                  OR la.serial_no LIKE CONCAT('%', ?, '%')
-                  OR la.qr_tag_code LIKE CONCAT('%', ?, '%')
-                  OR la.item_description LIKE CONCAT('%', ?, '%')
-                  OR la.brand LIKE CONCAT('%', ?, '%')
-                  OR la.model LIKE CONCAT('%', ?, '%')
-                  OR o.office_name LIKE CONCAT('%', ?, '%')
-              )
         ";
-        $legacyTypes = 'sssssss';
-        $legacyParams = [$search, $search, $search, $search, $search, $search, $search];
+        $legacyTypes = '';
+        $legacyParams = [];
+        if ($search !== '') {
+            $legacyListSql .= " AND (
+                la.property_number LIKE CONCAT('%', ?, '%')
+                OR la.serial_no LIKE CONCAT('%', ?, '%')
+                OR la.qr_tag_code LIKE CONCAT('%', ?, '%')
+                OR la.item_description LIKE CONCAT('%', ?, '%')
+                OR la.brand LIKE CONCAT('%', ?, '%')
+                OR la.model LIKE CONCAT('%', ?, '%')
+                OR o.office_name LIKE CONCAT('%', ?, '%')
+                OR e.first_name LIKE CONCAT('%', ?, '%')
+                OR e.middle_name LIKE CONCAT('%', ?, '%')
+                OR e.last_name LIKE CONCAT('%', ?, '%')
+                OR 'Beginning Balance' LIKE CONCAT('%', ?, '%')
+            )";
+            $legacyTypes .= 'sssssssssss';
+            array_push($legacyParams, $search, $search, $search, $search, $search, $search, $search, $search, $search, $search, $search);
+        }
         if ($typeFilter !== 'all') {
             $legacyListSql .= " AND la.item_type = ?";
             $legacyTypes .= 's';
@@ -622,14 +840,16 @@ if (!$db) {
 
         $legacyListStmt = $db->prepare($legacyListSql);
         if ($legacyListStmt) {
-            $legacyListStmt->bind_param($legacyTypes, ...$legacyParams);
+            if ($legacyParams) {
+                $legacyListStmt->bind_param($legacyTypes, ...$legacyParams);
+            }
             $legacyListStmt->execute();
             $legacyAvailable = $legacyListStmt->get_result()->fetch_all(MYSQLI_ASSOC);
             $legacyListStmt->close();
         }
     }
 
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $sourceFilter !== 'system' && $form['source_type'] !== 'legacy' && $search !== '') {
+    if ($requestMethod !== 'POST' && $sourceFilter !== 'system' && $form['source_type'] !== 'legacy' && $search !== '') {
         $legacySearchStmt = $db->prepare("
             SELECT
                 la.id,
@@ -691,11 +911,12 @@ if (!$db) {
     $rowsSql = "
         SELECT
             rt.id,
-            rt.system_reference,
+            COALESCE(rb.system_reference, rt.system_reference) AS system_reference,
             rt.source_type,
-            rt.return_date,
+            COALESCE(rb.return_date, rt.return_date) AS return_date,
             rt.reason,
             rt.remarks,
+            rt.status,
             COALESCE(did.property_number, la.property_number) AS property_number,
             COALESCE(did.serial_no, la.serial_no) AS serial_no,
             COALESCE(poi.item_type, si.item_type, la.item_type) AS item_type,
@@ -708,10 +929,18 @@ if (!$db) {
             e.first_name,
             e.middle_name,
             e.last_name,
-            e.suffix_name
+            e.suffix_name,
+            dp.id AS disposal_id
         FROM returns rt
+        LEFT JOIN return_batches rb ON rb.id = rt.return_batch_id
         LEFT JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
         LEFT JOIN legacy_assets la ON la.id = rt.legacy_asset_id
+        LEFT JOIN disposals dp
+          ON dp.status = 'posted'
+         AND (
+            (rt.source_type = 'system' AND dp.source_type = 'system' AND dp.distribution_item_detail_id = rt.distribution_item_detail_id)
+            OR (rt.source_type = 'legacy' AND dp.source_type = 'legacy' AND dp.legacy_asset_id = rt.legacy_asset_id)
+         )
         LEFT JOIN distribution_items di ON di.id = did.distribution_item_id
         LEFT JOIN distributions d ON d.id = di.distribution_id
         LEFT JOIN issuance_items ii ON ii.id = di.issuance_item_id
@@ -969,9 +1198,23 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                             'classification_family' => (string) ($asset['classification_family'] ?? ''),
                                                             'classification_name' => (string) ($asset['classification_name'] ?? ''),
                                                         ];
+                                                        $searchBlob = strtolower(trim(implode(' ', array_filter([
+                                                            'legacy',
+                                                            'beginning balance',
+                                                            $asset['item_type'] ?? '',
+                                                            $asset['property_number'] ?? '',
+                                                            $asset['serial_no'] ?? '',
+                                                            $asset['item_description'] ?? '',
+                                                            $asset['classification_name'] ?? '',
+                                                            $asset['classification_family'] ?? '',
+                                                            $asset['brand'] ?? '',
+                                                            $asset['model'] ?? '',
+                                                            $asset['office_name'] ?? '',
+                                                            return_asset_person_label($asset),
+                                                        ]))));
                                                         ?>
-                                                        <label class="return-picker-item return-legacy-item">
-                                                            <input class="return-legacy-radio" type="radio" name="legacy_pick" value="<?php echo (int) $asset['id']; ?>" data-asset="<?php echo h((string) json_encode($payload, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP)); ?>">
+                                                        <label class="return-picker-item return-legacy-item" data-search="<?php echo h($searchBlob); ?>">
+                                                            <input class="return-legacy-radio" type="checkbox" name="legacy_asset_ids[]" value="<?php echo (int) $asset['id']; ?>" data-asset="<?php echo h((string) json_encode($payload, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP)); ?>">
                                                             <span class="return-picker-item-body">
                                                                 <span class="return-picker-item-top">
                                                                     <span class="return-picker-title"><?php echo h(return_asset_label($asset)); ?></span>
@@ -1047,10 +1290,25 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                         </div>
                         <div class="tab-pane fade" id="posted-returns" role="tabpanel" aria-labelledby="posted-returns-tab">
+                    <div class="report-filter-card">
+                        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                            <div>
+                                <h6 class="report-filter-title mb-1">Print Posted Returns</h6>
+                                <div class="small text-muted">Tick posted return records below, then print them together by form type.</div>
+                            </div>
+                            <div class="d-flex gap-2 flex-wrap">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="postedReturnsSelectAll">Select all</button>
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="printSelectedRrsp">Print Selected RRSP</button>
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="printSelectedRrpe">Print Selected RRPE</button>
+                                <span class="badge text-bg-light align-self-center"><span id="postedReturnsSelectedCount">0</span> selected</span>
+                            </div>
+                        </div>
+                    </div>
                     <div class="report-table-card table-responsive mobile-table-frame">
                         <table class="table align-middle">
                             <thead>
                                 <tr>
+                                    <th style="width:1%;"><input type="checkbox" class="form-check-input" id="postedReturnsSelectAllTable"></th>
                                     <th>Reference</th>
                                     <th>Date</th>
                                     <th>Asset</th>
@@ -1058,12 +1316,23 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <th>From Office / Officer</th>
                                     <th>Reason</th>
                                     <th>COA/GAM Form</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php if ($rows): ?>
                                     <?php foreach ($rows as $row): ?>
                                         <tr>
+                                            <td>
+                                                <?php if (($row['status'] ?? '') === 'posted' && in_array(($row['item_type'] ?? ''), ['semi_expendable', 'equipment'], true)): ?>
+                                                    <input
+                                                        type="checkbox"
+                                                        class="form-check-input posted-return-checkbox"
+                                                        value="<?php echo (int) $row['id']; ?>"
+                                                        data-item-type="<?php echo h((string) ($row['item_type'] ?? '')); ?>">
+                                                <?php endif; ?>
+                                            </td>
                                             <td class="fw-semibold"><?php echo h($row['system_reference']); ?></td>
                                             <td><?php echo h(!empty($row['return_date']) ? date('M d, Y', strtotime((string) $row['return_date'])) : ''); ?></td>
                                             <td>
@@ -1082,7 +1351,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td><?php echo h(trim(implode(' / ', array_filter([$row['office_name'] ?? '', employee_display_name($row)])))); ?></td>
                                             <td><?php echo h(trim(implode(' | ', array_filter([$row['reason'] ?? '', $row['remarks'] ?? ''])))); ?></td>
                                             <td>
-                                                <?php if (($row['item_type'] ?? '') === 'semi_expendable'): ?>
+                                                <?php if (($row['status'] ?? '') !== 'posted'): ?>
+                                                    <span class="text-muted">No form</span>
+                                                <?php elseif (($row['item_type'] ?? '') === 'semi_expendable'): ?>
                                                     <a class="btn btn-outline-primary btn-sm" href="<?php echo h(base_url('modules/reports/semi_rrsp.php?return_id=' . (int) $row['id'])); ?>">Receipt of Returned Semi-Expendable Property</a>
                                                 <?php elseif (($row['item_type'] ?? '') === 'equipment'): ?>
                                                     <a class="btn btn-outline-primary btn-sm" href="<?php echo h(base_url('modules/reports/property_return_slip.php?return_id=' . (int) $row['id'])); ?>">RRPE</a>
@@ -1090,10 +1361,33 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                     <span class="text-muted">No form</span>
                                                 <?php endif; ?>
                                             </td>
+                                            <td>
+                                                <?php if (($row['status'] ?? '') === 'posted'): ?>
+                                                    <span class="badge text-bg-success">Posted</span>
+                                                <?php elseif (($row['status'] ?? '') === 'cancelled'): ?>
+                                                    <span class="badge text-bg-secondary">Cancelled</span>
+                                                <?php else: ?>
+                                                    <span class="badge text-bg-light"><?php echo h(ucfirst((string) ($row['status'] ?? ''))); ?></span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <?php if (($row['status'] ?? '') === 'posted' && empty($row['disposal_id'])): ?>
+                                                    <form method="post" class="d-inline" onsubmit="return confirm('Cancel this posted return and restore the asset to the original accountable office/person?');">
+                                                        <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                        <input type="hidden" name="action" value="cancel_return">
+                                                        <input type="hidden" name="return_id" value="<?php echo (int) $row['id']; ?>">
+                                                        <button type="submit" class="btn btn-outline-danger btn-sm">Cancel Return</button>
+                                                    </form>
+                                                <?php elseif (!empty($row['disposal_id'])): ?>
+                                                    <span class="text-muted small">Already disposed</span>
+                                                <?php else: ?>
+                                                    <span class="text-muted small">No action</span>
+                                                <?php endif; ?>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <tr><td colspan="7" class="text-center text-muted py-4">No return records yet.</td></tr>
+                                    <tr><td colspan="10" class="text-center text-muted py-4">No return records yet.</td></tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
@@ -1134,6 +1428,75 @@ document.addEventListener('DOMContentLoaded', function () {
     var emptySearch = document.getElementById('returnAssetPickerEmpty');
     var sourceInput = document.getElementById('returnSourceType');
     var legacyInput = document.getElementById('returnLegacyAssetId');
+    var postedReturnCheckboxes = Array.prototype.slice.call(document.querySelectorAll('.posted-return-checkbox'));
+    var postedReturnsSelectAll = document.getElementById('postedReturnsSelectAll');
+    var postedReturnsSelectAllTable = document.getElementById('postedReturnsSelectAllTable');
+    var postedReturnsSelectedCount = document.getElementById('postedReturnsSelectedCount');
+    var printSelectedRrsp = document.getElementById('printSelectedRrsp');
+    var printSelectedRrpe = document.getElementById('printSelectedRrpe');
+
+    function selectedPostedReturns(itemType) {
+        return postedReturnCheckboxes.filter(function (checkbox) {
+            return checkbox.checked && (!itemType || checkbox.getAttribute('data-item-type') === itemType);
+        });
+    }
+
+    function updatePostedReturnControls() {
+        var checkedCount = selectedPostedReturns('').length;
+        var allChecked = postedReturnCheckboxes.length > 0 && checkedCount === postedReturnCheckboxes.length;
+        if (postedReturnsSelectedCount) {
+            postedReturnsSelectedCount.textContent = String(checkedCount);
+        }
+        if (postedReturnsSelectAllTable) {
+            postedReturnsSelectAllTable.checked = allChecked;
+        }
+    }
+
+    function setPostedReturnSelection(checked) {
+        postedReturnCheckboxes.forEach(function (checkbox) {
+            checkbox.checked = checked;
+        });
+        updatePostedReturnControls();
+    }
+
+    function printSelectedReturns(itemType, reportPath) {
+        var selected = selectedPostedReturns(itemType);
+        if (selected.length === 0) {
+            alert('Select at least one ' + (itemType === 'semi_expendable' ? 'semi-expendable' : 'equipment') + ' return record.');
+            return;
+        }
+
+        var params = selected.map(function (checkbox) {
+            return 'return_ids%5B%5D=' + encodeURIComponent(checkbox.value);
+        }).join('&');
+        window.open('<?php echo h(base_url('modules/reports/')); ?>' + reportPath + '?' + params + '&print=1', '_blank');
+    }
+
+    if (postedReturnsSelectAll) {
+        postedReturnsSelectAll.addEventListener('click', function () {
+            var checkedCount = selectedPostedReturns('').length;
+            setPostedReturnSelection(checkedCount !== postedReturnCheckboxes.length);
+        });
+    }
+    if (postedReturnsSelectAllTable) {
+        postedReturnsSelectAllTable.addEventListener('change', function () {
+            setPostedReturnSelection(postedReturnsSelectAllTable.checked);
+        });
+    }
+    postedReturnCheckboxes.forEach(function (checkbox) {
+        checkbox.addEventListener('change', updatePostedReturnControls);
+    });
+    if (printSelectedRrsp) {
+        printSelectedRrsp.addEventListener('click', function () {
+            printSelectedReturns('semi_expendable', 'semi_rrsp.php');
+        });
+    }
+    if (printSelectedRrpe) {
+        printSelectedRrpe.addEventListener('click', function () {
+            printSelectedReturns('equipment', 'property_return_slip.php');
+        });
+    }
+    updatePostedReturnControls();
 
     if (!pickerList || !preview) {
         return;
@@ -1141,7 +1504,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var checkboxes = Array.prototype.slice.call(pickerList.querySelectorAll('.return-picker-checkbox'));
     var items = Array.prototype.slice.call(pickerList.querySelectorAll('.return-picker-item'));
-    var legacyRadios = Array.prototype.slice.call(document.querySelectorAll('.return-legacy-radio'));
+    var legacyCheckboxes = Array.prototype.slice.call(document.querySelectorAll('.return-legacy-radio'));
 
     function parseAsset(checkbox) {
         try {
@@ -1166,10 +1529,10 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    function selectedLegacyRadio() {
-        return legacyRadios.find(function (radio) {
-            return radio.checked;
-        }) || null;
+    function selectedLegacyCheckboxes() {
+        return legacyCheckboxes.filter(function (checkbox) {
+            return checkbox.checked;
+        });
     }
 
     function renderAssetCard(asset, sourceLabel) {
@@ -1190,14 +1553,31 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function renderPreview() {
-        var legacyRadio = selectedLegacyRadio();
-        if (legacyRadio) {
-            var legacyAsset = parseAsset(legacyRadio);
+        var legacySelected = selectedLegacyCheckboxes();
+        if (legacySelected.length > 0) {
+            legacyCheckboxes.forEach(function (checkbox) {
+                var item = checkbox.closest('.return-picker-item');
+                if (item) {
+                    item.classList.toggle('is-selected', checkbox.checked);
+                }
+            });
             if (countBadge) {
-                countBadge.textContent = '1 selected';
+                countBadge.textContent = legacySelected.length + ' selected';
+            }
+            if (sourceInput) {
+                sourceInput.value = 'legacy';
+            }
+            if (legacyInput) {
+                legacyInput.value = legacySelected[0] ? legacySelected[0].value : '';
+            }
+            var legacyCards = legacySelected.slice(0, 3).map(function (checkbox) {
+                return renderAssetCard(parseAsset(checkbox), 'Legacy');
+            }).join('');
+            if (legacySelected.length > 3) {
+                legacyCards += '<div class="return-selection-more">+' + (legacySelected.length - 3) + ' more selected item(s)</div>';
             }
             preview.className = '';
-            preview.innerHTML = renderAssetCard(legacyAsset, 'Legacy');
+            preview.innerHTML = legacyCards;
             return;
         }
 
@@ -1210,6 +1590,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (countBadge) {
             countBadge.textContent = selected.length + ' selected';
+        }
+        if (sourceInput) {
+            sourceInput.value = selected.length > 0 ? 'system' : 'system';
+        }
+        if (legacyInput && selected.length > 0) {
+            legacyInput.value = '';
         }
 
         if (selected.length === 0) {
@@ -1255,9 +1641,9 @@ document.addEventListener('DOMContentLoaded', function () {
     checkboxes.forEach(function (checkbox) {
         checkbox.addEventListener('change', function () {
             if (checkbox.checked) {
-                legacyRadios.forEach(function (radio) {
-                    radio.checked = false;
-                    radio.closest('.return-picker-item')?.classList.remove('is-selected');
+                legacyCheckboxes.forEach(function (legacyCheckbox) {
+                    legacyCheckbox.checked = false;
+                    legacyCheckbox.closest('.return-picker-item')?.classList.remove('is-selected');
                 });
                 if (sourceInput) {
                     sourceInput.value = 'system';
@@ -1270,25 +1656,26 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    legacyRadios.forEach(function (radio) {
-        radio.addEventListener('change', function () {
-            if (!radio.checked) {
-                return;
+    legacyCheckboxes.forEach(function (legacyCheckbox) {
+        legacyCheckbox.addEventListener('change', function () {
+            if (legacyCheckbox.checked) {
+                checkboxes.forEach(function (checkbox) {
+                    checkbox.checked = false;
+                    checkbox.closest('.return-picker-item')?.classList.remove('is-selected');
+                });
             }
-            checkboxes.forEach(function (checkbox) {
-                checkbox.checked = false;
-            });
-            legacyRadios.forEach(function (other) {
+            legacyCheckboxes.forEach(function (other) {
                 var item = other.closest('.return-picker-item');
                 if (item) {
                     item.classList.toggle('is-selected', other.checked);
                 }
             });
-            if (sourceInput) {
+            if (sourceInput && selectedLegacyCheckboxes().length > 0) {
                 sourceInput.value = 'legacy';
             }
             if (legacyInput) {
-                legacyInput.value = radio.value;
+                var selectedLegacy = selectedLegacyCheckboxes();
+                legacyInput.value = selectedLegacy[0] ? selectedLegacy[0].value : '';
             }
             renderPreview();
         });

@@ -220,6 +220,27 @@ if ($db) {
                 $errors[] = 'Count date is required.';
             }
 
+            if (empty($errors) && $countType === 'annual') {
+                $duplicateStmt = $db->prepare("
+                    SELECT id, system_reference
+                    FROM inventory_count_sessions
+                    WHERE count_type = 'annual'
+                      AND office_id = ?
+                      AND status = 'open'
+                      AND YEAR(count_date) = YEAR(?)
+                    LIMIT 1
+                ");
+                if ($duplicateStmt) {
+                    $duplicateStmt->bind_param('is', $officeId, $countDate);
+                    $duplicateStmt->execute();
+                    $duplicateSession = $duplicateStmt->get_result()->fetch_assoc();
+                    $duplicateStmt->close();
+                    if ($duplicateSession) {
+                        $errors[] = 'This office already has an open annual inventory session for the selected year: ' . ($duplicateSession['system_reference'] ?? 'existing session') . '.';
+                    }
+                }
+            }
+
             if (empty($errors)) {
                 $db->begin_transaction();
 
@@ -512,6 +533,122 @@ if ($db) {
             }
         }
 
+        if (empty($errors) && $action === 'bulk_mark_found') {
+            $sessionId = (int) ($_POST['session_id'] ?? 0);
+            $itemIds = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['item_ids'] ?? [])), static function (int $itemId): bool {
+                return $itemId > 0;
+            })));
+
+            if ($sessionId <= 0) {
+                $errors[] = 'Invalid count session.';
+            } elseif (empty($itemIds)) {
+                $errors[] = 'Select at least one count item to mark as found.';
+            } else {
+                $sessionStmt = $db->prepare("SELECT id, status FROM inventory_count_sessions WHERE id = ? LIMIT 1");
+                $sessionRow = null;
+                if ($sessionStmt) {
+                    $sessionStmt->bind_param('i', $sessionId);
+                    $sessionStmt->execute();
+                    $sessionRow = $sessionStmt->get_result()->fetch_assoc();
+                    $sessionStmt->close();
+                }
+
+                if (!$sessionRow) {
+                    $errors[] = 'Count session not found.';
+                } elseif (($sessionRow['status'] ?? '') !== 'open') {
+                    $errors[] = 'This count session is already closed.';
+                } else {
+                    $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
+                    $types = 'i' . str_repeat('i', count($itemIds));
+                    $params = array_merge([$sessionId], $itemIds);
+
+                    $lookupSql = "
+                        SELECT id, status, property_number
+                        FROM inventory_count_items
+                        WHERE session_id = ?
+                          AND id IN ($placeholders)
+                          AND status <> 'found'
+                    ";
+                    $lookupStmt = $db->prepare($lookupSql);
+                    $itemsToUpdate = [];
+                    if ($lookupStmt) {
+                        $refs = [$types];
+                        foreach ($params as $key => $value) {
+                            $refs[] = &$params[$key];
+                        }
+                        call_user_func_array([$lookupStmt, 'bind_param'], $refs);
+                        $lookupStmt->execute();
+                        $itemsToUpdate = $lookupStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                        $lookupStmt->close();
+                    }
+
+                    if (empty($itemsToUpdate)) {
+                        $errors[] = 'Selected items are already found or no longer available in this session.';
+                    } else {
+                        $updateIds = array_map(static fn (array $row): int => (int) $row['id'], $itemsToUpdate);
+                        $updatePlaceholders = implode(',', array_fill(0, count($updateIds), '?'));
+                        $updateTypes = 'ii' . str_repeat('i', count($updateIds));
+                        $userId = (int) current_user_id();
+                        $updateParams = array_merge([$userId, $sessionId], $updateIds);
+
+                        $db->begin_transaction();
+                        try {
+                            $updateStmt = $db->prepare("
+                                UPDATE inventory_count_items
+                                SET status = 'found',
+                                    checked_at = NOW(),
+                                    checked_by = ?,
+                                    remarks = CASE
+                                        WHEN remarks IS NULL OR remarks = '' THEN 'Bulk marked found from checklist'
+                                        ELSE remarks
+                                    END
+                                WHERE session_id = ?
+                                  AND id IN ($updatePlaceholders)
+                                  AND status <> 'found'
+                            ");
+
+                            if (!$updateStmt) {
+                                throw new RuntimeException('Unable to prepare selected item update.');
+                            }
+
+                            $updateRefs = [$updateTypes];
+                            foreach ($updateParams as $key => $value) {
+                                $updateRefs[] = &$updateParams[$key];
+                            }
+                            call_user_func_array([$updateStmt, 'bind_param'], $updateRefs);
+                            $updateStmt->execute();
+                            $updatedCount = $updateStmt->affected_rows;
+                            $updateStmt->close();
+
+                            foreach ($itemsToUpdate as $updatedItem) {
+                                write_audit_log($db, [
+                                    'action' => 'update',
+                                    'table_name' => 'inventory_count_items',
+                                    'record_id' => (int) $updatedItem['id'],
+                                    'module_name' => 'inventory_counts',
+                                    'record_type' => 'inventory_count_item',
+                                    'action_name' => 'bulk_mark_inventory_items_found',
+                                    'old_values' => ['status' => $updatedItem['status'] ?? 'pending'],
+                                    'new_values' => [
+                                        'status' => 'found',
+                                        'property_number' => $updatedItem['property_number'] ?? '',
+                                    ],
+                                    'description' => 'Bulk marked inventory count item as found from checklist.',
+                                ]);
+                            }
+
+                            $db->commit();
+                            set_flash('success', number_format(max(0, (int) $updatedCount)) . ' selected item(s) marked as found.');
+                            redirect('modules/property/inventory_counts.php?session_id=' . $sessionId . ($statusFilter !== '' ? '&status=' . urlencode($statusFilter) : ''));
+                        } catch (Throwable $e) {
+                            $db->rollback();
+                            $errors[] = $e->getMessage();
+                        }
+                    }
+                }
+            }
+        }
+
         if (empty($errors) && $action === 'scan_asset') {
             $sessionId = (int) ($_POST['session_id'] ?? 0);
             $rawScanValue = trim((string) ($_POST['scan_value'] ?? ''));
@@ -652,38 +789,56 @@ if ($db) {
             if ($sessionId <= 0) {
                 $errors[] = 'Invalid count session.';
             } else {
-                $closeStmt = $db->prepare("
-                    UPDATE inventory_count_sessions
-                    SET status = 'closed', closed_by = ?, closed_at = NOW()
-                    WHERE id = ? AND status = 'open'
+                $pendingStmt = $db->prepare("
+                    SELECT COUNT(*) AS pending_count
+                    FROM inventory_count_items
+                    WHERE session_id = ? AND status = 'pending'
                 ");
-
-                if ($closeStmt) {
-                    $userId = current_user_id();
-                    $closeStmt->bind_param('ii', $userId, $sessionId);
-                    $closeStmt->execute();
-                    $affected = $closeStmt->affected_rows;
-                    $closeStmt->close();
-
-                    if ($affected > 0) {
-                        write_audit_log($db, [
-                            'action' => 'update',
-                            'table_name' => 'inventory_count_sessions',
-                            'record_id' => $sessionId,
-                            'module_name' => 'inventory_counts',
-                            'record_type' => 'inventory_count_session',
-                            'action_name' => 'close_inventory_count_session',
-                            'old_values' => ['status' => 'open'],
-                            'new_values' => ['status' => 'closed'],
-                            'description' => 'Closed inventory count session.',
-                        ]);
-
-                        set_flash('success', 'Inventory count session closed.');
-                        redirect('modules/property/inventory_counts.php?session_id=' . $sessionId);
-                    }
+                $pendingCount = 0;
+                if ($pendingStmt) {
+                    $pendingStmt->bind_param('i', $sessionId);
+                    $pendingStmt->execute();
+                    $pendingRow = $pendingStmt->get_result()->fetch_assoc();
+                    $pendingStmt->close();
+                    $pendingCount = (int) ($pendingRow['pending_count'] ?? 0);
                 }
 
-                $errors[] = 'Unable to close this count session.';
+                if ($pendingCount > 0) {
+                    $errors[] = 'Resolve or mark all pending items before closing this count session. Pending items: ' . number_format($pendingCount) . '.';
+                } else {
+                    $closeStmt = $db->prepare("
+                        UPDATE inventory_count_sessions
+                        SET status = 'closed', closed_by = ?, closed_at = NOW()
+                        WHERE id = ? AND status = 'open'
+                    ");
+
+                    if ($closeStmt) {
+                        $userId = current_user_id();
+                        $closeStmt->bind_param('ii', $userId, $sessionId);
+                        $closeStmt->execute();
+                        $affected = $closeStmt->affected_rows;
+                        $closeStmt->close();
+
+                        if ($affected > 0) {
+                            write_audit_log($db, [
+                                'action' => 'update',
+                                'table_name' => 'inventory_count_sessions',
+                                'record_id' => $sessionId,
+                                'module_name' => 'inventory_counts',
+                                'record_type' => 'inventory_count_session',
+                                'action_name' => 'close_inventory_count_session',
+                                'old_values' => ['status' => 'open'],
+                                'new_values' => ['status' => 'closed'],
+                                'description' => 'Closed inventory count session.',
+                            ]);
+
+                            set_flash('success', 'Inventory count session closed.');
+                            redirect('modules/property/inventory_counts.php?session_id=' . $sessionId);
+                        }
+                    }
+
+                    $errors[] = 'Unable to close this count session.';
+                }
             }
         }
 
@@ -1021,6 +1176,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
     <div class="col-xl-8">
         <?php if ($selectedSession): ?>
+            <?php
+            $completionPercent = $sessionStats['total'] > 0
+                ? (int) round((($sessionStats['total'] - $sessionStats['pending']) / $sessionStats['total']) * 100)
+                : 0;
+            $canCloseSession = (($selectedSession['status'] ?? '') === 'open' && $sessionStats['pending'] === 0);
+            ?>
             <div class="card mb-4">
                 <div class="card-body p-4">
                     <div class="workspace-header mb-3">
@@ -1043,11 +1204,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <a href="#scan_value" class="btn btn-outline-secondary">Go to Scan</a>
                             <?php endif; ?>
                             <?php if (($selectedSession['status'] ?? '') === 'open'): ?>
-                                <form method="post" onsubmit="return confirm('Close this count session?');">
+                                <form method="post" onsubmit="return confirm('<?php echo $canCloseSession ? 'Close this count session?' : 'This session still has pending items and cannot be closed yet.'; ?>');">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                     <input type="hidden" name="action" value="close_session">
                                     <input type="hidden" name="session_id" value="<?php echo (int) $selectedSession['id']; ?>">
-                                    <button type="submit" class="btn btn-outline-primary">Close Session</button>
+                                    <button type="submit" class="btn btn-outline-primary" <?php echo $canCloseSession ? '' : 'disabled'; ?>>Close Session</button>
                                 </form>
                             <?php endif; ?>
                             <form method="post" onsubmit="return confirm('Delete this inventory count session and all checklist items? This cannot be undone.');">
@@ -1056,6 +1217,28 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <input type="hidden" name="session_id" value="<?php echo (int) $selectedSession['id']; ?>">
                                 <button type="submit" class="btn btn-outline-danger">Delete</button>
                             </form>
+                        </div>
+                    </div>
+
+                    <div class="border rounded-3 p-3 mb-3 bg-light-subtle">
+                        <div class="d-flex justify-content-between align-items-center gap-3 mb-2">
+                            <div>
+                                <div class="small text-muted">Count Progress</div>
+                                <div class="fw-semibold">
+                                    <?php echo number_format($completionPercent); ?>% checked
+                                    <?php if (($selectedSession['status'] ?? '') === 'open'): ?>
+                                        <span class="badge ms-2 <?php echo $canCloseSession ? 'text-bg-success' : 'text-bg-warning'; ?>">
+                                            <?php echo $canCloseSession ? 'Ready to close' : number_format($sessionStats['pending']) . ' pending'; ?>
+                                        </span>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            <div class="text-end small text-muted">
+                                <?php echo number_format($sessionStats['total'] - $sessionStats['pending']); ?> of <?php echo number_format($sessionStats['total']); ?> items checked
+                            </div>
+                        </div>
+                        <div class="progress" role="progressbar" aria-valuenow="<?php echo $completionPercent; ?>" aria-valuemin="0" aria-valuemax="100" style="height: 10px;">
+                            <div class="progress-bar" style="width: <?php echo $completionPercent; ?>%;"></div>
                         </div>
                     </div>
 
@@ -1168,10 +1351,78 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     </div>
 
+                    <?php if (($selectedSession['status'] ?? '') === 'open'): ?>
+                        <form method="post" id="bulkFoundForm" class="border rounded-3 p-3 mb-3 bg-light-subtle" onsubmit="return confirm('Mark the selected checklist item(s) as found?');">
+                            <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                            <input type="hidden" name="action" value="bulk_mark_found">
+                            <input type="hidden" name="session_id" value="<?php echo (int) $selectedSession['id']; ?>">
+                            <div class="row g-2 align-items-end">
+                                <div class="col-lg-5">
+                                    <label for="countChecklistSearch" class="form-label small text-muted mb-1">Find Item</label>
+                                    <input type="search" class="form-control" id="countChecklistSearch" placeholder="Type item name, property no., accountable person, e.g. monoblock">
+                                </div>
+                                <div class="col-lg-2">
+                                    <label for="countChecklistPageSize" class="form-label small text-muted mb-1">Show</label>
+                                    <select class="form-select" id="countChecklistPageSize" data-no-select2>
+                                        <option value="25">25 items</option>
+                                        <option value="50">50 items</option>
+                                        <option value="100">100 items</option>
+                                        <option value="all">All items</option>
+                                    </select>
+                                </div>
+                                <div class="col-lg-5 d-flex flex-wrap gap-2 justify-content-lg-end">
+                                    <button type="button" class="btn btn-outline-secondary" id="selectVisiblePendingItems">
+                                        <i class="bi bi-check2-square me-1"></i>Select Visible Pending
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" id="clearBulkFoundSelection">
+                                        <i class="bi bi-arrow-counterclockwise me-1"></i>Undo Selection
+                                    </button>
+                                    <button type="submit" class="btn btn-success" id="bulkFoundSubmit" disabled>
+                                        <i class="bi bi-check-circle me-1"></i>Mark Selected Found
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="small text-muted mt-2" id="bulkFoundSummary">No items selected.</div>
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+                                <div class="small text-muted" id="countChecklistPageSummary">Showing checklist items.</div>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Checklist pages">
+                                    <button type="button" class="btn btn-outline-secondary" id="countChecklistPrevPage">Previous</button>
+                                    <button type="button" class="btn btn-outline-secondary" id="countChecklistNextPage">Next</button>
+                                </div>
+                            </div>
+                        </form>
+                    <?php else: ?>
+                        <div class="mb-3">
+                            <label for="countChecklistSearch" class="form-label small text-muted mb-1">Find Item</label>
+                            <input type="search" class="form-control" id="countChecklistSearch" placeholder="Type item name, property no., accountable person, e.g. monoblock">
+                            <div class="mt-2" style="max-width: 180px;">
+                                <label for="countChecklistPageSize" class="form-label small text-muted mb-1">Show</label>
+                                <select class="form-select" id="countChecklistPageSize" data-no-select2>
+                                    <option value="25">25 items</option>
+                                    <option value="50">50 items</option>
+                                    <option value="100">100 items</option>
+                                    <option value="all">All items</option>
+                                </select>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+                                <div class="small text-muted" id="countChecklistPageSummary">Showing checklist items.</div>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Checklist pages">
+                                    <button type="button" class="btn btn-outline-secondary" id="countChecklistPrevPage">Previous</button>
+                                    <button type="button" class="btn btn-outline-secondary" id="countChecklistNextPage">Next</button>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+
                     <div class="table-responsive mobile-table-frame">
-                        <table class="table align-middle">
+                        <table class="table align-middle" data-no-table-search>
                             <thead>
                                 <tr>
+                                    <?php if (($selectedSession['status'] ?? '') === 'open'): ?>
+                                        <th style="width: 48px;">
+                                            <input type="checkbox" class="form-check-input" id="bulkFoundSelectAll" aria-label="Select all visible pending count items">
+                                        </th>
+                                    <?php endif; ?>
                                     <th style="min-width: 180px;">Property No.</th>
                                     <th style="min-width: 280px;">Asset</th>
                                     <th style="min-width: 180px;">Assignment</th>
@@ -1190,7 +1441,41 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         $typeLabel = ($item['item_type'] ?? '') === 'semi_expendable' ? 'Semi-Expendable' : 'Equipment';
                                         $statusKey = normalize_inventory_count_status((string) ($item['status'] ?? 'pending'));
                                         ?>
-                                        <tr id="count-item-<?php echo (int) $item['id']; ?>" class="<?php echo $highlightItemId === (int) $item['id'] ? 'inventory-count-highlight' : ''; ?>">
+                                        <?php
+                                        $checklistSearchText = strtolower(trim(implode(' ', array_filter([
+                                            $item['property_number'] ?? '',
+                                            $item['source_type'] === 'legacy' ? 'Beginning Balance' : 'System Transaction',
+                                            $item['item_description'] ?? '',
+                                            $typeLabel,
+                                            $item['classification_name'] ?? '',
+                                            $brandModel,
+                                            $item['serial_no'] ?? '',
+                                            $item['office_name'] ?? '',
+                                            $item['accountable_name'] ?? '',
+                                            $statusLabels[$statusKey] ?? $statusKey,
+                                            $item['remarks'] ?? '',
+                                        ]))));
+                                        ?>
+                                        <tr
+                                            id="count-item-<?php echo (int) $item['id']; ?>"
+                                            class="<?php echo $highlightItemId === (int) $item['id'] ? 'inventory-count-highlight' : ''; ?>"
+                                            data-count-checklist-row
+                                            data-status="<?php echo h($statusKey); ?>"
+                                            data-search="<?php echo h($checklistSearchText); ?>"
+                                        >
+                                            <?php if (($selectedSession['status'] ?? '') === 'open'): ?>
+                                                <td>
+                                                    <input
+                                                        type="checkbox"
+                                                        class="form-check-input bulk-found-item"
+                                                        form="bulkFoundForm"
+                                                        name="item_ids[]"
+                                                        value="<?php echo (int) $item['id']; ?>"
+                                                        aria-label="Select <?php echo h((string) $item['property_number']); ?>"
+                                                        <?php echo $statusKey === 'found' ? 'disabled' : ''; ?>
+                                                    >
+                                                </td>
+                                            <?php endif; ?>
                                             <td>
                                                 <div class="fw-semibold"><?php echo h($item['property_number']); ?></div>
                                                 <div class="small text-muted"><?php echo h($item['source_type'] === 'legacy' ? 'Beginning Balance' : 'System Transaction'); ?></div>
@@ -1275,9 +1560,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="5" class="text-center text-muted py-4">No assets in this view yet.</td>
+                                        <td colspan="<?php echo ($selectedSession['status'] ?? '') === 'open' ? '6' : '5'; ?>" class="text-center text-muted py-4">No assets in this view yet.</td>
                                     </tr>
                                 <?php endif; ?>
+                                <tr id="countChecklistNoMatch" class="d-none">
+                                    <td colspan="<?php echo ($selectedSession['status'] ?? '') === 'open' ? '6' : '5'; ?>" class="text-center text-muted py-4">No checklist items match this search.</td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -1342,6 +1630,20 @@ document.addEventListener('DOMContentLoaded', function () {
     var cameraScanTimer = null;
     var cameraActive = false;
     var html5QrScanner = null;
+    var checklistSearch = document.getElementById('countChecklistSearch');
+    var checklistPageSize = document.getElementById('countChecklistPageSize');
+    var checklistPrevPage = document.getElementById('countChecklistPrevPage');
+    var checklistNextPage = document.getElementById('countChecklistNextPage');
+    var checklistPageSummary = document.getElementById('countChecklistPageSummary');
+    var checklistCurrentPage = 1;
+    var checklistRows = Array.prototype.slice.call(document.querySelectorAll('[data-count-checklist-row]'));
+    var noChecklistMatchRow = document.getElementById('countChecklistNoMatch');
+    var bulkFoundSelectAll = document.getElementById('bulkFoundSelectAll');
+    var selectVisiblePendingItems = document.getElementById('selectVisiblePendingItems');
+    var clearBulkFoundSelection = document.getElementById('clearBulkFoundSelection');
+    var bulkFoundSummary = document.getElementById('bulkFoundSummary');
+    var bulkFoundSubmit = document.getElementById('bulkFoundSubmit');
+    var bulkFoundItems = Array.prototype.slice.call(document.querySelectorAll('.bulk-found-item'));
 
     function setCameraStatus(message, tone) {
         if (cameraStatus) {
@@ -1371,6 +1673,149 @@ document.addEventListener('DOMContentLoaded', function () {
             oscillator.stop(audioContext.currentTime + duration);
         } catch (error) {
             // Audio feedback is optional.
+        }
+    }
+
+    function visibleChecklistRows() {
+        return checklistRows.filter(function (row) {
+            return row.getAttribute('data-search-match') !== '0' && !row.classList.contains('d-none') && row.style.display !== 'none';
+        });
+    }
+
+    function getChecklistPageSizeValue() {
+        var select = document.getElementById('countChecklistPageSize');
+        if (!select) {
+            return '25';
+        }
+
+        var value = (select.value || '').trim();
+        return value === '50' || value === '100' || value === 'all' ? value : '25';
+    }
+
+    function updateBulkFoundSummary() {
+        var selectedCount = bulkFoundItems.filter(function (checkbox) {
+            return checkbox.checked && !checkbox.disabled;
+        }).length;
+        var selectableVisibleCount = visibleChecklistRows().filter(function (row) {
+            var checkbox = row.querySelector('.bulk-found-item');
+            return checkbox && !checkbox.disabled;
+        }).length;
+
+        if (bulkFoundSummary) {
+            bulkFoundSummary.textContent = selectedCount > 0
+                ? selectedCount + ' item(s) selected. ' + selectableVisibleCount + ' visible pending/exception item(s) can be selected.'
+                : 'No items selected. ' + selectableVisibleCount + ' visible pending/exception item(s) can be selected.';
+        }
+
+        if (bulkFoundSubmit) {
+            bulkFoundSubmit.disabled = selectedCount === 0;
+        }
+
+        if (bulkFoundSelectAll) {
+            bulkFoundSelectAll.checked = selectableVisibleCount > 0 && visibleChecklistRows().every(function (row) {
+                var checkbox = row.querySelector('.bulk-found-item');
+                return !checkbox || checkbox.disabled || checkbox.checked;
+            });
+            bulkFoundSelectAll.indeterminate = selectedCount > 0 && !bulkFoundSelectAll.checked;
+        }
+    }
+
+    function applyChecklistSearch() {
+        var term = checklistSearch ? checklistSearch.value.trim().toLowerCase() : '';
+        var matchedCount = 0;
+        var pageSizeValue = getChecklistPageSizeValue();
+        var pageSize = pageSizeValue === 'all' ? Number.MAX_SAFE_INTEGER : parseInt(pageSizeValue, 10);
+        if (!pageSize || pageSize < 1) {
+            pageSize = 25;
+        }
+
+        checklistRows.forEach(function (row) {
+            var searchText = (row.getAttribute('data-search') || row.textContent || '').toLowerCase();
+            var matches = !term || searchText.indexOf(term) !== -1;
+            if (matches) {
+                matchedCount++;
+            }
+            row.setAttribute('data-search-match', matches ? '1' : '0');
+        });
+
+        var totalPages = pageSizeValue === 'all' ? 1 : Math.max(1, Math.ceil(matchedCount / pageSize));
+        if (checklistCurrentPage > totalPages) {
+            checklistCurrentPage = totalPages;
+        }
+        if (checklistCurrentPage < 1) {
+            checklistCurrentPage = 1;
+        }
+
+        var startIndex = pageSizeValue === 'all' ? 0 : (checklistCurrentPage - 1) * pageSize;
+        var endIndex = pageSizeValue === 'all' ? matchedCount : startIndex + pageSize;
+        var matchIndex = 0;
+
+        checklistRows.forEach(function (row) {
+            var matches = row.getAttribute('data-search-match') !== '0';
+            var showRow = false;
+            if (matches) {
+                showRow = matchIndex >= startIndex && matchIndex < endIndex;
+                matchIndex++;
+            }
+            row.classList.toggle('d-none', !showRow);
+            row.style.display = showRow ? '' : 'none';
+        });
+
+        if (noChecklistMatchRow) {
+            noChecklistMatchRow.classList.toggle('d-none', matchedCount > 0);
+        }
+
+        if (checklistPageSummary) {
+            if (matchedCount === 0) {
+                checklistPageSummary.textContent = 'No matching checklist items.';
+            } else {
+                checklistPageSummary.textContent = 'Showing ' + (startIndex + 1) + '-' + Math.min(endIndex, matchedCount) + ' of ' + matchedCount + ' item(s). Page ' + checklistCurrentPage + ' of ' + totalPages + '.';
+            }
+        }
+
+        if (checklistPrevPage) {
+            checklistPrevPage.disabled = checklistCurrentPage <= 1 || matchedCount === 0;
+        }
+
+        if (checklistNextPage) {
+            checklistNextPage.disabled = checklistCurrentPage >= totalPages || matchedCount === 0;
+        }
+
+        updateBulkFoundSummary();
+    }
+
+    function setVisiblePendingChecked(checked) {
+        visibleChecklistRows().forEach(function (row) {
+            var checkbox = row.querySelector('.bulk-found-item');
+            if (checkbox && !checkbox.disabled) {
+                checkbox.checked = checked;
+            }
+        });
+        updateBulkFoundSummary();
+    }
+
+    function refreshCameraDiagnostics() {
+        var secureContext = window.isSecureContext || location.protocol === 'https:' || ['localhost', '127.0.0.1'].indexOf(location.hostname) !== -1;
+        var hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+        var hasFallback = !!window.Html5Qrcode;
+        var summary = secureContext && hasMediaDevices
+            ? 'Camera scanner is available on this browser.'
+            : 'Camera scanner may need HTTPS, localhost, or browser camera permission.';
+
+        if (cameraDiagSummary) {
+            cameraDiagSummary.textContent = summary;
+        }
+        if (cameraDiagSecure) {
+            cameraDiagSecure.textContent = secureContext ? 'Secure context: yes' : 'Secure context: no';
+        }
+        if (cameraDiagMedia) {
+            cameraDiagMedia.textContent = hasMediaDevices ? 'Camera API: available' : 'Camera API: unavailable';
+        }
+        if (cameraDiagPermission) {
+            cameraDiagPermission.textContent = 'Permission: requested when scanner starts';
+        }
+        if (cameraDiagFallback) {
+            cameraDiagFallback.textContent = hasFallback ? 'Fallback scanner: loaded' : 'Fallback scanner: unavailable';
         }
     }
 
@@ -1583,6 +2028,72 @@ document.addEventListener('DOMContentLoaded', function () {
         scanInput.focus();
         scanInput.select();
     }
+
+    if (checklistSearch) {
+        checklistSearch.addEventListener('input', function () {
+            checklistCurrentPage = 1;
+            applyChecklistSearch();
+        });
+    }
+
+    if (checklistPageSize) {
+        checklistPageSize.addEventListener('change', function () {
+            checklistCurrentPage = 1;
+            applyChecklistSearch();
+        });
+        checklistPageSize.addEventListener('input', function () {
+            checklistCurrentPage = 1;
+            applyChecklistSearch();
+        });
+    }
+
+    document.addEventListener('change', function (event) {
+        if (event.target && event.target.id === 'countChecklistPageSize') {
+            checklistCurrentPage = 1;
+            applyChecklistSearch();
+        }
+    });
+
+    if (checklistPrevPage) {
+        checklistPrevPage.addEventListener('click', function () {
+            checklistCurrentPage = Math.max(1, checklistCurrentPage - 1);
+            applyChecklistSearch();
+        });
+    }
+
+    if (checklistNextPage) {
+        checklistNextPage.addEventListener('click', function () {
+            checklistCurrentPage += 1;
+            applyChecklistSearch();
+        });
+    }
+
+    if (bulkFoundSelectAll) {
+        bulkFoundSelectAll.addEventListener('change', function () {
+            setVisiblePendingChecked(bulkFoundSelectAll.checked);
+        });
+    }
+
+    if (selectVisiblePendingItems) {
+        selectVisiblePendingItems.addEventListener('click', function () {
+            setVisiblePendingChecked(true);
+        });
+    }
+
+    if (clearBulkFoundSelection) {
+        clearBulkFoundSelection.addEventListener('click', function () {
+            bulkFoundItems.forEach(function (checkbox) {
+                checkbox.checked = false;
+            });
+            updateBulkFoundSummary();
+        });
+    }
+
+    bulkFoundItems.forEach(function (checkbox) {
+        checkbox.addEventListener('change', updateBulkFoundSummary);
+    });
+
+    applyChecklistSearch();
 
     refreshCameraDiagnostics();
 

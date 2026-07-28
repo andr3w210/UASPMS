@@ -74,6 +74,7 @@ if ($db) {
     }
     ensure_distribution_item_rpcppe_tracking_columns($db);
     ensure_legacy_assets_rpcppe_tracking_columns($db);
+    ensure_legacy_assets_accountability_tracking_columns($db);
 
     $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res instanceof mysqli_result) {
@@ -121,7 +122,13 @@ if ($db) {
                 d.id AS distribution_id,
                 'system' AS source_type,
                 COALESCE(did.is_rpcppe_candidate, 0) AS is_rpcppe_candidate,
-                COALESCE(did.rpcppe_status, 'excluded') AS rpcppe_status
+                COALESCE(did.rpcppe_status, 'excluded') AS rpcppe_status,
+                'active' AS accountability_status,
+                '' AS last_office_name,
+                '' AS last_first_name,
+                '' AS last_middle_name,
+                '' AS last_last_name,
+                '' AS last_suffix_name
             FROM distribution_item_details did
             INNER JOIN distribution_items di ON di.id = did.distribution_item_id
             INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
@@ -248,19 +255,28 @@ if ($db) {
                 0 AS distribution_id,
                 'legacy' AS source_type,
                 COALESCE(la.is_rpcppe_candidate, 0) AS is_rpcppe_candidate,
-                COALESCE(la.rpcppe_status, 'excluded') AS rpcppe_status
+                COALESCE(la.rpcppe_status, 'excluded') AS rpcppe_status,
+                COALESCE(la.accountability_status, 'active') AS accountability_status,
+                COALESCE(last_o.office_name, '') AS last_office_name,
+                COALESCE(last_e.first_name, '') AS last_first_name,
+                COALESCE(last_e.middle_name, '') AS last_middle_name,
+                COALESCE(last_e.last_name, '') AS last_last_name,
+                COALESCE(last_e.suffix_name, '') AS last_suffix_name
             FROM legacy_assets la
             LEFT JOIN classifications c ON c.id = la.classification_id
             LEFT JOIN offices o ON o.id = la.office_id
             LEFT JOIN employees e ON e.id = la.employee_id
+            LEFT JOIN offices last_o ON last_o.id = la.last_office_id
+            LEFT JOIN employees last_e ON last_e.id = la.last_employee_id
             WHERE la.is_active = 1
               AND UPPER(la.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
               AND UPPER(TRIM(la.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')
               AND la.item_type IN ('equipment', 'semi_expendable')";
 
         if ($officeId !== 0) {
-            $legacySql .= " AND la.office_id = ?";
-            $types .= 'i';
+            $legacySql .= " AND (la.office_id = ? OR (COALESCE(la.accountability_status, 'active') = 'for_reconciliation' AND la.last_office_id = ?))";
+            $types .= 'ii';
+            $params[] = $officeId;
             $params[] = $officeId;
         }
         if ($searchTerms !== []) {
@@ -270,11 +286,15 @@ if ($db) {
                 'c.classification_name',
                 'c.classification_family',
                 'o.office_name',
+                'last_o.office_name',
                 'e.first_name',
                 'e.last_name',
+                'last_e.first_name',
+                'last_e.last_name',
                 'la.brand',
                 'la.model',
                 'la.serial_no',
+                "CASE WHEN COALESCE(la.accountability_status, 'active') = 'for_reconciliation' THEN 'For Reconciliation' ELSE 'Active' END",
             ];
 
             foreach ($searchTerms as $term) {
@@ -494,6 +514,17 @@ function employee_display_name_from_row(array $row): string
         trim((string) ($row['middle_name'] ?? '')),
         trim((string) ($row['last_name'] ?? '')),
         trim((string) ($row['suffix_name'] ?? '')),
+    ];
+    return trim(implode(' ', array_filter($parts)));
+}
+
+function employee_display_name_from_prefixed_row(array $row, string $prefix): string
+{
+    $parts = [
+        trim((string) ($row[$prefix . 'first_name'] ?? '')),
+        trim((string) ($row[$prefix . 'middle_name'] ?? '')),
+        trim((string) ($row[$prefix . 'last_name'] ?? '')),
+        trim((string) ($row[$prefix . 'suffix_name'] ?? '')),
     ];
     return trim(implode(' ', array_filter($parts)));
 }
@@ -910,6 +941,9 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                         $descriptionShort = rtrim(substr($descriptionShort, 0, 180)) . '...';
                                     }
                                     $accountable = employee_display_name_from_row($row);
+                                    $accountabilityStatus = (string) ($row['accountability_status'] ?? 'active');
+                                    $isForReconciliation = ($row['source_type'] ?? '') === 'legacy' && $accountabilityStatus === 'for_reconciliation';
+                                    $lastAccountable = employee_display_name_from_prefixed_row($row, 'last_');
                                     $sourceLabel = registry_source_label((string) ($row['source_type'] ?? 'system'));
                                     $detailId = (int) ($row['detail_id'] ?? 0);
                                     $amountValue = (float) ($row['amount'] ?? 0);
@@ -930,6 +964,9 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                                 <span class="badge text-bg-info">Semi-Expendable</span>
                                             <?php else: ?>
                                                 <span class="badge text-bg-primary">Equipment</span>
+                                            <?php endif; ?>
+                                            <?php if ($isForReconciliation): ?>
+                                                <span class="badge text-bg-warning">For Reconciliation</span>
                                             <?php endif; ?>
                                         </td>
                                         <td class="asset-col-classification">
@@ -957,6 +994,9 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                                 <div class="small text-muted">Item: <?php echo h($brandModel !== '' ? $brandModel : 'No brand / model'); ?> | SN: <?php echo h($row['serial_no'] !== '' ? $row['serial_no'] : '-'); ?></div>
                                                 <div class="small text-muted">Amount: <?php echo h(number_format($amountValue, 2)); ?> | Acquired: <?php echo h($dateAcquiredLabel); ?></div>
                                                 <div class="small text-muted">Assigned: <?php echo h($row['office_name'] ?? '-'); ?><?php echo $accountable !== '' ? ' / ' . h($accountable) : ''; ?></div>
+                                                <?php if ($isForReconciliation): ?>
+                                                    <div class="small text-muted">Last accountable: <?php echo h($row['last_office_name'] !== '' ? $row['last_office_name'] : '-'); ?><?php echo $lastAccountable !== '' ? ' / ' . h($lastAccountable) : ''; ?></div>
+                                                <?php endif; ?>
                                                 <div class="small text-muted">Ref: <?php echo h($row['document_no'] ?? ''); ?> | <?php echo h($recordDateLabel); ?> | <?php echo h($sourceLabel); ?></div>
                                             </div>
                                         </td>
@@ -973,6 +1013,10 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                         <td class="asset-col-assignment">
                                             <div class="asset-registry-detail-line"><?php echo h($row['office_name'] ?? '-'); ?></div>
                                             <div class="text-muted small"><?php echo h($accountable !== '' ? $accountable : 'No accountable employee'); ?></div>
+                                            <?php if ($isForReconciliation): ?>
+                                                <div class="mt-1"><span class="badge text-bg-warning">For Reconciliation</span></div>
+                                                <div class="text-muted small">Last: <?php echo h($row['last_office_name'] !== '' ? $row['last_office_name'] : '-'); ?><?php echo $lastAccountable !== '' ? ' / ' . h($lastAccountable) : ''; ?></div>
+                                            <?php endif; ?>
                                         </td>
                                         <td class="asset-col-reference">
                                             <div class="asset-registry-detail-line"><?php echo h($row['document_no'] ?? ''); ?></div>

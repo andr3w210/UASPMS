@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/employee_assignments.php';
 require_login();
 require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
@@ -28,8 +29,93 @@ function ptr_name(array $row, string $prefix): string
     ])));
 }
 
-function ptr_reason_flags(string $reasonText): array
+function ptr_signatory_name(array $row, string $prefix = ''): string
 {
+    $namePrefix = trim((string) ($row[$prefix . 'name_prefix'] ?? ''));
+    $firstName = trim((string) ($row[$prefix . 'first_name'] ?? ''));
+    $middleName = trim((string) ($row[$prefix . 'middle_name'] ?? ''));
+    $lastName = trim((string) ($row[$prefix . 'last_name'] ?? ''));
+    $suffixName = trim((string) ($row[$prefix . 'suffix_name'] ?? ''));
+    $middleInitial = $middleName !== '' ? strtoupper(substr($middleName, 0, 1)) . '.' : '';
+
+    $name = trim(implode(' ', array_filter([
+        $namePrefix,
+        $firstName,
+        $middleInitial,
+        $lastName,
+    ])));
+
+    if ($suffixName !== '') {
+        $name .= ', ' . $suffixName;
+    }
+
+    return $name;
+}
+
+function ptr_format_signatory_name(string $name): string
+{
+    $name = trim(preg_replace('/\s+/', ' ', $name) ?? '');
+    if ($name === '') {
+        return '';
+    }
+
+    if (str_contains($name, ',')) {
+        [$lastName, $givenNames] = array_pad(array_map('trim', explode(',', $name, 2)), 2, '');
+        $name = trim($givenNames . ' ' . $lastName);
+    }
+
+    $parts = preg_split('/\s+/', $name) ?: [];
+    if (count($parts) < 3) {
+        return $name;
+    }
+
+    $suffixName = '';
+    $lastPart = (string) end($parts);
+    if (preg_match('/^(jr\.?|sr\.?|ii|iii|iv|v)$/i', $lastPart)) {
+        $suffixName = (string) array_pop($parts);
+    }
+
+    $firstName = (string) array_shift($parts);
+    $lastName = (string) array_pop($parts);
+    $middleName = trim(implode(' ', $parts));
+    $middleInitial = $middleName !== '' ? strtoupper(substr($middleName, 0, 1)) . '.' : '';
+    $formattedName = trim(implode(' ', array_filter([$firstName, $middleInitial, $lastName])));
+
+    if ($suffixName !== '') {
+        $formattedName .= ', ' . $suffixName;
+    }
+
+    return $formattedName;
+}
+
+function ptr_transfer_type_options(): array
+{
+    return [
+        'donation' => 'Donation',
+        'relocate' => 'Relocate',
+        'reassignment' => 'Reassignment',
+        'others' => 'Others',
+    ];
+}
+
+function ptr_normalize_transfer_type(string $transferType): string
+{
+    $transferType = strtolower(trim($transferType));
+    return array_key_exists($transferType, ptr_transfer_type_options()) ? $transferType : '';
+}
+
+function ptr_reason_flags(string $reasonText, string $transferType = ''): array
+{
+    $transferType = ptr_normalize_transfer_type($transferType);
+    if ($transferType !== '') {
+        return [
+            'donation' => $transferType === 'donation',
+            'relocate' => $transferType === 'relocate',
+            'reassignment' => $transferType === 'reassignment',
+            'others' => $transferType === 'others',
+        ];
+    }
+
     $reasonNormalized = strtolower(trim($reasonText));
     $isDonation = str_contains($reasonNormalized, 'donation');
     $isRelocate = str_contains($reasonNormalized, 'relocate');
@@ -45,10 +131,74 @@ function ptr_reason_flags(string $reasonText): array
 
 function ptr_item_meta(array $row): string
 {
-    return trim(implode(' | ', array_filter([
-        trim(trim((string) ($row['brand'] ?? '')) . ' ' . trim((string) ($row['model'] ?? ''))),
-        !empty($row['serial_no']) ? 'SN ' . $row['serial_no'] : null,
-    ])));
+    $parts = [];
+    $brand = trim((string) ($row['brand'] ?? ''));
+    $model = trim((string) ($row['model'] ?? ''));
+    $serial = trim((string) ($row['serial_no'] ?? ''));
+
+    if ($brand !== '') {
+        $parts[] = '<strong>Brand: ' . h($brand) . '</strong>';
+    }
+    if ($model !== '') {
+        $parts[] = '<strong>Model: ' . h($model) . '</strong>';
+    }
+    if ($serial !== '') {
+        $parts[] = '<strong>Serial: ' . h($serial) . '</strong>';
+    }
+
+    return implode(' | ', $parts);
+}
+
+function ptr_apply_batch_from_fallback(mysqli $db, int $batchId, array &$header): void
+{
+    if ($batchId <= 0 || ptr_name($header, 'from_') !== '') {
+        return;
+    }
+
+    $stmt = $db->prepare("
+        SELECT
+            COUNT(DISTINCT at.from_employee_id) AS employee_count,
+            MAX(e.name_prefix) AS name_prefix,
+            MAX(e.first_name) AS first_name,
+            MAX(e.middle_name) AS middle_name,
+            MAX(e.last_name) AS last_name,
+            MAX(e.suffix_name) AS suffix_name,
+            MAX(e.position_title) AS position_title
+        FROM transfer_batch_items tbi
+        INNER JOIN asset_transfers at ON at.id = tbi.asset_transfer_id
+        LEFT JOIN employees e ON e.id = at.from_employee_id
+        WHERE tbi.batch_id = ?
+          AND at.from_employee_id IS NOT NULL
+    ");
+    if (!$stmt) {
+        return;
+    }
+
+    $stmt->bind_param('i', $batchId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: [];
+    $stmt->close();
+
+    if ((int) ($row['employee_count'] ?? 0) !== 1) {
+        return;
+    }
+
+    $header['from_first_name'] = (string) ($row['first_name'] ?? '');
+    $header['from_name_prefix'] = (string) ($row['name_prefix'] ?? '');
+    $header['from_middle_name'] = (string) ($row['middle_name'] ?? '');
+    $header['from_last_name'] = (string) ($row['last_name'] ?? '');
+    $header['from_suffix_name'] = (string) ($row['suffix_name'] ?? '');
+    $header['from_position_title'] = (string) ($row['position_title'] ?? '');
+}
+
+function ptr_item_description(array $row): string
+{
+    $classification = trim((string) ($row['classification_name'] ?? ''));
+    if ($classification === '') {
+        $classification = trim((string) ($row['classification_family'] ?? ''));
+    }
+
+    return trim(trim($classification) . ' - ' . trim((string) ($row['item_description'] ?? '')), ' -');
 }
 
 function ptr_build_reference_range(array $values): string
@@ -82,8 +232,47 @@ function ptr_build_reference_range(array $values): string
     return $first . ' to ' . $last;
 }
 
+function ptr_is_external_government_office(array $header): bool
+{
+    $officeText = strtolower(trim(implode(' ', array_filter([
+        (string) ($header['to_office_code'] ?? ''),
+        (string) ($header['to_office_name'] ?? ''),
+        (string) ($header['to_office_description'] ?? ''),
+    ]))));
+
+    if ($officeText === '') {
+        return false;
+    }
+
+    if (preg_match('/\b(external|outside|non[- ]?ua|government|agency|province|provincial|municipal|municipality|city|barangay|department of|bureau of|commission on|office of the governor|deped|ched|dilg|dost|doh|dpwh|denr|dti|coa|dbm|dof|pnp|bfp|bjmp)\b/i', $officeText)) {
+        return true;
+    }
+
+    return false;
+}
+
+function ptr_approval_profile(mysqli $db, array $header): array
+{
+    if (ptr_is_external_government_office($header)) {
+        $president = get_university_president_profile($db);
+        return [
+            'name' => ptr_format_signatory_name((string) ($president['name'] ?? '')),
+            'title' => trim((string) ($president['title'] ?? 'University President')),
+        ];
+    }
+
+    $supplyHead = employee_resolve_supply_office_head($db);
+
+    return [
+        'name' => !empty($supplyHead) ? ptr_signatory_name($supplyHead) : '',
+        'title' => trim((string) ($supplyHead['position_title'] ?? 'Supply Officer')),
+    ];
+}
+
 $header = null;
 $items = [];
+$batchTransferTypeSelect = schema_has_column($db, 'transfer_batches', 'transfer_type') ? 'tb.transfer_type' : "''";
+$assetTransferTypeSelect = schema_has_column($db, 'asset_transfers', 'transfer_type') ? 'at.transfer_type' : "''";
 
 if ($batchId > 0) {
     $stmt = $db->prepare("
@@ -91,16 +280,21 @@ if ($batchId > 0) {
             tb.id,
             tb.system_reference,
             tb.transfer_date,
+            {$batchTransferTypeSelect} AS transfer_type,
             tb.reason,
             tb.remarks,
             from_o.office_name AS from_office_name,
             to_o.office_name AS to_office_name,
+            to_o.office_code AS to_office_code,
+            to_o.description AS to_office_description,
             from_e.first_name AS from_first_name,
+            from_e.name_prefix AS from_name_prefix,
             from_e.middle_name AS from_middle_name,
             from_e.last_name AS from_last_name,
             from_e.suffix_name AS from_suffix_name,
             from_e.position_title AS from_position_title,
             to_e.first_name AS to_first_name,
+            to_e.name_prefix AS to_name_prefix,
             to_e.middle_name AS to_middle_name,
             to_e.last_name AS to_last_name,
             to_e.suffix_name AS to_suffix_name,
@@ -123,10 +317,13 @@ if ($batchId > 0) {
     }
 
     if ($header) {
+        ptr_apply_batch_from_fallback($db, $batchId, $header);
         $stmt = $db->prepare("
             SELECT
                 at.property_number,
                 CASE WHEN at.source_type = 'system' THEN poi.item_description ELSE la.item_description END AS item_description,
+                CASE WHEN at.source_type = 'system' THEN c.classification_name ELSE lc.classification_name END AS classification_name,
+                CASE WHEN at.source_type = 'system' THEN c.classification_family ELSE lc.classification_family END AS classification_family,
                 CASE WHEN at.source_type = 'system' THEN did.brand ELSE la.brand END AS brand,
                 CASE WHEN at.source_type = 'system' THEN did.model ELSE la.model END AS model,
                 CASE WHEN at.source_type = 'system' THEN did.serial_no ELSE la.serial_no END AS serial_no,
@@ -140,9 +337,11 @@ if ($batchId > 0) {
             LEFT JOIN receiving_items ri ON ri.id = di.receiving_item_id
             LEFT JOIN receivings r ON r.id = ri.receiving_id
             LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+            LEFT JOIN classifications c ON c.id = poi.classification_id
             LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
             LEFT JOIN funds f ON f.id = po.fund_id
             LEFT JOIN legacy_assets la ON la.id = at.legacy_asset_id
+            LEFT JOIN classifications lc ON lc.id = la.classification_id
             WHERE tbi.batch_id = ?
             ORDER BY at.property_number ASC, at.id ASC
         ");
@@ -161,21 +360,28 @@ if ($batchId > 0) {
             at.transfer_date,
             at.source_type,
             at.property_number,
+            {$assetTransferTypeSelect} AS transfer_type,
             at.reason,
             at.remarks,
             from_o.office_name AS from_office_name,
             to_o.office_name AS to_office_name,
+            to_o.office_code AS to_office_code,
+            to_o.description AS to_office_description,
             from_e.first_name AS from_first_name,
+            from_e.name_prefix AS from_name_prefix,
             from_e.middle_name AS from_middle_name,
             from_e.last_name AS from_last_name,
             from_e.suffix_name AS from_suffix_name,
             from_e.position_title AS from_position_title,
             to_e.first_name AS to_first_name,
+            to_e.name_prefix AS to_name_prefix,
             to_e.middle_name AS to_middle_name,
             to_e.last_name AS to_last_name,
             to_e.suffix_name AS to_suffix_name,
             to_e.position_title AS to_position_title,
             CASE WHEN at.source_type = 'system' THEN poi.item_description ELSE la.item_description END AS item_description,
+            CASE WHEN at.source_type = 'system' THEN c.classification_name ELSE lc.classification_name END AS classification_name,
+            CASE WHEN at.source_type = 'system' THEN c.classification_family ELSE lc.classification_family END AS classification_family,
             CASE WHEN at.source_type = 'system' THEN did.brand ELSE la.brand END AS brand,
             CASE WHEN at.source_type = 'system' THEN did.model ELSE la.model END AS model,
             CASE WHEN at.source_type = 'system' THEN did.serial_no ELSE la.serial_no END AS serial_no,
@@ -192,9 +398,11 @@ if ($batchId > 0) {
         LEFT JOIN receiving_items ri ON ri.id = di.receiving_item_id
         LEFT JOIN receivings r ON r.id = ri.receiving_id
         LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+        LEFT JOIN classifications c ON c.id = poi.classification_id
         LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
         LEFT JOIN funds f ON f.id = po.fund_id
         LEFT JOIN legacy_assets la ON la.id = at.legacy_asset_id
+        LEFT JOIN classifications lc ON lc.id = la.classification_id
         WHERE at.id = ?
           AND at.status = 'posted'
         LIMIT 1
@@ -220,6 +428,8 @@ $groupedItems = [];
 if ($isGrouped) {
     foreach ($items as $item) {
         $groupKey = implode('|', [
+            trim((string) ($item['classification_name'] ?? '')),
+            trim((string) ($item['classification_family'] ?? '')),
             trim((string) ($item['item_description'] ?? '')),
             trim((string) ($item['brand'] ?? '')),
             trim((string) ($item['model'] ?? '')),
@@ -266,8 +476,9 @@ $baseParams['extra_rows'] = $extraRows;
 
 $fromOfficer = trim(ptr_name($header, 'from_') . (!empty($header['from_office_name']) ? ' / ' . $header['from_office_name'] : ''));
 $toOfficer = trim(ptr_name($header, 'to_') . (!empty($header['to_office_name']) ? ' / ' . $header['to_office_name'] : ''));
+$approvedBy = ptr_approval_profile($db, $header);
 $reasonText = trim((string) ($header['reason'] ?? ''));
-$flags = ptr_reason_flags($reasonText);
+$flags = ptr_reason_flags($reasonText, (string) ($header['transfer_type'] ?? ''));
 $fundCode = '';
 foreach ($items as $item) {
     if (!empty($item['fund_code'])) {
@@ -285,7 +496,7 @@ $blankRows = $extraRows;
     <title>PTR <?php echo h($header['system_reference']); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        @page { size: 8.5in 13in; margin: 0.5in; }
+        @page { size: 8.5in 13in; margin: 0.5in 0.5in 0.5in 0.5in; }
         body { margin:0; color:#000; font-family:"Times New Roman", Times, serif; font-size:12px; }
         .ptr-wrap { margin:0 auto; max-width:1000px; }
         .ptr-appendix { font-size:11px; font-style:italic; text-align:right; }
@@ -387,9 +598,9 @@ $blankRows = $extraRows;
                         <?php endif; ?>
                     </td>
                     <td>
-                        <div><?php echo nl2br(h((string) ($item['item_description'] ?? ''))); ?></div>
+                        <div><?php echo nl2br(h(ptr_item_description($item))); ?></div>
                         <?php if ($meta !== ''): ?>
-                            <div class="small text-muted mt-2"><?php echo h($meta); ?></div>
+                            <div class="small text-muted mt-2"><?php echo $meta; ?></div>
                         <?php endif; ?>
                     </td>
                     <td class="text-end"><?php echo h(number_format((float) ($item['amount'] ?? 0), 2)); ?></td>
@@ -428,9 +639,9 @@ $blankRows = $extraRows;
             <td style="width:34%;"><strong>Received by:</strong></td>
         </tr>
         <tr><td>Signature :</td><td>Signature :</td><td>Signature :</td></tr>
-        <tr><td>Printed Name :</td><td>Printed Name :</td><td>Printed Name : <?php echo h(ptr_name($header, 'to_')); ?></td></tr>
-        <tr><td>Designation :</td><td>Designation :</td><td>Designation : <?php echo h($header['to_position_title'] ?? ''); ?></td></tr>
-        <tr><td>Date :</td><td>Date :</td><td>Date : <?php echo h(!empty($header['transfer_date']) ? date('M d, Y', strtotime((string) $header['transfer_date'])) : ''); ?></td></tr>
+        <tr><td>Printed Name : <strong><?php echo h(strtoupper($approvedBy['name'])); ?></strong></td><td>Printed Name : <strong><?php echo h(strtoupper(ptr_signatory_name($header, 'from_'))); ?></strong></td><td>Printed Name : <strong><?php echo h(strtoupper(ptr_signatory_name($header, 'to_'))); ?></strong></td></tr>
+        <tr><td>Designation : <?php echo h($approvedBy['title']); ?></td><td>Designation : <?php echo h($header['from_position_title'] ?? ''); ?></td><td>Designation : <?php echo h($header['to_position_title'] ?? ''); ?></td></tr>
+        <tr><td>Date :</td><td>Date :</td><td>Date :</td></tr>
     </table>
     </div>
     <div class="duplicate-host" id="duplicateHost"></div>

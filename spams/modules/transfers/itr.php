@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../app/config/init.php';
+require_once __DIR__ . '/../../app/helpers/employee_assignments.php';
 require_login();
 require_role('Administrator', 'Supply Officer', 'Property Officer', 'Viewer');
 
@@ -28,8 +29,93 @@ function itr_name(array $row, string $prefix): string
     ])));
 }
 
-function itr_reason_flags(string $reasonText): array
+function itr_signatory_name(array $row, string $prefix = ''): string
 {
+    $namePrefix = trim((string) ($row[$prefix . 'name_prefix'] ?? ''));
+    $firstName = trim((string) ($row[$prefix . 'first_name'] ?? ''));
+    $middleName = trim((string) ($row[$prefix . 'middle_name'] ?? ''));
+    $lastName = trim((string) ($row[$prefix . 'last_name'] ?? ''));
+    $suffixName = trim((string) ($row[$prefix . 'suffix_name'] ?? ''));
+    $middleInitial = $middleName !== '' ? strtoupper(substr($middleName, 0, 1)) . '.' : '';
+
+    $name = trim(implode(' ', array_filter([
+        $namePrefix,
+        $firstName,
+        $middleInitial,
+        $lastName,
+    ])));
+
+    if ($suffixName !== '') {
+        $name .= ', ' . $suffixName;
+    }
+
+    return $name;
+}
+
+function itr_format_signatory_name(string $name): string
+{
+    $name = trim(preg_replace('/\s+/', ' ', $name) ?? '');
+    if ($name === '') {
+        return '';
+    }
+
+    if (str_contains($name, ',')) {
+        [$lastName, $givenNames] = array_pad(array_map('trim', explode(',', $name, 2)), 2, '');
+        $name = trim($givenNames . ' ' . $lastName);
+    }
+
+    $parts = preg_split('/\s+/', $name) ?: [];
+    if (count($parts) < 3) {
+        return $name;
+    }
+
+    $suffixName = '';
+    $lastPart = (string) end($parts);
+    if (preg_match('/^(jr\.?|sr\.?|ii|iii|iv|v)$/i', $lastPart)) {
+        $suffixName = (string) array_pop($parts);
+    }
+
+    $firstName = (string) array_shift($parts);
+    $lastName = (string) array_pop($parts);
+    $middleName = trim(implode(' ', $parts));
+    $middleInitial = $middleName !== '' ? strtoupper(substr($middleName, 0, 1)) . '.' : '';
+    $formattedName = trim(implode(' ', array_filter([$firstName, $middleInitial, $lastName])));
+
+    if ($suffixName !== '') {
+        $formattedName .= ', ' . $suffixName;
+    }
+
+    return $formattedName;
+}
+
+function itr_transfer_type_options(): array
+{
+    return [
+        'donation' => 'Donation',
+        'relocate' => 'Relocate',
+        'reassignment' => 'Reassignment',
+        'others' => 'Others',
+    ];
+}
+
+function itr_normalize_transfer_type(string $transferType): string
+{
+    $transferType = strtolower(trim($transferType));
+    return array_key_exists($transferType, itr_transfer_type_options()) ? $transferType : '';
+}
+
+function itr_reason_flags(string $reasonText, string $transferType = ''): array
+{
+    $transferType = itr_normalize_transfer_type($transferType);
+    if ($transferType !== '') {
+        return [
+            'donation' => $transferType === 'donation',
+            'relocate' => $transferType === 'relocate',
+            'reassignment' => $transferType === 'reassignment',
+            'others' => $transferType === 'others',
+        ];
+    }
+
     $reasonNormalized = strtolower(trim($reasonText));
     $isDonation = str_contains($reasonNormalized, 'donation');
     $isRelocate = str_contains($reasonNormalized, 'relocate');
@@ -88,8 +174,89 @@ function itr_build_reference_range(array $values): string
     return $first . ' to ' . $last;
 }
 
+function itr_apply_batch_from_fallback(mysqli $db, int $batchId, array &$header): void
+{
+    if ($batchId <= 0 || itr_name($header, 'from_') !== '') {
+        return;
+    }
+
+    $stmt = $db->prepare("
+        SELECT
+            COUNT(DISTINCT at.from_employee_id) AS employee_count,
+            MAX(e.name_prefix) AS name_prefix,
+            MAX(e.first_name) AS first_name,
+            MAX(e.middle_name) AS middle_name,
+            MAX(e.last_name) AS last_name,
+            MAX(e.suffix_name) AS suffix_name,
+            MAX(e.position_title) AS position_title
+        FROM transfer_batch_items tbi
+        INNER JOIN asset_transfers at ON at.id = tbi.asset_transfer_id
+        LEFT JOIN employees e ON e.id = at.from_employee_id
+        WHERE tbi.batch_id = ?
+          AND at.from_employee_id IS NOT NULL
+    ");
+    if (!$stmt) {
+        return;
+    }
+
+    $stmt->bind_param('i', $batchId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: [];
+    $stmt->close();
+
+    if ((int) ($row['employee_count'] ?? 0) !== 1) {
+        return;
+    }
+
+    $header['from_first_name'] = (string) ($row['first_name'] ?? '');
+    $header['from_name_prefix'] = (string) ($row['name_prefix'] ?? '');
+    $header['from_middle_name'] = (string) ($row['middle_name'] ?? '');
+    $header['from_last_name'] = (string) ($row['last_name'] ?? '');
+    $header['from_suffix_name'] = (string) ($row['suffix_name'] ?? '');
+    $header['from_position_title'] = (string) ($row['position_title'] ?? '');
+}
+
+function itr_is_external_government_office(array $header): bool
+{
+    $officeText = strtolower(trim(implode(' ', array_filter([
+        (string) ($header['to_office_code'] ?? ''),
+        (string) ($header['to_office_name'] ?? ''),
+        (string) ($header['to_office_description'] ?? ''),
+    ]))));
+
+    if ($officeText === '') {
+        return false;
+    }
+
+    if (preg_match('/\b(external|outside|non[- ]?ua|government|agency|province|provincial|municipal|municipality|city|barangay|department of|bureau of|commission on|office of the governor|deped|ched|dilg|dost|doh|dpwh|denr|dti|coa|dbm|dof|pnp|bfp|bjmp)\b/i', $officeText)) {
+        return true;
+    }
+
+    return false;
+}
+
+function itr_approval_profile(mysqli $db, array $header): array
+{
+    if (itr_is_external_government_office($header)) {
+        $president = get_university_president_profile($db);
+        return [
+            'name' => itr_format_signatory_name((string) ($president['name'] ?? '')),
+            'title' => trim((string) ($president['title'] ?? 'University President')),
+        ];
+    }
+
+    $supplyHead = employee_resolve_supply_office_head($db);
+
+    return [
+        'name' => !empty($supplyHead) ? itr_signatory_name($supplyHead) : '',
+        'title' => trim((string) ($supplyHead['position_title'] ?? 'Supply Officer')),
+    ];
+}
+
 $header = null;
 $items = [];
+$batchTransferTypeSelect = schema_has_column($db, 'transfer_batches', 'transfer_type') ? 'tb.transfer_type' : "''";
+$assetTransferTypeSelect = schema_has_column($db, 'asset_transfers', 'transfer_type') ? 'at.transfer_type' : "''";
 
 if ($batchId > 0) {
     $stmt = $db->prepare("
@@ -97,16 +264,21 @@ if ($batchId > 0) {
             tb.id,
             tb.system_reference,
             tb.transfer_date,
+            {$batchTransferTypeSelect} AS transfer_type,
             tb.reason,
             tb.remarks,
             from_o.office_name AS from_office_name,
             to_o.office_name AS to_office_name,
+            to_o.office_code AS to_office_code,
+            to_o.description AS to_office_description,
             from_e.first_name AS from_first_name,
+            from_e.name_prefix AS from_name_prefix,
             from_e.middle_name AS from_middle_name,
             from_e.last_name AS from_last_name,
             from_e.suffix_name AS from_suffix_name,
             from_e.position_title AS from_position_title,
             to_e.first_name AS to_first_name,
+            to_e.name_prefix AS to_name_prefix,
             to_e.middle_name AS to_middle_name,
             to_e.last_name AS to_last_name,
             to_e.suffix_name AS to_suffix_name,
@@ -129,6 +301,7 @@ if ($batchId > 0) {
     }
 
     if ($header) {
+        itr_apply_batch_from_fallback($db, $batchId, $header);
         $stmt = $db->prepare("
             SELECT
                 at.property_number,
@@ -175,16 +348,21 @@ if ($batchId > 0) {
             at.transfer_date,
             at.source_type,
             at.property_number,
+            {$assetTransferTypeSelect} AS transfer_type,
             at.reason,
             at.remarks,
             from_o.office_name AS from_office_name,
             to_o.office_name AS to_office_name,
+            to_o.office_code AS to_office_code,
+            to_o.description AS to_office_description,
             from_e.first_name AS from_first_name,
+            from_e.name_prefix AS from_name_prefix,
             from_e.middle_name AS from_middle_name,
             from_e.last_name AS from_last_name,
             from_e.suffix_name AS from_suffix_name,
             from_e.position_title AS from_position_title,
             to_e.first_name AS to_first_name,
+            to_e.name_prefix AS to_name_prefix,
             to_e.middle_name AS to_middle_name,
             to_e.last_name AS to_last_name,
             to_e.suffix_name AS to_suffix_name,
@@ -292,8 +470,9 @@ $baseParams['extra_rows'] = $extraRows;
 
 $fromOfficer = trim(itr_name($header, 'from_') . (!empty($header['from_office_name']) ? ' / ' . $header['from_office_name'] : ''));
 $toOfficer = trim(itr_name($header, 'to_') . (!empty($header['to_office_name']) ? ' / ' . $header['to_office_name'] : ''));
+$approvedBy = itr_approval_profile($db, $header);
 $reasonText = trim((string) ($header['reason'] ?? ''));
-$flags = itr_reason_flags($reasonText);
+$flags = itr_reason_flags($reasonText, (string) ($header['transfer_type'] ?? ''));
 $fundCode = '';
 foreach ($items as $item) {
     if (!empty($item['fund_code'])) {
@@ -311,7 +490,7 @@ $blankRows = $extraRows;
     <title>ITR <?php echo h($header['system_reference']); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        @page { size: 8.5in 13in; margin: 0.5in; }
+        @page { size: 8.5in 13in; margin: 0.5in 0.5in 0.5in 0.5in; }
         body { margin:0; color:#000; font-family:"Times New Roman", Times, serif; font-size:12px; }
         .itr-wrap { margin:0 auto; max-width:1000px; }
         .itr-appendix { font-size:11px; font-style:italic; text-align:right; }
@@ -462,9 +641,9 @@ $blankRows = $extraRows;
             <td style="width:34%;"><strong>Received by:</strong></td>
         </tr>
         <tr><td>Signature :</td><td>Signature :</td><td>Signature :</td></tr>
-        <tr><td>Printed Name :</td><td>Printed Name :</td><td>Printed Name : <?php echo h(itr_name($header, 'to_')); ?></td></tr>
-        <tr><td>Designation :</td><td>Designation :</td><td>Designation : <?php echo h($header['to_position_title'] ?? ''); ?></td></tr>
-        <tr><td>Date :</td><td>Date :</td><td>Date : <?php echo h(!empty($header['transfer_date']) ? date('M d, Y', strtotime((string) $header['transfer_date'])) : ''); ?></td></tr>
+        <tr><td>Printed Name : <strong><?php echo h(strtoupper($approvedBy['name'])); ?></strong></td><td>Printed Name : <strong><?php echo h(strtoupper(itr_signatory_name($header, 'from_'))); ?></strong></td><td>Printed Name : <strong><?php echo h(strtoupper(itr_signatory_name($header, 'to_'))); ?></strong></td></tr>
+        <tr><td>Designation : <?php echo h($approvedBy['title']); ?></td><td>Designation : <?php echo h($header['from_position_title'] ?? ''); ?></td><td>Designation : <?php echo h($header['to_position_title'] ?? ''); ?></td></tr>
+        <tr><td>Date :</td><td>Date :</td><td>Date :</td></tr>
     </table>
     </div>
     <div class="duplicate-host" id="duplicateHost"></div>
