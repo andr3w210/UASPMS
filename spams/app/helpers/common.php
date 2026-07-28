@@ -1336,6 +1336,28 @@ function ensure_legacy_assets_accountability_no_column(mysqli $db): void
     schema_require_columns($db, 'legacy_assets', ['accountability_no']);
 }
 
+function ensure_legacy_assets_accountability_tracking_columns(mysqli $db): void
+{
+    schema_require_columns($db, 'legacy_assets', [
+        'accountability_status',
+        'last_office_id',
+        'last_employee_id',
+        'last_responsibility_code_id',
+        'accountability_cleared_at',
+        'accountability_cleared_by',
+    ]);
+}
+
+function legacy_asset_accountability_status_label(string $status): string
+{
+    return $status === 'for_reconciliation' ? 'For Reconciliation' : 'Active';
+}
+
+function legacy_asset_normalize_accountability_status(string $status): string
+{
+    return $status === 'for_reconciliation' ? 'for_reconciliation' : 'active';
+}
+
 function legacy_asset_distribution_prefix(mysqli $db, string $itemType, float $unitCost): string
 {
     if ($itemType === 'equipment') {

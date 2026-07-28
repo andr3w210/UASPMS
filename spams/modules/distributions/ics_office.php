@@ -92,6 +92,7 @@ if ($db) {
     ensure_legacy_assets_rpcppe_tracking_columns($db);
     ensure_distribution_item_rpcppe_tracking_columns($db);
     ensure_legacy_assets_accountability_no_column($db);
+    ensure_legacy_assets_accountability_tracking_columns($db);
 
     $threshold = get_active_threshold($db);
     $semiHvMin = (float) ($threshold['semi_hv_min'] ?? 5000);
@@ -133,7 +134,7 @@ if ($db) {
 
     if ($legacyAssetId > 0) {
         $legacyValidationStmt = $db->prepare(
-            "SELECT property_number, item_description, office_id, employee_id, item_type, system_reference, po_number, accountability_no, unit_cost, acquisition_date
+            "SELECT property_number, item_description, office_id, employee_id, item_type, system_reference, po_number, accountability_no, unit_cost, acquisition_date, accountability_status
              FROM legacy_assets
              WHERE id = ?
              LIMIT 1"
@@ -170,6 +171,8 @@ if ($db) {
                 }
                 if ($missing) {
                     $validationError = 'Printing is blocked. Complete this legacy asset first: ' . implode(', ', $missing) . '.';
+                } elseif (($legacyRow['accountability_status'] ?? 'active') === 'for_reconciliation') {
+                    $validationError = 'Printing is blocked. This legacy asset is marked For Reconciliation and has no current accountability.';
                 } elseif (($legacyRow['item_type'] ?? '') !== 'semi_expendable') {
                     $validationError = 'ICS printing is allowed for legacy semi-expendable assets only.';
                 }
@@ -308,6 +311,7 @@ if ($db) {
                         AND la.item_type = 'semi_expendable'
                         AND UPPER(la.item_description) NOT LIKE '%RPCPPE%RECONCILIATION%ADJUSTMENT%'
                         AND UPPER(TRIM(la.item_description)) NOT IN ('SUBTOTAL', 'TOTAL', 'GRAND TOTAL')
+                        AND COALESCE(la.accountability_status, 'active') = 'active'
                         AND la.office_id = ?";
             $legacyTypes = 'i';
             $legacyParams = [$officeId];
@@ -572,8 +576,8 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         .print-shell.short table { font-size: 10px; }
         .print-shell.short { width: 7.5in; max-width: 7.5in !important; padding: 0; }
         .short-copies { width: 7.5in; }
-        .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: flex; flex-direction: column; }
-        .short-slot { height: 6.25in; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
+        .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: block; overflow: hidden; }
+        .short-slot { height: 6.25in; box-sizing: border-box; display: block; overflow: hidden; }
         .short-slot + .short-slot { padding-top: 0.25in; }
         .short-copy { height: 6.25in; min-height: 6.25in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
         .ics-form { position: relative; }
@@ -600,7 +604,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         .print-shell.short .ics-sign-table .sign-name { font-size: 10px; margin-top: 16px; margin-bottom: 0; }
         .print-shell.short .ics-sign-table .meta-box { height: 42px; padding-top: 4px; }
         .print-shell.short .ics-sign-table .meta-value { font-size: 9px; margin-top: 8px; }
-        @media print { .no-print { display:none !important; } thead { display: table-header-group; } .print-shell.short .short-copies { width: 7.5in !important; height: 12.5in !important; } .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display:flex !important; flex-direction:column !important; break-after: page; page-break-after: always; } .print-shell.short .short-slot { height: 6.25in !important; flex: 0 0 6.25in !important; overflow: hidden !important; } .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; } .print-shell.short .short-copy { height: 6.25in !important; min-height: 6.25in !important; } .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; } }
+        @media print { .no-print { display:none !important; } thead { display: table-header-group; } .print-shell.short .short-copies { width: 7.5in !important; height: auto !important; overflow: visible !important; } .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display:block !important; overflow: hidden !important; break-after: page; page-break-after: always; } .print-shell.short .short-slot { height: 6.25in !important; display: block !important; overflow: hidden !important; } .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; } .print-shell.short .short-copy { height: 6.25in !important; min-height: 6.25in !important; } .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; } }
     </style>
 </head>
 <body>

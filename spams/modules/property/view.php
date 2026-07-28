@@ -48,6 +48,7 @@ if (!in_array($source, ['system', 'legacy'], true) || $id <= 0) {
 
 if ($source === 'legacy') {
     ensure_legacy_assets_unit_of_measure_column($db);
+    ensure_legacy_assets_accountability_tracking_columns($db);
 }
 
 function asset_view_person(array $row, string $prefix = ''): string
@@ -625,6 +626,11 @@ if ($source === 'system') {
             la.office_id,
             la.employee_id,
             la.responsibility_code_id,
+            COALESCE(la.accountability_status, 'active') AS accountability_status,
+            la.last_office_id,
+            la.last_employee_id,
+            la.last_responsibility_code_id,
+            la.accountability_cleared_at,
             la.account_code_id,
             la.fund_id,
             la.manual_location,
@@ -663,7 +669,16 @@ if ($source === 'system') {
             e.last_name,
             e.suffix_name,
             e.position_title,
-            rc.code AS rc_code
+            rc.code AS rc_code,
+            last_o.office_name AS last_office_name,
+            last_o.office_code AS last_office_code,
+            last_e.employee_no AS last_employee_no,
+            last_e.first_name AS last_first_name,
+            last_e.middle_name AS last_middle_name,
+            last_e.last_name AS last_last_name,
+            last_e.suffix_name AS last_suffix_name,
+            last_e.position_title AS last_position_title,
+            last_rc.code AS last_rc_code
         FROM legacy_assets la
         LEFT JOIN suppliers s ON s.id = la.supplier_id
         LEFT JOIN classifications c ON c.id = la.classification_id
@@ -673,6 +688,9 @@ if ($source === 'system') {
         LEFT JOIN offices o ON o.id = la.office_id
         LEFT JOIN employees e ON e.id = la.employee_id
         LEFT JOIN responsibility_codes rc ON rc.id = la.responsibility_code_id
+        LEFT JOIN offices last_o ON last_o.id = la.last_office_id
+        LEFT JOIN employees last_e ON last_e.id = la.last_employee_id
+        LEFT JOIN responsibility_codes last_rc ON last_rc.id = la.last_responsibility_code_id
         LEFT JOIN locations loc ON loc.id = la.location_id
         WHERE la.id = ?
           AND la.is_active = 1
@@ -1327,6 +1345,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
         }
 
         $userId = (int) current_user_id();
+        $nextAccountabilityStatus = $officeIdInput > 0 ? 'active' : legacy_asset_normalize_accountability_status((string) ($asset['accountability_status'] ?? 'active'));
         $db->begin_transaction();
 
         $stmt = $db->prepare("UPDATE legacy_assets
@@ -1341,6 +1360,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                                   office_id = ?,
                                   employee_id = NULLIF(?, 0),
                                   responsibility_code_id = NULLIF(?, 0),
+                                  accountability_status = ?,
                                   acquisition_date = NULLIF(?, ''),
                                   account_code_id = CASE WHEN ? > 0 THEN ? ELSE account_code_id END,
                                   fund_id = CASE WHEN ? > 0 THEN ? ELSE fund_id END,
@@ -1353,7 +1373,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                               WHERE id = ?");
         if ($stmt) {
             $stmt->bind_param(
-                'ssssssiiiiiisiiiiiiddssi',
+                'ssssssiiiiiissiiiiiiddssi',
                 $propertyNumber,
                 $legacyItemTypeInput,
                 $description,
@@ -1366,6 +1386,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                 $officeIdInput,
                 $employeeIdInput,
                 $responsibilityCodeIdInput,
+                $nextAccountabilityStatus,
                 $acquisitionDate,
                 $accountCodeIdInput,
                 $accountCodeIdInput,
@@ -1581,6 +1602,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'office_id' => $asset['office_id'] ?? null,
                         'employee_id' => $asset['employee_id'] ?? null,
                         'responsibility_code_id' => $asset['responsibility_code_id'] ?? null,
+                        'accountability_status' => $asset['accountability_status'] ?? 'active',
                         'acquisition_date' => $asset['acquisition_date'] ?? null,
                         'account_code_id' => $asset['account_code_id'] ?? null,
                         'fund_id' => $asset['fund_id'] ?? null,
@@ -1604,6 +1626,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
                         'office_id' => $officeIdInput,
                         'employee_id' => $employeeIdInput > 0 ? $employeeIdInput : null,
                         'responsibility_code_id' => $responsibilityCodeIdInput > 0 ? $responsibilityCodeIdInput : null,
+                        'accountability_status' => $nextAccountabilityStatus,
                         'acquisition_date' => $acquisitionDate,
                         'account_code_id' => $accountCodeIdInput > 0 ? $accountCodeIdInput : ($asset['account_code_id'] ?? null),
                         'fund_id' => $fundIdInput > 0 ? $fundIdInput : ($asset['fund_id'] ?? null),
@@ -2122,6 +2145,10 @@ $brandModel = trim(implode(' / ', array_filter([
     trim((string) ($asset['model'] ?? '')),
 ])));
 $accountableName = asset_view_person($asset);
+$accountabilityStatus = $source === 'legacy'
+    ? legacy_asset_normalize_accountability_status((string) ($asset['accountability_status'] ?? 'active'))
+    : 'active';
+$lastAccountableName = $source === 'legacy' ? asset_view_person($asset, 'last_') : '';
 $detailTitle = asset_view_type_label((string) ($asset['item_type'] ?? '')) . ' Details';
 $publicLookupUrl = base_url('modules/property/scan.php?ref=' . urlencode((string) ($asset['property_number'] ?? '')));
 $historyCount = count($transfers) + count($maintenanceRows) + count($returnRows) + count($disposalRows);
@@ -2149,6 +2176,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <span class="badge text-bg-secondary">Beginning Balance</span>
                             <?php else: ?>
                                 <span class="badge text-bg-success">System Transaction</span>
+                            <?php endif; ?>
+                            <?php if ($source === 'legacy' && $accountabilityStatus === 'for_reconciliation'): ?>
+                                <span class="badge text-bg-warning">For Reconciliation</span>
                             <?php endif; ?>
                         </div>
                         <div class="text-muted small">Complete asset profile, accountability assignment, and lifecycle history.</div>
@@ -2528,8 +2558,24 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                             <div class="text-muted small">Accountable Person</div>
                             <div class="fw-semibold"><?php echo h($accountableName !== '' ? $accountableName : 'Unassigned'); ?></div>
+                            <?php if ($source === 'legacy'): ?>
+                                <div class="small text-muted"><?php echo h(legacy_asset_accountability_status_label($accountabilityStatus)); ?></div>
+                            <?php endif; ?>
                         </div>
                     </div>
+                    <?php if ($source === 'legacy' && $accountabilityStatus === 'for_reconciliation'): ?>
+                        <div class="col-md-3">
+                            <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                                <div class="text-muted small">Last Accountable</div>
+                                <div class="fw-semibold"><?php echo h($asset['last_office_name'] ?? 'Unassigned'); ?></div>
+                                <div><?php echo h($lastAccountableName !== '' ? $lastAccountableName : 'Unassigned'); ?></div>
+                                <div class="small text-muted">
+                                    <?php echo !empty($asset['last_rc_code']) ? h((string) $asset['last_rc_code']) : ''; ?>
+                                    <?php echo !empty($asset['accountability_cleared_at']) ? h(' | Cleared ' . date('M d, Y', strtotime((string) $asset['accountability_cleared_at']))) : ''; ?>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                     <div class="col-md-3">
                         <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                             <div class="text-muted small">Last Checked</div>
@@ -2688,7 +2734,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="fw-semibold"><?php echo h($asset['office_name'] ?? 'Unassigned'); ?></div>
                                     <div><?php echo h($accountableName !== '' ? $accountableName : 'Unassigned'); ?></div>
                                     <div class="text-muted small"><?php echo h($asset['position_title'] ?? ''); ?><?php echo !empty($asset['rc_code']) ? ' | ' . h($asset['rc_code']) : ''; ?></div>
+                                    <?php if ($source === 'legacy'): ?>
+                                        <div class="mt-1"><?php echo '<span class="badge ' . ($accountabilityStatus === 'for_reconciliation' ? 'text-bg-warning' : 'text-bg-success') . '">' . h(legacy_asset_accountability_status_label($accountabilityStatus)) . '</span>'; ?></div>
+                                    <?php endif; ?>
                                 </div>
+                                <?php if ($source === 'legacy' && $accountabilityStatus === 'for_reconciliation'): ?>
+                                    <div class="mb-3">
+                                        <div class="small text-muted">Last Accountable Office / Person</div>
+                                        <div class="fw-semibold"><?php echo h($asset['last_office_name'] ?? 'Unassigned'); ?></div>
+                                        <div><?php echo h($lastAccountableName !== '' ? $lastAccountableName : 'Unassigned'); ?></div>
+                                        <div class="text-muted small"><?php echo h($asset['last_position_title'] ?? ''); ?><?php echo !empty($asset['last_rc_code']) ? ' | ' . h($asset['last_rc_code']) : ''; ?></div>
+                                    </div>
+                                <?php endif; ?>
                                 <div class="mb-3">
                                     <div class="small text-muted">Location Details</div>
                                     <div class="fw-semibold"><?php echo h($resolvedManualLocation !== '' ? $resolvedManualLocation : 'Unassigned'); ?></div>

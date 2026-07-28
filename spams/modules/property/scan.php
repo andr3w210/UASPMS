@@ -892,9 +892,22 @@ if ($db) {
                 $errors[] = 'This asset does not have exactly one open inventory session match, so it cannot be marked as found from this page.';
             } else {
                 $match = $matches[0];
+                $uploadedProofPhoto = ($_FILES['proof_photo']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
+                    ? ($_FILES['proof_photo'] ?? [])
+                    : [];
                 $proofPhotoPath = null;
 
-                if (($match['status'] ?? '') === 'found' && $proofPhotoPath === null) {
+                if (!empty($uploadedProofPhoto)) {
+                    $photoRoot = $db ? trim(get_system_setting($db, 'inventory_photo_root', 'inventory_counts')) : 'inventory_counts';
+                    $photoRoot = trim(str_replace(['..', '\\'], ['', '/'], $photoRoot), " /\t\n\r\0\x0B");
+                    if ($photoRoot === '') {
+                        $photoRoot = 'inventory_counts';
+                    }
+                    $photoFolder = $photoRoot . '/' . date('Y') . '/proof';
+                    $proofPhotoPath = store_uploaded_image($uploadedProofPhoto, $photoFolder, $errors);
+                }
+
+                if (($match['status'] ?? '') === 'found' && $proofPhotoPath === null && empty($errors)) {
                     set_flash('success', 'This asset is already marked as found in the active inventory session.');
                     redirect('modules/property/scan.php?ref=' . urlencode($ref));
                 }
@@ -933,7 +946,7 @@ if ($db) {
                                     'new_values' => [
                                         'status' => 'found',
                                         'property_number' => $propertyNumber,
-                                        'proof_photo_path' => (string) ($match['proof_photo_path'] ?? ''),
+                                        'proof_photo_path' => $proofPhotoPath ?: (string) ($match['proof_photo_path'] ?? ''),
                                     ],
                                     'description' => 'Marked inventory count item as found from the QR asset page.',
                                 ]);
@@ -945,6 +958,9 @@ if ($db) {
                     }
 
                     $errors[] = 'Unable to mark this asset as found.';
+                    if ($proofPhotoPath !== null && $proofPhotoPath !== '') {
+                        delete_uploaded_file($proofPhotoPath);
+                    }
                 }
             }
         }
@@ -1304,9 +1320,14 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                                 <?php if (($inventoryMatch['status'] ?? '') === 'found'): ?>
                                     <div class="alert alert-success small">This asset is already marked as found in the active inventory session.</div>
                                 <?php endif; ?>
-                                <form method="post" class="d-grid gap-3">
+                                <form method="post" class="d-grid gap-3" enctype="multipart/form-data">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                     <input type="hidden" name="action" value="mark_found">
+                                    <div>
+                                        <label for="proof_photo" class="form-label">Proof Photo</label>
+                                        <input type="file" class="form-control" id="proof_photo" name="proof_photo" accept="image/*" capture="environment">
+                                        <div class="form-text">Optional field photo for the active inventory count.</div>
+                                    </div>
                                     <button type="submit" class="btn btn-primary btn-lg">Mark as Found</button>
                                     <?php if ($inventoryUrl !== ''): ?>
                                         <a href="<?php echo h($inventoryUrl); ?>" class="btn btn-outline-secondary">Open Inventory Workspace</a>

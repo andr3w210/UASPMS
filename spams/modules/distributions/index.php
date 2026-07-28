@@ -705,7 +705,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $lineStmt = $db->prepare("UPDATE distribution_items SET quantity_distributed = ?, remarks = ? WHERE id = ? AND distribution_id = ?");
                 $detailStmt = $db->prepare("UPDATE distribution_item_details SET brand = ?, model = ?, serial_no = ?, property_number = ?, remarks = ? WHERE id = ? AND distribution_item_id = ?");
-                $dupPropertyStmt = $db->prepare("SELECT id FROM distribution_item_details WHERE property_number = ? AND id <> ? LIMIT 1");
+                $dupPropertyStmt = $db->prepare("SELECT id FROM distribution_item_details WHERE property_number = ? AND id <> ? AND is_distributed = 1 LIMIT 1");
                 $releaseReceivingDetailStmt = $db->prepare("UPDATE receiving_item_details SET is_distributed = 0 WHERE id = ?");
                 $claimReceivingDetailStmt = $db->prepare("UPDATE receiving_item_details SET is_distributed = 1 WHERE id = ?");
                 $releaseDistributionDetailStmt = $db->prepare("UPDATE distribution_item_details SET is_distributed = 0, current_office_id = NULL, current_employee_id = NULL WHERE id = ? AND distribution_item_id = ?");
@@ -735,10 +735,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $existingPropertyNumber = trim((string) ($detailRow['property_number'] ?? ''));
                         $propertyNumber = trim((string) ($postedDetailPropertyNumber[$detailId] ?? $existingPropertyNumber));
                         if ($propertyNumber === $existingPropertyNumber) {
-                            if ($oldOfficeId !== $officeId) {
-                                $propertyNumber = distribution_replace_office_suffix($propertyNumber, $oldOfficeCode, $newOfficeCode);
-                            }
-                            $propertyNumber = distribution_force_office_suffix($propertyNumber, $newOfficeCode);
+                            $propertyNumber = $existingPropertyNumber;
                         }
                         $detailRemarks = trim((string) ($postedDetailRemarks[$detailId] ?? ($detailRow['remarks'] ?? '')));
                         if ($propertyNumber !== '') {
@@ -1067,8 +1064,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $itemStmt = $db->prepare("INSERT INTO distribution_items (distribution_id, issuance_item_id, receiving_item_id, quantity_distributed, unit_cost, line_total, remarks) VALUES (?, NULLIF(?,0), NULLIF(?,0), ?, ?, ?, ?)");
                 $detailStmt = $db->prepare("INSERT INTO distribution_item_details (distribution_item_id, receiving_item_detail_id, brand, model, serial_no, remarks, property_number) VALUES (?, NULLIF(?, 0), ?, ?, ?, ?, ?)");
                 $priorPropertyStmt = $db->prepare("SELECT id, property_number FROM distribution_item_details WHERE receiving_item_detail_id = ? AND property_number IS NOT NULL AND property_number <> '' ORDER BY id DESC LIMIT 1");
-                $clearPriorPropertyStmt = $db->prepare("UPDATE distribution_item_details SET property_number = '' WHERE id = ? AND is_distributed = 0");
-                if (!$headerStmt || !$itemStmt || !$detailStmt || !$priorPropertyStmt || !$clearPriorPropertyStmt) {
+                if (!$headerStmt || !$itemStmt || !$detailStmt || !$priorPropertyStmt) {
                     throw new RuntimeException('Unable to prepare distribution statements.');
                 }
 
@@ -1114,7 +1110,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     foreach ($item['details'] as $detail) {
                         $detailId = (int) ($detail['id'] ?? 0);
                         $propertyNo = '';
-                        $priorPropertyId = 0;
                         if ($fundStmt) {
                             $fundStmt->bind_param('ii', $officeId, $originReceivingItemId);
                             $fundStmt->execute();
@@ -1128,8 +1123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $priorPropertyStmt->execute();
                                 $priorPropertyRow = $priorPropertyStmt->get_result()->fetch_assoc() ?: null;
                                 if ($priorPropertyRow && trim((string) ($priorPropertyRow['property_number'] ?? '')) !== '') {
-                                    $priorPropertyId = (int) ($priorPropertyRow['id'] ?? 0);
-                                    $propertyNo = distribution_force_office_suffix(trim((string) $priorPropertyRow['property_number']), $officeCode);
+                                    $propertyNo = trim((string) $priorPropertyRow['property_number']);
                                 }
                             }
                             if ($propertyNo === '') {
@@ -1142,16 +1136,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             throw new RuntimeException('Unable to save distributed unit details.');
                         }
                         $distributionDetailId = (int) $detailStmt->insert_id;
-                        if ($priorPropertyId > 0 && $priorPropertyId !== $distributionDetailId) {
-                            $clearPriorPropertyStmt->bind_param('i', $priorPropertyId);
-                            if (!$clearPriorPropertyStmt->execute()) {
-                                throw new RuntimeException('Unable to transfer the prior property number.');
-                            }
-                            if (!distribution_sync_system_property_number($db, $priorPropertyId, '')) {
-                                throw new RuntimeException('Unable to clear the prior property number snapshot.');
-                            }
-                        }
-
                         $photoFile = is_array($detail['photo_file'] ?? null) ? $detail['photo_file'] : ['error' => UPLOAD_ERR_NO_FILE];
                         $photoErrors = [];
                         $photoPath = store_uploaded_image($photoFile, 'assets/' . date('Y') . '/distribution-' . $distributionId, $photoErrors);
@@ -1188,7 +1172,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $detailStmt->close();
                 $priorPropertyStmt->close();
-                $clearPriorPropertyStmt->close();
                 if ($fundStmt) $fundStmt->close();
                 $markDetailStmt->close();
                 $itemStmt->close();

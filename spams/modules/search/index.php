@@ -192,26 +192,49 @@ if ($db && $query !== '' && !$errors) {
     }
 
     if ($tableExists($db, 'legacy_assets')) {
+        $legacyHasAccountabilityTracking = $columnExists($db, 'legacy_assets', 'accountability_status')
+            && $columnExists($db, 'legacy_assets', 'last_office_id')
+            && $columnExists($db, 'legacy_assets', 'last_employee_id');
         $legacyQrCondition = $columnExists($db, 'legacy_assets', 'qr_tag_code') ? ' OR qr_tag_code LIKE ?' : '';
         $legacyQrSelect = $columnExists($db, 'legacy_assets', 'qr_tag_code') ? "COALESCE(qr_tag_code, '')" : "''";
+        $legacyTrackingSelect = $legacyHasAccountabilityTracking
+            ? "CASE WHEN COALESCE(la.accountability_status, 'active') = 'for_reconciliation' THEN 'For Reconciliation | Last: ' ELSE '' END"
+            : "''";
+        $legacyTrackingOfficeSelect = $legacyHasAccountabilityTracking
+            ? "COALESCE(last_o.office_name, '')"
+            : "''";
+        $legacyTrackingJoin = $legacyHasAccountabilityTracking
+            ? 'LEFT JOIN offices last_o ON last_o.id = la.last_office_id LEFT JOIN employees last_e ON last_e.id = la.last_employee_id'
+            : '';
+        $legacyTrackingCondition = $legacyHasAccountabilityTracking
+            ? " OR last_o.office_name LIKE ? OR last_e.first_name LIKE ? OR last_e.last_name LIKE ? OR CASE WHEN COALESCE(la.accountability_status, 'active') = 'for_reconciliation' THEN 'For Reconciliation' ELSE 'Active' END LIKE ?"
+            : '';
         $params = [$like, $like, $like, $like, $like];
         if ($legacyQrCondition !== '') {
             $params[] = $like;
         }
+        if ($legacyTrackingCondition !== '') {
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+        }
         $rows = $fetchSearchRows($db, "
             SELECT
-                property_number AS title,
-                CONCAT(item_description, ' | QR: ', {$legacyQrSelect}) AS subtitle,
-                COALESCE(NULLIF(serial_no, ''), brand, model, '') AS meta,
-                CONCAT('modules/property/view.php?source=legacy&id=', id) AS href
-            FROM legacy_assets
-            WHERE property_number LIKE ?
-               OR serial_no LIKE ?
-               OR brand LIKE ?
-               OR model LIKE ?
-               OR item_description LIKE ?
+                la.property_number AS title,
+                CONCAT(la.item_description, ' | ', {$legacyTrackingSelect}, {$legacyTrackingOfficeSelect}, ' | QR: ', {$legacyQrSelect}) AS subtitle,
+                COALESCE(NULLIF(la.serial_no, ''), la.brand, la.model, '') AS meta,
+                CONCAT('modules/property/view.php?source=legacy&id=', la.id) AS href
+            FROM legacy_assets la
+            {$legacyTrackingJoin}
+            WHERE la.property_number LIKE ?
+               OR la.serial_no LIKE ?
+               OR la.brand LIKE ?
+               OR la.model LIKE ?
+               OR la.item_description LIKE ?
                {$legacyQrCondition}
-            ORDER BY id DESC
+               {$legacyTrackingCondition}
+            ORDER BY la.id DESC
             LIMIT 12
         ", $params);
         $addResults($results, 'Legacy Assets', $rows);

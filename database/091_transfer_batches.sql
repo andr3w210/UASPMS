@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS `transfer_batches` (
     `to_office_id` INT UNSIGNED NULL,
     `to_employee_id` INT UNSIGNED NULL,
     `to_responsibility_code_id` INT UNSIGNED NULL,
+    `transfer_type` ENUM('donation','relocate','reassignment','others') NULL,
     `reason` TEXT NULL,
     `remarks` TEXT NULL,
     `status` ENUM('posted','cancelled') NOT NULL DEFAULT 'posted',
