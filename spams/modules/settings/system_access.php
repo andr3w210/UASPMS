@@ -126,6 +126,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->close();
 
                 if ($savedAll) {
+                    if (function_exists('spams_cache_forget_prefix')) {
+                        spams_cache_forget_prefix('system_setting:');
+                    }
                     if (function_exists('write_audit_log')) {
                         write_audit_log($db, [
                             'action' => 'update',

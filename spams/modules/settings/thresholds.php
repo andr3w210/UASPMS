@@ -42,6 +42,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->close();
 
                 if ($ok) {
+                    if (function_exists('spams_cache_delete')) {
+                        spams_cache_delete('property_thresholds:active');
+                    }
                     if (function_exists('write_audit_log')) {
                         write_audit_log($db, [
                             'action' => 'insert',

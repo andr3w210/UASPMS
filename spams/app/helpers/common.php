@@ -947,39 +947,81 @@ function recalculate_purchase_order_status(mysqli $db, int $purchaseOrderId): st
 function get_active_threshold(mysqli $db): array
 {
     $defaults = ['equipment_min' => 50000.00, 'semi_hv_min' => 5000.01];
-    $stmt = $db->prepare(
-        "SELECT equipment_min, semi_hv_min FROM property_thresholds WHERE effective_date <= CURDATE() ORDER BY effective_date DESC, id DESC LIMIT 1"
-    );
-    if (!$stmt) {
-        return $defaults;
+
+    $loadThreshold = static function () use ($db, $defaults): array {
+        $stmt = $db->prepare(
+            "SELECT equipment_min, semi_hv_min FROM property_thresholds WHERE effective_date <= CURDATE() ORDER BY effective_date DESC, id DESC LIMIT 1"
+        );
+        if (!$stmt) {
+            return $defaults;
+        }
+
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$row) {
+            return $defaults;
+        }
+
+        return [
+            'equipment_min' => isset($row['equipment_min']) ? (float) $row['equipment_min'] : $defaults['equipment_min'],
+            'semi_hv_min' => isset($row['semi_hv_min']) ? (float) $row['semi_hv_min'] : $defaults['semi_hv_min'],
+        ];
+    };
+
+    if (function_exists('spams_cache_remember')) {
+        $cached = spams_cache_remember('property_thresholds:active', 300, $loadThreshold);
+        if (is_array($cached) && isset($cached['equipment_min'], $cached['semi_hv_min'])) {
+            return [
+                'equipment_min' => (float) $cached['equipment_min'],
+                'semi_hv_min' => (float) $cached['semi_hv_min'],
+            ];
+        }
     }
-    $stmt->execute();
-    $row = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    if (!$row) return $defaults;
-    return [
-        'equipment_min' => isset($row['equipment_min']) ? (float) $row['equipment_min'] : $defaults['equipment_min'],
-        'semi_hv_min' => isset($row['semi_hv_min']) ? (float) $row['semi_hv_min'] : $defaults['semi_hv_min'],
-    ];
+
+    return $loadThreshold();
 }
 
 function get_system_setting(mysqli $db, string $key, string $default = ''): string
 {
-    $stmt = $db->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1");
-    if (!$stmt) {
-        return $default;
+    static $requestCache = [];
+
+    if (array_key_exists($key, $requestCache)) {
+        $entry = $requestCache[$key];
+        return $entry['exists'] ? (string) $entry['value'] : $default;
     }
 
-    $stmt->bind_param('s', $key);
-    $stmt->execute();
-    $row = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
+    $loadSetting = static function () use ($db, $key): array {
+        $stmt = $db->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1");
+        if (!$stmt) {
+            return ['exists' => false, 'value' => null];
+        }
 
-    if (!$row || !array_key_exists('setting_value', $row) || $row['setting_value'] === null) {
-        return $default;
+        $stmt->bind_param('s', $key);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$row || !array_key_exists('setting_value', $row) || $row['setting_value'] === null) {
+            return ['exists' => false, 'value' => null];
+        }
+
+        return ['exists' => true, 'value' => (string) $row['setting_value']];
+    };
+
+    if (function_exists('spams_cache_remember')) {
+        $entry = spams_cache_remember('system_setting:' . $key, 300, $loadSetting);
+    } else {
+        $entry = $loadSetting();
     }
 
-    return (string) $row['setting_value'];
+    if (!is_array($entry) || !array_key_exists('exists', $entry)) {
+        $entry = ['exists' => false, 'value' => null];
+    }
+
+    $requestCache[$key] = $entry;
+    return $entry['exists'] ? (string) $entry['value'] : $default;
 }
 
 function person_full_name(array $row): string
