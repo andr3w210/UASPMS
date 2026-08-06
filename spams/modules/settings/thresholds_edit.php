@@ -71,6 +71,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ok = $stmt->execute();
                 $stmt->close();
                 if ($ok) {
+                    if (function_exists('spams_cache_delete')) {
+                        spams_cache_delete('property_thresholds:active');
+                    }
                     // Audit log for update
                     $userId = current_user_id();
                     $desc = json_encode([

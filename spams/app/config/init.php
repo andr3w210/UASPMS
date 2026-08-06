@@ -51,6 +51,7 @@ date_default_timezone_set(TIMEZONE);
 $helpers_dir = APP_ROOT . 'app' . DIRECTORY_SEPARATOR . 'helpers' . DIRECTORY_SEPARATOR;
 if (is_dir($helpers_dir)) {
     $orderedHelpers = [
+        'cache.php',
         'common.php',
         'auth.php',
         'pagination.php',

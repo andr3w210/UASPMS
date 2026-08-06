@@ -8,6 +8,8 @@ uploads/**/*.log
 uploads/**/*.txt
 spams/uploads/**/*.log
 logs/*.log
+logs/cache/
+spams/logs/cache/
 
 # Generated reports and audit exports
 exports/*.csv

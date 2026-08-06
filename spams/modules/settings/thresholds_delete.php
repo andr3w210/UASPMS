@@ -36,6 +36,9 @@ $ok = $stmt->execute();
 $stmt->close();
 
 if ($ok) {
+    if (function_exists('spams_cache_delete')) {
+        spams_cache_delete('property_thresholds:active');
+    }
     set_flash('success', 'Threshold deleted.');
 } else {
     set_flash('error', 'Unable to delete threshold.');
