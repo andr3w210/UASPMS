@@ -129,7 +129,8 @@ if (!$session) {
         @media print {
             body { margin: 12mm; }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body onload="window.print()">
     <div class="header">
@@ -202,5 +203,6 @@ if (!$session) {
             <?php endif; ?>
         </tbody>
     </table>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>

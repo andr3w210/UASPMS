@@ -198,7 +198,8 @@ $fundClusterLabel = $po ? consolidated_iar_fund_cluster_label($po) : '';
             @page { size: A4 portrait; margin: 0.45in; }
             body { margin:0; }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body>
     <div class="container iar-wrap">
@@ -361,5 +362,6 @@ $fundClusterLabel = $po ? consolidated_iar_fund_cluster_label($po) : '';
         <?php endif; ?>
     </div>
 <?php if ($autoPrint && $po): ?><script>window.addEventListener('load', function(){ window.print(); });</script><?php endif; ?>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>

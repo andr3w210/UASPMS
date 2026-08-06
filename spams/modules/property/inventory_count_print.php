@@ -110,7 +110,8 @@ $unresolvedExceptions = array_filter($exceptions, static function (array $item):
             body { font-size: 11px; }
             .summary-grid { gap: 8px; }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body>
 <div class="container-fluid py-3">
@@ -253,5 +254,6 @@ $unresolvedExceptions = array_filter($exceptions, static function (array $item):
         </tbody>
     </table>
 </div>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>

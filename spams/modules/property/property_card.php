@@ -274,7 +274,8 @@ unset($card);
             .print-wrap { max-width: none; }
             .coa-card { border: 0; }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body>
     <div class="container mt-3 print-wrap">
@@ -398,5 +399,6 @@ unset($card);
         <?php endforeach; ?>
 
     </div>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>

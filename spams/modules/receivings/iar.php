@@ -155,7 +155,8 @@ $blankRows = max(0, 10 - count($items));
             @page { size: 8.5in 13in; margin: 0.5in 0.45in; }
             body { margin:0; }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body>
     <div class="container iar-wrap">
@@ -291,5 +292,6 @@ $blankRows = max(0, 10 - count($items));
             </tr>
         </table>
     </div>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>

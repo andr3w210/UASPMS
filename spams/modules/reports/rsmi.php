@@ -136,7 +136,8 @@ if ($isPrint) {
             @media print {
                 .no-print { display: none !important; }
             }
-        </style>
+        
+            <?php echo print_page_number_css(); ?></style>
     </head>
     <body>
         <div class="container-fluid py-3">
@@ -189,7 +190,8 @@ if ($isPrint) {
                 </table>
             </div>
         </div>
-    </body>
+    
+<?php render_print_page_number(); ?></body>
     </html>
     <?php
     exit;

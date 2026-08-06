@@ -98,13 +98,15 @@ if ($isPrint) {
     }
     $reportFundCluster = report_fund_cluster($rows);
     ?>
-    <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IIRUP</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"><style>@page{size:portrait;margin:12mm}body{font-size:12px}table{font-size:11px}.sign-table td{border:1px solid #dee2e6;padding:12px 10px;vertical-align:top}.sign-label{font-weight:600;margin-bottom:24px}.sign-line{border-bottom:1px solid #111;height:26px;margin-bottom:8px}.sign-caption{font-size:10px;line-height:1.25}@media print{.no-print{display:none!important}}</style></head><body>
+    <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IIRUP</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"><style>@page{size:portrait;margin:0.5in 0.07in 0.07in 0.07in}body{font-size:12px}table{font-size:11px}.sign-table td{border:1px solid #dee2e6;padding:12px 10px;vertical-align:top}.sign-label{font-weight:600;margin-bottom:24px}.sign-line{border-bottom:1px solid #111;height:26px;margin-bottom:8px}.sign-caption{font-size:10px;line-height:1.25}@media print{.no-print{display:none!important}}
+            <?php echo print_page_number_css(); ?></style></head><body>
     <div class="container-fluid py-3">
         <?php render_print_action_bar(); ?>
         <?php render_simple_report_header('Appendix 74', 'Inventory and Inspection Report of Unserviceable Property', !empty($asOf) ? date('M d, Y', strtotime($asOf)) : '', $reportFundCluster); ?>
         <table class="table table-bordered align-middle"><thead><tr><th>Date Acquired</th><th>Particulars / Articles</th><th>Property No.</th><th class="text-end">Qty</th><th class="text-end">Unit Cost</th><th class="text-end">Total Cost</th><th class="text-end">Accumulated Depreciation</th><th class="text-end">Accumulated Impairment Losses</th><th class="text-end">Carrying Amount</th><th>Reason (COA)</th><th>Disposal Classification</th></tr></thead><tbody><?php if ($rows): foreach ($rows as $row): ?><tr><td><?php echo h(format_date($row['date_acquired'] ?? null)); ?></td><td><?php echo h(iirup_label($row)); ?></td><td><?php echo h($row['property_number'] ?? ''); ?></td><td class="text-end">1.00</td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td class="text-end"></td><td class="text-end"></td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td><?php echo h(disposal_reason_label($row['reason'] ?? '')); ?></td><td><?php echo h(disposal_reason_label($row['reason'] ?? '')); ?></td></tr><?php endforeach; else: ?><tr><td colspan="11" class="text-center text-muted py-4">No unserviceable property found.</td></tr><?php endif; ?></tbody><tfoot><tr><th colspan="8" class="text-end">Total Carrying Amount</th><th class="text-end"><?php echo h(number_format($totalValue, 2)); ?></th><th colspan="2"></th></tr></tfoot></table>
         <?php render_inventory_committee_signature_grid('sign-table mt-3'); ?>
-    </div></body></html>
+    </div>
+<?php render_print_page_number(); ?></body></html>
     <?php exit; }
 
 require_once __DIR__ . '/../../includes/header.php';

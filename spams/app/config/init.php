@@ -105,6 +105,13 @@ if (!empty($_SESSION['user_id'])) {
             );
         }
         session_destroy();
+        if (function_exists('request_expects_json') && request_expects_json()) {
+            http_response_code(401);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => false, 'error' => 'Your session has expired. Please log in again.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
         header('Location: ' . base_url('auth/login.php?expired=1'));
         exit;
     }
@@ -154,4 +161,3 @@ if (!empty($_SESSION['user_id']) && function_exists('db') && function_exists('au
 }
 
 ?>
-

@@ -820,6 +820,33 @@ if ($asset && $source === 'legacy') {
 }
 
 if (!$asset) {
+    $requestMethod = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    if ($requestMethod === 'GET') {
+        if ($source === 'system') {
+            $fallbackStmt = $db->prepare("SELECT id FROM legacy_assets WHERE id = ? AND is_active = 1 LIMIT 1");
+            if ($fallbackStmt) {
+                $fallbackStmt->bind_param('i', $id);
+                $fallbackStmt->execute();
+                $fallbackRow = $fallbackStmt->get_result()->fetch_assoc();
+                $fallbackStmt->close();
+                if ($fallbackRow) {
+                    redirect('modules/property/view.php?source=legacy&id=' . (int) ($fallbackRow['id'] ?? 0));
+                }
+            }
+        } elseif ($source === 'legacy') {
+            $fallbackStmt = $db->prepare("SELECT id FROM distribution_item_details WHERE id = ? LIMIT 1");
+            if ($fallbackStmt) {
+                $fallbackStmt->bind_param('i', $id);
+                $fallbackStmt->execute();
+                $fallbackRow = $fallbackStmt->get_result()->fetch_assoc();
+                $fallbackStmt->close();
+                if ($fallbackRow) {
+                    redirect('modules/property/view.php?source=system&id=' . (int) ($fallbackRow['id'] ?? 0));
+                }
+            }
+        }
+    }
+
     http_response_code(404);
     exit('Asset not found.');
 }
@@ -835,6 +862,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
     }
 
     $action = trim((string) ($_POST['action'] ?? ''));
+    if ($action === 'clear_legacy_accountability') {
+        if (!$canEditDetails) {
+            set_flash('error', 'You are not allowed to edit asset details.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+        if ($source !== 'legacy') {
+            set_flash('error', 'This action is only available for legacy assets.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+
+        ensure_legacy_assets_accountability_tracking_columns($db);
+
+        $currentOfficeId = (int) ($asset['office_id'] ?? 0);
+        $currentEmployeeId = (int) ($asset['employee_id'] ?? 0);
+        $currentRcId = (int) ($asset['responsibility_code_id'] ?? 0);
+        $alreadyCleared = $currentOfficeId <= 0 && $currentEmployeeId <= 0 && $currentRcId <= 0;
+
+        if ($alreadyCleared) {
+            set_flash('info', 'Current accountability is already unassigned for this asset.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+
+        $userId = (int) current_user_id();
+        $db->begin_transaction();
+
+        $clearStmt = $db->prepare(
+            "UPDATE legacy_assets
+             SET last_office_id = CASE WHEN office_id IS NOT NULL THEN office_id ELSE last_office_id END,
+                 last_employee_id = CASE WHEN employee_id IS NOT NULL THEN employee_id ELSE last_employee_id END,
+                 last_responsibility_code_id = CASE WHEN responsibility_code_id IS NOT NULL THEN responsibility_code_id ELSE last_responsibility_code_id END,
+                 office_id = NULL,
+                 employee_id = NULL,
+                 responsibility_code_id = NULL,
+                 accountability_status = 'for_reconciliation',
+                 accountability_cleared_at = NOW(),
+                 accountability_cleared_by = ?
+             WHERE id = ?
+             LIMIT 1"
+        );
+        $saved = false;
+        if ($clearStmt) {
+            $clearStmt->bind_param('ii', $userId, $id);
+            $saved = (bool) $clearStmt->execute();
+            $clearStmt->close();
+        }
+
+        if ($saved) {
+            $countStmt = $db->prepare(
+                "UPDATE inventory_count_items
+                 SET office_id = NULL,
+                     employee_id = NULL,
+                     accountable_name = ''
+                 WHERE legacy_asset_id = ?"
+            );
+            if ($countStmt) {
+                $countStmt->bind_param('i', $id);
+                $saved = (bool) $countStmt->execute();
+                $countStmt->close();
+            } else {
+                $saved = false;
+            }
+        }
+
+        if ($saved) {
+            write_audit_log($db, [
+                'action' => 'update',
+                'table_name' => 'legacy_assets',
+                'record_id' => $id,
+                'module_name' => 'property',
+                'record_type' => 'legacy_asset',
+                'action_name' => 'clear_legacy_accountability',
+                'description' => 'Unassigned current accountability and retained previous office/person for reconciliation.',
+                'old_values' => [
+                    'office_id' => $asset['office_id'] ?? null,
+                    'employee_id' => $asset['employee_id'] ?? null,
+                    'responsibility_code_id' => $asset['responsibility_code_id'] ?? null,
+                    'accountability_status' => $asset['accountability_status'] ?? 'active',
+                ],
+                'new_values' => [
+                    'office_id' => null,
+                    'employee_id' => null,
+                    'responsibility_code_id' => null,
+                    'last_office_id' => $asset['office_id'] ?? null,
+                    'last_employee_id' => $asset['employee_id'] ?? null,
+                    'last_responsibility_code_id' => $asset['responsibility_code_id'] ?? null,
+                    'accountability_status' => 'for_reconciliation',
+                ],
+            ]);
+            $db->commit();
+            set_flash('success', 'Current accountability removed. The previous accountability details were kept in history.');
+            redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+        }
+
+        $db->rollback();
+        set_flash('error', 'Unable to clear accountability right now.');
+        redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
+    }
+
     if ($action === 'save_asset_details') {
         if (!$canEditDetails) {
             set_flash('error', 'You are not allowed to edit asset details.');
@@ -2076,6 +2201,67 @@ if ($source === 'system') {
     }
 }
 
+if (
+    !empty($asset['property_number'])
+    && schema_has_column($db, 'returns', 'source_type')
+    && schema_has_column($db, 'returns', 'distribution_item_detail_id')
+    && schema_has_column($db, 'returns', 'legacy_asset_id')
+) {
+    $propertyNumber = trim((string) ($asset['property_number'] ?? ''));
+    $legacyAssetIdForMatch = $source === 'legacy' ? (int) $id : 0;
+
+    $returnFallbackSql = "
+        SELECT
+            rt.id AS return_id,
+            rt.system_reference,
+            rt.return_date,
+            rt.reason,
+            rt.remarks,
+            o.office_name,
+            e.first_name,
+            e.middle_name,
+            e.last_name,
+            e.suffix_name
+        FROM returns rt
+        LEFT JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
+        LEFT JOIN legacy_assets la ON la.id = rt.legacy_asset_id
+        LEFT JOIN offices o ON o.id = rt.office_id
+        LEFT JOIN employees e ON e.id = rt.employee_id
+        WHERE rt.status = 'posted'
+          AND (
+                (rt.source_type = 'system' AND (rt.distribution_item_detail_id = ? OR did.property_number = ?))
+             OR (rt.source_type = 'legacy' AND (rt.legacy_asset_id = ? OR la.property_number = ?))
+          )
+        ORDER BY rt.return_date DESC, rt.id DESC
+    ";
+
+    $fallbackStmt = $db->prepare($returnFallbackSql);
+    if ($fallbackStmt) {
+        $fallbackStmt->bind_param('isis', $id, $propertyNumber, $legacyAssetIdForMatch, $propertyNumber);
+        $fallbackStmt->execute();
+        $fallbackRows = $fallbackStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $fallbackStmt->close();
+
+        if ($fallbackRows) {
+            $mergedReturnRows = [];
+            $seenReturnIds = [];
+
+            foreach (array_merge($returnRows, $fallbackRows) as $row) {
+                $returnId = (int) ($row['return_id'] ?? 0);
+                if ($returnId > 0) {
+                    if (isset($seenReturnIds[$returnId])) {
+                        continue;
+                    }
+                    $seenReturnIds[$returnId] = true;
+                }
+                $mergedReturnRows[] = $row;
+            }
+
+            $returnRows = $mergedReturnRows;
+        }
+    }
+}
+
 foreach ($transfers as $row) {
     $timeline[] = [
         'date' => $row['transfer_date'] ?? '',
@@ -2510,6 +2696,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <?php endif; ?>
 
                                     <div class="col-12 d-flex justify-content-end">
+                                        <?php if ($source === 'legacy'): ?>
+                                            <button
+                                                type="submit"
+                                                name="action"
+                                                value="clear_legacy_accountability"
+                                                class="btn btn-outline-danger me-2"
+                                                onclick="return confirm('Remove current accountability and keep the previous office/person in history?');"
+                                            >
+                                                Clear Accountability
+                                            </button>
+                                        <?php endif; ?>
                                         <button type="submit" class="btn btn-warning">Save Changes</button>
                                     </div>
                                 </form>
@@ -3272,6 +3469,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
                     'X-CSRF-Token': csrfToken
                 },
                 body: new URLSearchParams({
@@ -3283,7 +3482,18 @@ document.addEventListener('DOMContentLoaded', function () {
                     description: ''
                 }).toString()
             }).then(function (response) {
-                return response.json();
+                return response.text().then(function (text) {
+                    var data = null;
+                    try {
+                        data = text ? JSON.parse(text) : {};
+                    } catch (error) {
+                        throw new Error('Unable to save classification. Please refresh the page and try again.');
+                    }
+                    if (!response.ok && data && data.error) {
+                        throw new Error(data.error);
+                    }
+                    return data;
+                });
             }).then(function (data) {
                 if (!data.ok || !data.classification) {
                     throw new Error(data.error || 'Unable to save classification.');

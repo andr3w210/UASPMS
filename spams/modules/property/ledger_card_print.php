@@ -434,7 +434,8 @@ if ($db) {
             .card-print { page-break-after: always; }
             .card-print:last-child { page-break-after: auto; }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body>
 <div class="container mt-3">
@@ -611,5 +612,6 @@ if ($db) {
 <?php if ($autoPrint && $cards): ?>
 <script>window.addEventListener('load', function(){ window.print(); });</script>
 <?php endif; ?>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>

@@ -1072,5 +1072,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
         font-size: 8.5pt;
     }
 }
-</style>
+
+            <?php echo print_page_number_css(); ?></style>
+<?php render_print_page_number(); ?>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

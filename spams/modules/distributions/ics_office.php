@@ -568,7 +568,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
     <title>ICS by Office</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0.25in 0.5in' : '0.5in'; ?>; }
+        @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0.5in 0.07in 0.07in 0.07in' : '0.5in 0.07in 0.07in 0.07in'; ?>; }
         body { margin:0; font-size:12px; font-family: "Times New Roman", serif; color:#000; }
         table { font-size:11px; }
         .no-print { display:block; font-family: Arial, sans-serif; }
@@ -577,9 +577,9 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         .print-shell.short { width: 7.5in; max-width: 7.5in !important; padding: 0; }
         .short-copies { width: 7.5in; }
         .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: block; overflow: hidden; }
-        .short-slot { height: 6.25in; box-sizing: border-box; display: block; overflow: hidden; }
+        .short-slot { height: 6.125in; box-sizing: border-box; display: block; overflow: hidden; }
         .short-slot + .short-slot { padding-top: 0.25in; }
-        .short-copy { height: 6.25in; min-height: 6.25in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
+        .short-copy { height: 6.125in; min-height: 6.125in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
         .ics-form { position: relative; }
         .appendix { position: absolute; right: 0; top: 0; font-style: italic; font-size: 12px; }
         .ics-title { text-align: center; font-weight: bold; font-size: 16px; text-transform: uppercase; margin: 18px 0 22px; }
@@ -604,8 +604,10 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         .print-shell.short .ics-sign-table .sign-name { font-size: 10px; margin-top: 16px; margin-bottom: 0; }
         .print-shell.short .ics-sign-table .meta-box { height: 42px; padding-top: 4px; }
         .print-shell.short .ics-sign-table .meta-value { font-size: 9px; margin-top: 8px; }
-        @media print { .no-print { display:none !important; } thead { display: table-header-group; } .print-shell.short .short-copies { width: 7.5in !important; height: auto !important; overflow: visible !important; } .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display:block !important; overflow: hidden !important; break-after: page; page-break-after: always; } .print-shell.short .short-slot { height: 6.25in !important; display: block !important; overflow: hidden !important; } .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; } .print-shell.short .short-copy { height: 6.25in !important; min-height: 6.25in !important; } .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; } }
-    </style>
+        @media print { .no-print { display:none !important; } thead { display: table-header-group; } .print-shell.short .short-copies { width: 7.5in !important; height: auto !important; overflow: visible !important; } .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display:block !important; overflow: hidden !important; break-after: page; page-break-after: always; } .print-shell.short .short-slot { height: 6.125in !important; display: block !important; overflow: hidden !important; } .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; } .print-shell.short .short-copy { height: 6.125in !important; min-height: 6.125in !important; } .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; } }
+    <?php if (!$isShort): ?>
+            <?php echo print_page_number_css(); ?>
+    <?php endif; ?></style>
 </head>
 <body>
 <div class="container print-shell <?php echo $isShort ? 'short' : 'long'; ?>" style="max-width:1000px;">
@@ -857,10 +859,15 @@ $shortSheetCount = (int) ceil($copyCount / 2);
             slot.className = 'short-slot';
 
             if (copyIndex < copyCount) {
-                var clone = source.cloneNode(true);
-                clone.removeAttribute('id');
-                clone.classList.add('short-copy');
-                slot.appendChild(clone);
+                if (copyIndex === 0) {
+                    source.classList.add('short-copy');
+                    slot.appendChild(source);
+                } else {
+                    var clone = source.cloneNode(true);
+                    clone.removeAttribute('id');
+                    clone.classList.add('short-copy');
+                    slot.appendChild(clone);
+                }
             } else {
                 var blank = document.createElement('div');
                 blank.className = 'print-copy short-copy';
@@ -873,8 +880,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         host.appendChild(sheet);
     }
 
-    source.style.display = 'none';
-    shell.insertBefore(host, source.nextSibling);
+    shell.insertBefore(host, shell.firstChild);
 })();
 </script>
 <?php endif; ?>
@@ -908,5 +914,6 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 </script>
-</body>
+
+<?php if (!$isShort) { render_print_page_number(); } ?></body>
 </html>

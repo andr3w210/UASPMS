@@ -1204,6 +1204,15 @@ function render_simple_report_header(string $appendix, string $title, string $as
     <?php
 }
 
+function print_page_number_css(): string
+{
+    return '';
+}
+
+function render_print_page_number(): void
+{
+}
+
 function render_inventory_committee_signature_grid(string $tableClass): void
 {
     ?>

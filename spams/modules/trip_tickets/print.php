@@ -193,7 +193,8 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         .signature-space { height: 24px; }
         .signature-name { font-weight: bold; text-align: center; text-transform: uppercase; }
         .signature-role, .signature-date { text-align: center; font-size: 11px; }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body onload="window.print()">
     <div class="sheet trip-sheet">
@@ -336,5 +337,6 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
             <?php render_ris_copy($ticket, $officeName, $rcCode, $purpose, $approvedByName, $approvedByTitle, $issuedByName, $issuedByTitle, $requestedByName, $requestedByTitle, $receivedByName, $receivedByTitle); ?>
         </div>
     <?php endif; ?>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>
