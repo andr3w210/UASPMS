@@ -277,7 +277,8 @@ $blankRows = max(0, $risTargetRows - count($items));
             .ris-wrap.short .print-copy,
             .ris-wrap.short .duplicate-host { break-inside: avoid; }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body>
     <div class="ris-wrap <?php echo $isShort ? 'short' : 'long'; ?>">
@@ -429,5 +430,6 @@ $blankRows = max(0, $risTargetRows - count($items));
     })();
     </script>
     <?php endif; ?>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>

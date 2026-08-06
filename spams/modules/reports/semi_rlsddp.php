@@ -117,7 +117,8 @@ if ($isExport && $record) {
 if ($isPrint && $record) {
     $reportFundCluster = semi_rls_fund_number($record['fund_code'] ?? '', $record['fund_source'] ?? '');
     ?>
-    <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RLSDDP <?php echo h($record['system_reference']); ?></title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"><style>body{font-size:12px}table{font-size:11px}@media print{.no-print{display:none!important}}</style></head><body>
+    <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RLSDDP <?php echo h($record['system_reference']); ?></title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"><style>body{font-size:12px}table{font-size:11px}@media print{.no-print{display:none!important}}
+            <?php echo print_page_number_css(); ?></style></head><body>
     <div class="container py-3">
         <?php render_print_action_bar(); ?>
         <div class="text-center mb-3"><div class="small fst-italic">Annex A.9</div><h4 class="mb-1">Report of Lost, Stolen, Damaged or Destroyed Semi-Expendable Property</h4></div>
@@ -134,7 +135,8 @@ if ($isPrint && $record) {
         <div class="mb-3"><strong>Status of Property:</strong> [<?php echo $isLost ? '/' : ' '; ?>] Lost [<?php echo $isDamaged ? '/' : ' '; ?>] Damaged [<?php echo $isStolen ? '/' : ' '; ?>] Stolen [<?php echo $isDestroyed ? '/' : ' '; ?>] Destroyed</div>
         <table class="table table-bordered align-middle"><thead><tr><th>Property No.</th><th>Description</th><th class="text-end">Acquisition Cost</th></tr></thead><tbody><tr><td><?php echo h($record['property_number'] ?? ''); ?></td><td><?php echo h(semi_rls_label($record)); ?></td><td class="text-end"><?php echo h(number_format((float) ($record['unit_cost'] ?? 0), 2)); ?></td></tr></tbody></table>
         <div class="mt-3"><strong>Circumstances:</strong><div class="border p-3" style="min-height:110px;"><?php echo nl2br(h(trim(implode("\n", array_filter([disposal_reason_label($record['reason'] ?? ''), $record['remarks'] ?? '']))))); ?></div></div>
-    </div></body></html>
+    </div>
+<?php render_print_page_number(); ?></body></html>
     <?php exit; }
 
 require_once __DIR__ . '/../../includes/header.php';

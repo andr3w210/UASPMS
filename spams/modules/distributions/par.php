@@ -339,7 +339,7 @@ $tagPrintUrl = $detailId > 0
     <title>PAR <?php echo h($header['document_no'] ?? $header['system_reference']); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0.25in 0.5in' : '0.5in'; ?>; }
+        @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0.5in 0.07in 0.07in 0.07in' : '0.5in 0.07in 0.07in 0.07in'; ?>; }
         body { margin: 0; font-size:12px; color:#000; font-family: "Times New Roman", serif; }
         table { font-size:12px; }
         .print-shell { width: 100%; max-width: none !important; margin: 0; padding: 0; }
@@ -350,10 +350,10 @@ $tagPrintUrl = $detailId > 0
         .short-copies { width: 7.5in; }
         .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: block; overflow: hidden; }
         .short-sheet + .short-sheet { margin-top: 0; }
-        .short-slot { height: 6.25in; box-sizing: border-box; display: block; overflow: hidden; }
+        .short-slot { height: 6.125in; box-sizing: border-box; display: block; overflow: hidden; }
         .short-slot + .short-slot { padding-top: 0.25in; }
         .short-slot + .short-slot { border-top: 1px dashed #bbb; }
-        .short-copy { height: 6.25in; min-height: 6.25in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
+        .short-copy { height: 6.125in; min-height: 6.125in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
         .par-form { position: relative; }
         .par-title { text-align:center; font-weight:bold; font-size:16px; text-transform:uppercase; margin:18px 0 22px; }
         .appendix { position:absolute; right:0; top:0; font-size:12px; font-style:italic; }
@@ -388,14 +388,16 @@ $tagPrintUrl = $detailId > 0
             thead { display: table-header-group; }
             .print-shell.short .short-copies { width: 7.5in !important; height: auto !important; overflow: visible !important; }
             .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display: block !important; overflow: hidden !important; }
-            .print-shell.short .short-slot { height: 6.25in !important; display: block !important; overflow: hidden !important; }
+            .print-shell.short .short-slot { height: 6.125in !important; display: block !important; overflow: hidden !important; }
             .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; }
-            .print-shell.short .short-copy { height: 6.25in !important; min-height: 6.25in !important; }
+            .print-shell.short .short-copy { height: 6.125in !important; min-height: 6.125in !important; }
             .print-shell.short .short-slot + .short-slot { border-top: none; }
             .print-shell.short .short-sheet { break-after: page; page-break-after: always; }
             .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; }
         }
-    </style>
+        <?php if (!$isShort): ?>
+            <?php echo print_page_number_css(); ?>
+        <?php endif; ?></style>
 </head>
 <body>
     <div class="container print-shell <?php echo $isShort ? 'short' : 'long'; ?>">
@@ -445,11 +447,7 @@ $tagPrintUrl = $detailId > 0
             <?php for ($slotIndex = 0; $slotIndex < 2; $slotIndex++): ?>
             <?php $copyIndex = ($sheetIndex * 2) + $slotIndex; ?>
             <div class="short-slot">
-                <?php if ($copyIndex < $copyCount): ?>
                 <div class="print-copy short-copy">
-        <?php else: ?>
-                <div class="print-copy short-copy"></div>
-        <?php endif; ?>
             <?php if ($copyIndex < $copyCount): ?>
         <div class="par-form">
         <div class="par-title">Property Acknowledgment Receipt</div>
@@ -727,5 +725,6 @@ $tagPrintUrl = $detailId > 0
         <?php endif; ?>
         <?php if ($isShort): ?></div><?php endif; ?>
     </div>
-</body>
+
+<?php if (!$isShort) { render_print_page_number(); } ?></body>
 </html>

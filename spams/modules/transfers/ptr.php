@@ -496,7 +496,7 @@ $blankRows = $extraRows;
     <title>PTR <?php echo h($header['system_reference']); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        @page { size: 8.5in 13in; margin: 0.5in 0.5in 0.5in 0.5in; }
+        @page { size: 8.5in 13in; margin: 0.5in 0.07in 0.07in 0.07in; }
         body { margin:0; color:#000; font-family:"Times New Roman", Times, serif; font-size:12px; }
         .ptr-wrap { margin:0 auto; max-width:1000px; }
         .ptr-appendix { font-size:11px; font-style:italic; text-align:right; }
@@ -524,7 +524,8 @@ $blankRows = $extraRows;
             .print-shell.short .print-copy,
             .print-shell.short .duplicate-host { break-inside: avoid; }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body>
 <div class="container ptr-wrap print-shell <?php echo $isShort ? 'short' : 'long'; ?>">
@@ -658,5 +659,6 @@ $blankRows = $extraRows;
 })();
 </script>
 <?php endif; ?>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>

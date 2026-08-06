@@ -422,7 +422,8 @@ $identityLines = static function (array $item): array {
             .no-print,.no-print *,.screen { display:none !important; }
             thead { display:table-header-group; }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body>
 <?php if ($selectionMode): ?>
@@ -601,5 +602,6 @@ $identityLines = static function (array $item): array {
         </table>
     </div>
 <?php endif; ?>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>

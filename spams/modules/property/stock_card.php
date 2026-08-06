@@ -551,7 +551,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 padding: 0 !important;
             }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
     <section class="stock-card-print-only">
         <div class="stock-card-print-shell">
             <div class="stock-card-form-meta">
@@ -633,4 +634,5 @@ require_once __DIR__ . '/../../includes/topbar.php';
     </section>
 <?php endif; ?>
 
+<?php render_print_page_number(); ?>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

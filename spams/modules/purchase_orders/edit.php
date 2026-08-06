@@ -220,6 +220,10 @@ if (!$db) {
                 $itemRows = $postedRows;
             }
 
+            if (!is_array($postedRows) || count($postedRows) === 0) {
+                $errors[] = 'Unable to capture PO line items from the page. Please refresh the page and try saving again.';
+            }
+
             if ($form['po_date'] === '') $errors[] = 'PO date is required.';
             if ($form['supplier_id'] === '') $errors[] = 'Supplier is required.';
             if ($form['fund_id'] === '') $errors[] = 'Fund is required.';
@@ -393,7 +397,7 @@ if (!$db) {
                         }
                     }
 
-                    if ($documentTotalAmount !== null && abs($documentTotalAmount - $totalAmount) > 0.009) {
+                    if ($documentTotalAmount !== null && empty($isPartialEntry) && abs($documentTotalAmount - $totalAmount) > 0.009) {
                         throw new RuntimeException('Encoded line total (' . number_format($totalAmount, 2) . ') does not match the hard copy PO total (' . number_format($documentTotalAmount, 2) . ').');
                     }
 
@@ -433,7 +437,9 @@ if (!$db) {
                             $id
                         );
                     }
-                    $updateStmt->execute();
+                    if (!$updateStmt->execute()) {
+                        throw new RuntimeException('Unable to update purchase order header: ' . $updateStmt->error);
+                    }
                     $updateStmt->close();
 
                     if ($validatedItems) {
@@ -459,7 +465,7 @@ if (!$db) {
                                 UPDATE purchase_order_items
                                 SET stock_catalog_id = NULLIF(?,0), line_no = ?, item_type = ?,
                                     semi_expendable_type = NULLIF(?, ''), account_code_id = ?,
-                                    classification_id = ?, item_description = ?, quantity = ?,
+                                    classification_id = NULLIF(?,0), item_description = ?, quantity = ?,
                                     unit_of_measure_id = ?, unit_cost = ?, line_total = ?
                                 WHERE id = ? AND purchase_order_id = ?
                             ");
@@ -468,13 +474,13 @@ if (!$db) {
                                   (purchase_order_id, stock_catalog_id, line_no, item_type, semi_expendable_type, account_code_id,
                                    classification_id, item_description, quantity,
                                    unit_of_measure_id, unit_cost, line_total)
-                                VALUES (?, NULLIF(?,0), ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?)
+                                VALUES (?, NULLIF(?,0), ?, ?, NULLIF(?, ''), ?, NULLIF(?,0), ?, ?, ?, ?, ?)
                             ");
                         } else {
                             $updateItemStmt = $db->prepare("
                                 UPDATE purchase_order_items
                                 SET stock_catalog_id = NULLIF(?,0), line_no = ?, item_type = ?,
-                                    account_code_id = ?, classification_id = ?, item_description = ?,
+                                    account_code_id = ?, classification_id = NULLIF(?,0), item_description = ?,
                                     quantity = ?, unit_of_measure_id = ?, unit_cost = ?, line_total = ?
                                 WHERE id = ? AND purchase_order_id = ?
                             ");
@@ -483,7 +489,7 @@ if (!$db) {
                                   (purchase_order_id, stock_catalog_id, line_no, item_type, account_code_id,
                                    classification_id, item_description, quantity,
                                    unit_of_measure_id, unit_cost, line_total)
-                                VALUES (?, NULLIF(?,0), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                VALUES (?, NULLIF(?,0), ?, ?, ?, NULLIF(?,0), ?, ?, ?, ?, ?)
                             ");
                         }
                         if (!$updateItemStmt || !$insertItemStmt) {
@@ -546,7 +552,9 @@ if (!$db) {
                                         $id
                                     );
                                 }
-                                $updateItemStmt->execute();
+                                if (!$updateItemStmt->execute()) {
+                                    throw new RuntimeException('Unable to update purchase order line item: ' . $updateItemStmt->error);
+                                }
                                 continue;
                             }
 
@@ -582,7 +590,9 @@ if (!$db) {
                                     $item['line_total']
                                 );
                             }
-                            $insertItemStmt->execute();
+                            if (!$insertItemStmt->execute()) {
+                                throw new RuntimeException('Unable to insert purchase order line item: ' . $insertItemStmt->error);
+                            }
                             $keptItemIds[(int) $insertItemStmt->insert_id] = true;
                         }
                         $updateItemStmt->close();
@@ -1371,6 +1381,7 @@ document.addEventListener('DOMContentLoaded', function () {
         el.lineTotalSoFar && (el.lineTotalSoFar.textContent = formatNumber(sum));
         el.footerLineCount && (el.footerLineCount.textContent = total + ' line(s)');
         el.poGrandTotal && (el.poGrandTotal.textContent = formatNumber(sum));
+        buildHiddenInputs();
     }
 
     function loadLineEditor(index) { if (poLines.length === 0) { el.editorEmpty.style.display = ''; el.editorContent.style.display = 'none'; activeIndex = -1; renderLineList(); return; } activeIndex = index; var line = poLines[index]; syncLineMode(line); el.editorEmpty.style.display = 'none'; el.editorContent.style.display = ''; el.editorLineLabel.textContent = 'Line ' + (index + 1); el.editorTypeBadge.className = 'badge ' + typeBadgeClass(line.item_type); el.editorTypeBadge.textContent = typeLabel(line.item_type); updateSemiTypeBadge(line); el.editorLineCounter.textContent = (index + 1) + ' of ' + poLines.length; populateCatalogSelect(line.stock_catalog_id || ''); updateEditorMode(line); rebuildAccountCodeSelect(line.item_type, line.account_code_id); rebuildClassificationSelect(line.item_type, line.classification_id); rebuildUomSelect(line.unit_of_measure_id); updateEditorMode(line); if (lineUsesCatalog(line) && !line.item_description && line.stock_catalog_id) { for (var ciIdx = 0; ciIdx < catalogItems.length; ciIdx++) { if (String(catalogItems[ciIdx].id) === String(line.stock_catalog_id)) { line.item_description = catalogItems[ciIdx].item_description || catalogItems[ciIdx].item_name || ''; break; } } } el.editorDescription.value = line.item_description || ''; el.editorQty.value = line.quantity || '1'; el.editorUnitCost.value = line.unit_cost || '0.00'; el.editorAmount.textContent = formatNumber(line.line_total || 0); var isExistingLine = isPartialMode && !!line.is_existing; ['editorDescription','editorQty','editorUnitCost'].forEach(function(id){ var n = document.getElementById(id); if (n) { n.disabled = isExistingLine; n.readOnly = false; } }); if (el.editorCatalogSearch) el.editorCatalogSearch.disabled = isExistingLine; if (el.editorAccountCode) el.editorAccountCode.disabled = isExistingLine; if (el.editorClassification) el.editorClassification.disabled = isExistingLine; if (el.editorUom) el.editorUom.disabled = isExistingLine; if (el.editorDeleteLine) el.editorDeleteLine.style.display = isExistingLine ? 'none' : ''; if (isExistingLine && el.editorWorkflowHelp) { el.editorWorkflowHelp.className = 'alert alert-secondary border py-2 px-3 mb-3'; el.editorWorkflowHelp.textContent = 'Existing item \u2014 read only. Items already in the PO cannot be modified.'; } el.editorPrev.disabled = (index === 0); el.editorNext.disabled = (index === poLines.length - 1); var done = poLines.filter(lineIsComplete).length; var pct = poLines.length ? Math.round((done / poLines.length) * 100) : 0; el.editorProgress.style.width = pct + '%'; el.editorProgressLabel.textContent = done + ' / ' + poLines.length + ' completed'; renderLineList(); if (window.SPAMS && typeof window.SPAMS.initSelect2 === 'function') window.SPAMS.initSelect2(document.getElementById('poLineEditor')); }

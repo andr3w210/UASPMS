@@ -1305,6 +1305,51 @@ require_once __DIR__ . '/../../includes/topbar.php';
     padding-top: 1rem;
 }
 
+.search-selection-backdrop {
+    background: rgba(15, 23, 42, 0.45);
+    inset: 0;
+    position: fixed;
+    z-index: 1050;
+}
+
+.search-selection-window {
+    background: #fff;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.22);
+    left: 50%;
+    max-height: min(82vh, 780px);
+    max-width: min(96vw, 1200px);
+    overflow: hidden;
+    position: fixed;
+    top: 6vh;
+    transform: translateX(-50%);
+    width: 100%;
+    z-index: 1060;
+}
+
+.search-selection-window .window-header,
+.search-selection-window .window-footer {
+    background: #fff;
+    position: sticky;
+    z-index: 2;
+}
+
+.search-selection-window .window-header {
+    border-bottom: 1px solid var(--bs-border-color);
+    top: 0;
+}
+
+.search-selection-window .window-body {
+    max-height: calc(min(82vh, 780px) - 130px);
+    overflow: auto;
+}
+
+.search-selection-window .window-footer {
+    border-top: 1px solid var(--bs-border-color);
+    bottom: 0;
+}
+
 @media (max-width: 991.98px) {
     .transfer-hero {
         align-items: flex-start;
@@ -1875,6 +1920,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <input class="form-check-input" type="checkbox" id="searchSelectAll" <?php echo $searchPreviewAssets ? 'checked' : ''; ?>>
                                         <label class="form-check-label small" for="searchSelectAll">Select all</label>
                                     </div>
+                                    <button type="button" id="searchViewSelectedBtn" class="btn btn-sm btn-outline-secondary">
+                                        <i class="bi bi-list-check me-1"></i>View selected
+                                    </button>
+                                    <button type="button" id="searchClearSelectionTopBtn" class="btn btn-sm btn-outline-danger">
+                                        <i class="bi bi-x-circle me-1"></i>Clear selection
+                                    </button>
                                     <span class="badge text-bg-light"><span id="searchSelectedCount"><?php echo count($searchPreviewAssets); ?></span> selected</span>
                                     <span class="badge text-bg-light"><span id="searchVisibleSelectedCount"><?php echo count($searchPreviewAssets); ?></span> in results</span>
                                 </div>
@@ -1900,6 +1951,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         class="form-check-input search-asset-checkbox"
                                                         name="asset_keys[]"
                                                         value="<?php echo h((string) ($asset['asset_key'] ?? '')); ?>"
+                                                        data-property-number="<?php echo h((string) ($asset['property_number'] ?? '')); ?>"
+                                                        data-description="<?php echo h((string) ($asset['item_description'] ?? '')); ?>"
+                                                        data-accountability="<?php echo h(trim((string) ($asset['current_office_name'] ?? '') . ' | ' . transfer_name($asset) . (!empty($asset['current_rc_code']) ? ' | ' . (string) $asset['current_rc_code'] : ''))); ?>"
+                                                        data-source="<?php echo h(($asset['source_type'] ?? '') === 'legacy' ? 'Beginning Balance' : 'System Transaction'); ?>"
                                                         form="searchTransferForm"
                                                         checked
                                                     >
@@ -1922,6 +1977,45 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 </table>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <div id="searchSelectionBackdrop" class="search-selection-backdrop d-none"></div>
+                <div id="searchSelectionWindow" class="search-selection-window d-none" role="dialog" aria-modal="true" aria-labelledby="searchSelectionWindowTitle">
+                    <div class="window-header px-3 py-2 d-flex justify-content-between align-items-center gap-2">
+                        <div>
+                            <div class="transfer-panel-title mb-0" id="searchSelectionWindowTitle"><i class="bi bi-list-check text-primary"></i> Selected Assets</div>
+                            <div class="small text-muted">Review all selected assets before posting transfer.</div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <button type="button" class="btn btn-sm btn-outline-danger" id="searchClearSelectedBtn">Clear all</button>
+                            <span class="badge text-bg-light"><span id="searchModalSelectedCount">0</span> selected</span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="searchSelectionCloseBtn"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                    </div>
+                    <div class="window-body p-3">
+                        <div id="searchModalHiddenCount" class="alert alert-warning py-2 px-3 small d-none mb-3"></div>
+                        <div class="table-responsive mobile-table-frame">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th style="width:16%;">Property No.</th>
+                                        <th>Asset</th>
+                                        <th style="width:34%;">Current Accountability</th>
+                                        <th style="width:15%;">Source</th>
+                                        <th class="text-end" style="width:10%;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="searchSelectionListBody">
+                                    <tr>
+                                        <td colspan="5" class="text-center text-muted py-4">No selected assets.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="window-footer px-3 py-2 text-end">
+                        <button type="button" class="btn btn-secondary btn-sm" id="searchSelectionCloseBtnFooter">Close</button>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -2131,6 +2225,16 @@ document.addEventListener('DOMContentLoaded', function () {
     var searchSelectAllTable = document.getElementById('searchSelectAllTable');
     var searchSelectedCount = document.getElementById('searchSelectedCount');
     var searchVisibleSelectedCount = document.getElementById('searchVisibleSelectedCount');
+    var searchViewSelectedBtn = document.getElementById('searchViewSelectedBtn');
+    var searchClearSelectionTopBtn = document.getElementById('searchClearSelectionTopBtn');
+    var searchSelectionBackdrop = document.getElementById('searchSelectionBackdrop');
+    var searchSelectionWindow = document.getElementById('searchSelectionWindow');
+    var searchSelectionCloseBtn = document.getElementById('searchSelectionCloseBtn');
+    var searchSelectionCloseBtnFooter = document.getElementById('searchSelectionCloseBtnFooter');
+    var searchClearSelectedBtn = document.getElementById('searchClearSelectedBtn');
+    var searchModalSelectedCount = document.getElementById('searchModalSelectedCount');
+    var searchModalHiddenCount = document.getElementById('searchModalHiddenCount');
+    var searchSelectionListBody = document.getElementById('searchSelectionListBody');
     var searchSelectionStorageKey = 'spams.transfer.search.selectedAssetKeys.user<?php echo (int) current_user_id(); ?>';
     var shouldClearSearchSelection = <?php echo ($transferMode === 'search' && $flash) ? 'true' : 'false'; ?>;
     var searchSelectedKeys = new Set();
@@ -2354,6 +2458,91 @@ document.addEventListener('DOMContentLoaded', function () {
             checkbox.checked = searchSelectedKeys.has(checkbox.value);
         });
     }
+    function assetMetaFromCheckbox(checkbox) {
+        return {
+            propertyNumber: checkbox.getAttribute('data-property-number') || '',
+            description: checkbox.getAttribute('data-description') || '',
+            accountability: checkbox.getAttribute('data-accountability') || '—',
+            source: checkbox.getAttribute('data-source') || '',
+        };
+    }
+    function renderSearchSelectionPreview() {
+        if (!searchSelectionListBody) return;
+        var visibleMap = new Map();
+        searchAssetCheckboxes.forEach(function (checkbox) {
+            visibleMap.set(checkbox.value, assetMetaFromCheckbox(checkbox));
+        });
+
+        var visibleRows = [];
+        var hiddenCount = 0;
+        var hiddenKeys = [];
+        searchSelectedKeys.forEach(function (assetKey) {
+            if (visibleMap.has(assetKey)) {
+                var meta = visibleMap.get(assetKey);
+                visibleRows.push({
+                    assetKey: assetKey,
+                    propertyNumber: meta.propertyNumber,
+                    description: meta.description,
+                    accountability: meta.accountability,
+                    source: meta.source,
+                });
+            } else {
+                hiddenCount++;
+                hiddenKeys.push(assetKey);
+            }
+        });
+
+        if (searchModalSelectedCount) {
+            searchModalSelectedCount.textContent = String(searchSelectedKeys.size);
+        }
+        if (searchClearSelectedBtn) {
+            searchClearSelectedBtn.disabled = searchSelectedKeys.size === 0;
+        }
+        if (searchModalHiddenCount) {
+            if (hiddenCount > 0) {
+                searchModalHiddenCount.classList.remove('d-none');
+                searchModalHiddenCount.textContent = hiddenCount + ' selected asset(s) are from previous search results and are not visible in the current filter.';
+            } else {
+                searchModalHiddenCount.classList.add('d-none');
+                searchModalHiddenCount.textContent = '';
+            }
+        }
+
+        if (!visibleRows.length && !hiddenKeys.length) {
+            searchSelectionListBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No selected assets.</td></tr>';
+            return;
+        }
+
+        var visibleHtml = visibleRows.map(function (row) {
+            return '<tr data-row-kind="visible">' +
+                '<td class="fw-semibold">' + escapeHtml(row.propertyNumber || '—') + '</td>' +
+                '<td>' + escapeHtml(row.description || '—') + '</td>' +
+                '<td>' + escapeHtml(row.accountability || '—') + '</td>' +
+                '<td>' + escapeHtml(row.source || '—') + '</td>' +
+                '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger search-remove-selected" data-asset-key="' + escapeHtml(row.assetKey) + '">Remove</button></td>' +
+            '</tr>';
+        }).join('');
+
+        var hiddenHtml = hiddenKeys.map(function (assetKey) {
+            return '<tr data-row-kind="hidden">' +
+                '<td class="fw-semibold">' + escapeHtml(assetKey) + '</td>' +
+                '<td><span class="text-muted">Selected from previous result set</span></td>' +
+                '<td><span class="text-muted">Not visible in current filter</span></td>' +
+                '<td><span class="badge text-bg-secondary">Saved</span></td>' +
+                '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger search-remove-selected" data-asset-key="' + escapeHtml(assetKey) + '">Remove</button></td>' +
+            '</tr>';
+        }).join('');
+
+        searchSelectionListBody.innerHTML = visibleHtml + hiddenHtml;
+    }
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
     function updateSearchSelectionState(persistSelection) {
         syncSearchCheckboxesFromSelection();
         var checkedCount = searchAssetCheckboxes.filter(function (checkbox) { return checkbox.checked; }).length;
@@ -2369,6 +2558,7 @@ document.addEventListener('DOMContentLoaded', function () {
             searchSelectAllTable.indeterminate = checkedCount > 0 && !allChecked;
         }
         renderSearchSelectedInputs();
+        renderSearchSelectionPreview();
         if (persistSelection !== false) {
             saveSearchSelection();
         }
@@ -2406,6 +2596,61 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (searchSelectAllTable) {
         searchSelectAllTable.addEventListener('change', function () { setSearchSelectionState(searchSelectAllTable.checked); });
+    }
+    function openSearchSelectionWindow() {
+        renderSearchSelectionPreview();
+        if (searchSelectionBackdrop) searchSelectionBackdrop.classList.remove('d-none');
+        if (searchSelectionWindow) searchSelectionWindow.classList.remove('d-none');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeSearchSelectionWindow() {
+        if (searchSelectionBackdrop) searchSelectionBackdrop.classList.add('d-none');
+        if (searchSelectionWindow) searchSelectionWindow.classList.add('d-none');
+        document.body.style.overflow = '';
+    }
+    if (searchViewSelectedBtn && searchSelectionWindow) {
+        searchViewSelectedBtn.addEventListener('click', openSearchSelectionWindow);
+    }
+    if (searchSelectionBackdrop) {
+        searchSelectionBackdrop.addEventListener('click', closeSearchSelectionWindow);
+    }
+    if (searchSelectionCloseBtn) {
+        searchSelectionCloseBtn.addEventListener('click', closeSearchSelectionWindow);
+    }
+    if (searchSelectionCloseBtnFooter) {
+        searchSelectionCloseBtnFooter.addEventListener('click', closeSearchSelectionWindow);
+    }
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && searchSelectionWindow && !searchSelectionWindow.classList.contains('d-none')) {
+            closeSearchSelectionWindow();
+        }
+    });
+    window.addEventListener('beforeunload', function () {
+        document.body.style.overflow = '';
+    });
+    if (searchClearSelectedBtn) {
+        searchClearSelectedBtn.addEventListener('click', function () {
+            clearSearchSelection();
+            updateSearchSelectionState();
+        });
+    }
+    if (searchClearSelectionTopBtn) {
+        searchClearSelectionTopBtn.addEventListener('click', function () {
+            clearSearchSelection();
+            updateSearchSelectionState();
+        });
+    }
+    if (searchSelectionListBody) {
+        searchSelectionListBody.addEventListener('click', function (event) {
+            var target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            var button = target.closest('.search-remove-selected');
+            if (!(button instanceof HTMLElement)) return;
+            var assetKey = button.getAttribute('data-asset-key') || '';
+            if (!assetKey) return;
+            searchSelectedKeys.delete(assetKey);
+            updateSearchSelectionState();
+        });
     }
     searchAssetCheckboxes.forEach(function (checkbox) {
         checkbox.addEventListener('change', function () {

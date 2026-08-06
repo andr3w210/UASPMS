@@ -400,7 +400,7 @@ if ($isPrint && $record) {
         <title>RRSP <?php echo h($record['system_reference']); ?></title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <style>
-            @page { size: auto; margin: 0.5in; }
+            @page { size: auto; margin: 0.5in 0.07in 0.07in 0.07in; }
             body { color: #000; font-family: "Times New Roman", Times, serif; font-size: 14px; }
             .print-shell { width: 100%; max-width: none !important; margin: 0 auto; padding: 0; }
             .no-print { font-family: Arial, Helvetica, sans-serif; }
@@ -422,7 +422,8 @@ if ($isPrint && $record) {
             .sign-caption { display: block; font-size: 14px; }
             .sign-name { display: inline-block; border-bottom: 1px solid #000; min-width: 68%; padding: 0 8px 1px; font-weight: 700; font-size: 14px; min-height: 18px; }
             @media print { .no-print { display: none !important; } }
-        </style>
+        
+            <?php echo print_page_number_css(); ?></style>
     </head>
     <body>
     <div class="container print-shell py-3">
@@ -513,7 +514,8 @@ if ($isPrint && $record) {
             </tbody>
         </table>
     </div>
-    </body>
+    
+<?php render_print_page_number(); ?></body>
     </html>
     <?php
     exit;

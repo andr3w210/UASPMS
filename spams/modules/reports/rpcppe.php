@@ -455,7 +455,7 @@ if ($isPrint) {
         <title>RPCPPE</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <style>
-            @page { size: 13in 8.5in; margin: 0.35in; }
+            @page { size: 13in 8.5in; margin: 0.5in 0.07in 0.07in 0.07in; }
             body { color: #000; font-family: "Times New Roman", serif; font-size: 12px; overflow-x: auto; }
             .rpcppe-wrap { max-width: 1320px; margin: 0 auto; }
             .rpcppe-page { page-break-after: always; }
@@ -497,7 +497,8 @@ if ($isPrint) {
                 .rpcppe-page { break-after: page; page-break-after: always; }
                 .rpcppe-page:last-of-type { break-after: auto; page-break-after: auto; }
             }
-        </style>
+        
+            <?php echo print_page_number_css(); ?></style>
     </head>
     <body>
     <div class="rpcppe-wrap">
@@ -641,7 +642,8 @@ if ($isPrint) {
             </div>
         <?php endforeach; ?>
     </div>
-    </body>
+    
+<?php render_print_page_number(); ?></body>
     </html>
     <?php
     exit;

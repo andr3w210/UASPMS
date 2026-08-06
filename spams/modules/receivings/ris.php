@@ -291,7 +291,8 @@ $blankRows = max(0, $risTargetRows - count($allItems));
         @media print {
             .no-print { display: none; }
         }
-    </style>
+    
+            <?php echo print_page_number_css(); ?></style>
 </head>
 <body>
     <div class="no-print">
@@ -422,5 +423,6 @@ $blankRows = max(0, $risTargetRows - count($allItems));
             <td><?php echo h($displayDate); ?></td>
         </tr>
     </table>
-</body>
+
+<?php render_print_page_number(); ?></body>
 </html>

@@ -276,7 +276,7 @@ if ($isPrint) {
         <title>Registry of Semi Expendable Property Issued</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <style>
-            @page { size: landscape; margin: 0.35in; }
+            @page { size: landscape; margin: 0.5in 0.07in 0.07in 0.07in; }
             body { color: #000; font-family: "Times New Roman", serif; font-size: 12px; overflow-x: auto; }
             .registry-wrap { max-width: 1560px; margin: 0 auto; }
             .appendix { text-align: right; font-style: italic; font-size: 14px; margin-bottom: 24px; }
@@ -292,7 +292,8 @@ if ($isPrint) {
             .registry-table tbody td { height: 24px; }
             @media screen and (max-width: 991.98px) { .registry-wrap { min-width: 1320px; padding-bottom: 1rem; } }
             @media print { .no-print { display: none !important; } }
-        </style>
+        
+            <?php echo print_page_number_css(); ?></style>
     </head>
     <body>
     <div class="registry-wrap py-3">
@@ -363,7 +364,8 @@ if ($isPrint) {
             </table>
         </div>
     </div>
-    </body>
+    
+<?php render_print_page_number(); ?></body>
     </html>
     <?php
     exit;
