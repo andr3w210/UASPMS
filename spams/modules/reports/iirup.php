@@ -10,20 +10,28 @@ $asOf = trim((string) ($_GET['as_of'] ?? date('Y-m-d')));
 $isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $isExport = isset($_GET['export']) && $_GET['export'] === 'excel';
 $unserviceableReasonSql = "'" . implode("','", disposal_unserviceable_reason_filters()) . "'";
+$hasAccountDefaultUsefulLifeYears = $db ? schema_has_column($db, 'account_codes', 'default_useful_life_years') : false;
 
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
+    $accountDefaultSelect = $hasAccountDefaultUsefulLifeYears
+        ? 'ac.default_useful_life_years AS account_default_useful_life_years,'
+        : 'NULL AS account_default_useful_life_years,';
+
     $sql = "
         SELECT
             dp.disposal_date,
             dp.reason,
             did.property_number,
             ri.unit_cost,
+            ri.unit_cost AS acquisition_cost,
             r.received_date AS date_acquired,
             poi.item_description,
             c.classification_name,
             c.classification_family,
+            c.useful_life_years AS classification_useful_life_years,
+            {$accountDefaultSelect}
             f.fund_code,
             f.fund_source
         FROM disposals dp
@@ -33,6 +41,7 @@ if (!$db) {
         INNER JOIN receivings r ON r.id = ri.receiving_id
         INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id AND poi.item_type = 'equipment'
         INNER JOIN purchase_orders po ON po.id = r.purchase_order_id
+        LEFT JOIN account_codes ac ON ac.id = poi.account_code_id
         LEFT JOIN funds f ON f.id = po.fund_id
         LEFT JOIN classifications c ON c.id = poi.classification_id
         WHERE dp.status = 'posted'
@@ -67,9 +76,27 @@ function iirup_fund_number(?string $fundCode, ?string $fundSource = null): strin
 
 $rowCount = count($rows);
 $totalValue = 0.0;
-foreach ($rows as $row) {
+$totalCarryingAmount = 0.0;
+foreach ($rows as $index => $row) {
     $totalValue += (float) ($row['unit_cost'] ?? 0);
-    $row['fund_number'] = iirup_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
+
+    $usefulLifeYears = resolve_effective_useful_life_years(
+        $row['classification_useful_life_years'] ?? null,
+        $row['account_default_useful_life_years'] ?? null
+    );
+
+    $depreciation = calculate_accumulated_depreciation(
+        (float) ($row['acquisition_cost'] ?? 0),
+        (string) ($row['date_acquired'] ?? ''),
+        $usefulLifeYears,
+        $asOf
+    );
+
+    $rows[$index]['fund_number'] = iirup_fund_number($row['fund_code'] ?? '', $row['fund_source'] ?? '');
+    $rows[$index]['effective_useful_life_years'] = $usefulLifeYears;
+    $rows[$index]['accumulated_depreciation'] = $depreciation['accumulated_depreciation'];
+    $rows[$index]['carrying_amount'] = $depreciation['carrying_amount'];
+    $totalCarryingAmount += (float) $depreciation['carrying_amount'];
 }
 
 if ($isExport) {
@@ -82,9 +109,9 @@ if ($isExport) {
             '1',
             number_format((float) ($row['unit_cost'] ?? 0), 2),
             number_format((float) ($row['unit_cost'] ?? 0), 2),
+            number_format((float) ($row['accumulated_depreciation'] ?? 0), 2),
             '',
-            '',
-            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            number_format((float) ($row['carrying_amount'] ?? 0), 2),
             disposal_reason_label($row['reason'] ?? ''),
             disposal_reason_label($row['reason'] ?? ''),
         ];
@@ -103,7 +130,7 @@ if ($isPrint) {
     <div class="container-fluid py-3">
         <?php render_print_action_bar(); ?>
         <?php render_simple_report_header('Appendix 74', 'Inventory and Inspection Report of Unserviceable Property', !empty($asOf) ? date('M d, Y', strtotime($asOf)) : '', $reportFundCluster); ?>
-        <table class="table table-bordered align-middle"><thead><tr><th>Date Acquired</th><th>Particulars / Articles</th><th>Property No.</th><th class="text-end">Qty</th><th class="text-end">Unit Cost</th><th class="text-end">Total Cost</th><th class="text-end">Accumulated Depreciation</th><th class="text-end">Accumulated Impairment Losses</th><th class="text-end">Carrying Amount</th><th>Reason (COA)</th><th>Disposal Classification</th></tr></thead><tbody><?php if ($rows): foreach ($rows as $row): ?><tr><td><?php echo h(format_date($row['date_acquired'] ?? null)); ?></td><td><?php echo h(iirup_label($row)); ?></td><td><?php echo h($row['property_number'] ?? ''); ?></td><td class="text-end">1.00</td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td class="text-end"></td><td class="text-end"></td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td><?php echo h(disposal_reason_label($row['reason'] ?? '')); ?></td><td><?php echo h(disposal_reason_label($row['reason'] ?? '')); ?></td></tr><?php endforeach; else: ?><tr><td colspan="11" class="text-center text-muted py-4">No unserviceable property found.</td></tr><?php endif; ?></tbody><tfoot><tr><th colspan="8" class="text-end">Total Carrying Amount</th><th class="text-end"><?php echo h(number_format($totalValue, 2)); ?></th><th colspan="2"></th></tr></tfoot></table>
+        <table class="table table-bordered align-middle"><thead><tr><th>Date Acquired</th><th>Particulars / Articles</th><th>Property No.</th><th class="text-end">Qty</th><th class="text-end">Unit Cost</th><th class="text-end">Total Cost</th><th class="text-end">Accumulated Depreciation</th><th class="text-end">Accumulated Impairment Losses</th><th class="text-end">Carrying Amount</th><th>Reason (COA)</th><th>Disposal Classification</th></tr></thead><tbody><?php if ($rows): foreach ($rows as $row): ?><tr><td><?php echo h(format_date($row['date_acquired'] ?? null)); ?></td><td><?php echo h(iirup_label($row)); ?></td><td><?php echo h($row['property_number'] ?? ''); ?></td><td class="text-end">1.00</td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td class="text-end"><?php echo h(number_format((float) ($row['accumulated_depreciation'] ?? 0), 2)); ?></td><td class="text-end"></td><td class="text-end"><?php echo h(number_format((float) ($row['carrying_amount'] ?? 0), 2)); ?></td><td><?php echo h(disposal_reason_label($row['reason'] ?? '')); ?></td><td><?php echo h(disposal_reason_label($row['reason'] ?? '')); ?></td></tr><?php endforeach; else: ?><tr><td colspan="11" class="text-center text-muted py-4">No unserviceable property found.</td></tr><?php endif; ?></tbody><tfoot><tr><th colspan="8" class="text-end">Total Carrying Amount</th><th class="text-end"><?php echo h(number_format($totalCarryingAmount, 2)); ?></th><th colspan="2"></th></tr></tfoot></table>
         <?php render_inventory_committee_signature_grid('sign-table mt-3'); ?>
     </div>
 <?php render_print_page_number(); ?></body></html>
@@ -116,7 +143,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 <section class="row g-4"><div class="col-12"><div class="card"><div class="card-body p-4">
 <div class="report-page-shell">
 <div class="report-toolbar"><div><h5 class="report-toolbar-title mb-0">IIRUP</h5><p class="report-toolbar-copy">Review disposed and unserviceable equipment before printing the official Inventory and Inspection Report of Unserviceable Property.</p></div><div class="report-toolbar-actions"><a href="<?php echo h(base_url('modules/reports/iirup.php?as_of=' . urlencode($asOf) . '&export=excel')); ?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</a><a href="<?php echo h(base_url('modules/reports/iirup.php?as_of=' . urlencode($asOf) . '&print=1')); ?>" class="btn btn-primary" target="_blank"><i class="bi bi-printer me-1"></i>Print</a></div></div>
-<div class="report-summary-grid"><div class="report-summary-card"><div class="report-summary-label">Loaded Assets</div><div class="report-summary-value"><?php echo number_format($rowCount); ?></div><div class="report-summary-note">Unserviceable equipment in the current IIRUP view.</div></div><div class="report-summary-card"><div class="report-summary-label">Book Value</div><div class="report-summary-value"><?php echo number_format($totalValue, 2); ?></div><div class="report-summary-note">Total unit cost currently reflected in the result.</div></div><div class="report-summary-card"><div class="report-summary-label">Cutoff Date</div><div class="report-summary-value"><?php echo h(!empty($asOf) ? date('M d, Y', strtotime($asOf)) : '-'); ?></div><div class="report-summary-note">Reference date for the printout header.</div></div></div>
+<div class="report-summary-grid"><div class="report-summary-card"><div class="report-summary-label">Loaded Assets</div><div class="report-summary-value"><?php echo number_format($rowCount); ?></div><div class="report-summary-note">Unserviceable equipment in the current IIRUP view.</div></div><div class="report-summary-card"><div class="report-summary-label">Carrying Amount</div><div class="report-summary-value"><?php echo number_format($totalCarryingAmount, 2); ?></div><div class="report-summary-note">As-of carrying amount after accumulated depreciation.</div></div><div class="report-summary-card"><div class="report-summary-label">Cutoff Date</div><div class="report-summary-value"><?php echo h(!empty($asOf) ? date('M d, Y', strtotime($asOf)) : '-'); ?></div><div class="report-summary-note">Reference date for the printout header.</div></div></div>
 <?php if ($errors): ?><div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
 <div class="report-filter-card"><h6 class="report-filter-title">Filter Report</h6><form method="get" class="row g-3 align-items-end"><div class="col-md-4"><label class="form-label">As Of</label><input type="date" class="form-control" name="as_of" value="<?php echo h($asOf); ?>"></div><div class="col-md-8 d-flex gap-2"><button type="submit" class="btn btn-primary">Load Report</button><a href="<?php echo base_url('modules/reports/iirup.php'); ?>" class="btn btn-outline-secondary">Reset</a></div></form></div>
 <div class="report-table-card table-responsive"><table class="table align-middle"><thead><tr><th>Date Acquired</th><th>Articles</th><th>Property No.</th><th class="text-end">Unit Cost</th><th>Reason (COA)</th><th>Disposal Classification</th></tr></thead><tbody><?php if ($rows): foreach ($rows as $row): ?><tr><td><?php echo h(format_date($row['date_acquired'] ?? null)); ?></td><td><?php echo h(iirup_label($row)); ?></td><td><?php echo h($row['property_number'] ?? ''); ?></td><td class="text-end"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td><td><?php echo h(disposal_reason_label($row['reason'] ?? '')); ?></td><td><?php echo h(disposal_reason_label($row['reason'] ?? '')); ?></td></tr><?php endforeach; else: ?><tr><td colspan="6" class="text-center text-muted py-4">No unserviceable property found.</td></tr><?php endif; ?></tbody><tfoot><tr><th colspan="3" class="text-end">Total</th><th class="text-end"><?php echo h(number_format($totalValue, 2)); ?></th><th colspan="2"></th></tr></tfoot></table></div>

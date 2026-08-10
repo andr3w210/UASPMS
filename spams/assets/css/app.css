@@ -3807,6 +3807,10 @@ body.auth-login-page .footer {
         overflow-y: auto;
     }
 
+    body.toggle-sidebar .sidebar-spotlight {
+        display: none !important;
+    }
+
     body.toggle-sidebar .main {
         margin-left: 85px;
     }

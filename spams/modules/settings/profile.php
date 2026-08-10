@@ -16,6 +16,33 @@ $form = [
 ];
 $employeeProfile = [];
 $officeAssignments = [];
+$myAssets = [];
+$myAssetsSummary = [
+    'total' => 0,
+    'system' => 0,
+    'legacy' => 0,
+    'for_reconciliation' => 0,
+];
+
+function profile_asset_status_label(string $status): string
+{
+    return $status === 'for_reconciliation' ? 'For Reconciliation' : 'Active';
+}
+
+function profile_asset_status_badge(string $status): string
+{
+    return $status === 'for_reconciliation' ? 'text-bg-warning' : 'text-bg-success';
+}
+
+function profile_asset_source_label(string $source): string
+{
+    return $source === 'legacy' ? 'Beginning Balance' : 'System Transaction';
+}
+
+function profile_asset_type_label(string $itemType): string
+{
+    return $itemType === 'semi_expendable' ? 'Semi-Expendable' : 'Equipment';
+}
 
 function profile_accountability_counts(mysqli $db, int $officeId): array
 {
@@ -115,6 +142,78 @@ if (!$db) {
                     $assignment['accountability_counts'] = profile_accountability_counts($db, (int) ($assignment['office_id'] ?? 0));
                 }
                 unset($assignment);
+
+                if (function_exists('ensure_legacy_assets_accountability_tracking_columns')) {
+                    ensure_legacy_assets_accountability_tracking_columns($db);
+                }
+
+                $assetSql = "
+                    SELECT *
+                    FROM (
+                        SELECT
+                            did.id AS asset_id,
+                            'system' AS source_type,
+                            did.property_number,
+                            COALESCE(NULLIF(ri.actual_item_description, ''), poi.item_description) AS particulars,
+                            c.classification_name,
+                            c.classification_family,
+                            r.received_date AS date_acquired,
+                            ri.unit_cost,
+                            'active' AS accountability_status,
+                            poi.item_type
+                        FROM distribution_item_details did
+                        INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+                        INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
+                        INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
+                        INNER JOIN receivings r ON r.id = ri.receiving_id
+                        INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+                        LEFT JOIN classifications c ON c.id = poi.classification_id
+                        WHERE did.current_employee_id = ?
+                          AND did.is_distributed = 1
+                          AND (did.is_disposed IS NULL OR did.is_disposed = 0)
+                          AND poi.item_type IN ('equipment', 'semi_expendable')
+
+                        UNION ALL
+
+                        SELECT
+                            la.id AS asset_id,
+                            'legacy' AS source_type,
+                            la.property_number,
+                            la.item_description AS particulars,
+                            c.classification_name,
+                            c.classification_family,
+                            la.acquisition_date AS date_acquired,
+                            la.acquisition_cost AS unit_cost,
+                            COALESCE(la.accountability_status, 'active') AS accountability_status,
+                            la.item_type
+                        FROM legacy_assets la
+                        LEFT JOIN classifications c ON c.id = la.classification_id
+                        WHERE la.employee_id = ?
+                          AND la.is_active = 1
+                          AND la.item_type IN ('equipment', 'semi_expendable')
+                    ) profile_assets
+                    ORDER BY date_acquired DESC, property_number ASC, asset_id DESC
+                ";
+
+                $assetStmt = $db->prepare($assetSql);
+                if ($assetStmt) {
+                    $assetStmt->bind_param('ii', $employeeId, $employeeId);
+                    $assetStmt->execute();
+                    $myAssets = $assetStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                    $assetStmt->close();
+
+                    foreach ($myAssets as $assetRow) {
+                        $myAssetsSummary['total']++;
+                        if (($assetRow['source_type'] ?? '') === 'legacy') {
+                            $myAssetsSummary['legacy']++;
+                        } else {
+                            $myAssetsSummary['system']++;
+                        }
+                        if (($assetRow['accountability_status'] ?? 'active') === 'for_reconciliation') {
+                            $myAssetsSummary['for_reconciliation']++;
+                        }
+                    }
+                }
             }
         } else {
             $errors[] = 'Unable to load your account record.';
@@ -232,10 +331,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
             <div class="card shadow-sm border-0 mb-4">
                 <div class="card-body p-4 p-lg-5">
-                    <div class="mb-4">
-                        <div class="text-uppercase small text-muted fw-semibold">Account Profile</div>
-                        <h4 class="mb-2"><?php echo h($profileTitle); ?></h4>
-                        <p class="text-muted mb-0">Update your display details and profile photo used across the system header.</p>
+                    <div class="mb-4 d-flex justify-content-between align-items-start flex-wrap gap-2">
+                        <div>
+                            <div class="text-uppercase small text-muted fw-semibold">Account Profile</div>
+                            <h4 class="mb-2"><?php echo h($profileTitle); ?></h4>
+                            <p class="text-muted mb-0">Update your display details and profile photo used across the system header.</p>
+                        </div>
+                        <a href="#my-assets-section" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-box-seam me-1"></i>Open My Assets
+                        </a>
                     </div>
 
                     <form method="post" enctype="multipart/form-data">
@@ -369,8 +473,191 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <?php endif; ?>
                 </div>
             </div>
+
+            <div class="card shadow-sm border-0 mt-4" id="my-assets-section">
+                <div class="card-body p-4 p-lg-5">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+                        <div>
+                            <div class="text-uppercase small text-muted fw-semibold">Personal Accountability</div>
+                            <h4 class="mb-2">My Assets</h4>
+                            <p class="text-muted mb-0">Every asset currently assigned to your linked employee profile.</p>
+                        </div>
+                        <?php if ($employeeProfile): ?>
+                            <div class="text-lg-end">
+                                <div class="fw-semibold"><?php echo h($employeeProfile['name'] ?: $form['full_name']); ?></div>
+                                <div class="small text-muted"><?php echo h($employeeProfile['employee_no']); ?></div>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <?php if (!$employeeProfile): ?>
+                        <div class="alert alert-info mb-0">
+                            No linked employee record found for this user account. Ask an administrator to map your account through users.employee_id to view your itemized assets.
+                        </div>
+                    <?php elseif (!$myAssets): ?>
+                        <div class="alert alert-info mb-0">
+                            You currently have no accountable assets in system-distributed or beginning-balance records.
+                        </div>
+                    <?php else: ?>
+                        <div class="row g-3 mb-4">
+                            <div class="col-sm-6 col-xl-3">
+                                <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                                    <div class="small text-muted">Total Assets</div>
+                                    <div class="fs-4 fw-semibold"><?php echo number_format((int) ($myAssetsSummary['total'] ?? 0)); ?></div>
+                                </div>
+                            </div>
+                            <div class="col-sm-6 col-xl-3">
+                                <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                                    <div class="small text-muted">System Transactions</div>
+                                    <div class="fs-4 fw-semibold"><?php echo number_format((int) ($myAssetsSummary['system'] ?? 0)); ?></div>
+                                </div>
+                            </div>
+                            <div class="col-sm-6 col-xl-3">
+                                <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                                    <div class="small text-muted">Beginning Balance</div>
+                                    <div class="fs-4 fw-semibold"><?php echo number_format((int) ($myAssetsSummary['legacy'] ?? 0)); ?></div>
+                                </div>
+                            </div>
+                            <div class="col-sm-6 col-xl-3">
+                                <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                                    <div class="small text-muted">For Reconciliation</div>
+                                    <div class="fs-4 fw-semibold text-warning"><?php echo number_format((int) ($myAssetsSummary['for_reconciliation'] ?? 0)); ?></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="master-data-toolbar mb-3">
+                            <div class="row g-3 align-items-end">
+                                <div class="col-lg-4">
+                                    <label class="form-label">Search</label>
+                                    <input type="search" id="tableSearch" class="form-control" placeholder="Property no., particulars, classification...">
+                                </div>
+                                <div class="col-sm-6 col-lg-2">
+                                    <label class="form-label">Rows Per Page</label>
+                                    <select id="perPageSelect" class="form-select">
+                                        <option value="25" selected>25 rows</option>
+                                        <option value="50">50 rows</option>
+                                        <option value="100">100 rows</option>
+                                    </select>
+                                </div>
+                                <div class="col-sm-6 col-lg-2">
+                                    <label class="form-label">Source</label>
+                                    <select id="myAssetsSourceFilter" class="form-select">
+                                        <option value="">All sources</option>
+                                        <option value="system">System Transaction</option>
+                                        <option value="legacy">Beginning Balance</option>
+                                    </select>
+                                </div>
+                                <div class="col-sm-6 col-lg-2">
+                                    <label class="form-label">Status</label>
+                                    <select id="myAssetsStatusFilter" class="form-select">
+                                        <option value="">All statuses</option>
+                                        <option value="active">Active</option>
+                                        <option value="for_reconciliation">For Reconciliation</option>
+                                    </select>
+                                </div>
+                                <div class="col-sm-6 col-lg-2 d-grid">
+                                    <button class="btn btn-outline-secondary" type="button" id="clearFilters"><i class="bi bi-arrow-counterclockwise me-1"></i>Clear</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive mobile-table-frame master-data-table-scroll">
+                            <table class="table table-sm align-middle" id="myAssetsTable">
+                                <thead>
+                                    <tr>
+                                        <th data-sort="property">Property Number <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                        <th data-sort="particulars">Description / Particulars <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                        <th data-sort="classification">Classification <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                        <th data-sort="acquired">Date Acquired <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                        <th class="text-end" data-sort="cost">Unit Cost <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                        <th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                        <th data-sort="source">Source <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                                        <th class="text-end">Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($myAssets as $assetRow): ?>
+                                        <?php
+                                        $classificationLabel = trim(implode(' / ', array_filter([
+                                            trim((string) ($assetRow['classification_family'] ?? '')),
+                                            trim((string) ($assetRow['classification_name'] ?? '')),
+                                        ])));
+                                        $assetStatus = (string) ($assetRow['accountability_status'] ?? 'active');
+                                        $assetSource = (string) ($assetRow['source_type'] ?? 'system');
+                                        $assetType = (string) ($assetRow['item_type'] ?? 'equipment');
+                                        $assetViewUrl = base_url('modules/property/view.php?source=' . urlencode($assetSource) . '&id=' . (int) ($assetRow['asset_id'] ?? 0));
+                                        ?>
+                                        <tr
+                                            data-source="<?php echo h($assetSource); ?>"
+                                            data-status="<?php echo h($assetStatus); ?>"
+                                        >
+                                            <td class="fw-semibold"><?php echo h((string) ($assetRow['property_number'] ?? '')); ?></td>
+                                            <td>
+                                                <div><?php echo h((string) ($assetRow['particulars'] ?? '')); ?></div>
+                                                <div class="small text-muted"><?php echo h(profile_asset_type_label($assetType)); ?></div>
+                                            </td>
+                                            <td><?php echo h($classificationLabel !== '' ? $classificationLabel : 'Unclassified'); ?></td>
+                                            <td><?php echo h(!empty($assetRow['date_acquired']) ? date('M d, Y', strtotime((string) $assetRow['date_acquired'])) : '-'); ?></td>
+                                            <td class="text-end"><?php echo h(number_format((float) ($assetRow['unit_cost'] ?? 0), 2)); ?></td>
+                                            <td>
+                                                <span class="badge <?php echo h(profile_asset_status_badge($assetStatus)); ?>">
+                                                    <?php echo h(profile_asset_status_label($assetStatus)); ?>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="badge <?php echo $assetSource === 'legacy' ? 'text-bg-secondary' : 'text-bg-light border'; ?>">
+                                                    <?php echo h(profile_asset_source_label($assetSource)); ?>
+                                                </span>
+                                            </td>
+                                            <td class="text-end">
+                                                <a href="<?php echo h($assetViewUrl); ?>" class="btn btn-sm btn-outline-primary">Open Asset</a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="master-data-pagination mt-3">
+                            <div id="recordCount" class="master-data-pagination-meta">Showing <?php echo count($myAssets); ?> of <?php echo count($myAssets); ?> assets</div>
+                            <div class="master-data-pagination-controls">
+                                <button class="btn btn-sm btn-outline-secondary" id="prevPage" type="button">Previous</button>
+                                <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
+                                <button class="btn btn-sm btn-outline-secondary" id="nextPage" type="button">Next</button>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
         </div>
     </div>
 </section>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (typeof initDataTable !== 'function') {
+        return;
+    }
+
+    initDataTable('myAssetsTable', {
+        clearButtonId: 'clearFilters',
+        extraFilterIds: ['myAssetsSourceFilter', 'myAssetsStatusFilter'],
+        recordCountFormatter: function (state) {
+            return 'Showing ' + state.totalVisible + ' of ' + state.totalOverall + ' assets';
+        },
+        pageInfoFormatter: function (state) {
+            return 'Page ' + state.currentPage + ' of ' + state.totalPages;
+        },
+        rowFilter: function (row, state) {
+            var source = state.extraFilters.myAssetsSourceFilter || '';
+            var status = state.extraFilters.myAssetsStatusFilter || '';
+            var sourceMatch = !source || (row.dataset.source || '') === source;
+            var statusMatch = !status || (row.dataset.status || '') === status;
+            return sourceMatch && statusMatch;
+        }
+    });
+});
+</script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

@@ -824,6 +824,86 @@ function classification_default_useful_life_years(mysqli $db, ?int $accountCodeI
     return account_code_default_useful_life_years($accountCode, $accountGroup);
 }
 
+function resolve_effective_useful_life_years($classificationUsefulLifeYears, $accountDefaultUsefulLifeYears): ?int
+{
+    $classificationLife = (int) ($classificationUsefulLifeYears ?? 0);
+    if ($classificationLife > 0) {
+        return $classificationLife;
+    }
+
+    $accountLife = (int) ($accountDefaultUsefulLifeYears ?? 0);
+    if ($accountLife > 0) {
+        return $accountLife;
+    }
+
+    return null;
+}
+
+function calculate_accumulated_depreciation($acquisitionCost, $acquisitionDate, $usefulLifeYears, $asOfDate): array
+{
+    $cost = (float) ($acquisitionCost ?? 0);
+    $lifeYears = (int) ($usefulLifeYears ?? 0);
+    $defaultResult = [
+        'accumulated_depreciation' => 0.0,
+        'carrying_amount' => round(max($cost, 0.0), 2),
+        'salvage_value' => round(max($cost, 0.0) * 0.10, 2),
+        'depreciable_base' => 0.0,
+        'monthly_depreciation' => 0.0,
+        'depreciated_months' => 0,
+    ];
+
+    if ($cost <= 0 || $lifeYears <= 0) {
+        return $defaultResult;
+    }
+
+    $acquiredAt = date_create_immutable((string) $acquisitionDate);
+    $asOfAt = date_create_immutable((string) $asOfDate);
+    if (!$acquiredAt || !$asOfAt) {
+        return $defaultResult;
+    }
+
+    $salvageValue = round($cost * 0.10, 2);
+    $depreciableBase = max($cost - $salvageValue, 0.0);
+    if ($depreciableBase <= 0) {
+        return [
+            'accumulated_depreciation' => 0.0,
+            'carrying_amount' => round($cost, 2),
+            'salvage_value' => $salvageValue,
+            'depreciable_base' => 0.0,
+            'monthly_depreciation' => 0.0,
+            'depreciated_months' => 0,
+        ];
+    }
+
+    $lifeMonths = max(1, $lifeYears * 12);
+    $monthlyDepreciation = $depreciableBase / $lifeMonths;
+
+    $depreciationStartMonth = $acquiredAt
+        ->modify('first day of this month')
+        ->modify('+1 month');
+    $asOfMonth = $asOfAt->modify('first day of this month');
+
+    $monthsElapsed = 0;
+    if ($asOfMonth >= $depreciationStartMonth) {
+        $yearDelta = ((int) $asOfMonth->format('Y')) - ((int) $depreciationStartMonth->format('Y'));
+        $monthDelta = ((int) $asOfMonth->format('n')) - ((int) $depreciationStartMonth->format('n'));
+        $monthsElapsed = ($yearDelta * 12) + $monthDelta + 1;
+    }
+
+    $monthsToDepreciate = min(max($monthsElapsed, 0), $lifeMonths);
+    $accumulated = min($depreciableBase, $monthlyDepreciation * $monthsToDepreciate);
+    $carrying = max($salvageValue, $cost - $accumulated);
+
+    return [
+        'accumulated_depreciation' => round($accumulated, 2),
+        'carrying_amount' => round($carrying, 2),
+        'salvage_value' => $salvageValue,
+        'depreciable_base' => round($depreciableBase, 2),
+        'monthly_depreciation' => round($monthlyDepreciation, 8),
+        'depreciated_months' => $monthsToDepreciate,
+    ];
+}
+
 function csrf_token(): string
 {
     if (!isset($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token']) || $_SESSION['csrf_token'] === '') {
