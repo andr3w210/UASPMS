@@ -102,6 +102,9 @@ android/app/build/
 
 # PHP Composer (if used in future)
 vendor/
+!spams/assets/js/vendor/
+!spams/assets/js/vendor/README.md
+!spams/assets/js/vendor/html5-qrcode-2.3.8.min.js
 
 # OS/editor noise
 .DS_Store

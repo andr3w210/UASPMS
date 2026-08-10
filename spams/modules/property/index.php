@@ -911,10 +911,24 @@ if ($dateFrom !== '' || $dateTo !== '') {
                         </div>
                     <?php endif; ?>
 
-                <div class="table-responsive mobile-table-frame asset-registry-table-frame workspace-filter-panel" id="assetRegistryTableFrame">
+                <form method="get" action="<?php echo h(base_url('modules/property/tags.php')); ?>" target="_blank" class="mb-0" id="propertyRegistryBulkQrForm">
+                    <input type="hidden" name="bulk" value="1">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 p-3 border rounded bg-light">
+                        <div class="small text-muted">Select rows to open their QR tags in a single print batch.</div>
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <label class="small mb-0" style="cursor:pointer;">
+                                <input type="checkbox" id="selectAllRegistryAssets" class="me-1"> Select all visible rows
+                            </label>
+                            <button type="submit" class="btn btn-sm btn-primary">
+                                <i class="bi bi-printer me-1"></i>Open Selected QR Tags
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-responsive mobile-table-frame asset-registry-table-frame workspace-filter-panel" id="assetRegistryTableFrame">
                     <table class="table table-sm align-middle" id="assetRegistryTable" data-no-table-search>
                         <thead>
                             <tr>
+                                <th style="width: 42px;"><span class="visually-hidden">Select</span></th>
                                 <th class="asset-col-primary" style="min-width: 180px;">Asset</th>
                                 <th class="asset-col-classification" style="min-width: 300px;">Asset Details</th>
                                 <th class="asset-col-item-details" style="min-width: 180px;">Item Details</th>
@@ -929,6 +943,9 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                 <?php foreach ($rows as $row): ?>
                                     <?php
                                     $classificationText = trim((string) ($row['classification_name'] ?? ''));
+                                    $rowSourceType = (string) ($row['source_type'] ?? 'system');
+                                    $rowDetailId = (int) ($row['detail_id'] ?? 0);
+                                    $rowCheckboxValue = $rowSourceType === 'legacy' ? 'legacy:' . $rowDetailId : 'system:' . $rowDetailId;
                                     $classificationLabel = trim((!empty($row['classification_family']) ? $row['classification_family'] . ' / ' : '') . $classificationText);
                                     $brandModel = trim(trim((string) ($row['brand'] ?? '')) . ' ' . trim((string) ($row['model'] ?? '')));
                                     $descriptionFull = trim((string) ($row['description'] ?? ''));
@@ -958,6 +975,9 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                         : 'text-bg-light';
                                     ?>
                                     <tr class="asset-registry-row">
+                                        <td>
+                                            <input class="form-check-input registry-asset-checkbox" type="checkbox" name="asset_ids[]" value="<?php echo h($rowCheckboxValue); ?>" aria-label="Select <?php echo h((string) ($row['property_no'] ?? '')); ?>">
+                                        </td>
                                         <td class="asset-registry-cell-primary asset-col-primary">
                                             <div class="asset-registry-primary"><?php echo h($row['property_no'] ?? ''); ?></div>
                                             <?php if (($row['item_type'] ?? '') === 'semi_expendable'): ?>
@@ -1036,7 +1056,8 @@ if ($dateFrom !== '' || $dateTo !== '') {
                             <?php endif; ?>
                         </tbody>
                     </table>
-                </div>
+                    </div>
+                </form>
 
                 <?php if ($shouldShowPagination): ?>
                     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
@@ -1054,6 +1075,24 @@ if ($dateFrom !== '' || $dateTo !== '') {
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    var selectAllRegistryAssets = document.getElementById('selectAllRegistryAssets');
+    var registryAssetCheckboxes = Array.prototype.slice.call(document.querySelectorAll('.registry-asset-checkbox'));
+    if (selectAllRegistryAssets) {
+        selectAllRegistryAssets.addEventListener('change', function () {
+            registryAssetCheckboxes.forEach(function (checkbox) {
+                checkbox.checked = selectAllRegistryAssets.checked;
+            });
+        });
+    }
+
+    registryAssetCheckboxes.forEach(function (checkbox) {
+        checkbox.addEventListener('change', function () {
+            if (!checkbox.checked && selectAllRegistryAssets) {
+                selectAllRegistryAssets.checked = false;
+            }
+        });
+    });
+
     var form = document.getElementById('registryFiltersForm');
     if (form) {
         var pageField = document.getElementById('registryPageReset');

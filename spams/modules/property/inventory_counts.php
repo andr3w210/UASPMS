@@ -11,6 +11,10 @@ $locationOptions = [];
 $sessions = [];
 $selectedSession = null;
 $sessionItems = [];
+$checklistPerPage = 100;
+$checklistPage = max(1, (int) ($_GET['page'] ?? 1));
+$checklistTotal = 0;
+$checklistTotalPages = 0;
 $sessionStats = [
     'total' => 0,
     'pending' => 0,
@@ -45,6 +49,7 @@ function build_inventory_count_url(array $overrides = []): string
         'status' => $_GET['status'] ?? '',
         'highlight_item_id' => $_GET['highlight_item_id'] ?? '',
         'scan_feedback' => $_GET['scan_feedback'] ?? '',
+        'page' => $_GET['page'] ?? '',
     ];
 
     foreach ($overrides as $key => $value) {
@@ -79,6 +84,32 @@ function inventory_parse_coordinate(string $value, float $min, float $max): ?flo
     }
 
     return round($number, 7);
+}
+
+function render_inventory_count_pagination(int $page, int $totalPages): string
+{
+    $startPage = max(1, $page - 2);
+    $endPage = min($totalPages, $page + 2);
+
+    ob_start();
+    ?>
+    <nav aria-label="Count checklist pagination">
+        <ul class="pagination pagination-sm mb-0">
+            <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
+                <a class="page-link" href="<?php echo $page <= 1 ? '#' : h(build_inventory_count_url(['page' => $page - 1])); ?>">Previous</a>
+            </li>
+            <?php for ($pageNumber = $startPage; $pageNumber <= $endPage; $pageNumber++): ?>
+                <li class="page-item <?php echo $pageNumber === $page ? 'active' : ''; ?>">
+                    <a class="page-link" href="<?php echo h(build_inventory_count_url(['page' => $pageNumber])); ?>"><?php echo $pageNumber; ?></a>
+                </li>
+            <?php endfor; ?>
+            <li class="page-item <?php echo $page >= $totalPages ? 'disabled' : ''; ?>">
+                <a class="page-link" href="<?php echo $page >= $totalPages ? '#' : h(build_inventory_count_url(['page' => $page + 1])); ?>">Next</a>
+            </li>
+        </ul>
+    </nav>
+    <?php
+    return (string) ob_get_clean();
 }
 
 function inventory_location_code_from_name(mysqli $db, string $locationName): string
@@ -129,8 +160,248 @@ function extract_scanned_property_reference(string $rawValue): string
     return $rawValue;
 }
 
+function inventory_count_latest_update_message(mysqli $db, int $itemId): string
+{
+    $auditStmt = $db->prepare("SELECT COALESCE(NULLIF(u.full_name, ''), u.username) AS updated_by FROM audit_logs al LEFT JOIN users u ON u.id = al.user_id WHERE al.table_name = 'inventory_count_items' AND al.record_id = ? ORDER BY al.created_at DESC, al.id DESC LIMIT 1");
+    $auditRow = null;
+    if ($auditStmt) {
+        $auditStmt->bind_param('i', $itemId);
+        $auditStmt->execute();
+        $auditRow = $auditStmt->get_result()->fetch_assoc();
+        $auditStmt->close();
+    }
+
+    $updatedBy = trim((string) ($auditRow['updated_by'] ?? ''));
+    return $updatedBy !== ''
+        ? 'This item was already updated by ' . $updatedBy . '. Refresh the checklist before scanning it again.'
+        : 'This item was already updated. Refresh the checklist before scanning it again.';
+}
+
 if ($db) {
     ensure_asset_location_tracking_schema($db);
+
+    $ajaxAction = trim((string) ($_POST['action'] ?? ''));
+    $isAjaxScan = $_SERVER['REQUEST_METHOD'] === 'POST'
+        && in_array($ajaxAction, ['scan_asset', 'undo_scan_asset'], true)
+        && (($_GET['ajax'] ?? '') === '1' || strtolower((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest');
+
+    if ($isAjaxScan) {
+        header('Content-Type: application/json; charset=utf-8');
+
+        if (!csrf_verify()) {
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token.']);
+            exit;
+        }
+
+        if ($ajaxAction === 'undo_scan_asset') {
+            $sessionId = (int) ($_POST['session_id'] ?? 0);
+            $itemId = (int) ($_POST['item_id'] ?? 0);
+            $response = ['success' => false, 'error' => 'Unable to undo the scan.'];
+            $userId = current_user_id();
+            $itemStmt = $db->prepare('SELECT ici.id, ici.status, ici.property_number, ics.status AS session_status FROM inventory_count_items ici INNER JOIN inventory_count_sessions ics ON ics.id = ici.session_id WHERE ici.id = ? AND ici.session_id = ? LIMIT 1');
+            $itemRow = null;
+            if ($itemStmt) {
+                $itemStmt->bind_param('ii', $itemId, $sessionId);
+                $itemStmt->execute();
+                $itemRow = $itemStmt->get_result()->fetch_assoc();
+                $itemStmt->close();
+            }
+
+            if (!$itemRow) {
+                $response['error'] = 'Count item not found.';
+            } elseif (($itemRow['session_status'] ?? '') !== 'open') {
+                $response['error'] = 'This count session is already closed.';
+            } elseif (($itemRow['status'] ?? '') !== 'found') {
+                $response['error'] = 'This item is no longer marked as found and cannot be undone.';
+            } else {
+                $auditStmt = $db->prepare("SELECT old_values FROM audit_logs WHERE table_name = 'inventory_count_items' AND record_id = ? AND module_name = 'inventory_counts' AND action_name = 'scan_inventory_count_item' AND user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 10 SECOND) ORDER BY id DESC LIMIT 1");
+                $scanAudit = null;
+                if ($auditStmt) {
+                    $auditStmt->bind_param('ii', $itemId, $userId);
+                    $auditStmt->execute();
+                    $scanAudit = $auditStmt->get_result()->fetch_assoc();
+                    $auditStmt->close();
+                }
+                $oldValues = $scanAudit ? json_decode((string) ($scanAudit['old_values'] ?? ''), true) : null;
+                $recordedStatus = is_array($oldValues) ? (string) ($oldValues['status'] ?? '') : '';
+                $previousStatus = in_array($recordedStatus, ['pending', 'found', 'missing', 'for_repair', 'for_disposal', 'wrong_office', 'wrong_accountable'], true)
+                    ? $recordedStatus
+                    : '';
+
+                if (!$scanAudit || $previousStatus === '') {
+                    $response['error'] = 'The scan can no longer be undone.';
+                } else {
+                    $updateStmt = $db->prepare('UPDATE inventory_count_items SET status = ? WHERE id = ? AND session_id = ? AND status = \'found\'');
+                    if ($updateStmt) {
+                        $updateStmt->bind_param('sii', $previousStatus, $itemId, $sessionId);
+                        $undone = $updateStmt->execute() && $updateStmt->affected_rows > 0;
+                        $updateStmt->close();
+                        if ($undone) {
+                            write_audit_log($db, [
+                                'action' => 'update',
+                                'table_name' => 'inventory_count_items',
+                                'record_id' => $itemId,
+                                'module_name' => 'inventory_counts',
+                                'record_type' => 'inventory_count_item',
+                                'action_name' => 'undo_scan_inventory_count_item',
+                                'old_values' => ['status' => 'found'],
+                                'new_values' => ['status' => $previousStatus, 'property_number' => $itemRow['property_number']],
+                                'description' => 'Undid inventory count item scan.',
+                            ]);
+                            $statsStmt = $db->prepare("SELECT COUNT(*) AS total_count, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count, SUM(CASE WHEN status = 'found' THEN 1 ELSE 0 END) AS found_count, SUM(CASE WHEN status IN ('missing', 'for_repair', 'for_disposal', 'wrong_office', 'wrong_accountable') THEN 1 ELSE 0 END) AS exception_count FROM inventory_count_items WHERE session_id = ?");
+                            $stats = [];
+                            if ($statsStmt) {
+                                $statsStmt->bind_param('i', $sessionId);
+                                $statsStmt->execute();
+                                $stats = $statsStmt->get_result()->fetch_assoc() ?: [];
+                                $statsStmt->close();
+                            }
+                            $total = (int) ($stats['total_count'] ?? 0);
+                            $pending = (int) ($stats['pending_count'] ?? 0);
+                            $updatedAtStmt = $db->prepare('SELECT updated_at FROM inventory_count_items WHERE id = ? LIMIT 1');
+                            $updatedAt = '';
+                            if ($updatedAtStmt) {
+                                $updatedAtStmt->bind_param('i', $itemId);
+                                $updatedAtStmt->execute();
+                                $updatedAtRow = $updatedAtStmt->get_result()->fetch_assoc();
+                                $updatedAtStmt->close();
+                                $updatedAt = (string) ($updatedAtRow['updated_at'] ?? '');
+                            }
+                            $response = [
+                                'success' => true,
+                                'item' => ['id' => $itemId, 'property_number' => $itemRow['property_number'], 'status' => $previousStatus, 'updated_at' => $updatedAt],
+                                'stats' => ['total' => $total, 'pending' => $pending, 'found' => (int) ($stats['found_count'] ?? 0), 'exceptions' => (int) ($stats['exception_count'] ?? 0), 'completion_percent' => $total > 0 ? round((($total - $pending) / $total) * 100, 1) : 0],
+                            ];
+                        }
+                    }
+                }
+            }
+
+            echo json_encode($response);
+            exit;
+        }
+
+        $sessionId = (int) ($_POST['session_id'] ?? 0);
+        $propertyReference = extract_scanned_property_reference(trim((string) ($_POST['scan_value'] ?? '')));
+        $expectedUpdatedAt = trim((string) ($_POST['expected_updated_at'] ?? ''));
+        $response = ['success' => false, 'error' => 'Unable to mark scanned asset as found.'];
+
+        if ($sessionId <= 0) {
+            $response['error'] = 'Invalid count session.';
+        } elseif ($propertyReference === '') {
+            $response['error'] = 'Scan a QR code or enter a property number.';
+        } else {
+            $sessionStmt = $db->prepare('SELECT id, status FROM inventory_count_sessions WHERE id = ? LIMIT 1');
+            $sessionRow = null;
+            if ($sessionStmt) {
+                $sessionStmt->bind_param('i', $sessionId);
+                $sessionStmt->execute();
+                $sessionRow = $sessionStmt->get_result()->fetch_assoc();
+                $sessionStmt->close();
+            }
+
+            if (!$sessionRow) {
+                $response['error'] = 'Count session not found.';
+            } elseif (($sessionRow['status'] ?? '') !== 'open') {
+                $response['error'] = 'This count session is already closed.';
+            } else {
+                $matchStmt = $db->prepare('SELECT id, status, property_number, updated_at FROM inventory_count_items WHERE session_id = ? AND property_number = ? LIMIT 1');
+                $matchedItem = null;
+                if ($matchStmt) {
+                    $matchStmt->bind_param('is', $sessionId, $propertyReference);
+                    $matchStmt->execute();
+                    $matchedItem = $matchStmt->get_result()->fetch_assoc();
+                    $matchStmt->close();
+                }
+
+                if ($matchedItem && $expectedUpdatedAt !== '' && $expectedUpdatedAt !== (string) ($matchedItem['updated_at'] ?? '')) {
+                    $response = ['success' => false, 'conflict' => true, 'error' => inventory_count_latest_update_message($db, (int) $matchedItem['id'])];
+                } elseif ($matchedItem && ($matchedItem['status'] ?? '') === 'found') {
+                    $response['error'] = 'Scanned asset ' . $matchedItem['property_number'] . ' is already marked as found.';
+                } elseif ($matchedItem) {
+                    $userId = current_user_id();
+                    $updateSql = "UPDATE inventory_count_items SET status = 'found', checked_at = NOW(), checked_by = ?, remarks = CASE WHEN remarks IS NULL OR remarks = '' THEN 'Marked found via QR scan' ELSE remarks END WHERE id = ? AND session_id = ?";
+                    if ($expectedUpdatedAt !== '') {
+                        $updateSql .= ' AND updated_at = ?';
+                    }
+                    $updateStmt = $db->prepare($updateSql);
+                    if ($updateStmt) {
+                        $itemId = (int) $matchedItem['id'];
+                        if ($expectedUpdatedAt !== '') {
+                            $updateStmt->bind_param('iiis', $userId, $itemId, $sessionId, $expectedUpdatedAt);
+                        } else {
+                            $updateStmt->bind_param('iii', $userId, $itemId, $sessionId);
+                        }
+                        $updated = $updateStmt->execute() && $updateStmt->affected_rows > 0;
+                        $updateStmt->close();
+
+                        if ($updated) {
+                            write_audit_log($db, [
+                                'action' => 'update',
+                                'table_name' => 'inventory_count_items',
+                                'record_id' => $itemId,
+                                'module_name' => 'inventory_counts',
+                                'record_type' => 'inventory_count_item',
+                                'action_name' => 'scan_inventory_count_item',
+                                'old_values' => ['status' => $matchedItem['status'] ?? 'pending'],
+                                'new_values' => ['status' => 'found', 'property_number' => $matchedItem['property_number']],
+                                'description' => 'Marked inventory count item as found via QR scan.',
+                            ]);
+
+                            $statsStmt = $db->prepare("SELECT COUNT(*) AS total_count, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count, SUM(CASE WHEN status = 'found' THEN 1 ELSE 0 END) AS found_count, SUM(CASE WHEN status IN ('missing', 'for_repair', 'for_disposal', 'wrong_office', 'wrong_accountable') THEN 1 ELSE 0 END) AS exception_count FROM inventory_count_items WHERE session_id = ?");
+                            $stats = [];
+                            if ($statsStmt) {
+                                $statsStmt->bind_param('i', $sessionId);
+                                $statsStmt->execute();
+                                $stats = $statsStmt->get_result()->fetch_assoc() ?: [];
+                                $statsStmt->close();
+                            }
+
+                            $total = (int) ($stats['total_count'] ?? 0);
+                            $pending = (int) ($stats['pending_count'] ?? 0);
+                            $updatedAtStmt = $db->prepare('SELECT updated_at FROM inventory_count_items WHERE id = ? LIMIT 1');
+                            $updatedAt = '';
+                            if ($updatedAtStmt) {
+                                $updatedAtStmt->bind_param('i', $itemId);
+                                $updatedAtStmt->execute();
+                                $updatedAtRow = $updatedAtStmt->get_result()->fetch_assoc();
+                                $updatedAtStmt->close();
+                                $updatedAt = (string) ($updatedAtRow['updated_at'] ?? '');
+                            }
+                            $response = [
+                                'success' => true,
+                                'item' => ['id' => $itemId, 'property_number' => $matchedItem['property_number'], 'status' => 'found', 'updated_at' => $updatedAt],
+                                'stats' => [
+                                    'total' => $total,
+                                    'pending' => $pending,
+                                    'found' => (int) ($stats['found_count'] ?? 0),
+                                    'exceptions' => (int) ($stats['exception_count'] ?? 0),
+                                    'completion_percent' => $total > 0 ? round((($total - $pending) / $total) * 100, 1) : 0,
+                                ],
+                            ];
+                        } elseif ($expectedUpdatedAt !== '') {
+                            $response = ['success' => false, 'conflict' => true, 'error' => inventory_count_latest_update_message($db, $itemId)];
+                        }
+                    }
+                } else {
+                    $globalMatchStmt = $db->prepare("SELECT property_number, office_name FROM (SELECT did.property_number, COALESCE(curr_o.office_name, o.office_name) AS office_name FROM distribution_item_details did INNER JOIN distribution_items di ON di.id = did.distribution_item_id INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted' INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id LEFT JOIN offices o ON o.id = d.office_id LEFT JOIN offices curr_o ON curr_o.id = did.current_office_id WHERE did.property_number = ? AND did.is_distributed = 1 AND (did.is_disposed IS NULL OR did.is_disposed = 0) AND poi.item_type IN ('equipment', 'semi_expendable') UNION ALL SELECT la.property_number, o.office_name FROM legacy_assets la LEFT JOIN offices o ON o.id = la.office_id WHERE la.property_number = ? AND la.is_active = 1 AND la.item_type IN ('equipment', 'semi_expendable')) assets LIMIT 1");
+                    $globalMatch = null;
+                    if ($globalMatchStmt) {
+                        $globalMatchStmt->bind_param('ss', $propertyReference, $propertyReference);
+                        $globalMatchStmt->execute();
+                        $globalMatch = $globalMatchStmt->get_result()->fetch_assoc();
+                        $globalMatchStmt->close();
+                    }
+                    $response['error'] = $globalMatch
+                        ? 'Scanned asset ' . $propertyReference . ' exists, but it is not part of this office count session. Current office: ' . ($globalMatch['office_name'] ?: 'Unknown office') . '.'
+                        : 'Scanned asset ' . $propertyReference . ' was not found in active property records.';
+                }
+            }
+        }
+
+        echo json_encode($response);
+        exit;
+    }
 
     $officeResult = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($officeResult instanceof mysqli_result) {
@@ -996,6 +1267,30 @@ if ($db) {
         }
 
         if ($selectedSession) {
+            $countSql = 'SELECT COUNT(*) AS total_count FROM inventory_count_items ici WHERE ici.session_id = ?';
+            $countTypes = 'i';
+            $countParams = [$selectedSessionId];
+            if ($statusFilter !== '') {
+                $countSql .= ' AND ici.status = ?';
+                $countTypes .= 's';
+                $countParams[] = $statusFilter;
+            }
+            $countStmt = $db->prepare($countSql);
+            if ($countStmt) {
+                $countRefs = [$countTypes];
+                foreach ($countParams as $key => $value) {
+                    $countRefs[] = &$countParams[$key];
+                }
+                call_user_func_array([$countStmt, 'bind_param'], $countRefs);
+                $countStmt->execute();
+                $countRow = $countStmt->get_result()->fetch_assoc();
+                $countStmt->close();
+                $checklistTotal = (int) ($countRow['total_count'] ?? 0);
+            }
+            $checklistTotalPages = max(1, (int) ceil($checklistTotal / $checklistPerPage));
+            $checklistPage = min($checklistPage, $checklistTotalPages);
+            $checklistOffset = ($checklistPage - 1) * $checklistPerPage;
+
             $itemsSql = "
                 SELECT
                     ici.*,
@@ -1025,7 +1320,10 @@ if ($db) {
                 $itemTypes .= 's';
                 $itemParams[] = $statusFilter;
             }
-            $itemsSql .= " ORDER BY FIELD(ici.status, 'pending', 'missing', 'wrong_office', 'wrong_accountable', 'for_repair', 'for_disposal', 'found'), ici.item_type ASC, ici.item_description ASC, ici.property_number ASC";
+            $itemsSql .= " ORDER BY FIELD(ici.status, 'pending', 'missing', 'wrong_office', 'wrong_accountable', 'for_repair', 'for_disposal', 'found'), ici.item_type ASC, ici.item_description ASC, ici.property_number ASC LIMIT ? OFFSET ?";
+            $itemTypes .= 'ii';
+            $itemParams[] = $checklistPerPage;
+            $itemParams[] = $checklistOffset;
 
             $itemStmt = $db->prepare($itemsSql);
             if ($itemStmt) {
@@ -1224,7 +1522,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="d-flex justify-content-between align-items-center gap-3 mb-2">
                             <div>
                                 <div class="small text-muted">Count Progress</div>
-                                <div class="fw-semibold">
+                                <div class="fw-semibold" id="inventoryCountCompletionPercent">
                                     <?php echo number_format($completionPercent); ?>% checked
                                     <?php if (($selectedSession['status'] ?? '') === 'open'): ?>
                                         <span class="badge ms-2 <?php echo $canCloseSession ? 'text-bg-success' : 'text-bg-warning'; ?>">
@@ -1233,12 +1531,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <?php endif; ?>
                                 </div>
                             </div>
-                            <div class="text-end small text-muted">
+                            <div class="text-end small text-muted" id="inventoryCountCompletionSummary">
                                 <?php echo number_format($sessionStats['total'] - $sessionStats['pending']); ?> of <?php echo number_format($sessionStats['total']); ?> items checked
                             </div>
                         </div>
-                        <div class="progress" role="progressbar" aria-valuenow="<?php echo $completionPercent; ?>" aria-valuemin="0" aria-valuemax="100" style="height: 10px;">
-                            <div class="progress-bar" style="width: <?php echo $completionPercent; ?>%;"></div>
+                        <div class="progress" id="inventoryCountProgress" role="progressbar" aria-valuenow="<?php echo $completionPercent; ?>" aria-valuemin="0" aria-valuemax="100" style="height: 10px;">
+                            <div class="progress-bar" id="inventoryCountProgressBar" style="width: <?php echo $completionPercent; ?>%;"></div>
                         </div>
                     </div>
 
@@ -1342,9 +1640,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="text-muted small">Use this office-based list to verify what is found, missing, or needs follow-up.</div>
                         </div>
                         <div class="d-flex gap-2 flex-wrap">
-                            <a href="<?php echo h(build_inventory_count_url(['session_id' => $selectedSessionId, 'status' => ''])); ?>" class="btn btn-sm <?php echo $statusFilter === '' ? 'btn-primary' : 'btn-outline-secondary'; ?>">All</a>
+                            <a href="<?php echo h(build_inventory_count_url(['session_id' => $selectedSessionId, 'status' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $statusFilter === '' ? 'btn-primary' : 'btn-outline-secondary'; ?>">All</a>
                             <?php foreach ($statusLabels as $statusKey => $statusLabel): ?>
-                                <a href="<?php echo h(build_inventory_count_url(['session_id' => $selectedSessionId, 'status' => $statusKey])); ?>" class="btn btn-sm <?php echo $statusFilter === $statusKey ? 'btn-primary' : 'btn-outline-secondary'; ?>">
+                                <a href="<?php echo h(build_inventory_count_url(['session_id' => $selectedSessionId, 'status' => $statusKey, 'page' => 1])); ?>" class="btn btn-sm <?php echo $statusFilter === $statusKey ? 'btn-primary' : 'btn-outline-secondary'; ?>">
                                     <?php echo h($statusLabel); ?>
                                 </a>
                             <?php endforeach; ?>
@@ -1358,19 +1656,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <input type="hidden" name="session_id" value="<?php echo (int) $selectedSession['id']; ?>">
                             <div class="row g-2 align-items-end">
                                 <div class="col-lg-5">
-                                    <label for="countChecklistSearch" class="form-label small text-muted mb-1">Find Item</label>
-                                    <input type="search" class="form-control" id="countChecklistSearch" placeholder="Type item name, property no., accountable person, e.g. monoblock">
+                                    <label for="countChecklistSearch" class="form-label small text-muted mb-1">Search Loaded Items</label>
+                                    <input type="search" class="form-control" id="countChecklistSearch" placeholder="Search this page: property no., description, accountable person">
                                 </div>
-                                <div class="col-lg-2">
-                                    <label for="countChecklistPageSize" class="form-label small text-muted mb-1">Show</label>
-                                    <select class="form-select" id="countChecklistPageSize" data-no-select2>
-                                        <option value="25">25 items</option>
-                                        <option value="50">50 items</option>
-                                        <option value="100">100 items</option>
-                                        <option value="all">All items</option>
-                                    </select>
-                                </div>
-                                <div class="col-lg-5 d-flex flex-wrap gap-2 justify-content-lg-end">
+                                <div class="col-lg-7 d-flex flex-wrap gap-2 justify-content-lg-end">
                                     <button type="button" class="btn btn-outline-secondary" id="selectVisiblePendingItems">
                                         <i class="bi bi-check2-square me-1"></i>Select Visible Pending
                                     </button>
@@ -1383,34 +1672,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 </div>
                             </div>
                             <div class="small text-muted mt-2" id="bulkFoundSummary">No items selected.</div>
-                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
-                                <div class="small text-muted" id="countChecklistPageSummary">Showing checklist items.</div>
-                                <div class="btn-group btn-group-sm" role="group" aria-label="Checklist pages">
-                                    <button type="button" class="btn btn-outline-secondary" id="countChecklistPrevPage">Previous</button>
-                                    <button type="button" class="btn btn-outline-secondary" id="countChecklistNextPage">Next</button>
-                                </div>
-                            </div>
                         </form>
+                        <div class="alert alert-success d-none mt-3 mb-0 py-2" id="scanUndoBanner" role="status">
+                            <span id="scanUndoMessage"></span>
+                            <button type="button" class="btn btn-sm btn-outline-success ms-2" id="scanUndoButton">Undo</button>
+                        </div>
                     <?php else: ?>
                         <div class="mb-3">
-                            <label for="countChecklistSearch" class="form-label small text-muted mb-1">Find Item</label>
-                            <input type="search" class="form-control" id="countChecklistSearch" placeholder="Type item name, property no., accountable person, e.g. monoblock">
-                            <div class="mt-2" style="max-width: 180px;">
-                                <label for="countChecklistPageSize" class="form-label small text-muted mb-1">Show</label>
-                                <select class="form-select" id="countChecklistPageSize" data-no-select2>
-                                    <option value="25">25 items</option>
-                                    <option value="50">50 items</option>
-                                    <option value="100">100 items</option>
-                                    <option value="all">All items</option>
-                                </select>
-                            </div>
-                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
-                                <div class="small text-muted" id="countChecklistPageSummary">Showing checklist items.</div>
-                                <div class="btn-group btn-group-sm" role="group" aria-label="Checklist pages">
-                                    <button type="button" class="btn btn-outline-secondary" id="countChecklistPrevPage">Previous</button>
-                                    <button type="button" class="btn btn-outline-secondary" id="countChecklistNextPage">Next</button>
-                                </div>
-                            </div>
+                            <label for="countChecklistSearch" class="form-label small text-muted mb-1">Search Loaded Items</label>
+                            <input type="search" class="form-control" id="countChecklistSearch" placeholder="Search this page: property no., description, accountable person">
                         </div>
                     <?php endif; ?>
 
@@ -1461,6 +1731,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             class="<?php echo $highlightItemId === (int) $item['id'] ? 'inventory-count-highlight' : ''; ?>"
                                             data-count-checklist-row
                                             data-status="<?php echo h($statusKey); ?>"
+                                            data-property-number="<?php echo h((string) ($item['property_number'] ?? '')); ?>"
+                                            data-updated-at="<?php echo h((string) ($item['updated_at'] ?? '')); ?>"
                                             data-search="<?php echo h($checklistSearchText); ?>"
                                         >
                                             <?php if (($selectedSession['status'] ?? '') === 'open'): ?>
@@ -1496,7 +1768,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <div class="small text-muted"><?php echo h($item['accountable_name'] ?: 'No accountable employee'); ?></div>
                                             </td>
                                             <td>
-                                                <span class="badge <?php echo h($statusBadgeClasses[$statusKey] ?? 'text-bg-secondary'); ?>">
+                                                <span class="badge <?php echo h($statusBadgeClasses[$statusKey] ?? 'text-bg-secondary'); ?>" data-count-status-badge>
                                                     <?php echo h($statusLabels[$statusKey] ?? ucfirst($statusKey)); ?>
                                                 </span>
                                                 <?php if (!empty($item['remarks'])): ?>
@@ -1569,6 +1841,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </tbody>
                         </table>
                     </div>
+                    <?php if ($checklistTotal > $checklistPerPage): ?>
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+                            <div class="small text-muted">
+                                Showing <?php echo number_format((($checklistPage - 1) * $checklistPerPage) + 1); ?>-<?php echo number_format(min($checklistTotal, $checklistPage * $checklistPerPage)); ?> of <?php echo number_format($checklistTotal); ?> checklist item(s). Page <?php echo number_format($checklistPage); ?> of <?php echo number_format($checklistTotalPages); ?>.
+                            </div>
+                            <?php echo render_inventory_count_pagination($checklistPage, $checklistTotalPages); ?>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         <?php else: ?>
@@ -1630,12 +1910,16 @@ document.addEventListener('DOMContentLoaded', function () {
     var cameraScanTimer = null;
     var cameraActive = false;
     var html5QrScanner = null;
+    var scanInFlight = false;
+    var undoInFlight = false;
+    var scanUndoBanner = document.getElementById('scanUndoBanner');
+    var scanUndoMessage = document.getElementById('scanUndoMessage');
+    var scanUndoButton = document.getElementById('scanUndoButton');
+    var scanUndoTimer = null;
+    var undoItemId = 0;
+    var inventoryStatusLabels = <?php echo json_encode($statusLabels); ?>;
+    var inventoryStatusBadgeClasses = <?php echo json_encode($statusBadgeClasses); ?>;
     var checklistSearch = document.getElementById('countChecklistSearch');
-    var checklistPageSize = document.getElementById('countChecklistPageSize');
-    var checklistPrevPage = document.getElementById('countChecklistPrevPage');
-    var checklistNextPage = document.getElementById('countChecklistNextPage');
-    var checklistPageSummary = document.getElementById('countChecklistPageSummary');
-    var checklistCurrentPage = 1;
     var checklistRows = Array.prototype.slice.call(document.querySelectorAll('[data-count-checklist-row]'));
     var noChecklistMatchRow = document.getElementById('countChecklistNoMatch');
     var bulkFoundSelectAll = document.getElementById('bulkFoundSelectAll');
@@ -1682,16 +1966,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    function getChecklistPageSizeValue() {
-        var select = document.getElementById('countChecklistPageSize');
-        if (!select) {
-            return '25';
-        }
-
-        var value = (select.value || '').trim();
-        return value === '50' || value === '100' || value === 'all' ? value : '25';
-    }
-
     function updateBulkFoundSummary() {
         var selectedCount = bulkFoundItems.filter(function (checkbox) {
             return checkbox.checked && !checkbox.disabled;
@@ -1722,63 +1996,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function applyChecklistSearch() {
         var term = checklistSearch ? checklistSearch.value.trim().toLowerCase() : '';
-        var matchedCount = 0;
-        var pageSizeValue = getChecklistPageSizeValue();
-        var pageSize = pageSizeValue === 'all' ? Number.MAX_SAFE_INTEGER : parseInt(pageSizeValue, 10);
-        if (!pageSize || pageSize < 1) {
-            pageSize = 25;
-        }
 
         checklistRows.forEach(function (row) {
             var searchText = (row.getAttribute('data-search') || row.textContent || '').toLowerCase();
             var matches = !term || searchText.indexOf(term) !== -1;
-            if (matches) {
-                matchedCount++;
-            }
             row.setAttribute('data-search-match', matches ? '1' : '0');
-        });
-
-        var totalPages = pageSizeValue === 'all' ? 1 : Math.max(1, Math.ceil(matchedCount / pageSize));
-        if (checklistCurrentPage > totalPages) {
-            checklistCurrentPage = totalPages;
-        }
-        if (checklistCurrentPage < 1) {
-            checklistCurrentPage = 1;
-        }
-
-        var startIndex = pageSizeValue === 'all' ? 0 : (checklistCurrentPage - 1) * pageSize;
-        var endIndex = pageSizeValue === 'all' ? matchedCount : startIndex + pageSize;
-        var matchIndex = 0;
-
-        checklistRows.forEach(function (row) {
-            var matches = row.getAttribute('data-search-match') !== '0';
-            var showRow = false;
-            if (matches) {
-                showRow = matchIndex >= startIndex && matchIndex < endIndex;
-                matchIndex++;
-            }
-            row.classList.toggle('d-none', !showRow);
-            row.style.display = showRow ? '' : 'none';
+            row.classList.toggle('d-none', !matches);
+            row.style.display = matches ? '' : 'none';
         });
 
         if (noChecklistMatchRow) {
-            noChecklistMatchRow.classList.toggle('d-none', matchedCount > 0);
-        }
-
-        if (checklistPageSummary) {
-            if (matchedCount === 0) {
-                checklistPageSummary.textContent = 'No matching checklist items.';
-            } else {
-                checklistPageSummary.textContent = 'Showing ' + (startIndex + 1) + '-' + Math.min(endIndex, matchedCount) + ' of ' + matchedCount + ' item(s). Page ' + checklistCurrentPage + ' of ' + totalPages + '.';
-            }
-        }
-
-        if (checklistPrevPage) {
-            checklistPrevPage.disabled = checklistCurrentPage <= 1 || matchedCount === 0;
-        }
-
-        if (checklistNextPage) {
-            checklistNextPage.disabled = checklistCurrentPage >= totalPages || matchedCount === 0;
+            noChecklistMatchRow.classList.toggle('d-none', checklistRows.some(function (row) {
+                return row.getAttribute('data-search-match') !== '0';
+            }));
         }
 
         updateBulkFoundSummary();
@@ -1862,16 +2092,178 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    function submitScannedValue(rawValue) {
+    function updateScannedItem(response) {
+        var item = response.item || {};
+        var stats = response.stats || {};
+        var row = item.id ? document.getElementById('count-item-' + item.id) : null;
+
+        if (row) {
+            row.setAttribute('data-status', item.status || 'found');
+            if (item.updated_at) {
+                row.setAttribute('data-updated-at', item.updated_at);
+            }
+            row.classList.add('inventory-count-highlight');
+            var badge = row.querySelector('[data-count-status-badge]');
+            if (badge) {
+                badge.className = 'badge ' + (inventoryStatusBadgeClasses[item.status] || 'text-bg-secondary');
+                badge.textContent = inventoryStatusLabels[item.status] || item.status;
+            }
+            var checkbox = row.querySelector('.bulk-found-item');
+            if (checkbox) {
+                checkbox.checked = false;
+                checkbox.disabled = item.status === 'found';
+            }
+        }
+
+        var completionPercent = document.getElementById('inventoryCountCompletionPercent');
+        var completionSummary = document.getElementById('inventoryCountCompletionSummary');
+        var progress = document.getElementById('inventoryCountProgress');
+        var progressBar = document.getElementById('inventoryCountProgressBar');
+        var total = Number(stats.total || 0);
+        var pending = Number(stats.pending || 0);
+        var percent = Number(stats.completion_percent || 0);
+        var checked = Math.max(0, total - pending);
+
+        if (completionPercent) {
+            completionPercent.textContent = Math.round(percent) + '% checked';
+        }
+        if (completionSummary) {
+            completionSummary.textContent = checked.toLocaleString() + ' of ' + total.toLocaleString() + ' items checked';
+        }
+        if (progress) {
+            progress.setAttribute('aria-valuenow', String(percent));
+        }
+        if (progressBar) {
+            progressBar.style.width = percent + '%';
+        }
+
+        updateBulkFoundSummary();
+    }
+
+    function hideScanUndo() {
+        if (scanUndoTimer) {
+            window.clearTimeout(scanUndoTimer);
+            scanUndoTimer = null;
+        }
+        undoItemId = 0;
+        if (scanUndoBanner) {
+            scanUndoBanner.classList.add('d-none');
+        }
+    }
+
+    function showScanUndo(item) {
+        if (!scanUndoBanner || !scanUndoMessage || !item || !item.id) {
+            return;
+        }
+        undoItemId = Number(item.id);
+        scanUndoMessage.textContent = 'Marked ' + item.property_number + ' as found.';
+        scanUndoBanner.classList.remove('d-none');
+        if (scanUndoTimer) {
+            window.clearTimeout(scanUndoTimer);
+        }
+        scanUndoTimer = window.setTimeout(hideScanUndo, 10000);
+    }
+
+    async function undoLastScan() {
+        if (!undoItemId || undoInFlight || !scanForm) {
+            return;
+        }
+
+        undoInFlight = true;
+        if (scanUndoButton) {
+            scanUndoButton.disabled = true;
+        }
+        try {
+            var undoData = new FormData(scanForm);
+            undoData.set('action', 'undo_scan_asset');
+            undoData.set('item_id', String(undoItemId));
+            var response = await fetch((scanForm.getAttribute('action') || window.location.pathname) + '?ajax=1', {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                credentials: 'same-origin',
+                body: undoData
+            });
+            var payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload && payload.error ? payload.error : 'Unable to undo the scan.');
+            }
+
+            updateScannedItem(payload);
+            hideScanUndo();
+            setCameraStatus('Scan undone for ' + payload.item.property_number + '.', 'success');
+            if (window.showToast) {
+                window.showToast('Scan undone for ' + payload.item.property_number + '.', 'success');
+            }
+        } catch (error) {
+            var message = error && error.message ? error.message : 'Unable to undo the scan.';
+            if (window.showToast) {
+                window.showToast(message, 'danger');
+            }
+        } finally {
+            undoInFlight = false;
+            if (scanUndoButton) {
+                scanUndoButton.disabled = false;
+            }
+        }
+    }
+
+    async function submitScannedValue(rawValue) {
         if (!rawValue || !scanInput || !scanForm) {
             return;
         }
 
-        cameraActive = false;
+        if (scanInFlight) {
+            return;
+        }
+
         scanInput.value = rawValue.trim();
-        setCameraStatus('QR detected. Submitting scanned asset...', 'success');
-        stopCameraScanner(false);
-        scanForm.submit();
+        scanInFlight = true;
+        setCameraStatus('Checking scanned asset...');
+
+        try {
+            var scanData = new FormData(scanForm);
+            var propertyReference = rawValue.trim();
+            try {
+                var scanUrl = new URL(propertyReference, window.location.origin);
+                propertyReference = scanUrl.searchParams.get('ref') || propertyReference;
+            } catch (error) {
+                // The scan can be a plain property number.
+            }
+            var loadedRow = checklistRows.find(function (row) {
+                return row.getAttribute('data-property-number') === propertyReference;
+            });
+            if (loadedRow) {
+                scanData.set('expected_updated_at', loadedRow.getAttribute('data-updated-at') || '');
+            }
+            var response = await fetch((scanForm.getAttribute('action') || window.location.pathname) + '?ajax=1', {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                credentials: 'same-origin',
+                body: scanData
+            });
+            var payload = await response.json();
+
+            if (!response.ok || !payload.success) {
+                throw new Error(payload && payload.error ? payload.error : 'Unable to mark scanned asset as found.');
+            }
+
+            updateScannedItem(payload);
+            showScanUndo(payload.item);
+            setCameraStatus('Asset ' + payload.item.property_number + ' marked as found.', 'success');
+            if (window.showToast) {
+                window.showToast('Asset ' + payload.item.property_number + ' marked as found.', 'success');
+            }
+            scanInput.value = '';
+        } catch (error) {
+            var message = error && error.message ? error.message : 'Unable to mark scanned asset as found.';
+            setCameraStatus(message, 'warning');
+            if (window.showToast) {
+                window.showToast(message, 'danger');
+            }
+        } finally {
+            scanInFlight = false;
+            scanInput.focus();
+        }
     }
 
     async function scanFrameOnce() {
@@ -2031,39 +2423,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (checklistSearch) {
         checklistSearch.addEventListener('input', function () {
-            checklistCurrentPage = 1;
-            applyChecklistSearch();
-        });
-    }
-
-    if (checklistPageSize) {
-        checklistPageSize.addEventListener('change', function () {
-            checklistCurrentPage = 1;
-            applyChecklistSearch();
-        });
-        checklistPageSize.addEventListener('input', function () {
-            checklistCurrentPage = 1;
-            applyChecklistSearch();
-        });
-    }
-
-    document.addEventListener('change', function (event) {
-        if (event.target && event.target.id === 'countChecklistPageSize') {
-            checklistCurrentPage = 1;
-            applyChecklistSearch();
-        }
-    });
-
-    if (checklistPrevPage) {
-        checklistPrevPage.addEventListener('click', function () {
-            checklistCurrentPage = Math.max(1, checklistCurrentPage - 1);
-            applyChecklistSearch();
-        });
-    }
-
-    if (checklistNextPage) {
-        checklistNextPage.addEventListener('click', function () {
-            checklistCurrentPage += 1;
             applyChecklistSearch();
         });
     }
@@ -2125,12 +2484,23 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    if (scanForm) {
+        scanForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            submitScannedValue(scanInput.value);
+        });
+    }
+
+    if (scanUndoButton) {
+        scanUndoButton.addEventListener('click', undoLastScan);
+    }
+
     window.addEventListener('beforeunload', function () {
         stopCameraScanner(false);
     });
 });
 </script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="<?php echo h(base_url('assets/js/vendor/html5-qrcode-2.3.8.min.js')); ?>"></script>
 <style>
 .inventory-camera-panel video {
     width: 100%;

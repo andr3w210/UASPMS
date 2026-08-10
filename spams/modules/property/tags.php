@@ -9,8 +9,36 @@ $db = db();
 $detailId = (int) ($_GET['detail_id'] ?? 0);
 $distributionId = (int) ($_GET['distribution_id'] ?? 0);
 $legacyAssetId = (int) ($_GET['legacy_asset_id'] ?? 0);
+$bulkMode = !empty($_GET['bulk']);
+$assetItems = [];
+if ($bulkMode) {
+    $rawAssetIds = $_GET['asset_ids'] ?? [];
+    if (!is_array($rawAssetIds)) {
+        $rawAssetIds = explode(',', (string) $rawAssetIds);
+    }
+    foreach ($rawAssetIds as $rawAssetId) {
+        $item = trim((string) $rawAssetId);
+        if ($item === '') {
+            continue;
+        }
+        $parts = explode(':', $item, 2);
+        $sourceType = 'system';
+        $assetId = 0;
+        if (count($parts) === 2) {
+            $sourceType = strtolower($parts[0]);
+            $assetId = (int) $parts[1];
+        } else {
+            $assetId = (int) $item;
+        }
+        if (!in_array($sourceType, ['system', 'legacy'], true) || $assetId <= 0) {
+            continue;
+        }
+        $assetItems[] = ['source_type' => $sourceType, 'asset_id' => $assetId];
+    }
+    $assetItems = array_values(array_unique($assetItems, SORT_REGULAR));
+}
 
-if ($detailId <= 0 && $distributionId <= 0 && $legacyAssetId <= 0) {
+if ($detailId <= 0 && $distributionId <= 0 && $legacyAssetId <= 0 && !$bulkMode) {
     http_response_code(404);
     echo 'Distribution ID, detail ID, or legacy asset ID is required.';
     exit;
@@ -72,6 +100,85 @@ if ($db) {
                 $rows[] = $row;
             }
             $stmt->close();
+        }
+    } elseif ($bulkMode && $assetItems) {
+        foreach ($assetItems as $assetItem) {
+            $sourceType = $assetItem['source_type'];
+            $assetId = (int) $assetItem['asset_id'];
+            if ($sourceType === 'legacy') {
+                $stmt = $db->prepare("SELECT
+                    la.id AS did_id,
+                    la.property_number,
+                    la.brand,
+                    la.model,
+                    la.serial_no,
+                    la.qr_tag_code,
+                    la.system_reference,
+                    'legacy' AS document_type,
+                    'Beginning Balance' AS document_no,
+                    la.acquisition_date AS distribution_date,
+                    la.acquisition_date AS date_acquired,
+                    c.classification_name,
+                    la.item_description,
+                    o.office_name,
+                    TRIM(CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, ''))) AS employee_name
+                FROM legacy_assets la
+                LEFT JOIN classifications c ON c.id = la.classification_id
+                LEFT JOIN offices o ON o.id = la.office_id
+                LEFT JOIN employees e ON e.id = la.employee_id
+                WHERE la.id = ?
+                  AND la.is_active = 1
+                LIMIT 1");
+                if ($stmt) {
+                    $stmt->bind_param('i', $assetId);
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    while ($row = $res->fetch_assoc()) {
+                        $rows[] = $row;
+                    }
+                    $stmt->close();
+                }
+            } else {
+                $stmt = $db->prepare("SELECT
+                    did.id AS did_id,
+                    did.property_number,
+                    did.brand,
+                    did.model,
+                    did.serial_no,
+                    did.qr_tag_code,
+                    si.system_reference,
+                    d.document_type,
+                    d.document_no,
+                    d.distribution_date,
+                    r.received_date AS date_acquired,
+                    c.classification_name,
+                    poi.item_description,
+                    COALESCE(curr_o.office_name, o.office_name) AS office_name,
+                    CONCAT(COALESCE(curr_e.first_name, e.first_name, ''), ' ', COALESCE(curr_e.last_name, e.last_name, '')) AS employee_name
+                 FROM distribution_item_details did
+                 INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+                 INNER JOIN distributions d ON d.id = di.distribution_id
+                 INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
+                 INNER JOIN receivings r ON r.id = ri.receiving_id
+                 INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+                 LEFT JOIN classifications c ON c.id = poi.classification_id
+                 LEFT JOIN receiving_item_details rid ON rid.id = did.receiving_item_detail_id
+                 LEFT JOIN stock_items si ON si.id = rid.stock_item_id
+                 LEFT JOIN offices o ON o.id = d.office_id
+                 LEFT JOIN employees e ON e.id = d.employee_id
+                 LEFT JOIN offices curr_o ON curr_o.id = did.current_office_id
+                 LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id
+                 WHERE did.id = ?");
+                if ($stmt) {
+                    $stmt->bind_param('i', $assetId);
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    while ($row = $res->fetch_assoc()) {
+                        $rows[] = $row;
+                    }
+                    $stmt->close();
+                }
+            }
         }
     } else {
         $sql =

@@ -19,3 +19,6 @@ Options -Indexes
         Deny from all
     </IfModule>
 </FilesMatch>
+
+ErrorDocument 404 /spams/errors/404.php
+ErrorDocument 500 /spams/errors/500.php
