@@ -379,9 +379,9 @@ $displayPoNumber = strpos((string) ($purchaseOrder['po_number'] ?? ''), 'NO-PO-'
                     <?php if ($documentTotalAmount !== null): ?>
                         <tr>
                             <td class="po-label-cell">Hard Copy PO Total</td>
-                            <td class="po-value-cell"><?php echo h(number_format($documentTotalAmount, 2)); ?></td>
+                            <td class="po-value-cell"><?php echo h(format_currency($documentTotalAmount)); ?></td>
                             <td class="po-label-cell">Computed Total</td>
-                            <td class="po-value-cell"><?php echo h(number_format((float) $purchaseOrder['total_amount'], 2)); ?></td>
+                            <td class="po-value-cell"><?php echo h(format_currency((float) $purchaseOrder['total_amount'])); ?></td>
                         </tr>
                     <?php endif; ?>
                 </tbody>
@@ -412,8 +412,8 @@ $displayPoNumber = strpos((string) ($purchaseOrder['po_number'] ?? ''), 'NO-PO-'
                                             <div class="small text-muted"><?php echo h(trim(po_item_type_label((string) $item['item_type']) . (!empty($item['account_name']) ? ' | ' . $item['account_name'] : ''))); ?></div>
                                         </td>
                                         <td class="text-end"><?php echo h(format_quantity($item['quantity'])); ?></td>
-                                        <td class="text-end"><?php echo h(number_format((float) $item['unit_cost'], 2)); ?></td>
-                                        <td class="text-end"><?php echo h(number_format((float) $item['line_total'], 2)); ?></td>
+                                        <td class="text-end"><?php echo h(format_currency((float) $item['unit_cost'])); ?></td>
+                                        <td class="text-end"><?php echo h(format_currency((float) $item['line_total'])); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php else: ?>
@@ -425,7 +425,7 @@ $displayPoNumber = strpos((string) ($purchaseOrder['po_number'] ?? ''), 'NO-PO-'
                         <tfoot>
                             <tr>
                                 <th colspan="5" class="text-end">Total</th>
-                                <th class="text-end"><?php echo h(number_format((float) $purchaseOrder['total_amount'], 2)); ?></th>
+                                <th class="text-end"><?php echo h(format_currency((float) $purchaseOrder['total_amount'])); ?></th>
                             </tr>
                         </tfoot>
                     </table>

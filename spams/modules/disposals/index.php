@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 require_role('Administrator', 'Supply Officer', 'Property Officer');
@@ -563,7 +563,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <div class="text-muted small">Step 1: Choose source. Step 2: Select asset. Step 3: Complete disposal details and post.</div>
                             </div>
                         </div>
-                        <form method="post" class="row g-3 align-items-end" id="disposalForm">
+                        <form method="post" class="row g-3 align-items-end" id="disposalForm" data-submit-loading="1">
                             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                             <div class="col-md-3">
                                 <label class="form-label">Asset Source</label>
@@ -791,3 +791,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

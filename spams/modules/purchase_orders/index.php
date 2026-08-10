@@ -711,7 +711,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
     </div>
 </section>
 
-    <form id="cancelPoForm" method="post" style="display:none;">
+    <form id="cancelPoForm" method="post" style="display:none;" data-submit-loading="1">
         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
         <input type="hidden" name="action" value="cancel_po">
         <input type="hidden" name="cancel_id" id="cancelPoId" value="">
@@ -825,3 +825,4 @@ require_once __DIR__ . '/../../includes/topbar.php';
     </script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

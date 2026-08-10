@@ -515,7 +515,7 @@ $identityLines = static function (array $item): array {
                             <td><?php echo h(strtoupper((string) $row['document_type']) . ' ' . $row['document_no']); ?><div class="muted"><?php echo h(format_date($row['distribution_date'] ?? null)); ?></div></td>
                             <td><?php echo h((string) $row['office_name']); ?><div class="muted"><?php echo h(employee_display_name($row)); ?></div></td>
                             <td><?php echo h(format_date($row['received_date'] ?? null)); ?></td>
-                            <td><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                            <td><?php echo h(format_currency((float) ($row['unit_cost'] ?? 0))); ?></td>
                         </tr>
                     <?php endforeach; ?>
                     </tbody>

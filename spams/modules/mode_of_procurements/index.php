@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 
@@ -261,7 +261,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 <?php if ($errors): ?><div class="alert alert-danger mb-4"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
 <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?> mb-4"><?php echo h($flash['message']); ?></div><?php endif; ?>
 <div class="master-data-header mb-4"><div><div class="text-uppercase small text-muted fw-semibold">Master Data</div><h4 class="mb-1">Modes of Procurement</h4><div id="recordCount" class="text-muted small">Showing <?php echo count($procurementModes); ?> of <?php echo count($procurementModes); ?> records</div></div><div class="d-flex gap-2 flex-wrap"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/mode_of_procurements/index.php'); ?>" class="btn btn-outline-secondary">Cancel Edit</a><?php endif; ?><button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#formCollapse" aria-expanded="<?php echo $form['id'] > 0 ? 'true' : 'false'; ?>"><i class="bi bi-plus-circle me-1"></i><?php echo $form['id'] > 0 ? 'Continue Editing' : 'Add Mode'; ?></button></div></div>
-<div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?> mb-4" id="formCollapse"><div class="master-data-editor"><div class="master-data-editor-header"><div><h5 class="mb-1"><?php echo $form['id'] > 0 ? 'Edit Mode of Procurement' : 'New Mode of Procurement'; ?></h5><div class="text-muted small">Maintain procurement modes used on purchase orders.</div></div></div><form method="post" class="workspace-form-section mt-3"><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>"><div class="row g-3"><div class="col-md-4"><label class="form-label">Mode Code</label><input type="text" class="form-control" name="mode_code" value="<?php echo h($form['mode_code']); ?>" placeholder="Enter mode code" required><div class="form-text">Enter the short mode code manually.</div></div><div class="col-md-8"><label class="form-label">Mode Name</label><input type="text" class="form-control" name="mode_name" value="<?php echo h($form['mode_name']); ?>" required></div><div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3"><?php echo h($form['description']); ?></textarea></div><div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active mode of procurement</label></div></div><div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/mode_of_procurements/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Mode' : 'Save Mode'; ?></button></div></div></form></div></div>
+<div class="collapse <?php echo $form['id'] > 0 ? 'show' : ''; ?> mb-4" id="formCollapse"><div class="master-data-editor"><div class="master-data-editor-header"><div><h5 class="mb-1"><?php echo $form['id'] > 0 ? 'Edit Mode of Procurement' : 'New Mode of Procurement'; ?></h5><div class="text-muted small">Maintain procurement modes used on purchase orders.</div></div></div><input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>"><div class="row g-3"><div class="col-md-4"><label class="form-label">Mode Code</label><input type="text" class="form-control" name="mode_code" value="<?php echo h($form['mode_code']); ?>" placeholder="Enter mode code" required><div class="form-text">Enter the short mode code manually.</div></div><div class="col-md-8"><label class="form-label">Mode Name</label><input type="text" class="form-control" name="mode_name" value="<?php echo h($form['mode_name']); ?>" required></div><div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3"><?php echo h($form['description']); ?></textarea></div><div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" <?php echo $form['is_active'] === '1' ? 'checked' : ''; ?>><label class="form-check-label">Active mode of procurement</label></div></div><div class="col-12 d-grid gap-2 d-sm-flex justify-content-sm-end pt-2"><?php if ($form['id'] > 0): ?><a href="<?php echo base_url('modules/mode_of_procurements/index.php'); ?>" class="btn btn-outline-secondary">Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary px-4"><?php echo $form['id'] > 0 ? 'Update Mode' : 'Save Mode'; ?></button></div></div></form></div></div>
                 <div class="master-data-toolbar mb-3">
                     <div class="row g-3 align-items-end">
                         <div class="col-lg-6">
@@ -325,7 +325,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 </a>
 
                                                 <?php if ((int) $procurementMode['is_active'] === 1): ?>
-                                                    <form method="post" onsubmit="return confirm('Deactivate this mode of procurement?');" class="d-inline">
+                                                    
                                                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                         <input type="hidden" name="action" value="delete">
                                                         <input type="hidden" name="id" value="<?php echo (int) $procurementMode['id']; ?>">
@@ -334,7 +334,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         </button>
                                                     </form>
                                                 <?php else: ?>
-                                                    <form method="post" onsubmit="return confirm('Reactivate this mode of procurement?');" class="d-inline">
+                                                    
                                                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                         <input type="hidden" name="action" value="reactivate">
                                                         <input type="hidden" name="id" value="<?php echo (int) $procurementMode['id']; ?>">
@@ -345,7 +345,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <?php endif; ?>
 
                                                 <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
-                                                    <form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline">
+                                                    
                                                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                         <input type="hidden" name="action" value="hard_delete">
                                                         <input type="hidden" name="id" value="<?php echo (int) $procurementMode['id']; ?>">
@@ -406,3 +406,4 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

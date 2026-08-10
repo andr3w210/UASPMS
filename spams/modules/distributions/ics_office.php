@@ -758,7 +758,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                         <tr>
                             <td class="text-end"><?php echo h(format_quantity($qty)); ?></td>
                             <td><?php echo h($unitLabel); ?></td>
-                            <td class="text-end"><?php echo h(number_format($unitCost, 2)); ?></td>
+                            <td class="text-end"><?php echo h(format_currency($unitCost)); ?></td>
                             <td class="text-end"><?php echo h(number_format($totalCost, 2)); ?></td>
                             <td>
                                 <?php echo nl2br(h($icsDescription)); ?>

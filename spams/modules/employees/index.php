@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
@@ -1074,7 +1074,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="text-muted small">Maintain employee profile and designation assignments. Additional assignments are stored in the new assignment table.</div>
                         </div>
                     </div>
-                    <form method="post" enctype="multipart/form-data" class="workspace-form-section mt-3">
+                    
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
                         <input type="hidden" name="id" value="<?php echo (int)$form['id']; ?>">
@@ -1309,6 +1309,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <label class="form-label">Employee Photo</label>
                                             <input type="file" class="form-control" name="photo" accept="image/jpeg,image/png,image/gif,image/webp">
                                             <div class="form-text">JPG, PNG, GIF, or WEBP up to 5 MB.</div>
+                                            <div class="mt-2" id="employeePhotoPreviewContainer"></div>
                                         </div>
                                         <?php if($form['photo_path']!==''): ?>
                                             <div class="form-check mb-3">
@@ -1423,7 +1424,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <?php if ($linkedUser): ?>
                                                 <span class="btn btn-sm btn-light border disabled"><i class="bi bi-person-check"></i> <?php echo h($linkedUser['username']); ?></span>
                                             <?php elseif ((int)$employee['is_active']===1): ?>
-                                                <form method="post" onsubmit="return confirm('Create a login account for this employee? A temporary password will be generated.');" class="d-inline">
+                                                
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="create_user_account">
                                                     <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
@@ -1432,14 +1433,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <?php endif; ?>
                                         <?php endif; ?>
                                         <?php if((int)$employee['is_active']===1): ?>
-                                            <form method="post" onsubmit="return confirm('Deactivate this employee?');" class="d-inline">
+                                            
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
                                                 <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button>
                                             </form>
                                         <?php else: ?>
-                                            <form method="post" onsubmit="return confirm('Reactivate this employee?');" class="d-inline">
+                                            
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="reactivate">
                                                 <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
@@ -1450,7 +1451,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <button type="button" class="btn btn-sm btn-outline-secondary" data-merge-source-id="<?php echo (int)$employee['id']; ?>" data-merge-source-label="<?php echo h(employee_choice_label($employee)); ?>">
                                                 <i class="bi bi-intersect"></i> Merge
                                             </button>
-                                            <form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline">
+                                            
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="hard_delete">
                                                 <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
@@ -1481,7 +1482,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
 <div class="modal fade" id="mergeEmployeeModal" tabindex="-1" aria-labelledby="mergeEmployeeModalLabel" aria-hidden="true">
     <div class="modal-dialog">
-        <form method="post" class="modal-content" onsubmit="return confirm('Merge this duplicate employee into the selected existing employee? This moves assignments and transaction references.');">
+        
             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
             <input type="hidden" name="action" value="merge">
             <input type="hidden" name="source_employee_id" id="mergeSourceEmployeeId" value="">
@@ -1611,6 +1612,10 @@ document.addEventListener('DOMContentLoaded', function () {
         var officeSelect = document.getElementById('office_id');
         var codeSelect = document.getElementById('responsibility_code_id');
         filterResponsibilityCodesForPair(officeSelect, codeSelect, false);
+    }
+
+    if (window.attachImagePreview) {
+        window.attachImagePreview('input[name="photo"]', '#employeePhotoPreviewContainer');
     }
 
     function buildOptions(options, selectedValue, includeOfficeId) {
@@ -1872,3 +1877,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

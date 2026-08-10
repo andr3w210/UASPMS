@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/employee_assignments.php';
 require_role('Administrator', 'Supply Officer', 'Property Officer');
@@ -1515,7 +1515,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="fs-4 fw-semibold"><?php echo h(number_format(count(array_filter($assets, static fn($asset) => ($asset['source_type'] ?? '') === 'legacy')))); ?></div>
                     </div>
                 </div>
-                <form method="post" id="directTransferForm">
+                <form method="post" id="directTransferForm" data-submit-loading="1">
                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                     <input type="hidden" name="action" value="direct_transfer">
                     <input type="hidden" name="mode" value="direct">
@@ -1653,7 +1653,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-xl-5">
                             <div class="transfer-panel">
                                 <div class="transfer-panel-title"><i class="bi bi-person-check text-success"></i> New Accountability</div>
-                            <form method="post" id="bulkTransferForm">
+                            <form method="post" id="bulkTransferForm" data-submit-loading="1">
                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                 <input type="hidden" name="action" value="bulk_transfer">
                                 <input type="hidden" name="mode" value="bulk">
@@ -1844,7 +1844,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-xl-5">
                         <div class="transfer-panel">
                             <div class="transfer-panel-title"><i class="bi bi-person-check text-success"></i> New Accountability</div>
-                            <form method="post" id="searchTransferForm">
+                            <form method="post" id="searchTransferForm" data-submit-loading="1">
                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                 <input type="hidden" name="action" value="search_transfer">
                                 <input type="hidden" name="mode" value="search">
@@ -2672,3 +2672,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

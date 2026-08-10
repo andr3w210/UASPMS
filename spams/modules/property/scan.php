@@ -1119,7 +1119,7 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Brand / Model</div><div><?php echo h($brandModel !== '' ? $brandModel : 'Not recorded'); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Serial Number</div><div><?php echo h((string) ($row['serial_no'] ?? '') !== '' ? (string) $row['serial_no'] : 'Not recorded'); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Quantity</div><div><?php echo isset($row['quantity_received']) ? h(format_quantity($row['quantity_received'])) : '-'; ?></div></div></div>
-                    <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Unit Cost</div><div><?php echo isset($row['unit_cost']) ? h(number_format((float) $row['unit_cost'], 2)) : '-'; ?></div></div></div>
+                    <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Unit Cost</div><div><?php echo isset($row['unit_cost']) ? h(format_currency((float) $row['unit_cost'])) : '-'; ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Date Acquired</div><div><?php echo h(format_date($row['received_date'] ?? null)); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">Supplier</div><div><?php echo h((string) ($row['supplier_name'] ?? '') !== '' ? (string) $row['supplier_name'] : 'Not recorded'); ?></div></div></div>
                     <div class="col-md-6 col-lg-4"><div class="value-block"><div class="kv">PO Number</div><div><?php echo h((string) ($row['po_number'] ?? '') !== '' ? (string) $row['po_number'] : 'Not recorded'); ?></div></div></div>
@@ -1327,6 +1327,7 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
                                         <label for="proof_photo" class="form-label">Proof Photo</label>
                                         <input type="file" class="form-control" id="proof_photo" name="proof_photo" accept="image/*" capture="environment">
                                         <div class="form-text">Optional field photo for the active inventory count.</div>
+                                        <div class="mt-2" id="inventoryProofPreviewContainer"></div>
                                     </div>
                                     <button type="submit" class="btn btn-primary btn-lg">Mark as Found</button>
                                     <?php if ($inventoryUrl !== ''): ?>
@@ -1344,6 +1345,10 @@ $assetPhotoUrl = upload_url($assetPhotoPath);
     </div>
     <script>
     document.addEventListener('DOMContentLoaded', function () {
+        if (window.attachImagePreview) {
+            window.attachImagePreview('#proof_photo', '#inventoryProofPreviewContainer');
+        }
+
         var searchInput = document.getElementById('locationSearchInput');
         var select = document.getElementById('locationSelect');
         if (!searchInput || !select) {

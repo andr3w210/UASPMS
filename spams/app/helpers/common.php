@@ -557,6 +557,17 @@ function format_date(?string $value, string $format = 'M d, Y'): string
     return date($format, $timestamp);
 }
 
+function format_currency($amount, bool $withSymbol = true): string
+{
+    if ($amount === null || $amount === '') {
+        return '';
+    }
+
+    $formatted = number_format((float) $amount, 2, '.', ',');
+
+    return $withSymbol ? '₱' . $formatted : $formatted;
+}
+
 function format_quantity($value): string
 {
     if ($value === null || $value === '') {

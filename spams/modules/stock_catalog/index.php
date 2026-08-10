@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 
@@ -544,7 +544,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
             <div class="card">
                 <div class="card-body p-4">
                     <h5 class="card-title mb-3"><?php echo $mode === 'create' ? 'Add Stock Catalog Item' : 'Edit Stock Catalog Item'; ?></h5>
-                    <form method="post">
+                    
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="<?php echo $mode === 'create' ? 'create' : 'update'; ?>">
                         <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
@@ -668,7 +668,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                     <div class="d-flex gap-2">
                         <a href="<?php echo base_url('modules/stock_catalog/index.php?id=' . (int) $selectedItem['id'] . '&mode=edit'); ?>" class="btn btn-primary">Edit</a>
-                        <form method="post">
+                        
                             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                             <input type="hidden" name="action" value="toggle">
                             <input type="hidden" name="id" value="<?php echo (int) $selectedItem['id']; ?>">
@@ -998,3 +998,4 @@ document.addEventListener('DOMContentLoaded', function () {
 }
 </style>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_role('Administrator', 'Supply Officer');
 
@@ -1991,7 +1991,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="btn btn-sm btn-outline-secondary me-1" target="_blank">Final IAR by PO</a>
                                             <a href="<?php echo base_url('modules/receivings/correct_receiving.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-warning me-1">Correct</a>
                                             <?php if (receiving_can_cancel()): ?>
-                                                <form method="post" class="d-inline" onsubmit="return confirm('Cancel this receiving and roll back stock availability?');">
+                                                
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="cancel_receiving">
                                                     <input type="hidden" name="receiving_id" value="<?php echo (int) $receiving['id']; ?>">
@@ -2955,3 +2955,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

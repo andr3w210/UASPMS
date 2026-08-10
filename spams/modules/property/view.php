@@ -1973,7 +1973,7 @@ if ($source === 'system') {
         'details' => trim(implode(' | ', array_filter([
             !empty($asset['supplier_name']) ? 'Supplier: ' . $asset['supplier_name'] : '',
             !empty($asset['po_number']) ? 'PO: ' . $asset['po_number'] : '',
-            isset($asset['unit_cost']) ? 'Unit cost: ' . number_format((float) $asset['unit_cost'], 2) : '',
+            isset($asset['unit_cost']) ? 'Unit cost: ' . format_currency((float) $asset['unit_cost']) : '',
         ]))),
     ];
 
@@ -2102,7 +2102,7 @@ if ($source === 'system') {
         'details' => trim(implode(' | ', array_filter([
             !empty($asset['supplier_name']) ? 'Supplier: ' . $asset['supplier_name'] : '',
             isset($asset['quantity']) ? 'Qty: ' . number_format((float) $asset['quantity'], 0) : '',
-            isset($asset['unit_cost']) ? 'Unit cost: ' . number_format((float) $asset['unit_cost'], 2) : '',
+            isset($asset['unit_cost']) ? 'Unit cost: ' . format_currency((float) $asset['unit_cost']) : '',
         ]))),
     ];
 
@@ -2411,7 +2411,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <li><a class="dropdown-item text-danger" href="<?php echo base_url('modules/disposals/index.php?source=legacy&legacy_asset_id=' . (int) $asset['id']); ?>">Disposal</a></li>
                                     <?php if ($canDeleteLegacy): ?>
                                         <li>
-                                            <form method="post" onsubmit="return confirm('Delete this legacy asset? This will hide it from the active legacy list.');">
+                                            <form method="post" data-submit-loading="1" onsubmit="return confirm('Delete this legacy asset? This will hide it from the active legacy list.');">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="delete_legacy_asset">
                                                 <button type="submit" class="dropdown-item text-danger">Delete Legacy Asset</button>
@@ -2473,7 +2473,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         This asset has a temporary property number. Once acquisition date, fund, and account code are complete, saving this form will generate the official property number.
                                     </div>
                                 <?php endif; ?>
-                                <form method="post" id="assetEditForm" class="row g-3">
+                                <form method="post" id="assetEditForm" class="row g-3" data-submit-loading="1">
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                     <input type="hidden" name="action" value="save_asset_details">
 
@@ -2816,7 +2816,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         <?php if ($canManagePhotos): ?>
                                                             <div class="d-flex gap-2 mt-2 flex-wrap">
                                                                 <?php if ((int) ($photo['is_primary'] ?? 0) !== 1): ?>
-                                                                    <form method="post">
+                                                                    <form method="post" data-submit-loading="1">
                                                                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                                         <input type="hidden" name="action" value="set_primary_photo">
                                                                         <input type="hidden" name="photo_id" value="<?php echo (int) $photo['id']; ?>">
@@ -2825,7 +2825,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                                 <?php else: ?>
                                                                     <span class="badge text-bg-primary">Primary</span>
                                                                 <?php endif; ?>
-                                                                <form method="post" onsubmit="return confirm('Delete this asset photo?');">
+                                                                <form method="post" data-submit-loading="1" onsubmit="return confirm('Delete this asset photo?');">
                                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                                     <input type="hidden" name="action" value="delete_photo">
                                                                     <input type="hidden" name="photo_id" value="<?php echo (int) $photo['id']; ?>">
@@ -2840,7 +2840,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </div>
                                     <div class="col-lg-5">
                                         <?php if ($canManagePhotos): ?>
-                                            <form method="post" enctype="multipart/form-data" class="border rounded-3 p-3 bg-light-subtle">
+                                            <form method="post" enctype="multipart/form-data" class="border rounded-3 p-3 bg-light-subtle" data-submit-loading="1">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="upload_photo">
                                                 <div class="fw-semibold mb-2">Upload New Photo</div>
@@ -2848,6 +2848,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <div class="mb-3">
                                                     <label class="form-label">Asset Photo</label>
                                                     <input type="file" class="form-control" name="asset_photo" accept="image/*" capture="environment" required>
+                                                    <div class="mt-2" id="assetPhotoPreviewContainer"></div>
                                                 </div>
                                                 <div class="mb-3">
                                                     <label class="form-label">Caption</label>
@@ -3202,6 +3203,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    if (window.attachImagePreview) {
+        window.attachImagePreview('input[name="asset_photo"]', '#assetPhotoPreviewContainer');
+    }
+
     var quickAddEndpoint = <?php echo json_encode(base_url('modules/property/legacy_assets_quickadd.php')); ?>;
     var classificationQuickAddEndpoint = <?php echo json_encode(base_url('modules/purchase_orders/classification_quick_add.php')); ?>;
     var csrfToken = <?php echo json_encode(csrf_token()); ?>;

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
@@ -253,7 +253,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="text-muted small">Encode the physical rooms, buildings, storage areas, or offices used for asset location tracking.</div>
                         </div>
                     </div>
-                    <form method="post" class="workspace-form-section mt-3">
+                    
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
                         <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
@@ -332,13 +332,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td class="text-end">
                                         <div class="d-inline-flex flex-wrap justify-content-end gap-2">
                                             <a href="<?php echo base_url('modules/locations/index.php?edit=' . (int) $location['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a>
-                                            <form method="post" onsubmit="return confirm('<?php echo (int) $location['is_active'] === 1 ? 'Deactivate' : 'Reactivate'; ?> this location?');" class="d-inline">
+                                             this location?');" class="d-inline">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="<?php echo (int) $location['is_active'] === 1 ? 'deactivate' : 'reactivate'; ?>">
                                                 <input type="hidden" name="id" value="<?php echo (int) $location['id']; ?>">
                                                 <button type="submit" class="btn btn-sm <?php echo (int) $location['is_active'] === 1 ? 'btn-outline-warning' : 'btn-outline-success'; ?>"><?php echo (int) $location['is_active'] === 1 ? 'Deactivate' : 'Reactivate'; ?></button>
                                             </form>
-                                            <form method="post" onsubmit="return confirm('Permanently delete this location?');" class="d-inline">
+                                            
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="hard_delete">
                                                 <input type="hidden" name="id" value="<?php echo (int) $location['id']; ?>">
@@ -391,3 +391,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

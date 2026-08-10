@@ -68,6 +68,41 @@ function showToast(message, type) {
 
 window.showToast = showToast;
 
+function attachImagePreview(inputSelector, previewContainerSelector) {
+    var input = typeof inputSelector === 'string' ? document.querySelector(inputSelector) : inputSelector;
+    var previewContainer = typeof previewContainerSelector === 'string' ? document.querySelector(previewContainerSelector) : previewContainerSelector;
+
+    if (!input || !previewContainer) {
+        return;
+    }
+
+    input.addEventListener('change', function () {
+        var file = input.files && input.files[0] ? input.files[0] : null;
+        if (!file || !file.type || !file.type.startsWith('image/')) {
+            previewContainer.innerHTML = '';
+            previewContainer.classList.remove('d-block');
+            return;
+        }
+
+        var reader = new FileReader();
+        reader.onload = function (event) {
+            previewContainer.innerHTML = '';
+            previewContainer.classList.add('d-block');
+
+            var img = document.createElement('img');
+            img.src = event.target.result;
+            img.alt = 'Selected image preview';
+            img.className = 'img-fluid rounded border shadow-sm';
+            img.style.maxHeight = '220px';
+            img.style.objectFit = 'cover';
+            previewContainer.appendChild(img);
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+window.attachImagePreview = attachImagePreview;
+
 if (typeof window.initDataTable !== 'function') {
     window.initDataTable = function () {
         window.__spamsPendingInitDataTables.push(Array.prototype.slice.call(arguments));
@@ -83,6 +118,163 @@ if (typeof window.initMasterDataList !== 'function') {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    var sessionTimeoutMinutes = 30;
+    var sessionTimeoutMeta = document.querySelector('meta[name="spams-session-timeout-minutes"]');
+    if (sessionTimeoutMeta) {
+        var parsedTimeout = parseInt(sessionTimeoutMeta.getAttribute('content'), 10);
+        if (!isNaN(parsedTimeout) && parsedTimeout >= 5 && parsedTimeout <= 480) {
+            sessionTimeoutMinutes = parsedTimeout;
+        }
+    }
+
+    var warningBeforeMinutes = Math.min(2, Math.max(1, sessionTimeoutMinutes - 1));
+    var warningThresholdMs = Math.max(60000, (sessionTimeoutMinutes - warningBeforeMinutes) * 60 * 1000);
+    var idleWarningShown = false;
+    var idleWarningModal = null;
+    var idleWarningTimer = null;
+    var idleResetTimer = null;
+    var idleWarningCountdownTimer = null;
+    var idleWarningSecondsRemaining = 0;
+
+    function createIdleWarningModal() {
+        if (idleWarningModal) {
+            return idleWarningModal;
+        }
+
+        var modalElement = document.getElementById('idleSessionWarningModal');
+        if (modalElement) {
+            idleWarningModal = bootstrap.Modal.getOrCreateInstance(modalElement);
+            return idleWarningModal;
+        }
+
+        var modalHtml = [
+            '<div class="modal fade" id="idleSessionWarningModal" tabindex="-1" aria-labelledby="idleSessionWarningModalLabel" aria-hidden="true">',
+            '    <div class="modal-dialog modal-dialog-centered">',
+            '        <div class="modal-content">',
+            '            <div class="modal-header">',
+            '                <h5 class="modal-title" id="idleSessionWarningModalLabel">Session timeout warning</h5>',
+            '                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>',
+            '            </div>',
+            '            <div class="modal-body">',
+            '                <p class="mb-2">You have been inactive for a while.</p>',
+            '                <p class="mb-0">Your session will expire in <span id="idleSessionWarningCountdown">' + warningBeforeMinutes + '</span> minute(s).',
+            '                <span class="d-block mt-2 text-muted">Choose “Stay signed in” to continue working.</span>',
+            '                </p>',
+            '            </div>',
+            '            <div class="modal-footer">',
+            '                <button type="button" class="btn btn-primary" id="idleSessionKeepAliveButton">Stay signed in</button>',
+            '            </div>',
+            '        </div>',
+            '    </div>',
+            '</div>'
+        ].join('');
+
+        var wrapper = document.createElement('div');
+        wrapper.innerHTML = modalHtml;
+        document.body.appendChild(wrapper.firstElementChild);
+        modalElement = document.getElementById('idleSessionWarningModal');
+        idleWarningModal = bootstrap.Modal.getOrCreateInstance(modalElement);
+        return idleWarningModal;
+    }
+
+    function resetIdleWarning() {
+        idleWarningShown = false;
+        idleWarningSecondsRemaining = 0;
+        if (idleWarningCountdownTimer) {
+            window.clearInterval(idleWarningCountdownTimer);
+            idleWarningCountdownTimer = null;
+        }
+        if (idleWarningModal) {
+            try {
+                idleWarningModal.hide();
+            } catch (error) {
+                // Ignore modal hide errors.
+            }
+        }
+        if (idleResetTimer) {
+            window.clearTimeout(idleResetTimer);
+        }
+        idleResetTimer = window.setTimeout(function () {
+            startIdleWarningTimer();
+        }, warningThresholdMs);
+    }
+
+    function updateIdleWarningCountdown() {
+        var countdownEl = document.getElementById('idleSessionWarningCountdown');
+        if (!countdownEl) {
+            return;
+        }
+
+        if (idleWarningSecondsRemaining <= 0) {
+            countdownEl.textContent = '0';
+            return;
+        }
+
+        var minutes = Math.floor(idleWarningSecondsRemaining / 60);
+        var seconds = idleWarningSecondsRemaining % 60;
+        countdownEl.textContent = minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
+    }
+
+    function startIdleWarningTimer() {
+        if (idleWarningTimer) {
+            window.clearTimeout(idleWarningTimer);
+        }
+
+        idleWarningShown = false;
+        idleWarningTimer = window.setTimeout(function () {
+            idleWarningShown = true;
+            idleWarningSecondsRemaining = warningBeforeMinutes * 60;
+            createIdleWarningModal();
+            var countdownEl = document.getElementById('idleSessionWarningCountdown');
+            if (countdownEl) {
+                countdownEl.textContent = idleWarningSecondsRemaining + '';
+            }
+            idleWarningModal.show();
+            idleWarningCountdownTimer = window.setInterval(function () {
+                if (idleWarningSecondsRemaining <= 0) {
+                    window.clearInterval(idleWarningCountdownTimer);
+                    idleWarningCountdownTimer = null;
+                    return;
+                }
+                idleWarningSecondsRemaining -= 1;
+                updateIdleWarningCountdown();
+            }, 1000);
+        }, warningThresholdMs);
+    }
+
+    function pingSessionKeepAlive() {
+        if (window.fetch) {
+            fetch('<?php echo base_url('auth/keep_alive.php'); ?>', {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin'
+            }).then(function (response) {
+                if (response.ok) {
+                    resetIdleWarning();
+                }
+            }).catch(function () {
+                // Ignore keep-alive errors.
+            });
+        }
+    }
+
+    document.addEventListener('mousemove', resetIdleWarning);
+    document.addEventListener('keydown', resetIdleWarning);
+    document.addEventListener('touchstart', resetIdleWarning);
+    document.addEventListener('click', resetIdleWarning);
+    document.addEventListener('scroll', resetIdleWarning);
+
+    document.addEventListener('click', function (event) {
+        var keepAliveButton = event.target.closest('#idleSessionKeepAliveButton');
+        if (!keepAliveButton) {
+            return;
+        }
+        event.preventDefault();
+        pingSessionKeepAlive();
+    }, true);
+
+    startIdleWarningTimer();
+
     var toggleButton = document.getElementById('sidebarToggle');
     var toggleIcon = toggleButton ? toggleButton.querySelector('i') : null;
     var sidebar = document.getElementById('sidebar');

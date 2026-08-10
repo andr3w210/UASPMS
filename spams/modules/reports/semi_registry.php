@@ -349,7 +349,7 @@ if ($isPrint) {
                         <td></td>
                         <td class="qty"><?php echo !empty($row['disposal_date']) ? '1' : ''; ?></td>
                         <td class="qty"><?php echo h(format_quantity($row['balance_qty'] ?? 0)); ?></td>
-                        <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                        <td class="money"><?php echo h(format_currency((float) ($row['unit_cost'] ?? 0))); ?></td>
                         <td></td>
                     </tr>
                 <?php endforeach; else: ?>
