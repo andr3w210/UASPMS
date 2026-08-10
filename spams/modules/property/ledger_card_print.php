@@ -21,6 +21,7 @@ $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
 $purchaseOrders = [];
 $offices = [];
 $cards = [];
+$hasAccountDefaultUsefulLifeYears = $db ? schema_has_column($db, 'account_codes', 'default_useful_life_years') : false;
 
 if ($db) {
     ensure_legacy_assets_fund_column($db);
@@ -87,6 +88,10 @@ if ($db) {
     }
 
     if ($source !== 'legacy') {
+        $accountDefaultSelect = $hasAccountDefaultUsefulLifeYears
+            ? "ac.default_useful_life_years AS account_default_useful_life_years,"
+            : "NULL AS account_default_useful_life_years,";
+
         $sql = "SELECT
                     did.id AS detail_id,
                     'system' AS source_type,
@@ -96,13 +101,15 @@ if ($db) {
                     poi.item_description,
                     c.classification_name,
                     c.classification_family,
+                    c.useful_life_years AS classification_useful_life_years,
                     ac.account_code,
                     ac.account_name,
-                    c.useful_life_years,
+                    {$accountDefaultSelect}
                     rid.brand,
                     rid.model,
                     rid.serial_no,
                     ri.unit_cost,
+                    ri.unit_cost AS acquisition_cost,
                     r.received_date,
                     r.system_reference AS iar_ref,
                     d.document_no AS accountability_no,
@@ -169,8 +176,12 @@ if ($db) {
             while ($res && ($row = $res->fetch_assoc())) {
                 $key = 'system-' . (int) ($row['detail_id'] ?? 0);
                 $unitCost = (float) ($row['unit_cost'] ?? 0);
-                $rate = !empty($row['useful_life_years']) && (float) $row['useful_life_years'] > 0
-                    ? number_format(100 / (float) $row['useful_life_years'], 2) . '%'
+                $effectiveUsefulLifeYears = resolve_effective_useful_life_years(
+                    $row['classification_useful_life_years'] ?? null,
+                    $row['account_default_useful_life_years'] ?? null
+                );
+                $rate = !empty($effectiveUsefulLifeYears) && (float) $effectiveUsefulLifeYears > 0
+                    ? number_format(100 / (float) $effectiveUsefulLifeYears, 2) . '%'
                     : '';
                 $cards[$key] = [
                     'card_key' => $key,
@@ -192,13 +203,15 @@ if ($db) {
                     'brand' => $row['brand'] ?? '',
                     'model' => $row['model'] ?? '',
                     'serial_no' => $row['serial_no'] ?? '',
-                    'useful_life_years' => $row['useful_life_years'] ?? '',
+                    'useful_life_years' => $effectiveUsefulLifeYears ?? '',
                     'depreciation_rate' => $rate,
                     'office_name' => $row['office_name'] ?? '',
                     'accountable_person' => employee_display_name($row),
                     'position_title' => $row['position_title'] ?? '',
                     'rc_code' => $row['rc_code'] ?? '',
                     'unit_cost' => $unitCost,
+                    'acquisition_cost' => (float) ($row['acquisition_cost'] ?? $unitCost),
+                    'acquisition_date' => $row['received_date'] ?? null,
                     'ledger' => [
                         [
                             'date' => $row['received_date'] ?? null,
@@ -208,6 +221,7 @@ if ($db) {
                             'receipt_cost' => $unitCost,
                             'accumulated_depreciation' => '',
                             'accumulated_impairment' => '',
+                            'carrying_amount' => '',
                             'issue_reference' => '',
                             'issue_qty' => 0,
                             'issue_party' => '',
@@ -224,6 +238,7 @@ if ($db) {
                             'receipt_cost' => 0,
                             'accumulated_depreciation' => '',
                             'accumulated_impairment' => '',
+                            'carrying_amount' => '',
                             'issue_reference' => $row['property_number'] ?? '',
                             'issue_qty' => 1,
                             'issue_party' => trim(implode(' / ', array_filter([
@@ -243,6 +258,10 @@ if ($db) {
     }
 
     if ($source !== 'system' && $purchaseOrderId === 0) {
+        $legacyAccountDefaultSelect = $hasAccountDefaultUsefulLifeYears
+            ? "ac.default_useful_life_years AS account_default_useful_life_years,"
+            : "NULL AS account_default_useful_life_years,";
+
         $legacySql = "SELECT
                         la.id AS legacy_id,
                         'legacy' AS source_type,
@@ -253,6 +272,7 @@ if ($db) {
                         la.model,
                         la.serial_no,
                         la.unit_cost,
+                        la.acquisition_cost,
                         la.acquisition_date,
                         la.system_reference,
                         la.office_id,
@@ -265,8 +285,10 @@ if ($db) {
                         rc.code AS rc_code,
                         c.classification_name,
                         c.classification_family,
+                        c.useful_life_years AS classification_useful_life_years,
                         ac.account_code,
                         ac.account_name,
+                        {$legacyAccountDefaultSelect}
                         f.fund_code,
                         f.fund_source
                     FROM legacy_assets la
@@ -306,6 +328,16 @@ if ($db) {
             while ($res && ($row = $res->fetch_assoc())) {
                 $key = 'legacy-' . (int) ($row['legacy_id'] ?? 0);
                 $unitCost = (float) ($row['unit_cost'] ?? 0);
+                $acquisitionCost = (float) ($row['acquisition_cost'] ?? 0) > 0
+                    ? (float) ($row['acquisition_cost'] ?? 0)
+                    : $unitCost;
+                $effectiveUsefulLifeYears = resolve_effective_useful_life_years(
+                    $row['classification_useful_life_years'] ?? null,
+                    $row['account_default_useful_life_years'] ?? null
+                );
+                $rate = !empty($effectiveUsefulLifeYears) && (float) $effectiveUsefulLifeYears > 0
+                    ? number_format(100 / (float) $effectiveUsefulLifeYears, 2) . '%'
+                    : '';
                 $cards[$key] = [
                     'card_key' => $key,
                     'source_type' => 'legacy',
@@ -326,13 +358,15 @@ if ($db) {
                     'brand' => $row['brand'] ?? '',
                     'model' => $row['model'] ?? '',
                     'serial_no' => $row['serial_no'] ?? '',
-                    'useful_life_years' => '',
-                    'depreciation_rate' => '',
+                    'useful_life_years' => $effectiveUsefulLifeYears ?? '',
+                    'depreciation_rate' => $rate,
                     'office_name' => $row['office_name'] ?? '',
                     'accountable_person' => employee_display_name($row),
                     'position_title' => $row['position_title'] ?? '',
                     'rc_code' => $row['rc_code'] ?? '',
                     'unit_cost' => $unitCost,
+                    'acquisition_cost' => $acquisitionCost,
+                    'acquisition_date' => $row['acquisition_date'] ?? null,
                     'ledger' => [
                         [
                             'date' => $row['acquisition_date'] ?? null,
@@ -342,6 +376,7 @@ if ($db) {
                             'receipt_cost' => $unitCost,
                             'accumulated_depreciation' => '',
                             'accumulated_impairment' => '',
+                            'carrying_amount' => '',
                             'issue_reference' => '',
                             'issue_qty' => 0,
                             'issue_party' => '',
@@ -403,6 +438,7 @@ if ($db) {
                     'receipt_cost' => 0,
                     'accumulated_depreciation' => '',
                     'accumulated_impairment' => '',
+                    'carrying_amount' => '',
                     'issue_reference' => '',
                     'issue_qty' => 0,
                     'issue_party' => '',
@@ -418,6 +454,31 @@ if ($db) {
 
     foreach ($cards as &$card) {
         ledger_sort_rows($card['ledger']);
+        if (($card['item_type'] ?? '') !== 'equipment') {
+            continue;
+        }
+
+        $acquisitionCost = (float) ($card['acquisition_cost'] ?? $card['unit_cost'] ?? 0);
+        $acquisitionDate = (string) ($card['acquisition_date'] ?? '');
+        $usefulLifeYears = (int) ($card['useful_life_years'] ?? 0);
+        foreach ($card['ledger'] as &$ledgerRow) {
+            $asOfDate = trim((string) ($ledgerRow['date'] ?? ''));
+            if ($asOfDate === '') {
+                $asOfDate = date('Y-m-d');
+            }
+            $depreciation = calculate_accumulated_depreciation(
+                $acquisitionCost,
+                $acquisitionDate,
+                $usefulLifeYears,
+                $asOfDate
+            );
+            $ledgerRow['accumulated_depreciation'] = number_format((float) ($depreciation['accumulated_depreciation'] ?? 0), 2);
+            $ledgerRow['carrying_amount'] = number_format((float) ($depreciation['carrying_amount'] ?? 0), 2);
+            if (($ledgerRow['adjusted_cost'] ?? '') === '' || (float) ($ledgerRow['adjusted_cost'] ?? 0) <= 0) {
+                $ledgerRow['adjusted_cost'] = (float) ($depreciation['carrying_amount'] ?? 0);
+            }
+        }
+        unset($ledgerRow);
     }
     unset($card);
 }
@@ -594,7 +655,7 @@ if ($db) {
                                     <td><?php echo h($row['issue_reference'] ?? ''); ?></td>
                                     <td class="text-end"><?php echo h(format_quantity($row['issue_qty'] ?? 0)); ?></td>
                                     <td><?php echo h($row['issue_party'] ?? ''); ?></td>
-                                    <td class="text-end"><?php echo h(number_format((float) ($row['adjusted_cost'] !== '' ? $row['adjusted_cost'] : $balCost), 2)); ?></td>
+                                    <td class="text-end"><?php echo h(number_format((float) (($card['item_type'] === 'equipment' && ($row['carrying_amount'] ?? '') !== '') ? $row['carrying_amount'] : ($row['adjusted_cost'] !== '' ? $row['adjusted_cost'] : $balCost)), 2)); ?></td>
                                     <?php if ($card['item_type'] === 'equipment'): ?>
                                         <td><?php echo h($row['repair_nature'] ?? ''); ?></td>
                                         <td class="text-end"><?php echo h($row['repair_amount'] ?? ''); ?></td>
