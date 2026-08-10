@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/navigation.php';
 $displayName = $_SESSION['user_name'] ?? 'User';
 $roleName = $_SESSION['role_name'] ?? 'Administrator';
 $userRole = $_SESSION['user_role'] ?? 'User';
@@ -732,9 +733,25 @@ $hasNotifications = $notificationBadgeCount > 0;
 </header>
 
 <main id="main" class="main">
-    <div class="pagetitle d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <div>
-            <h1><?php echo h($pageTitle ?? 'Dashboard'); ?></h1>
-            <div class="text-muted small"><?php echo h($roleName); ?></div>
+    <div class="page-shell">
+        <div class="pagetitle d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="page-heading">
+                <span class="page-heading-pill"><i class="bi bi-speedometer2 me-1"></i> Operational view</span>
+                <h1><?php echo h($pageTitle ?? 'Dashboard'); ?></h1>
+                <div class="page-heading-subtitle"><?php echo h($roleName); ?></div>
+            </div>
         </div>
-    </div>
+        <?php
+        $activeMenuItem = spams_find_active_menu_item($path ?? ($_SERVER['PHP_SELF'] ?? ''), $menuGroups, $currentRole ?? null);
+        if ($activeMenuItem):
+            $breadcrumbSection = h($activeMenuItem['groupLabel']);
+            $breadcrumbPage = h($activeMenuItem['itemLabel']);
+        ?>
+        <nav class="breadcrumb-shell" aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item"><a href="<?php echo base_url('dashboard/index.php'); ?>">Dashboard</a></li>
+                <li class="breadcrumb-item"><span><?php echo $breadcrumbSection; ?></span></li>
+                <li class="breadcrumb-item active" aria-current="page"><?php echo $breadcrumbPage; ?></li>
+            </ol>
+        </nav>
+        <?php endif; ?>

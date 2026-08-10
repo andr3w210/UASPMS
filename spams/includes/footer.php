@@ -1,21 +1,55 @@
+    </div>
     <footer id="footer" class="footer">
-        <div class="copyright">
-            SPAMS &copy; <?php echo date('Y'); ?>. Supply and Property Asset Management System. &mdash; <span style="font-style:italic;opacity:0.7;">aDDicTus</span> &middot; <span style="opacity:0.6;"><?php echo APP_VERSION; ?></span>
+        <div class="footer-shell">
+            <span class="footer-badge"><i class="bi bi-shield-check"></i> SPAMS</span>
+            <div class="copyright">
+                SPAMS &copy; <?php echo date('Y'); ?>. Supply and Property Asset Management System. &mdash; <span style="font-style:italic;opacity:0.7;">aDDicTus</span> &middot; <span style="opacity:0.6;"><?php echo APP_VERSION; ?></span>
+            </div>
         </div>
     </footer>
 </main>
 
 <?php require_once __DIR__ . '/chat_widget.php'; ?>
+<?php require_once __DIR__ . '/confirm_modal.php'; ?>
+
+<div id="globalToastContainer" class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1080;"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script src="<?php echo base_url('assets/js/app.js'); ?>"></script>
+<script src="<?php echo base_url('assets/js/confirm.js'); ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     if (!window.bootstrap || !bootstrap.Toast) {
         return;
     }
+
+    <?php
+    $flashToast = null;
+    if (!empty($_SESSION['flash_message']) || !empty($_SESSION['flash_type'])) {
+        $flashToast = [
+            'message' => trim((string) ($_SESSION['flash_message'] ?? '')),
+            'type' => trim((string) ($_SESSION['flash_type'] ?? '')),
+        ];
+        if ($flashToast['message'] === '') {
+            $flashToast = null;
+        } else {
+            if ($flashToast['type'] === 'error') {
+                $flashToast['type'] = 'danger';
+            }
+            if (!in_array($flashToast['type'], ['success', 'danger', 'warning', 'info'], true)) {
+                $flashToast['type'] = 'info';
+            }
+            unset($_SESSION['flash_message'], $_SESSION['flash_type']);
+        }
+    }
+    ?>
+    <?php if ($flashToast): ?>
+    if (window.showToast) {
+        window.showToast(<?php echo json_encode($flashToast['message'] ?? ''); ?>, <?php echo json_encode($flashToast['type'] ?? 'info'); ?>);
+    }
+    <?php endif; ?>
 
     var dangerAlert = Array.from(document.querySelectorAll('.alert.alert-danger')).find(function (el) {
         var isHidden = el.classList.contains('d-none') || el.hasAttribute('hidden') || el.getAttribute('aria-hidden') === 'true';
@@ -46,29 +80,9 @@ document.addEventListener('DOMContentLoaded', function () {
         return;
     }
 
-    var container = document.getElementById('globalValidationToastContainer');
-    if (!container) {
-        container = document.createElement('div');
-        container.id = 'globalValidationToastContainer';
-        container.className = 'toast-container position-fixed top-0 end-0 p-3';
-        container.style.zIndex = '1080';
-        document.body.appendChild(container);
+    if (window.showToast) {
+        window.showToast(summary, 'danger');
     }
-
-    var toastEl = document.createElement('div');
-    toastEl.className = 'toast text-bg-danger border-0';
-    toastEl.setAttribute('role', 'alert');
-    toastEl.setAttribute('aria-live', 'assertive');
-    toastEl.setAttribute('aria-atomic', 'true');
-    toastEl.innerHTML =
-        '<div class="d-flex">' +
-            '<div class="toast-body">' + summary + '</div>' +
-            '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>' +
-        '</div>';
-
-    container.appendChild(toastEl);
-    var toast = new bootstrap.Toast(toastEl, { delay: 5000 });
-    toast.show();
 });
 </script>
 </body>

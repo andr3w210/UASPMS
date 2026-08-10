@@ -594,9 +594,19 @@ require_once __DIR__ . '/../../includes/topbar.php';
 <script>
 document.querySelectorAll('form[data-confirm]').forEach(function (form) {
     form.addEventListener('submit', function (event) {
-        if (!confirm(form.getAttribute('data-confirm'))) {
-            event.preventDefault();
+        event.preventDefault();
+        if (!window.confirmAction) {
+            form.submit();
+            return;
         }
+        window.confirmAction({
+            title: 'Confirm action',
+            message: form.getAttribute('data-confirm'),
+            confirmText: 'Confirm',
+            onConfirm: function () {
+                form.submit();
+            }
+        });
     });
 });
 </script>

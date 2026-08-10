@@ -1045,15 +1045,26 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const proceedWithoutFuel = window.confirm('Fuel requested is 0 liters or blank. Save this trip ticket without creating a fuel RIS?');
-        if (!proceedWithoutFuel) {
-            event.preventDefault();
-            litersRequestedField?.focus();
+        event.preventDefault();
+        if (!window.confirmAction) {
+            if (litersRequestedField && (litersRequestedField.value || '').trim() === '') {
+                litersRequestedField.value = '0';
+            }
+            tripTicketForm?.submit();
             return;
         }
-        if (litersRequestedField && (litersRequestedField.value || '').trim() === '') {
-            litersRequestedField.value = '0';
-        }
+        window.confirmAction({
+            title: 'Confirm action',
+            message: 'Fuel requested is 0 liters or blank. Save this trip ticket without creating a fuel RIS?',
+            confirmText: 'Confirm',
+            onConfirm: function () {
+                if (litersRequestedField && (litersRequestedField.value || '').trim() === '') {
+                    litersRequestedField.value = '0';
+                }
+                tripTicketForm?.submit();
+            }
+        });
+        litersRequestedField?.focus();
     });
 
     destinationField?.addEventListener('input', updateMapPreview);

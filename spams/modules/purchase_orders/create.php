@@ -7,6 +7,8 @@ $db = db();
 $page_title = 'Encode Purchase Order';
 $flash = get_flash();
 $errors = [];
+$fieldErrors = [];
+$summaryErrors = [];
 $suppliers = [];
 $funds = [];
 $procurementModes = [];
@@ -35,6 +37,33 @@ $form = [
     'is_partial_entry' => 0,
 ];
 $itemRows = $defaultRows;
+
+function add_form_error(array &$errors, array &$fieldErrors, array &$summaryErrors, ?string $field, string $message): void
+{
+    $errors[] = $message;
+
+    if ($field !== null && $field !== '') {
+        $fieldErrors[$field][] = $message;
+        return;
+    }
+
+    $summaryErrors[] = $message;
+}
+
+function render_field_errors(array $fieldErrors, string $field): string
+{
+    if (empty($fieldErrors[$field])) {
+        return '';
+    }
+
+    $messages = array_values($fieldErrors[$field]);
+    $output = '';
+    foreach ($messages as $message) {
+        $output .= '<div class="invalid-feedback d-block">' . h($message) . '</div>';
+    }
+
+    return $output;
+}
 
 if ($db) {
     // load picklists
@@ -117,22 +146,34 @@ if ($db) {
 
                         $form['system_reference'] = preview_module_code($db, 'purchase_orders');
 
-                        if ($form['po_date'] === '')   $errors[] = 'PO date is required.';
-                        if ($form['po_date'] !== '' && !is_valid_date_string($form['po_date'])) {
-                            $errors[] = 'PO date format is invalid.';
+                        if ($form['po_date'] === '') {
+                            add_form_error($errors, $fieldErrors, $summaryErrors, 'po_date', 'PO date is required.');
                         }
-                        if ($form['supplier_id'] === '') $errors[] = 'Supplier is required.';
-                        if ($form['fund_id'] === '')   $errors[] = 'Fund is required.';
-                        if ($form['supplier_address'] === '') $errors[] = 'Supplier address is required.';
-                        if ($form['mode_of_procurement_id'] === '') $errors[] = 'Mode of procurement is required.';
-                        if ($form['place_of_delivery'] === '') $errors[] = 'Place of delivery is required.';
+                        if ($form['po_date'] !== '' && !is_valid_date_string($form['po_date'])) {
+                            add_form_error($errors, $fieldErrors, $summaryErrors, 'po_date', 'PO date format is invalid.');
+                        }
+                        if ($form['supplier_id'] === '') {
+                            add_form_error($errors, $fieldErrors, $summaryErrors, 'supplier_id', 'Supplier is required.');
+                        }
+                        if ($form['fund_id'] === '') {
+                            add_form_error($errors, $fieldErrors, $summaryErrors, 'fund_id', 'Fund is required.');
+                        }
+                        if ($form['supplier_address'] === '') {
+                            add_form_error($errors, $fieldErrors, $summaryErrors, 'supplier_address', 'Supplier address is required.');
+                        }
+                        if ($form['mode_of_procurement_id'] === '') {
+                            add_form_error($errors, $fieldErrors, $summaryErrors, 'mode_of_procurement_id', 'Mode of procurement is required.');
+                        }
+                        if ($form['place_of_delivery'] === '') {
+                            add_form_error($errors, $fieldErrors, $summaryErrors, 'place_of_delivery', 'Place of delivery is required.');
+                        }
                         if ($form['delivery_term_days'] !== '' &&
                                 (!ctype_digit($form['delivery_term_days']) ||
                                  (int)$form['delivery_term_days'] < 0)) {
-                            $errors[] = 'Delivery term must be a non-negative whole number.';
+                            add_form_error($errors, $fieldErrors, $summaryErrors, 'delivery_term_days', 'Delivery term must be a non-negative whole number.');
                         }
                         if ($form['document_total_amount'] !== '' && !preg_match('/^\d+(?:\.\d{1,2})?$/', $form['document_total_amount'])) {
-                            $errors[] = 'PO total amount must be a valid number with up to 2 decimal places.';
+                            add_form_error($errors, $fieldErrors, $summaryErrors, 'document_total_amount', 'PO total amount must be a valid number with up to 2 decimal places.');
                         }
 
                         if ($form['supplier_id'] !== '') {
@@ -145,7 +186,7 @@ if ($db) {
                                 }
                             }
                             if (!$supplierValid) {
-                                $errors[] = 'Selected supplier is invalid.';
+                                add_form_error($errors, $fieldErrors, $summaryErrors, 'supplier_id', 'Selected supplier is invalid.');
                             }
                         }
 
@@ -159,7 +200,7 @@ if ($db) {
                                 }
                             }
                             if (!$fundValid) {
-                                $errors[] = 'Selected fund is invalid.';
+                                add_form_error($errors, $fieldErrors, $summaryErrors, 'fund_id', 'Selected fund is invalid.');
                             }
                         }
 
@@ -173,7 +214,7 @@ if ($db) {
                                 }
                             }
                             if (!$modeValid) {
-                                $errors[] = 'Selected mode of procurement is invalid.';
+                                add_form_error($errors, $fieldErrors, $summaryErrors, 'mode_of_procurement_id', 'Selected mode of procurement is invalid.');
                             }
                         }
 
@@ -184,7 +225,7 @@ if ($db) {
                                 $dupStmt->bind_param('s', $form['po_number']);
                                 $dupStmt->execute();
                                 if ($dupStmt->get_result()->fetch_assoc()) {
-                                    $errors[] = 'PO number already exists.';
+                                    add_form_error($errors, $fieldErrors, $summaryErrors, 'po_number', 'PO number already exists.');
                                 }
                                 $dupStmt->close();
                             }
@@ -200,7 +241,7 @@ if ($db) {
                                     ->modify('+' . $daysToAdd . ' days')
                                     ->format('Y-m-d');
                             } catch (Exception $e) {
-                                $errors[] = 'PO date is invalid.';
+                                add_form_error($errors, $fieldErrors, $summaryErrors, 'po_date', 'PO date is invalid.');
                             }
                         }
 
@@ -209,7 +250,7 @@ if ($db) {
                         $totalAmount    = 0.00;
                         $lineNo         = 0;
 
-                        foreach ($postedRows as $row) {
+                        foreach ($postedRows as $rowIndex => $row) {
                             $description      = trim((string)($row['item_description'] ?? ''));
                             $itemType         = trim((string)($row['item_type'] ?? 'supply'));
                             $semiExpendableType = '';
@@ -219,24 +260,27 @@ if ($db) {
                             $quantity         = (float)($row['quantity'] ?? 0);
                             $unitOfMeasureId  = trim((string)($row['unit_of_measure_id'] ?? ''));
                             $unitCost         = (float)($row['unit_cost'] ?? 0);
+                            $lineFieldPrefix  = 'items[' . $rowIndex . ']';
 
                             if ($description === '' && $quantity <= 0 && $unitCost <= 0) continue;
 
                             $lineNo++;
 
-                            if ($description === '')
-                                $errors[] = 'Description is required on line ' . $lineNo . '.';
-                            if (!in_array($itemType, ['supply','semi_expendable','equipment'], true))
-                                $errors[] = 'Invalid item type on line ' . $lineNo . '.';
+                            if ($description === '') {
+                                add_form_error($errors, $fieldErrors, $summaryErrors, $lineFieldPrefix . '[item_description]', 'Description is required on line ' . $lineNo . '.');
+                            }
+                            if (!in_array($itemType, ['supply','semi_expendable','equipment'], true)) {
+                                add_form_error($errors, $fieldErrors, $summaryErrors, $lineFieldPrefix . '[item_type]', 'Invalid item type on line ' . $lineNo . '.');
+                            }
                             if ($itemType === 'supply') {
                                 if ($stockCatalogId === '') {
-                                    $errors[] = 'Supply line ' . $lineNo . ' must be selected from the stock catalog.';
+                                    add_form_error($errors, $fieldErrors, $summaryErrors, $lineFieldPrefix . '[stock_catalog_id]', 'Supply line ' . $lineNo . ' must be selected from the stock catalog.');
                                 } else {
                                     $catalogRow = $catalogById[(int) $stockCatalogId] ?? null;
                                     if (!$catalogRow) {
-                                        $errors[] = 'Selected catalog item is invalid on line ' . $lineNo . '.';
+                                        add_form_error($errors, $fieldErrors, $summaryErrors, $lineFieldPrefix . '[stock_catalog_id]', 'Selected catalog item is invalid on line ' . $lineNo . '.');
                                     } elseif (($catalogRow['item_type'] ?? '') !== 'supply') {
-                                        $errors[] = 'Only supply items can be selected from the stock catalog on line ' . $lineNo . '.';
+                                        add_form_error($errors, $fieldErrors, $summaryErrors, $lineFieldPrefix . '[stock_catalog_id]', 'Only supply items can be selected from the stock catalog on line ' . $lineNo . '.');
                                     } else {
                                         $description = trim((string) ($catalogRow['item_description'] ?? ''));
                                         if ($description === '') {
@@ -247,12 +291,15 @@ if ($db) {
                             } else {
                                 $stockCatalogId = '';
                             }
-                            if ($quantity <= 0)
-                                $errors[] = 'Quantity must be greater than zero on line ' . $lineNo . '.';
-                            if ($accountCodeId === '')
-                                $errors[] = 'Account code is required on line ' . $lineNo . '.';
-                            if ($unitOfMeasureId === '')
-                                $errors[] = 'Unit is required on line ' . $lineNo . '.';
+                            if ($quantity <= 0) {
+                                add_form_error($errors, $fieldErrors, $summaryErrors, $lineFieldPrefix . '[quantity]', 'Quantity must be greater than zero on line ' . $lineNo . '.');
+                            }
+                            if ($accountCodeId === '') {
+                                add_form_error($errors, $fieldErrors, $summaryErrors, $lineFieldPrefix . '[account_code_id]', 'Account code is required on line ' . $lineNo . '.');
+                            }
+                            if ($unitOfMeasureId === '') {
+                                add_form_error($errors, $fieldErrors, $summaryErrors, $lineFieldPrefix . '[unit_of_measure_id]', 'Unit is required on line ' . $lineNo . '.');
+                            }
 
                             if ($itemType === 'semi_expendable') {
                                 $semiExpendableType = $unitCost >= (float) $activeThreshold['semi_hv_min']
@@ -276,13 +323,15 @@ if ($db) {
                             ];
                         }
 
-                        if (empty($validatedItems)) $errors[] = 'At least one PO item is required.';
+                        if (empty($validatedItems)) {
+                            add_form_error($errors, $fieldErrors, $summaryErrors, null, 'At least one PO item is required.');
+                        }
 
                         $documentTotalAmount = null;
                         if ($form['document_total_amount'] !== '') {
                             $documentTotalAmount = round((float) $form['document_total_amount'], 2);
                             if (empty($form['is_partial_entry']) && abs($documentTotalAmount - $totalAmount) > 0.009) {
-                                $errors[] = 'Encoded line total (' . number_format($totalAmount, 2) . ') does not match the hard copy PO total (' . number_format($documentTotalAmount, 2) . ').';
+                                add_form_error($errors, $fieldErrors, $summaryErrors, 'document_total_amount', 'Encoded line total (' . number_format($totalAmount, 2) . ') does not match the hard copy PO total (' . number_format($documentTotalAmount, 2) . ').');
                             }
                         }
 
@@ -455,10 +504,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <p class="text-muted mb-0">Create and complete purchase orders from a single workspace that adjusts cleanly across desktop, tablet, and phone.</p>
                     </div>
                 </div>
-                <?php if (!empty($errors)): ?>
+                <?php if (!empty($summaryErrors)): ?>
                     <div class="alert alert-danger">
                         <ul class="mb-0">
-                            <?php foreach ($errors as $e): ?><li><?php echo h($e); ?></li><?php endforeach; ?>
+                            <?php foreach ($summaryErrors as $e): ?><li><?php echo h($e); ?></li><?php endforeach; ?>
                         </ul>
                     </div>
                 <?php endif; ?>
@@ -492,51 +541,58 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="col-md-3">
                             <label for="po_date" class="form-label">PO Date</label>
-                            <input type="date" class="form-control" id="po_date" name="po_date" value="<?php echo h($form['po_date']); ?>" required>
+                            <input type="date" class="form-control<?php echo !empty($fieldErrors['po_date']) ? ' is-invalid' : ''; ?>" id="po_date" name="po_date" value="<?php echo h($form['po_date']); ?>" required>
+                            <?php echo render_field_errors($fieldErrors, 'po_date'); ?>
                         </div>
                         <div class="col-md-6">
                             <label for="supplier_id" class="form-label">Supplier</label>
-                            <select class="form-select" id="supplier_id" name="supplier_id" required aria-label="Supplier (required)">
+                            <select class="form-select<?php echo !empty($fieldErrors['supplier_id']) ? ' is-invalid' : ''; ?>" id="supplier_id" name="supplier_id" required aria-label="Supplier (required)">
                                 <option value="">Select supplier</option>
                                 <?php foreach ($suppliers as $supplier): ?>
                                     <option value="<?php echo (int) $supplier['id']; ?>" data-address="<?php echo h($supplier['address'] ?? ''); ?>" <?php echo $form['supplier_id'] === (string) $supplier['id'] ? 'selected' : ''; ?>><?php echo h($supplier['supplier_name'] . ' (' . $supplier['supplier_code'] . ')'); ?></option>
                                 <?php endforeach; ?>
                             </select>
+                            <?php echo render_field_errors($fieldErrors, 'supplier_id'); ?>
                         </div>
 
                         <div class="col-md-6">
                             <label for="fund_id" class="form-label">Fund</label>
-                            <select class="form-select" id="fund_id" name="fund_id" required aria-label="Fund (required)">
+                            <select class="form-select<?php echo !empty($fieldErrors['fund_id']) ? ' is-invalid' : ''; ?>" id="fund_id" name="fund_id" required aria-label="Fund (required)">
                                 <option value="">Select fund</option>
                                 <?php foreach ($funds as $fund): ?>
                                     <option value="<?php echo (int) $fund['id']; ?>" <?php echo $form['fund_id'] === (string) $fund['id'] ? 'selected' : ''; ?>><?php echo h($fund['fund_code'] . ' - ' . $fund['fund_name'] . ($fund['fund_source'] !== null && $fund['fund_source'] !== '' ? ' - ' . $fund['fund_source'] : '')); ?></option>
                                 <?php endforeach; ?>
                             </select>
+                            <?php echo render_field_errors($fieldErrors, 'fund_id'); ?>
                         </div>
 
                         <div class="col-md-6">
                             <label for="supplier_address" class="form-label">Supplier Address</label>
-                            <input type="text" class="form-control" id="supplier_address" name="supplier_address" value="<?php echo h($form['supplier_address']); ?>">
+                            <input type="text" class="form-control<?php echo !empty($fieldErrors['supplier_address']) ? ' is-invalid' : ''; ?>" id="supplier_address" name="supplier_address" value="<?php echo h($form['supplier_address']); ?>">
+                            <?php echo render_field_errors($fieldErrors, 'supplier_address'); ?>
                         </div>
 
                         <div class="col-md-4">
                             <label for="mode_of_procurement" class="form-label">Mode of Procurement</label>
-                            <select class="form-select" id="mode_of_procurement" name="mode_of_procurement_id">
+                            <select class="form-select<?php echo !empty($fieldErrors['mode_of_procurement_id']) ? ' is-invalid' : ''; ?>" id="mode_of_procurement" name="mode_of_procurement_id">
                                 <option value="">Select mode</option>
                                 <?php foreach ($procurementModes as $procurementMode): ?>
                                     <option value="<?php echo (int) $procurementMode['id']; ?>" <?php echo $form['mode_of_procurement_id'] === (string) $procurementMode['id'] ? 'selected' : ''; ?>><?php echo h($procurementMode['mode_name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
+                            <?php echo render_field_errors($fieldErrors, 'mode_of_procurement_id'); ?>
                         </div>
 
                         <div class="col-md-4">
                             <label for="place_of_delivery" class="form-label">Place of Delivery</label>
-                            <input type="text" class="form-control" id="place_of_delivery" name="place_of_delivery" value="<?php echo h($form['place_of_delivery']); ?>">
+                            <input type="text" class="form-control<?php echo !empty($fieldErrors['place_of_delivery']) ? ' is-invalid' : ''; ?>" id="place_of_delivery" name="place_of_delivery" value="<?php echo h($form['place_of_delivery']); ?>">
+                            <?php echo render_field_errors($fieldErrors, 'place_of_delivery'); ?>
                         </div>
 
                         <div class="col-md-2">
                             <label for="delivery_term_days" class="form-label">Delivery Term (Days)</label>
-                            <input type="number" class="form-control" id="delivery_term_days" name="delivery_term_days" min="0" step="1" value="<?php echo h($form['delivery_term_days']); ?>">
+                            <input type="number" class="form-control<?php echo !empty($fieldErrors['delivery_term_days']) ? ' is-invalid' : ''; ?>" id="delivery_term_days" name="delivery_term_days" min="0" step="1" value="<?php echo h($form['delivery_term_days']); ?>">
+                            <?php echo render_field_errors($fieldErrors, 'delivery_term_days'); ?>
                         </div>
 
                         <div class="col-md-2">
@@ -546,7 +602,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                         <div class="col-md-3">
                             <label for="document_total_amount" class="form-label">PO Hard Copy Total</label>
-                            <input type="number" class="form-control" id="document_total_amount" name="document_total_amount" min="0" step="0.01" value="<?php echo h($form['document_total_amount']); ?>" placeholder="0.00">
+                            <input type="number" class="form-control<?php echo !empty($fieldErrors['document_total_amount']) ? ' is-invalid' : ''; ?>" id="document_total_amount" name="document_total_amount" min="0" step="0.01" value="<?php echo h($form['document_total_amount']); ?>" placeholder="0.00">
+                            <?php echo render_field_errors($fieldErrors, 'document_total_amount'); ?>
                             <div class="form-text">Optional printed PO total for cross-checking.</div>
                         </div>
                     </div>
@@ -618,6 +675,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </div>
 
                                         <div class="alert alert-light border py-2 px-3 mb-3 workspace-inline-help" id="editorWorkflowHelp" style="font-size:12px;"></div>
+
+                                        <?php $lineFieldErrors = array_filter($fieldErrors, function ($field) { return strpos($field, 'items[') === 0; }, ARRAY_FILTER_USE_KEY); ?>
+                                        <?php if (!empty($lineFieldErrors)): ?>
+                                            <div class="alert alert-danger py-2 px-3 mb-3">
+                                                <div class="fw-semibold small mb-1">Line details need attention</div>
+                                                <?php foreach ($lineFieldErrors as $field => $messages): ?>
+                                                    <?php foreach ($messages as $message): ?>
+                                                        <div class="small"><?php echo h($message); ?></div>
+                                                    <?php endforeach; ?>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        <?php endif; ?>
 
                                         <div class="mb-3" id="editorCatalogSection">
                                             <label class="form-label" style="font-size:12px;">
@@ -1538,9 +1607,134 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function setFieldValidationState(input, message) {
+        if (!input) return;
+        var feedback = input.parentNode ? input.parentNode.querySelector('.invalid-feedback') : null;
+        if (feedback) {
+            feedback.textContent = message || '';
+            feedback.classList.toggle('d-block', !!message);
+        }
+        if (message) {
+            input.classList.add('is-invalid');
+            input.classList.remove('is-valid');
+        } else {
+            input.classList.remove('is-invalid');
+            if ((input.value || '').toString().trim() !== '') {
+                input.classList.add('is-valid');
+            }
+        }
+    }
+
+    function validateHeaderField(input) {
+        if (!input) return true;
+        var value = (input.value || '').toString().trim();
+        var name = input.name || input.id || '';
+        var message = '';
+
+        if (name === 'po_date' || input.id === 'po_date') {
+            if (value === '') {
+                message = 'PO date is required.';
+            } else if (!/\d{4}-\d{2}-\d{2}/.test(value)) {
+                message = 'PO date format is invalid.';
+            }
+        }
+
+        if (name === 'supplier_id' || input.id === 'supplier_id') {
+            if (value === '') {
+                message = 'Supplier is required.';
+            }
+        }
+
+        if (name === 'fund_id' || input.id === 'fund_id') {
+            if (value === '') {
+                message = 'Fund is required.';
+            }
+        }
+
+        if (name === 'supplier_address' || input.id === 'supplier_address') {
+            if (value === '') {
+                message = 'Supplier address is required.';
+            }
+        }
+
+        if (name === 'mode_of_procurement_id' || input.id === 'mode_of_procurement') {
+            if (value === '') {
+                message = 'Mode of procurement is required.';
+            }
+        }
+
+        if (name === 'place_of_delivery' || input.id === 'place_of_delivery') {
+            if (value === '') {
+                message = 'Place of delivery is required.';
+            }
+        }
+
+        if (name === 'delivery_term_days' || input.id === 'delivery_term_days') {
+            if (value !== '' && (!/^\d+$/.test(value) || parseInt(value, 10) < 0)) {
+                message = 'Delivery term must be a non-negative whole number.';
+            }
+        }
+
+        if (name === 'document_total_amount' || input.id === 'document_total_amount') {
+            if (value !== '' && !/^\d+(?:\.\d{1,2})?$/.test(value)) {
+                message = 'PO total amount must be a valid number with up to 2 decimal places.';
+            }
+        }
+
+        setFieldValidationState(input, message);
+        return !message;
+    }
+
+    function validateHeaderFields() {
+        var fields = [
+            document.getElementById('po_date'),
+            document.getElementById('supplier_id'),
+            document.getElementById('fund_id'),
+            document.getElementById('supplier_address'),
+            document.getElementById('mode_of_procurement'),
+            document.getElementById('place_of_delivery'),
+            document.getElementById('delivery_term_days'),
+            document.getElementById('document_total_amount')
+        ];
+        var isValid = true;
+        fields.forEach(function (field) {
+            if (!validateHeaderField(field)) {
+                isValid = false;
+            }
+        });
+        return isValid;
+    }
+
     resetFormValidationState();
     window.addEventListener('pageshow', function () {
         resetFormValidationState();
+    });
+
+    var headerFields = [
+        document.getElementById('po_date'),
+        document.getElementById('supplier_id'),
+        document.getElementById('fund_id'),
+        document.getElementById('supplier_address'),
+        document.getElementById('mode_of_procurement'),
+        document.getElementById('place_of_delivery'),
+        document.getElementById('delivery_term_days'),
+        document.getElementById('document_total_amount')
+    ];
+    headerFields.forEach(function (field) {
+        if (!field) return;
+        field.addEventListener('blur', function () {
+            validateHeaderField(this);
+        });
+        field.addEventListener('input', function () {
+            if (this.value && this.value.toString().trim() !== '') {
+                validateHeaderField(this);
+            } else {
+                setFieldValidationState(this, '');
+            }
+        });
+        field.addEventListener('change', function () {
+            validateHeaderField(this);
+        });
     });
 
     if (form) {

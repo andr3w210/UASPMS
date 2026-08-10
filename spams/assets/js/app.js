@@ -1,6 +1,73 @@
 window.__spamsPendingInitDataTables = window.__spamsPendingInitDataTables || [];
 window.__spamsPendingMasterDataLists = window.__spamsPendingMasterDataLists || [];
 
+function normalizeToastType(type) {
+    var value = (type || 'info').toString().toLowerCase();
+    if (value === 'error') {
+        return 'danger';
+    }
+
+    return value === 'success' || value === 'danger' || value === 'warning' || value === 'info'
+        ? value
+        : 'info';
+}
+
+function ensureToastContainer() {
+    var container = document.getElementById('globalToastContainer');
+    if (container) {
+        return container;
+    }
+
+    container = document.createElement('div');
+    container.id = 'globalToastContainer';
+    container.className = 'toast-container position-fixed top-0 end-0 p-3';
+    container.style.zIndex = '1080';
+    document.body.appendChild(container);
+    return container;
+}
+
+function showToast(message, type) {
+    if (!window.bootstrap || !bootstrap.Toast || !message) {
+        return null;
+    }
+
+    var normalizedType = normalizeToastType(type);
+    var container = ensureToastContainer();
+    var toastEl = document.createElement('div');
+    toastEl.className = 'toast align-items-center text-bg-' + normalizedType + ' border-0 shadow';
+    toastEl.setAttribute('role', 'alert');
+    toastEl.setAttribute('aria-live', 'assertive');
+    toastEl.setAttribute('aria-atomic', 'true');
+
+    var toastBody = document.createElement('div');
+    toastBody.className = 'd-flex';
+
+    var bodyContent = document.createElement('div');
+    bodyContent.className = 'toast-body';
+    bodyContent.textContent = message;
+
+    var closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'btn-close btn-close-white me-2 m-auto';
+    closeButton.setAttribute('data-bs-dismiss', 'toast');
+    closeButton.setAttribute('aria-label', 'Close');
+
+    toastBody.appendChild(bodyContent);
+    toastBody.appendChild(closeButton);
+    toastEl.appendChild(toastBody);
+    container.appendChild(toastEl);
+
+    var toast = new bootstrap.Toast(toastEl, { delay: 5000 });
+    toastEl.addEventListener('hidden.bs.toast', function () {
+        toastEl.remove();
+    });
+
+    toast.show();
+    return toast;
+}
+
+window.showToast = showToast;
+
 if (typeof window.initDataTable !== 'function') {
     window.initDataTable = function () {
         window.__spamsPendingInitDataTables.push(Array.prototype.slice.call(arguments));
