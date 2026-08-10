@@ -10,3 +10,6 @@ Options -Indexes
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
 </IfModule>
+
+ErrorDocument 404 /spams/errors/404.php
+ErrorDocument 500 /spams/errors/500.php
