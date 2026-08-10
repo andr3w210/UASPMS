@@ -619,15 +619,15 @@ if (!$distribution) {
                             <?php endif; ?>
                         </td>
                         <td class="text-end"><?php echo h(format_quantity($item['quantity_distributed'])); ?></td>
-                        <td class="text-end"><?php echo h(number_format((float) $item['unit_cost'], 2)); ?></td>
-                        <td class="text-end"><?php echo h(number_format((float) $item['line_total'], 2)); ?></td>
+                        <td class="text-end"><?php echo h(format_currency((float) $item['unit_cost'])); ?></td>
+                        <td class="text-end"><?php echo h(format_currency((float) $item['line_total'])); ?></td>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
             <tfoot>
                 <tr>
                     <th colspan="4" class="text-end">Total</th>
-                    <th class="text-end"><?php echo h(number_format((float) $distribution['total_amount'], 2)); ?></th>
+                    <th class="text-end"><?php echo h(format_currency((float) $distribution['total_amount'])); ?></th>
                 </tr>
             </tfoot>
         </table>

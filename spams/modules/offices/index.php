@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
@@ -602,7 +602,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="text-muted small">Maintain office names, short codes, and the assigned office head.</div>
                         </div>
                     </div>
-                    <form method="post" class="workspace-form-section mt-3">
+                    
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
                         <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
@@ -745,14 +745,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="d-inline-flex flex-wrap justify-content-end gap-2">
                                         <a href="<?php echo base_url('modules/offices/index.php?edit=' . (int) $office['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a>
                                         <?php if ((int) $office['is_active'] === 1): ?>
-                                            <form method="post" onsubmit="return confirm('Deactivate this office?');" class="d-inline">
+                                            
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
                                                 <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button>
                                             </form>
                                         <?php else: ?>
-                                            <form method="post" onsubmit="return confirm('Reactivate this office?');" class="d-inline">
+                                            
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="reactivate">
                                                 <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
@@ -760,7 +760,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </form>
                                         <?php endif; ?>
                                         <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
-                                            <form method="post" onsubmit="return confirm('Merge this office into the selected target? Existing records will be moved to the target office and this office will be deactivated.');" class="d-inline-flex gap-2">
+                                            
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="merge">
                                                 <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
@@ -773,7 +773,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 </select>
                                                 <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-intersect"></i> Merge</button>
                                             </form>
-                                            <form method="post" onsubmit="return confirm('Permanently delete this record? This cannot be undone.');" class="d-inline">
+                                            
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="hard_delete">
                                                 <input type="hidden" name="id" value="<?php echo (int) $office['id']; ?>">
@@ -842,4 +842,5 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
 

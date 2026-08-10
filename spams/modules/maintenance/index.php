@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 require_role('Administrator', 'Supply Officer', 'Property Officer');
@@ -534,7 +534,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     <?php endif; ?>
 
-                    <form method="post">
+                    
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
 
@@ -852,7 +852,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td class="text-end">
                                             <?php if (($record['status'] ?? '') === 'posted' && empty($record['completed_at'])): ?>
                                                 <?php if ($maintenanceHasCompletionColumns): ?>
-                                                    <form method="post" class="d-inline-flex align-items-center gap-2 mb-1" onsubmit="return confirm('Mark this maintenance record complete?');">
+                                                    
                                                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                         <input type="hidden" name="action" value="complete">
                                                         <input type="hidden" name="id" value="<?php echo (int) $record['id']; ?>">
@@ -869,7 +869,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         </button>
                                                     </form>
                                                 <?php endif; ?>
-                                                <form method="post" class="d-inline" onsubmit="return confirm('Cancel this maintenance record?');">
+                                                
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="cancel">
                                                     <input type="hidden" name="id" value="<?php echo (int) $record['id']; ?>">
@@ -1037,3 +1037,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

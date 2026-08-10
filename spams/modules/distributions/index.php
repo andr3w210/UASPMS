@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/employee_assignments.php';
 require_role('Administrator', 'Supply Officer', 'Property Officer');
@@ -1399,7 +1399,7 @@ if (($_GET['export'] ?? '') === 'csv') {
                 trim(employee_display_name($distribution)),
                 $distribution['employee_no'] ?? '',
                 operational_status_label('posted_transaction', (string) ($distribution['status'] ?? 'posted')),
-                number_format((float) ($distribution['total_amount'] ?? 0), 2, '.', ''),
+                format_currency((float) ($distribution['total_amount'] ?? 0), false),
             ];
         }
     );
@@ -1439,15 +1439,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <div class="workspace-actions workspace-toolbar-cluster mt-3">
                                             <a href="?document_type=par" class="btn btn-sm <?php echo $distributionType==='par' ? 'btn-primary' : 'btn-outline-secondary'; ?>">
                                                 PAR
-                                                <span class="d-block" style="font-size:10px;font-weight:400;">Equipment ≥ ₱<?php echo number_format($equipmentMin,0,'.',','); ?></span>
+                                                <span class="d-block" style="font-size:10px;font-weight:400;">Equipment ≥ <?php echo format_currency($equipmentMin); ?></span>
                                             </a>
                                             <a href="?document_type=ics&semi_type=high_value" class="btn btn-sm <?php echo ($distributionType==='ics' && $distributionSemiType==='high_value') ? 'btn-success' : 'btn-outline-secondary'; ?>">
                                                 ICS – High Value
-                                                <span class="d-block" style="font-size:10px;font-weight:400;">₱<?php echo number_format($semiHvMin+0.01,2,'.',','); ?> – ₱<?php echo number_format($equipmentMin-0.01,2,'.',','); ?></span>
+                                                <span class="d-block" style="font-size:10px;font-weight:400;"><?php echo format_currency($semiHvMin + 0.01); ?> – <?php echo format_currency($equipmentMin - 0.01); ?></span>
                                             </a>
                                             <a href="?document_type=ics&semi_type=low_value" class="btn btn-sm <?php echo ($distributionType==='ics' && $distributionSemiType==='low_value') ? 'btn-warning' : 'btn-outline-secondary'; ?>">
                                                 ICS – Low Value
-                                                <span class="d-block" style="font-size:10px;font-weight:400;">₱<?php echo number_format($semiHvMin,2,'.',','); ?> and below</span>
+                                                <span class="d-block" style="font-size:10px;font-weight:400;"><?php echo format_currency($semiHvMin); ?> and below</span>
                                             </a>
                                         </div>
                                     </div>
@@ -1512,7 +1512,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </div>
 
                                         <div id="distEditorContent" style="display:none;">
-                                            <form method="post" id="distributionForm" enctype="multipart/form-data">
+                                            
                                                 <input type="hidden" name="document_type" value="<?= h($distributionType) ?>">
                                                 <input type="hidden" name="semi_type" value="<?= h($distributionSemiType) ?>">
                                                 <input type="hidden" name="_csrf" value="<?= h(csrf_token()) ?>">
@@ -1673,7 +1673,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType)); ?>" class="btn btn-sm btn-outline-secondary">Close</a>
                                 </div>
                             </div>
-                            <form method="post" id="editDistributionForm" class="row g-3 workspace-filter-panel">
+                            
                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                 <input type="hidden" name="action" value="update_distribution">
                                 <input type="hidden" name="edit_id" value="<?php echo (int) ($editingDistribution['id'] ?? 0); ?>">
@@ -1769,8 +1769,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                                 <div class="fw-semibold"><?php echo h($itemLabel); ?></div>
                                                                 <div class="small text-muted">
                                                                     <?php echo $lineNo > 0 ? 'Line ' . h((string) $lineNo) . ' | ' : ''; ?>
-                                                                    Unit Cost: <?php echo h(number_format((float) ($itemRow['unit_cost'] ?? 0), 2)); ?> |
-                                                                    Amount: <?php echo h(number_format((float) ($itemRow['line_total'] ?? 0), 2)); ?>
+                                                                    Unit Cost: <?php echo h(format_currency((float) ($itemRow['unit_cost'] ?? 0))); ?> |
+                                                                    Amount: <?php echo h(format_currency((float) ($itemRow['line_total'] ?? 0))); ?>
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -2485,5 +2485,6 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+
 
 

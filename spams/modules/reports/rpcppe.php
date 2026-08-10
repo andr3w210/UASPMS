@@ -409,7 +409,7 @@ if ($isExport) {
                 rpcppe_label($row),
                 $row['property_number'] ?? '',
                 trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
-                number_format((float) ($row['unit_cost'] ?? 0), 2),
+                format_currency((float) ($row['unit_cost'] ?? 0), false),
                 (string) ($row['acquisition_date'] ?? ''),
                 (string) rpcppe_qty_property($row),
                 (string) rpcppe_qty_physical($row),
@@ -424,7 +424,7 @@ if ($isExport) {
         'TOTAL',
         '',
         '',
-        number_format($totalValue, 2),
+        format_currency($totalValue, false),
         '',
         (string) $totalQtyProperty,
         (string) $totalQtyPhysical,
@@ -579,7 +579,7 @@ if ($isPrint) {
                                     <td><?php echo h(rpcppe_display_label($row)); ?></td>
                                     <td><?php echo h($row['property_number'] ?? ''); ?></td>
                                     <td class="uom"><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
-                                    <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                                    <td class="money"><?php echo h(format_currency((float) ($row['unit_cost'] ?? 0))); ?></td>
                                     <?php $ad = (string) ($row['acquisition_date'] ?? ''); ?>
                                     <td class="date"><?php echo h($ad !== '' ? date('M d, Y', strtotime($ad)) : ''); ?></td>
                                     <td class="qty"><?php echo h((string) rpcppe_qty_property($row)); ?></td>
@@ -613,7 +613,7 @@ if ($isPrint) {
                     <tfoot>
                         <tr class="subtotal-row">
                             <td colspan="4" class="text-end">SUBTOTAL</td>
-                            <td class="money"><?php echo h(number_format($pageTotalValue, 2)); ?></td>
+                            <td class="money"><?php echo h(format_currency($pageTotalValue)); ?></td>
                             <td></td>
                             <td class="qty"><?php echo h((string) $pageQtyProperty); ?></td>
                             <td class="qty"><?php echo h((string) $pageQtyPhysical); ?></td>
@@ -624,7 +624,7 @@ if ($isPrint) {
                         <?php if ($isLastPage): ?>
                             <tr class="grandtotal-row">
                                 <td colspan="4" class="text-end">GRAND TOTAL</td>
-                                <td class="money"><?php echo h(number_format($totalValue, 2)); ?></td>
+                                <td class="money"><?php echo h(format_currency($totalValue)); ?></td>
                                 <td></td>
                                 <td class="qty"><?php echo h((string) $totalQtyProperty); ?></td>
                                 <td class="qty"><?php echo h((string) $totalQtyPhysical); ?></td>

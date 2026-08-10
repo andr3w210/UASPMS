@@ -108,7 +108,7 @@ if ($isExport && $record) {
         $record['ics_no'] ?? '',
         $record['property_number'] ?? '',
         semi_rls_label($record),
-        number_format((float) ($record['unit_cost'] ?? 0), 2),
+        format_currency((float) ($record['unit_cost'] ?? 0), false),
         disposal_reason_label($record['reason'] ?? ''),
         $record['remarks'] ?? '',
     ]]);

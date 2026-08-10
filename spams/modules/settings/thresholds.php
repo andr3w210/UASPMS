@@ -133,19 +133,19 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="col-md-4">
                                 <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                                     <div class="small text-uppercase text-muted fw-semibold mb-2">Equipment (PPE)</div>
-                                    <div class="fs-5 fw-semibold">>= PHP <?php echo h(number_format((float) $active['equipment_min'], 2)); ?></div>
+                                    <div class="fs-5 fw-semibold">>= <?php echo h(format_currency((float) $active['equipment_min'])); ?></div>
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                                     <div class="small text-uppercase text-muted fw-semibold mb-2">Semi High Value</div>
-                                    <div class="fw-semibold">PHP <?php echo h(number_format((float) $active['semi_hv_min'] - 0.01, 2)); ?> to PHP <?php echo h(number_format((float) $active['equipment_min'] - 0.01, 2)); ?></div>
+                                    <div class="fw-semibold"><?php echo h(format_currency((float) $active['semi_hv_min'] - 0.01)); ?> to <?php echo h(format_currency((float) $active['equipment_min'] - 0.01)); ?></div>
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="border rounded-3 p-3 h-100 bg-light-subtle">
                                     <div class="small text-uppercase text-muted fw-semibold mb-2">Semi Low Value</div>
-                                    <div class="fs-5 fw-semibold"><= PHP <?php echo h(number_format($semiLvMax, 2)); ?></div>
+                                    <div class="fs-5 fw-semibold"><= <?php echo h(format_currency($semiLvMax)); ?></div>
                                 </div>
                             </div>
                             <div class="col-12">
@@ -184,9 +184,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <?php $semiLv = (float) $row['semi_hv_min'] - 0.01; ?>
                                         <tr>
                                             <td><?php echo h($row['effective_date']); ?></td>
-                                            <td>PHP <?php echo h(number_format((float) $row['equipment_min'], 2)); ?></td>
-                                            <td>PHP <?php echo h(number_format((float) $row['semi_hv_min'], 2)); ?></td>
-                                            <td><= PHP <?php echo h(number_format($semiLv, 2)); ?></td>
+                                            <td><?php echo h(format_currency((float) $row['equipment_min'])); ?></td>
+                                            <td><?php echo h(format_currency((float) $row['semi_hv_min'])); ?></td>
+                                            <td><= <?php echo h(format_currency($semiLv)); ?></td>
                                             <td><?php echo h($row['basis'] ?? '-'); ?></td>
                                             <td><?php echo h($row['created_by_name'] ?? 'System'); ?></td>
                                             <td>

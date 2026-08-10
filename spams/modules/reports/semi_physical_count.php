@@ -190,7 +190,7 @@ if ($isExport) {
             semi_pc_description($row),
             $row['property_number'] ?? '',
             trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
-            number_format((float) ($row['unit_cost'] ?? 0), 2),
+            format_currency((float) ($row['unit_cost'] ?? 0), false),
             '1',
             '1',
             '0',
@@ -311,7 +311,7 @@ if ($isPrint) {
                             <td><?php echo h(semi_pc_description($row)); ?></td>
                             <td><?php echo h($row['property_number'] ?? ''); ?></td>
                             <td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
-                            <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
+                            <td class="money"><?php echo h(format_currency((float) ($row['unit_cost'] ?? 0))); ?></td>
                             <td class="qty">1</td>
                             <td class="qty">1</td>
                             <td class="qty">0</td>

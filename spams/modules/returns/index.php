@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_login();
 require_role('Administrator', 'Supply Officer', 'Property Officer');
@@ -1070,7 +1070,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                     <div class="report-filter-card">
                         <h6 class="report-filter-title">Record Return</h6>
-                        <form method="post" class="row g-3">
+                        
                             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                             <input type="hidden" name="source_type" id="returnSourceType" value="<?php echo h($form['source_type']); ?>">
                             <input type="hidden" name="legacy_asset_id" id="returnLegacyAssetId" value="<?php echo h($form['legacy_asset_id']); ?>">
@@ -1372,7 +1372,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </td>
                                             <td>
                                                 <?php if (($row['status'] ?? '') === 'posted' && empty($row['disposal_id'])): ?>
-                                                    <form method="post" class="d-inline" onsubmit="return confirm('Cancel this posted return and restore the asset to the original accountable office/person?');">
+                                                    
                                                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                         <input type="hidden" name="action" value="cancel_return">
                                                         <input type="hidden" name="return_id" value="<?php echo (int) $row['id']; ?>">
@@ -1690,3 +1690,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
+

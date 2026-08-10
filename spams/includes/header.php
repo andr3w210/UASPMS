@@ -55,6 +55,7 @@ $bodyClass = trim(implode(' ', array_filter($bodyClasses)));
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
     <meta name="theme-color" content="#4154f1">
+    <meta name="spams-session-timeout-minutes" content="<?php echo h((string) ((int) (($_SESSION['user_id'] ?? 0) > 0 ? (function_exists('db') && function_exists('get_system_setting') ? (int) get_system_setting(db(), 'session_timeout_minutes', '30') : 30) : 30))); ?>">
     <title><?php echo h($pageTitle); ?> | SPAMS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

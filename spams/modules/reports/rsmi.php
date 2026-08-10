@@ -177,8 +177,8 @@ if ($isPrint) {
                                 <td><?php echo h($row['item_description'] ?? ''); ?></td>
                                 <td><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
                                 <td class="text-end"><?php echo h(format_quantity($row['quantity_issued'])); ?></td>
-                                <td class="text-end"><?php echo h(number_format((float) $row['unit_cost'], 2)); ?></td>
-                                <td class="text-end"><?php echo h(number_format((float) $row['line_total'], 2)); ?></td>
+                                <td class="text-end"><?php echo h(format_currency((float) $row['unit_cost'])); ?></td>
+                                <td class="text-end"><?php echo h(format_currency((float) $row['line_total'])); ?></td>
                                 <td><?php echo h($row['office_name'] ?? ''); ?></td>
                                 <td><?php echo h(trim(employee_display_name($row) . (!empty($row['employee_no']) ? ' - ' . $row['employee_no'] : ''))); ?></td>
                                 <td><?php echo h($row['account_code'] ?? ''); ?></td>

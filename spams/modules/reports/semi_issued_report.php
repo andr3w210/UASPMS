@@ -239,8 +239,8 @@ if ($isPrint) {
                         <td><?php echo h(semi_issued_label($row)); ?></td>
                         <td class="unit"><?php echo h(trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? '')))); ?></td>
                         <td class="qty"><?php echo h(format_quantity($row['quantity_distributed'] ?? 0)); ?></td>
-                        <td class="money"><?php echo h(number_format((float) ($row['unit_cost'] ?? 0), 2)); ?></td>
-                        <td class="money"><?php echo h(number_format((float) ($row['line_total'] ?? 0), 2)); ?></td>
+                        <td class="money"><?php echo h(format_currency((float) ($row['unit_cost'] ?? 0))); ?></td>
+                        <td class="money"><?php echo h(format_currency((float) ($row['line_total'] ?? 0))); ?></td>
                     </tr>
                 <?php endforeach; else: ?>
                     <tr><td colspan="8" class="text-center text-muted py-4">No semi-expendable issued data found for the selected filters.</td></tr>
@@ -287,8 +287,8 @@ if ($isExport) {
             semi_issued_label($row),
             trim((string) (($row['abbreviation'] ?? '') !== '' ? $row['abbreviation'] : ($row['uom_name'] ?? ''))),
             format_quantity($row['quantity_distributed'] ?? 0),
-            number_format((float) ($row['unit_cost'] ?? 0), 2),
-            number_format((float) ($row['line_total'] ?? 0), 2),
+            format_currency((float) ($row['unit_cost'] ?? 0), false),
+            format_currency((float) ($row['line_total'] ?? 0), false),
         ];
     }
     export_excel_rows('semi_issued_report_' . date('Ymd') . '.xls', ['ICS No.', 'Responsibility Center Code', 'Semi-Expendable Property No.', 'Item Description', 'Unit', 'Quantity Issued', 'Unit Cost', 'Amount'], $exportRows);
