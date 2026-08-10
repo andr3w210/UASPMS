@@ -54,6 +54,7 @@ $bodyClass = trim(implode(' ', array_filter($bodyClasses)));
 <head>
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta name="theme-color" content="#4154f1">
     <title><?php echo h($pageTitle); ?> | SPAMS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -63,7 +64,7 @@ $bodyClass = trim(implode(' ', array_filter($bodyClasses)));
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
     <link href="<?php echo base_url('assets/css/app.css'); ?>" rel="stylesheet">
 </head>
-<body class="<?php echo h($bodyClass); ?>">
+<body class="<?php echo h($bodyClass); ?> app-shell">
 <script>
 window.__spamsPendingInitDataTables = window.__spamsPendingInitDataTables || [];
 if (typeof window.initDataTable !== 'function') {

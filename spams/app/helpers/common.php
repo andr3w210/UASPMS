@@ -63,6 +63,9 @@ function set_flash(string $type, string $message): void
         'type' => $type,
         'message' => $message,
     ];
+
+    $_SESSION['flash_message'] = $message;
+    $_SESSION['flash_type'] = $type;
 }
 
 function get_flash(): ?array
@@ -75,6 +78,35 @@ function get_flash(): ?array
     unset($_SESSION['flash']);
 
     return $flash;
+}
+
+function consume_flash_toast(): ?array
+{
+    if (empty($_SESSION['flash_message']) && empty($_SESSION['flash_type'])) {
+        return null;
+    }
+
+    $message = trim((string) ($_SESSION['flash_message'] ?? ''));
+    $type = trim((string) ($_SESSION['flash_type'] ?? ''));
+
+    unset($_SESSION['flash_message'], $_SESSION['flash_type']);
+
+    if ($message === '') {
+        return null;
+    }
+
+    if ($type === 'error') {
+        $type = 'danger';
+    }
+
+    if (!in_array($type, ['success', 'danger', 'warning', 'info'], true)) {
+        $type = 'info';
+    }
+
+    return [
+        'message' => $message,
+        'type' => $type,
+    ];
 }
 
 function redirect(string $path): void
