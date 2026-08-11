@@ -122,6 +122,12 @@ if (!$db) {
     $poItemHasSemiType = function_exists('schema_has_column')
         ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type')
         : false;
+    $poSupportsEntryStatus = function_exists('schema_has_column')
+        ? schema_has_column($db, 'purchase_orders', 'po_entry_status')
+        : false;
+    $poEntryStatusFilterSql = $poSupportsEntryStatus
+        ? " AND po.po_entry_status != 'property_items_complete'"
+        : '';
     $activeThreshold = get_active_threshold($db);
     $semiHighValueMin = (float) ($activeThreshold['semi_hv_min'] ?? 5000);
     $form['system_reference'] = preview_module_code($db, 'receivings');
@@ -287,6 +293,7 @@ if (!$db) {
                         LEFT JOIN mode_of_procurements mop ON mop.id = po.mode_of_procurement_id
                         LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
                         WHERE po.status IN ('encoded', 'partial')
+                          {$poEntryStatusFilterSql}
                         GROUP BY po.id, po.po_number, po.po_date, po.status,
                                          s.supplier_name, f.fund_code, f.fund_name,
                                          mop.mode_name, po.place_of_delivery, po.supplier_address
@@ -326,6 +333,7 @@ if (!$db) {
             INNER JOIN funds f ON f.id = po.fund_id
             LEFT JOIN mode_of_procurements mop ON mop.id = po.mode_of_procurement_id
             WHERE po.id = ?
+              {$poEntryStatusFilterSql}
             LIMIT 1
         ");
         if ($poStmt) {
@@ -2955,4 +2963,3 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
-

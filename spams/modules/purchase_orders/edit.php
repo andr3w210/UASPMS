@@ -59,6 +59,8 @@ $form = [
     'expected_delivery_date' => '',
     'document_total_amount' => '',
     'status' => 'encoded',
+    'is_partial_entry' => 0,
+    'po_entry_status' => 'full',
 ];
 $itemRows = [];
 
@@ -114,6 +116,9 @@ if (!$db) {
     $poSupportsDocumentTotal = function_exists('schema_has_column')
         ? schema_has_column($db, 'purchase_orders', 'document_total_amount')
         : false;
+    $poSupportsEntryStatus = function_exists('schema_has_column')
+        ? schema_has_column($db, 'purchase_orders', 'po_entry_status')
+        : false;
 
     $headerSql = "
         SELECT id, system_reference, po_number, po_date, supplier_id, fund_id,
@@ -121,6 +126,9 @@ if (!$db) {
                delivery_term_days, expected_delivery_date, status, is_partial_entry";
     if ($poSupportsDocumentTotal) {
         $headerSql .= ", document_total_amount";
+    }
+    if ($poSupportsEntryStatus) {
+        $headerSql .= ", po_entry_status";
     }
     $headerSql .= "
         FROM purchase_orders
@@ -156,6 +164,9 @@ if (!$db) {
             'document_total_amount' => $poSupportsDocumentTotal && $existingPo['document_total_amount'] !== null ? (string) $existingPo['document_total_amount'] : '',
             'status' => (string) ($existingPo['status'] ?? 'encoded'),
             'is_partial_entry' => (int) ($existingPo['is_partial_entry'] ?? 0),
+            'po_entry_status' => $poSupportsEntryStatus
+                ? (string) ($existingPo['po_entry_status'] ?? (!empty($existingPo['is_partial_entry']) ? 'partial' : 'full'))
+                : (!empty($existingPo['is_partial_entry']) ? 'partial' : 'full'),
         ];
 
         $itemSql = "
@@ -212,7 +223,12 @@ if (!$db) {
             $form['delivery_term_days'] = old($_POST, 'delivery_term_days');
             $form['expected_delivery_date'] = old($_POST, 'expected_delivery_date');
             $form['document_total_amount'] = old($_POST, 'document_total_amount');
-            $form['is_partial_entry'] = !empty($_POST['is_partial_entry']) ? 1 : 0;
+            $entryStatus = (string) old($_POST, 'po_entry_status', !empty($_POST['is_partial_entry']) ? 'partial' : 'full');
+            if (!in_array($entryStatus, ['full', 'partial', 'property_items_complete'], true)) {
+                $entryStatus = 'full';
+            }
+            $form['po_entry_status'] = $entryStatus;
+            $form['is_partial_entry'] = $entryStatus === 'full' ? 0 : 1;
             $existingIsPartial = !empty($existingPo['is_partial_entry']);
 
             $postedRows = $_POST['items'] ?? [];
@@ -260,12 +276,18 @@ if (!$db) {
             }
 
             $validatedItems = [];
+            $existingPartialClassificationUpdates = [];
+            $hasNewItemsForReceiving = false;
             $totalAmount = 0.0;
             $lineNo = 0;
 
             foreach (($postedRows ?: []) as $row) {
-                // Skip items already in DB — partial mode preserves them as-is
+                // Partial entries keep their existing line details, except their classification may be corrected.
                 if ($existingIsPartial && !empty($row['is_existing'])) {
+                    $existingPartialClassificationUpdates[] = [
+                        'id' => (int) ($row['id'] ?? 0),
+                        'classification_id' => (int) ($row['classification_id'] ?? 0),
+                    ];
                     continue;
                 }
                 $description = trim((string) ($row['item_description'] ?? ''));
@@ -299,7 +321,9 @@ if (!$db) {
                             $description = trim((string) ($catalogRow['item_description'] ?? ''));
                             if ($description === '') $description = trim((string) ($catalogRow['item_name'] ?? ''));
                             $accountCodeId = (string) ($catalogRow['account_code_id'] ?? '');
-                            $classificationId = (string) ($catalogRow['classification_id'] ?? '');
+                            if ($classificationId === '') {
+                                $classificationId = (string) ($catalogRow['classification_id'] ?? '');
+                            }
                             $unitOfMeasureId = (string) ($catalogRow['unit_of_measure_id'] ?? '');
                         }
                     }
@@ -335,6 +359,15 @@ if (!$db) {
                     'unit_cost' => $unitCost,
                     'line_total' => $lineTotal,
                 ];
+                $hasNewItemsForReceiving = true;
+            }
+
+            // A PO previously marked complete must reopen for receiving once
+            // another line is added.  Do this on the server as well so the
+            // receiving state cannot remain hidden through a stale page.
+            if (($existingPo['po_entry_status'] ?? '') === 'property_items_complete' && $hasNewItemsForReceiving) {
+                $form['po_entry_status'] = 'partial';
+                $form['is_partial_entry'] = 1;
             }
 
             if (!$validatedItems && !$existingIsPartial) {
@@ -349,13 +382,33 @@ if (!$db) {
             if (!$errors) {
                 $db->begin_transaction();
                 try {
-                    if ($poSupportsDocumentTotal) {
+                    if ($poSupportsDocumentTotal && $poSupportsEntryStatus) {
+                        $updateStmt = $db->prepare("
+                        UPDATE purchase_orders
+                        SET po_number = ?, po_date = ?, supplier_id = ?, fund_id = ?,
+                            supplier_address = ?, mode_of_procurement_id = ?, place_of_delivery = ?,
+                            delivery_term_days = ?, expected_delivery_date = ?, total_amount = ?,
+                            document_total_amount = NULLIF(?, ''), is_partial_entry = ?, po_entry_status = ?,
+                            updated_by = ?, updated_at = NOW()
+                        WHERE id = ?
+                    ");
+                    } elseif ($poSupportsDocumentTotal) {
                         $updateStmt = $db->prepare("
                         UPDATE purchase_orders
                         SET po_number = ?, po_date = ?, supplier_id = ?, fund_id = ?,
                             supplier_address = ?, mode_of_procurement_id = ?, place_of_delivery = ?,
                             delivery_term_days = ?, expected_delivery_date = ?, total_amount = ?,
                             document_total_amount = NULLIF(?, ''), is_partial_entry = ?,
+                            updated_by = ?, updated_at = NOW()
+                        WHERE id = ?
+                    ");
+                    } elseif ($poSupportsEntryStatus) {
+                        $updateStmt = $db->prepare("
+                        UPDATE purchase_orders
+                        SET po_number = ?, po_date = ?, supplier_id = ?, fund_id = ?,
+                            supplier_address = ?, mode_of_procurement_id = ?, place_of_delivery = ?,
+                            delivery_term_days = ?, expected_delivery_date = ?, total_amount = ?,
+                            is_partial_entry = ?, po_entry_status = ?,
                             updated_by = ?, updated_at = NOW()
                         WHERE id = ?
                     ");
@@ -381,6 +434,7 @@ if (!$db) {
                     $expectedDelivery = $form['expected_delivery_date'] !== '' ? $form['expected_delivery_date'] : null;
                     $userId = current_user_id();
                     $isPartialEntry = $form['is_partial_entry'];
+                    $poEntryStatus = $form['po_entry_status'];
                     $poNumberForSave = $form['po_number'] !== '' ? $form['po_number'] : 'NO-PO-' . $form['system_reference'];
 
                     // For partial POs, add existing items' total to new items total
@@ -401,7 +455,26 @@ if (!$db) {
                         throw new RuntimeException('Encoded line total (' . number_format($totalAmount, 2) . ') does not match the hard copy PO total (' . number_format($documentTotalAmount, 2) . ').');
                     }
 
-                    if ($poSupportsDocumentTotal) {
+                    if ($poSupportsDocumentTotal && $poSupportsEntryStatus) {
+                        $updateStmt->bind_param(
+                            'ssiisisisdsisii',
+                            $poNumberForSave,
+                            $form['po_date'],
+                            $supplierId,
+                            $fundId,
+                            $form['supplier_address'],
+                            $modeId,
+                            $form['place_of_delivery'],
+                            $deliveryTermDays,
+                            $expectedDelivery,
+                            $totalAmount,
+                            $form['document_total_amount'],
+                            $isPartialEntry,
+                            $poEntryStatus,
+                            $userId,
+                            $id
+                        );
+                    } elseif ($poSupportsDocumentTotal) {
                         $updateStmt->bind_param(
                             'ssiisisisdsiii',
                             $poNumberForSave,
@@ -416,6 +489,24 @@ if (!$db) {
                             $totalAmount,
                             $form['document_total_amount'],
                             $isPartialEntry,
+                            $userId,
+                            $id
+                        );
+                    } elseif ($poSupportsEntryStatus) {
+                        $updateStmt->bind_param(
+                            'ssiisisisdisii',
+                            $poNumberForSave,
+                            $form['po_date'],
+                            $supplierId,
+                            $fundId,
+                            $form['supplier_address'],
+                            $modeId,
+                            $form['place_of_delivery'],
+                            $deliveryTermDays,
+                            $expectedDelivery,
+                            $totalAmount,
+                            $isPartialEntry,
+                            $poEntryStatus,
                             $userId,
                             $id
                         );
@@ -637,6 +728,32 @@ if (!$db) {
                             }
                         }
                     } // end if ($validatedItems)
+
+                    if ($existingIsPartial && $existingPartialClassificationUpdates) {
+                        $updateClassificationStmt = $db->prepare('
+                            UPDATE purchase_order_items
+                            SET classification_id = NULLIF(?, 0)
+                            WHERE id = ? AND purchase_order_id = ?
+                        ');
+                        if (!$updateClassificationStmt) {
+                            throw new RuntimeException('Unable to prepare PO item classification update.');
+                        }
+                        foreach ($existingPartialClassificationUpdates as $classificationUpdate) {
+                            if ($classificationUpdate['id'] <= 0) {
+                                continue;
+                            }
+                            $updateClassificationStmt->bind_param(
+                                'iii',
+                                $classificationUpdate['classification_id'],
+                                $classificationUpdate['id'],
+                                $id
+                            );
+                            if (!$updateClassificationStmt->execute()) {
+                                throw new RuntimeException('Unable to update PO item classification: ' . $updateClassificationStmt->error);
+                            }
+                        }
+                        $updateClassificationStmt->close();
+                    }
 
                     $db->commit();
                     set_flash('success', 'Purchase order updated successfully.');
@@ -905,10 +1022,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <span class="small text-muted">PO total: <span id="poDocumentTotalDisplay"><?php echo h($form['document_total_amount'] !== '' ? number_format((float) $form['document_total_amount'], 2) : '—'); ?></span></span>
                                 <span class="small text-muted">Computed total: <span id="poGrandTotal">0.00</span></span>
                                 <span class="small text-muted">Delta: <span id="poTotalDelta">—</span></span>
-                                <div class="form-check form-check-inline mb-0">
-                                    <input class="form-check-input" type="checkbox" id="is_partial_entry" name="is_partial_entry" value="1" <?php echo !empty($form['is_partial_entry']) ? 'checked' : ''; ?>>
-                                    <label class="form-check-label small" for="is_partial_entry">Partial Entry <span class="text-muted">(more items to add later)</span></label>
-                                </div>
+                                <input type="hidden" id="is_partial_entry" name="is_partial_entry" value="<?php echo !empty($form['is_partial_entry']) ? '1' : '0'; ?>">
+                                <select class="form-select form-select-sm" id="po_entry_status" name="po_entry_status" data-no-select2 style="width:auto;">
+                                    <option value="full" <?php echo ($form['po_entry_status'] ?? 'full') === 'full' ? 'selected' : ''; ?>>Full PO</option>
+                                    <option value="partial" <?php echo ($form['po_entry_status'] ?? '') === 'partial' ? 'selected' : ''; ?>>Partial Entry</option>
+                                    <option value="property_items_complete" <?php echo ($form['po_entry_status'] ?? '') === 'property_items_complete' ? 'selected' : ''; ?>>Property Items Complete</option>
+                                </select>
                                 <button type="submit" class="btn btn-primary btn-sm">Update Purchase Order</button>
                             </div>
                         </div>
@@ -1195,13 +1314,10 @@ document.addEventListener('DOMContentLoaded', function () {
             el.editorAccountCodeText.value = usesCatalog ? accountCodeLabelById(line.account_code_id || '') : '';
         }
         if (el.editorClassification) {
-            el.editorClassification.style.display = usesCatalog ? 'none' : '';
-            if (window.jQuery) window.jQuery(el.editorClassification).nextAll('.select2').first().toggle(!usesCatalog);
+            el.editorClassification.style.display = '';
+            if (window.jQuery) window.jQuery(el.editorClassification).nextAll('.select2').first().toggle(true);
         }
-        if (el.editorClassificationText) {
-            el.editorClassificationText.style.display = usesCatalog ? '' : 'none';
-            el.editorClassificationText.value = usesCatalog ? classificationNameById(line.classification_id || '') : '';
-        }
+        if (el.editorClassificationText) el.editorClassificationText.style.display = 'none';
         if (el.editorUom) {
             el.editorUom.style.display = usesCatalog ? 'none' : '';
             if (window.jQuery) window.jQuery(el.editorUom).nextAll('.select2').first().toggle(!usesCatalog);
@@ -1386,7 +1502,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function loadLineEditor(index) { if (poLines.length === 0) { el.editorEmpty.style.display = ''; el.editorContent.style.display = 'none'; activeIndex = -1; renderLineList(); return; } activeIndex = index; var line = poLines[index]; syncLineMode(line); el.editorEmpty.style.display = 'none'; el.editorContent.style.display = ''; el.editorLineLabel.textContent = 'Line ' + (index + 1); el.editorTypeBadge.className = 'badge ' + typeBadgeClass(line.item_type); el.editorTypeBadge.textContent = typeLabel(line.item_type); updateSemiTypeBadge(line); el.editorLineCounter.textContent = (index + 1) + ' of ' + poLines.length; populateCatalogSelect(line.stock_catalog_id || ''); updateEditorMode(line); rebuildAccountCodeSelect(line.item_type, line.account_code_id); rebuildClassificationSelect(line.item_type, line.classification_id); rebuildUomSelect(line.unit_of_measure_id); updateEditorMode(line); if (lineUsesCatalog(line) && !line.item_description && line.stock_catalog_id) { for (var ciIdx = 0; ciIdx < catalogItems.length; ciIdx++) { if (String(catalogItems[ciIdx].id) === String(line.stock_catalog_id)) { line.item_description = catalogItems[ciIdx].item_description || catalogItems[ciIdx].item_name || ''; break; } } } el.editorDescription.value = line.item_description || ''; el.editorQty.value = line.quantity || '1'; el.editorUnitCost.value = line.unit_cost || '0.00'; el.editorAmount.textContent = formatNumber(line.line_total || 0); var isExistingLine = isPartialMode && !!line.is_existing; ['editorDescription','editorQty','editorUnitCost'].forEach(function(id){ var n = document.getElementById(id); if (n) { n.disabled = isExistingLine; n.readOnly = false; } }); if (el.editorCatalogSearch) el.editorCatalogSearch.disabled = isExistingLine; if (el.editorAccountCode) el.editorAccountCode.disabled = isExistingLine; if (el.editorClassification) el.editorClassification.disabled = isExistingLine; if (el.editorUom) el.editorUom.disabled = isExistingLine; if (el.editorDeleteLine) el.editorDeleteLine.style.display = isExistingLine ? 'none' : ''; if (isExistingLine && el.editorWorkflowHelp) { el.editorWorkflowHelp.className = 'alert alert-secondary border py-2 px-3 mb-3'; el.editorWorkflowHelp.textContent = 'Existing item \u2014 read only. Items already in the PO cannot be modified.'; } el.editorPrev.disabled = (index === 0); el.editorNext.disabled = (index === poLines.length - 1); var done = poLines.filter(lineIsComplete).length; var pct = poLines.length ? Math.round((done / poLines.length) * 100) : 0; el.editorProgress.style.width = pct + '%'; el.editorProgressLabel.textContent = done + ' / ' + poLines.length + ' completed'; renderLineList(); if (window.SPAMS && typeof window.SPAMS.initSelect2 === 'function') window.SPAMS.initSelect2(document.getElementById('poLineEditor')); }
 
-    function saveCurrentLine() { if (activeIndex < 0 || activeIndex >= poLines.length) return; var ln = poLines[activeIndex]; if (isPartialMode && ln.is_existing) return; ln.stock_catalog_id = lineUsesCatalog(ln) && el.editorCatalogSearch ? (el.editorCatalogSearch.value || '') : ''; ln.account_code_id = el.editorAccountCode.value || ''; var currentClassOpt = el.editorClassification ? el.editorClassification.options[el.editorClassification.selectedIndex] : null; var currentClassType = currentClassOpt ? currentClassOpt.getAttribute('data-item-type') : ''; if (currentClassType && currentClassType !== ln.item_type) { el.editorClassification.value = ''; } ln.classification_id = el.editorClassification ? (el.editorClassification.value || '') : ''; if (lineUsesCatalog(ln)) { var supplyCatalog = null; for (var catIdx = 0; catIdx < catalogItems.length; catIdx++) { if (String(catalogItems[catIdx].id) === String(ln.stock_catalog_id)) { supplyCatalog = catalogItems[catIdx]; break; } } ln.item_description = supplyCatalog ? ((supplyCatalog.item_description || supplyCatalog.item_name || '').trim()) : ''; ln.account_code_id = supplyCatalog ? String(supplyCatalog.account_code_id || '') : ''; ln.classification_id = supplyCatalog ? String(supplyCatalog.classification_id || '') : ''; ln.unit_of_measure_id = supplyCatalog ? String(supplyCatalog.unit_of_measure_id || '') : ''; if (el.editorDescription) { el.editorDescription.value = ln.item_description; } if (el.editorAccountCodeText) el.editorAccountCodeText.value = accountCodeLabelById(ln.account_code_id || ''); if (el.editorClassificationText) el.editorClassificationText.value = classificationNameById(ln.classification_id || ''); if (el.editorUomText) el.editorUomText.value = uomLabelById(ln.unit_of_measure_id || ''); } else { ln.item_description = (el.editorDescription.value || '').trim(); ln.unit_of_measure_id = el.editorUom.value || ''; } ln.quantity = el.editorQty.value || '0'; ln.unit_cost = el.editorUnitCost.value || '0'; ln.semi_expendable_type = lineNeedsSemiType(ln) ? getSemiType(ln.unit_cost) : ''; syncLineMode(ln); ln.line_total = Math.round((parseFloat(ln.quantity || 0) * parseFloat(ln.unit_cost || 0)) * 100) / 100; ln.is_complete = lineIsComplete(ln); el.editorAmount.textContent = formatNumber(ln.line_total || 0); updateSemiTypeBadge(ln); renderLineList(); updateGrandTotal(); }
+    function saveCurrentLine() { if (activeIndex < 0 || activeIndex >= poLines.length) return; var ln = poLines[activeIndex]; if (isPartialMode && ln.is_existing) return; ln.stock_catalog_id = lineUsesCatalog(ln) && el.editorCatalogSearch ? (el.editorCatalogSearch.value || '') : ''; ln.account_code_id = el.editorAccountCode.value || ''; var currentClassOpt = el.editorClassification ? el.editorClassification.options[el.editorClassification.selectedIndex] : null; var currentClassType = currentClassOpt ? currentClassOpt.getAttribute('data-item-type') : ''; if (currentClassType && currentClassType !== ln.item_type) { el.editorClassification.value = ''; } ln.classification_id = el.editorClassification ? (el.editorClassification.value || '') : ''; if (lineUsesCatalog(ln)) { var supplyCatalog = null; for (var catIdx = 0; catIdx < catalogItems.length; catIdx++) { if (String(catalogItems[catIdx].id) === String(ln.stock_catalog_id)) { supplyCatalog = catalogItems[catIdx]; break; } } ln.item_description = supplyCatalog ? ((supplyCatalog.item_description || supplyCatalog.item_name || '').trim()) : ''; ln.account_code_id = supplyCatalog ? String(supplyCatalog.account_code_id || '') : ''; ln.classification_id = ln.classification_id || (supplyCatalog ? String(supplyCatalog.classification_id || '') : ''); ln.unit_of_measure_id = supplyCatalog ? String(supplyCatalog.unit_of_measure_id || '') : ''; if (el.editorDescription) { el.editorDescription.value = ln.item_description; } if (el.editorAccountCodeText) el.editorAccountCodeText.value = accountCodeLabelById(ln.account_code_id || ''); if (el.editorUomText) el.editorUomText.value = uomLabelById(ln.unit_of_measure_id || ''); } else { ln.item_description = (el.editorDescription.value || '').trim(); ln.unit_of_measure_id = el.editorUom.value || ''; } ln.quantity = el.editorQty.value || '0'; ln.unit_cost = el.editorUnitCost.value || '0'; ln.semi_expendable_type = lineNeedsSemiType(ln) ? getSemiType(ln.unit_cost) : ''; syncLineMode(ln); ln.line_total = Math.round((parseFloat(ln.quantity || 0) * parseFloat(ln.unit_cost || 0)) * 100) / 100; ln.is_complete = lineIsComplete(ln); el.editorAmount.textContent = formatNumber(ln.line_total || 0); updateSemiTypeBadge(ln); renderLineList(); updateGrandTotal(); }
 
     function updateEditorAmount() { var q = parseFloat(el.editorQty.value || 0) || 0; var c = parseFloat(el.editorUnitCost.value || 0) || 0; el.editorAmount.textContent = formatNumber(Math.round(q * c * 100) / 100); }
 
@@ -1418,7 +1534,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function buildHiddenInputs() { var container = el.poHiddenInputs; if (!container) return; container.innerHTML = ''; poLines.forEach(function(ln,i){ var fields = { id: ln.id || '', item_type: ln.item_type, semi_expendable_type: ln.semi_expendable_type, stock_catalog_id: ln.stock_catalog_id, account_code_id: ln.account_code_id, classification_id: ln.classification_id, item_description: ln.item_description, quantity: ln.quantity, unit_of_measure_id: ln.unit_of_measure_id, unit_cost: ln.unit_cost, is_existing: ln.is_existing ? '1' : '0' }; Object.keys(fields).forEach(function(k){ var inp = document.createElement('input'); inp.type='hidden'; inp.name='items['+i+']['+k+']'; inp.value = fields[k] || ''; container.appendChild(inp); }); }); }
 
-    function addLine(itemType) { var validTypes = ['supply', 'semi_expendable', 'equipment']; if (validTypes.indexOf(itemType) === -1) itemType = 'supply'; poLines.push({ id: '', index: poLines.length, item_type: itemType, semi_expendable_type: itemType === 'semi_expendable' ? 'low_value' : '', stock_catalog_id: '', account_code_id: '', classification_id: '', item_description: '', quantity: '1', unit_of_measure_id: '', unit_cost: '0.00', line_total: 0, is_complete: false, is_existing: false }); renderLineList(); loadLineEditor(poLines.length - 1); }
+    function addLine(itemType) { var validTypes = ['supply', 'semi_expendable', 'equipment']; if (validTypes.indexOf(itemType) === -1) itemType = 'supply'; var entryStatusInput = document.getElementById('po_entry_status'); if (entryStatusInput && entryStatusInput.value === 'property_items_complete') { entryStatusInput.value = 'partial'; poEntryIsPartial(); } poLines.push({ id: '', index: poLines.length, item_type: itemType, semi_expendable_type: itemType === 'semi_expendable' ? 'low_value' : '', stock_catalog_id: '', account_code_id: '', classification_id: '', item_description: '', quantity: '1', unit_of_measure_id: '', unit_cost: '0.00', line_total: 0, is_complete: false, is_existing: false }); renderLineList(); loadLineEditor(poLines.length - 1); updateGrandTotal(); }
 
     function updateGrandTotal() {
         var total = poLines.reduce(function(acc,ln){ return acc + (parseFloat(ln.line_total||0)); },0);
@@ -1428,8 +1544,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var documentTotalInput = document.getElementById('document_total_amount');
         var documentTotalDisplay = document.getElementById('poDocumentTotalDisplay');
         var totalDelta = document.getElementById('poTotalDelta');
-        var partialEntryInput = document.getElementById('is_partial_entry');
-        var isPartialEntry = partialEntryInput ? partialEntryInput.checked : false;
+        var isPartialEntry = poEntryIsPartial();
         var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : '';
         var documentTotal = documentTotalRaw !== '' ? parseFloat(documentTotalRaw) : NaN;
         var hasDocumentTotal = documentTotalRaw !== '' && !isNaN(documentTotal);
@@ -1450,6 +1565,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 totalDelta.className = 'text-muted';
             }
         }
+    }
+
+    function poEntryIsPartial() {
+        var entryStatusInput = document.getElementById('po_entry_status');
+        var partialEntryInput = document.getElementById('is_partial_entry');
+        var entryStatus = entryStatusInput ? entryStatusInput.value : '';
+        var isPartial = entryStatus !== '' ? entryStatus !== 'full' : !!(partialEntryInput && partialEntryInput.checked);
+        if (partialEntryInput) {
+            partialEntryInput.value = isPartial ? '1' : '0';
+        }
+        return isPartial;
     }
 
     Array.from(document.querySelectorAll('.add-line-btn')).forEach(function(b){ b.addEventListener('click', function(){ addLine(b.dataset.type || 'supply'); }); });
@@ -1668,8 +1794,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             var documentTotalInput = document.getElementById('document_total_amount');
-            var partialEntryInput = document.getElementById('is_partial_entry');
-            var isPartialEntry = partialEntryInput ? partialEntryInput.checked : false;
+            var isPartialEntry = poEntryIsPartial();
             var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : '';
             if (documentTotalRaw !== '') {
                 var documentTotal = parseFloat(documentTotalRaw);
@@ -1693,6 +1818,56 @@ document.addEventListener('DOMContentLoaded', function () {
     if (documentTotalInput) { documentTotalInput.addEventListener('input', updateGrandTotal); }
     var partialEntryInput = document.getElementById('is_partial_entry');
     if (partialEntryInput) { partialEntryInput.addEventListener('change', updateGrandTotal); }
+    var entryStatusInput = document.getElementById('po_entry_status');
+    if (entryStatusInput) {
+        entryStatusInput.addEventListener('change', function() {
+            poEntryIsPartial();
+            updateGrandTotal();
+        });
+    }
+
+    var baseLoadLineEditor = loadLineEditor;
+    loadLineEditor = function(index) {
+        baseLoadLineEditor(index);
+        if (el.editorClassification) {
+            el.editorClassification.disabled = false;
+            el.editorClassification.style.display = '';
+            if (window.jQuery && jQuery.fn.select2) {
+                window.jQuery(el.editorClassification)
+                    .prop('disabled', false)
+                    .nextAll('.select2').first().show();
+            }
+        }
+        if (el.editorClassificationText) {
+            el.editorClassificationText.style.display = 'none';
+        }
+        if (isPartialMode && activeIndex >= 0 && poLines[activeIndex] && poLines[activeIndex].is_existing && el.editorWorkflowHelp) {
+            el.editorWorkflowHelp.className = 'alert alert-secondary border py-2 px-3 mb-3';
+            el.editorWorkflowHelp.textContent = 'Only the item classification can be changed for an existing partial-entry item.';
+        }
+    };
+
+    var baseSaveCurrentLine = saveCurrentLine;
+    saveCurrentLine = function() {
+        if (activeIndex >= 0 && activeIndex < poLines.length && isPartialMode && poLines[activeIndex].is_existing) {
+            if (el.editorClassification) {
+                poLines[activeIndex].classification_id = el.editorClassification.value || '';
+            }
+            renderLineList();
+            updateGrandTotal();
+            return;
+        }
+        baseSaveCurrentLine();
+    };
+
+    if (el.editorClassification) {
+        el.editorClassification.addEventListener('change', function() {
+            if (activeIndex >= 0 && activeIndex < poLines.length) {
+                poLines[activeIndex].classification_id = this.value || '';
+            }
+        });
+    }
+
     if (typeof poLinesFromPhp !== 'undefined' && poLinesFromPhp.length > 0) {
         poLines = poLinesFromPhp.slice().map(function(line) {
             var normalized = Object.assign({}, line);

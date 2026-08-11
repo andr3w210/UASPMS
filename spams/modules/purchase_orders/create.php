@@ -35,6 +35,7 @@ $form = [
     'expected_delivery_date' => '',
     'document_total_amount' => '',
     'is_partial_entry' => 0,
+    'po_entry_status' => 'full',
 ];
 $itemRows = $defaultRows;
 
@@ -116,6 +117,9 @@ if ($db) {
     $poSupportsDocumentTotal = function_exists('schema_has_column')
         ? schema_has_column($db, 'purchase_orders', 'document_total_amount')
         : false;
+    $poSupportsEntryStatus = function_exists('schema_has_column')
+        ? schema_has_column($db, 'purchase_orders', 'po_entry_status')
+        : false;
 
     // preview system reference for new PO
     $form['system_reference'] = preview_module_code($db, 'purchase_orders');
@@ -137,7 +141,12 @@ if ($db) {
             $form['delivery_term_days'] = old($_POST, 'delivery_term_days');
             $form['expected_delivery_date'] = old($_POST, 'expected_delivery_date');
             $form['document_total_amount'] = old($_POST, 'document_total_amount');
-            $form['is_partial_entry'] = !empty($_POST['is_partial_entry']) ? 1 : 0;
+            $entryStatus = (string) old($_POST, 'po_entry_status', !empty($_POST['is_partial_entry']) ? 'partial' : 'full');
+            if (!in_array($entryStatus, ['full', 'partial', 'property_items_complete'], true)) {
+                $entryStatus = 'full';
+            }
+            $form['po_entry_status'] = $entryStatus;
+            $form['is_partial_entry'] = $entryStatus === 'full' ? 0 : 1;
 
             $postedRows = $_POST['items'] ?? [];
             if ($postedRows && is_array($postedRows)) {
@@ -348,18 +357,43 @@ if ($db) {
                             $systemReference     = next_module_code($db, 'purchase_orders');
                             $poNumberForSave     = $form['po_number'] !== '' ? $form['po_number'] : 'NO-PO-' . $systemReference;
                             $status              = 'encoded';
-                            $isPartialEntry      = (int) !empty($_POST['is_partial_entry']);
+                            $poEntryStatus       = $form['po_entry_status'];
+                            $isPartialEntry      = $poEntryStatus === 'full' ? 0 : 1;
 
                             $db->begin_transaction();
                             try {
-                                if ($poSupportsDocumentTotal) {
+                                if ($poSupportsDocumentTotal && $poSupportsEntryStatus) {
+                                    $headerStmt = $db->prepare("\n        INSERT INTO purchase_orders\n          (system_reference, po_number, po_date, supplier_id, fund_id,\n           supplier_address, mode_of_procurement_id, place_of_delivery,\n           delivery_term_days, expected_delivery_date, status, is_partial_entry, po_entry_status,\n           purpose, remarks, total_amount, document_total_amount, created_by)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULLIF(?, ''), ?)\n      ");
+                                } elseif ($poSupportsDocumentTotal) {
                                     $headerStmt = $db->prepare("\n        INSERT INTO purchase_orders\n          (system_reference, po_number, po_date, supplier_id, fund_id,\n           supplier_address, mode_of_procurement_id, place_of_delivery,\n           delivery_term_days, expected_delivery_date, status, is_partial_entry,\n           purpose, remarks, total_amount, document_total_amount, created_by)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULLIF(?, ''), ?)\n      ");
+                                } elseif ($poSupportsEntryStatus) {
+                                    $headerStmt = $db->prepare("\n        INSERT INTO purchase_orders\n          (system_reference, po_number, po_date, supplier_id, fund_id,\n           supplier_address, mode_of_procurement_id, place_of_delivery,\n           delivery_term_days, expected_delivery_date, status, is_partial_entry, po_entry_status,\n           purpose, remarks, total_amount, created_by)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)\n      ");
                                 } else {
                                     $headerStmt = $db->prepare("\n        INSERT INTO purchase_orders\n          (system_reference, po_number, po_date, supplier_id, fund_id,\n           supplier_address, mode_of_procurement_id, place_of_delivery,\n           delivery_term_days, expected_delivery_date, status, is_partial_entry,\n           purpose, remarks, total_amount, created_by)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)\n      ");
                                 }
                                 if (!$headerStmt) throw new RuntimeException('Prepare failed: header');
 
-                                if ($poSupportsDocumentTotal) {
+                                if ($poSupportsDocumentTotal && $poSupportsEntryStatus) {
+                                    $headerStmt->bind_param(
+                                        'sssiisisissisdsi',
+                                        $systemReference,
+                                        $poNumberForSave,
+                                        $form['po_date'],
+                                        $supplierId,
+                                        $fundId,
+                                        $form['supplier_address'],
+                                        $modeId,
+                                        $form['place_of_delivery'],
+                                        $deliveryTermDays,
+                                        $expectedDelivery,
+                                        $status,
+                                        $isPartialEntry,
+                                        $poEntryStatus,
+                                        $totalAmount,
+                                        $form['document_total_amount'],
+                                        $userId
+                                    );
+                                } elseif ($poSupportsDocumentTotal) {
                                     $headerStmt->bind_param(
                                         'sssiisisissidsi',
                                         $systemReference,
@@ -376,6 +410,25 @@ if ($db) {
                                         $isPartialEntry,
                                         $totalAmount,
                                         $form['document_total_amount'],
+                                        $userId
+                                    );
+                                } elseif ($poSupportsEntryStatus) {
+                                    $headerStmt->bind_param(
+                                        'sssiisisissisdi',
+                                        $systemReference,
+                                        $poNumberForSave,
+                                        $form['po_date'],
+                                        $supplierId,
+                                        $fundId,
+                                        $form['supplier_address'],
+                                        $modeId,
+                                        $form['place_of_delivery'],
+                                        $deliveryTermDays,
+                                        $expectedDelivery,
+                                        $status,
+                                        $isPartialEntry,
+                                        $poEntryStatus,
+                                        $totalAmount,
                                         $userId
                                     );
                                 } else {
@@ -785,10 +838,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <span class="small text-muted">PO total: <span id="poDocumentTotalDisplay"><?php echo h($form['document_total_amount'] !== '' ? number_format((float) $form['document_total_amount'], 2) : '—'); ?></span></span>
                                 <span class="fw-semibold">Total: <span id="poGrandTotal">0.00</span></span>
                                 <span class="small text-muted">Delta: <span id="poTotalDelta">—</span></span>
-                                <div class="form-check form-check-inline mb-0">
-                                    <input class="form-check-input" type="checkbox" id="is_partial_entry" name="is_partial_entry" value="1" <?php echo !empty($form['is_partial_entry']) ? 'checked' : ''; ?>>
-                                    <label class="form-check-label small" for="is_partial_entry">Partial Entry <span class="text-muted">(more items to add later)</span></label>
-                                </div>
+                                <input type="hidden" id="is_partial_entry" name="is_partial_entry" value="<?php echo !empty($form['is_partial_entry']) ? '1' : '0'; ?>">
+                                <select class="form-select form-select-sm" id="po_entry_status" name="po_entry_status" data-no-select2 style="width:auto;">
+                                    <option value="full" <?php echo ($form['po_entry_status'] ?? 'full') === 'full' ? 'selected' : ''; ?>>Full PO</option>
+                                    <option value="partial" <?php echo ($form['po_entry_status'] ?? '') === 'partial' ? 'selected' : ''; ?>>Partial Entry</option>
+                                    <option value="property_items_complete" <?php echo ($form['po_entry_status'] ?? '') === 'property_items_complete' ? 'selected' : ''; ?>>Property Items Complete</option>
+                                </select>
                                 <button type="submit" class="btn btn-primary btn-sm">Save Purchase Order</button>
                             </div>
                         </div>
@@ -1201,12 +1256,12 @@ document.addEventListener('DOMContentLoaded', function () {
             el.editorAccountCodeText.value = usesCatalog ? accountCodeLabelById(line.account_code_id || '') : '';
         }
         if (el.editorClassification) {
-            el.editorClassification.style.display = usesCatalog ? 'none' : '';
-            if (window.jQuery) window.jQuery(el.editorClassification).nextAll('.select2').first().toggle(!usesCatalog);
+            // A catalog item supplies the initial classification, but the PO may need a different one.
+            el.editorClassification.style.display = '';
+            if (window.jQuery) window.jQuery(el.editorClassification).nextAll('.select2').first().toggle(true);
         }
         if (el.editorClassificationText) {
-            el.editorClassificationText.style.display = usesCatalog ? '' : 'none';
-            el.editorClassificationText.value = usesCatalog ? classificationNameById(line.classification_id || '') : '';
+            el.editorClassificationText.style.display = 'none';
         }
         if (el.editorUom) {
             el.editorUom.style.display = usesCatalog ? 'none' : '';
@@ -1395,13 +1450,13 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             ln.item_description = supplyCatalog ? ((supplyCatalog.item_description || supplyCatalog.item_name || '').trim()) : '';
             ln.account_code_id = supplyCatalog ? String(supplyCatalog.account_code_id || '') : '';
-            ln.classification_id = supplyCatalog ? String(supplyCatalog.classification_id || '') : '';
+            // Keep a classification selected in the PO editor; the catalog is only the default.
+            ln.classification_id = ln.classification_id || (supplyCatalog ? String(supplyCatalog.classification_id || '') : '');
             ln.unit_of_measure_id = supplyCatalog ? String(supplyCatalog.unit_of_measure_id || '') : '';
             if (el.editorDescription) {
                 el.editorDescription.value = ln.item_description;
             }
             if (el.editorAccountCodeText) el.editorAccountCodeText.value = accountCodeLabelById(ln.account_code_id || '');
-            if (el.editorClassificationText) el.editorClassificationText.value = classificationNameById(ln.classification_id || '');
             if (el.editorUomText) el.editorUomText.value = uomLabelById(ln.unit_of_measure_id || '');
         } else {
             ln.item_description = (el.editorDescription.value || '').trim();
@@ -1476,8 +1531,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var documentTotalInput = document.getElementById('document_total_amount');
         var documentTotalDisplay = document.getElementById('poDocumentTotalDisplay');
         var totalDelta = document.getElementById('poTotalDelta');
-        var partialEntryInput = document.getElementById('is_partial_entry');
-        var isPartialEntry = partialEntryInput ? partialEntryInput.checked : false;
+        var isPartialEntry = poEntryIsPartial();
         var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : '';
         var documentTotal = documentTotalRaw !== '' ? parseFloat(documentTotalRaw) : NaN;
         var hasDocumentTotal = documentTotalRaw !== '' && !isNaN(documentTotal);
@@ -1498,6 +1552,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 totalDelta.className = 'text-muted';
             }
         }
+    }
+
+    function poEntryIsPartial() {
+        var entryStatusInput = document.getElementById('po_entry_status');
+        var partialEntryInput = document.getElementById('is_partial_entry');
+        var entryStatus = entryStatusInput ? entryStatusInput.value : '';
+        var isPartial = entryStatus !== '' ? entryStatus !== 'full' : !!(partialEntryInput && partialEntryInput.checked);
+        if (partialEntryInput) {
+            partialEntryInput.value = isPartial ? '1' : '0';
+        }
+        return isPartial;
     }
 
     // events
@@ -1773,8 +1838,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             var documentTotalInput = document.getElementById('document_total_amount');
-            var partialEntryInput = document.getElementById('is_partial_entry');
-            var isPartialEntry = partialEntryInput ? partialEntryInput.checked : false;
+            var isPartialEntry = poEntryIsPartial();
             var documentTotalRaw = documentTotalInput ? String(documentTotalInput.value || '').trim() : '';
             if (documentTotalRaw !== '') {
                 var documentTotal = parseFloat(documentTotalRaw);
@@ -1802,8 +1866,15 @@ document.addEventListener('DOMContentLoaded', function () {
         documentTotalInput.addEventListener('input', updateGrandTotal);
     }
     var partialEntryInput = document.getElementById('is_partial_entry');
+    var entryStatusInput = document.getElementById('po_entry_status');
     if (partialEntryInput) {
         partialEntryInput.addEventListener('change', updateGrandTotal);
+    }
+    if (entryStatusInput) {
+        entryStatusInput.addEventListener('change', function() {
+            poEntryIsPartial();
+            updateGrandTotal();
+        });
     }
 
     // init state

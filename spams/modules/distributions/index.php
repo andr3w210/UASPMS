@@ -1424,6 +1424,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <div class="fw-semibold">Workflow cue</div>
                                     <div class="small">Start from completed receiving records, choose the right accountability document, assign the accountable office and employee, then print PAR/ICS and QR tags after posting.</div>
                                 </div>
+                                <form method="post" id="distributionForm">
                                 <!-- SPA: Step 1 + Split panel editor -->
                                 <div class="card mb-3 workspace-form-section">
                                     <div class="card-body p-3">
@@ -1673,7 +1674,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType)); ?>" class="btn btn-sm btn-outline-secondary">Close</a>
                                 </div>
                             </div>
-                            
+                            <form method="post" id="editDistributionForm" class="row g-3">
                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                 <input type="hidden" name="action" value="update_distribution">
                                 <input type="hidden" name="edit_id" value="<?php echo (int) ($editingDistribution['id'] ?? 0); ?>">
@@ -1965,7 +1966,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 option.hidden = false;
                 return;
             }
-            var matches = !selectedOffice || option.getAttribute('data-office-id') === selectedOffice;
+            var officeIds = (option.getAttribute('data-office-ids') || option.getAttribute('data-office-id') || '').split(',').map(function (officeId) {
+                return officeId.trim();
+            });
+            var matches = !selectedOffice || officeIds.indexOf(selectedOffice) !== -1;
             option.hidden = !matches;
             if (!matches && option.selected) {
                 employeeField.value = '';
