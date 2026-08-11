@@ -8,6 +8,16 @@ function po_status_badge(string $status): string {
     return operational_status_badge('purchase_order', $status);
 }
 
+function po_entry_status_badge(string $entryStatus, bool $isPartialEntry): string {
+    if ($entryStatus === 'property_items_complete') {
+        return '<span class="badge text-bg-success">Property Items Complete</span>';
+    }
+    if ($entryStatus === 'partial' || $isPartialEntry) {
+        return '<span class="badge text-bg-info">Partial Entry</span>';
+    }
+    return '';
+}
+
 $db = db();
 $page_title = 'Purchase Orders';
 $flash = get_flash();
@@ -21,6 +31,7 @@ $accountCodes = [];
 $catalogItems = [];
 $classifications = [];
 $unitOfMeasures = [];
+$poSupportsEntryStatus = false;
 $defaultRows = [
     ['item_type' => 'supply', 'stock_catalog_id' => '', 'account_code_id' => '', 'classification_id' => '', 'item_description' => '', 'quantity' => '1', 'unit_of_measure_id' => '', 'unit_cost' => '0.00'],
 ];
@@ -42,6 +53,7 @@ if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } else {
     $poSupportsDocumentTotal = schema_has_column($db, 'purchase_orders', 'document_total_amount');
+    $poSupportsEntryStatus = schema_has_column($db, 'purchase_orders', 'po_entry_status');
     $form['system_reference'] = preview_module_code($db, 'purchase_orders');
 
     $supplierResult = $db->query("SELECT id, supplier_name, supplier_code, address FROM suppliers WHERE is_active = 1 ORDER BY supplier_name ASC");
@@ -480,7 +492,9 @@ if (!$db) {
             ? "po.document_total_amount,\n               CASE WHEN po.document_total_amount IS NOT NULL AND po.document_total_amount > 0 THEN po.document_total_amount ELSE po.total_amount END AS display_total_amount,"
             : "NULL AS document_total_amount,\n               po.total_amount AS display_total_amount,";
         $documentTotalGroup = $poSupportsDocumentTotal ? "po.document_total_amount,\n                 " : "";
-        $sql = "SELECT po.id, po.system_reference, po.po_number, po.po_date,\n               po.expected_delivery_date, po.status, po.total_amount,\n               {$documentTotalSelect}\n               po.place_of_delivery, po.is_partial_entry,\n               s.supplier_name, f.fund_name,\n               mop.mode_name AS mode_of_procurement_name,\n               COUNT(DISTINCT poi.id) AS total_lines,\n               COALESCE(SUM(poi.quantity), 0) AS total_qty,\n               COALESCE((\n                   SELECT SUM(ri.quantity_accepted)\n                   FROM receiving_items ri\n                   INNER JOIN receivings r ON r.id = ri.receiving_id\n                       AND r.status != 'cancelled'\n                   WHERE ri.purchase_order_item_id IN (\n                       SELECT id FROM purchase_order_items\n                       WHERE purchase_order_id = po.id\n                   )\n               ), 0) AS total_received_qty,\n               COALESCE((\n                   SELECT COUNT(*)\n                   FROM receiving_item_details rid\n                   INNER JOIN receiving_items ri2 ON ri2.id = rid.receiving_item_id\n                   INNER JOIN receivings r2 ON r2.id = ri2.receiving_id AND r2.status != 'cancelled'\n                   INNER JOIN purchase_order_items poi2 ON poi2.id = ri2.purchase_order_item_id\n                   WHERE poi2.purchase_order_id = po.id\n                     AND poi2.item_type IN ('semi_expendable', 'equipment')\n                     AND rid.is_distributed = 0\n                     AND COALESCE(rid.is_disposed, 0) = 0\n               ), 0) AS pending_distribution_units,\n               COALESCE((\n                   SELECT COUNT(*)\n                   FROM purchase_order_delivery_extensions ext\n                   WHERE ext.purchase_order_id = po.id\n                     AND ext.status = 'posted'\n               ), 0) AS extension_count,\n               (\n                   SELECT ext.new_expected_delivery_date\n                   FROM purchase_order_delivery_extensions ext\n                   WHERE ext.purchase_order_id = po.id\n                     AND ext.status = 'posted'\n                   ORDER BY ext.created_at DESC, ext.id DESC\n                   LIMIT 1\n               ) AS latest_extension_date,\n               COALESCE((\n                   SELECT ext.requested_extension_days\n                   FROM purchase_order_delivery_extensions ext\n                   WHERE ext.purchase_order_id = po.id\n                     AND ext.status = 'posted'\n                   ORDER BY ext.created_at DESC, ext.id DESC\n                   LIMIT 1\n               ), 0) AS latest_requested_extension_days\n        FROM purchase_orders po\n        INNER JOIN suppliers s ON s.id = po.supplier_id\n        INNER JOIN funds f ON f.id = po.fund_id\n        LEFT JOIN mode_of_procurements mop ON mop.id = po.mode_of_procurement_id\n        LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id\n        " . $whereSql . "\n        GROUP BY po.id, po.system_reference, po.po_number, po.po_date,\n                 po.expected_delivery_date, po.status, po.total_amount,\n                 {$documentTotalGroup}po.place_of_delivery, po.is_partial_entry, s.supplier_name, f.fund_name,\n                 mop.mode_name\n        ORDER BY po.po_date DESC, po.id DESC";
+        $entryStatusSelect = $poSupportsEntryStatus ? "po.po_entry_status,\n               " : "'full' AS po_entry_status,\n               ";
+        $entryStatusGroup = $poSupportsEntryStatus ? "po.po_entry_status,\n                 " : "";
+        $sql = "SELECT po.id, po.system_reference, po.po_number, po.po_date,\n               po.expected_delivery_date, po.status, po.total_amount,\n               {$documentTotalSelect}\n               po.place_of_delivery, po.is_partial_entry,\n               {$entryStatusSelect}s.supplier_name, f.fund_name,\n               mop.mode_name AS mode_of_procurement_name,\n               COUNT(DISTINCT poi.id) AS total_lines,\n               COALESCE(SUM(poi.quantity), 0) AS total_qty,\n               COALESCE((\n                   SELECT SUM(ri.quantity_accepted)\n                   FROM receiving_items ri\n                   INNER JOIN receivings r ON r.id = ri.receiving_id\n                       AND r.status != 'cancelled'\n                   WHERE ri.purchase_order_item_id IN (\n                       SELECT id FROM purchase_order_items\n                       WHERE purchase_order_id = po.id\n                   )\n               ), 0) AS total_received_qty,\n               COALESCE((\n                   SELECT COUNT(*)\n                   FROM receiving_item_details rid\n                   INNER JOIN receiving_items ri2 ON ri2.id = rid.receiving_item_id\n                   INNER JOIN receivings r2 ON r2.id = ri2.receiving_id AND r2.status != 'cancelled'\n                   INNER JOIN purchase_order_items poi2 ON poi2.id = ri2.purchase_order_item_id\n                   WHERE poi2.purchase_order_id = po.id\n                     AND poi2.item_type IN ('semi_expendable', 'equipment')\n                     AND rid.is_distributed = 0\n                     AND COALESCE(rid.is_disposed, 0) = 0\n               ), 0) AS pending_distribution_units,\n               COALESCE((\n                   SELECT COUNT(*)\n                   FROM purchase_order_delivery_extensions ext\n                   WHERE ext.purchase_order_id = po.id\n                     AND ext.status = 'posted'\n               ), 0) AS extension_count,\n               (\n                   SELECT ext.new_expected_delivery_date\n                   FROM purchase_order_delivery_extensions ext\n                   WHERE ext.purchase_order_id = po.id\n                     AND ext.status = 'posted'\n                   ORDER BY ext.created_at DESC, ext.id DESC\n                   LIMIT 1\n               ) AS latest_extension_date,\n               COALESCE((\n                   SELECT ext.requested_extension_days\n                   FROM purchase_order_delivery_extensions ext\n                   WHERE ext.purchase_order_id = po.id\n                     AND ext.status = 'posted'\n                   ORDER BY ext.created_at DESC, ext.id DESC\n                   LIMIT 1\n               ), 0) AS latest_requested_extension_days\n        FROM purchase_orders po\n        INNER JOIN suppliers s ON s.id = po.supplier_id\n        INNER JOIN funds f ON f.id = po.fund_id\n        LEFT JOIN mode_of_procurements mop ON mop.id = po.mode_of_procurement_id\n        LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id\n        " . $whereSql . "\n        GROUP BY po.id, po.system_reference, po.po_number, po.po_date,\n                 po.expected_delivery_date, po.status, po.total_amount,\n                 {$documentTotalGroup}po.place_of_delivery, po.is_partial_entry, {$entryStatusGroup}s.supplier_name, f.fund_name,\n                 mop.mode_name\n        ORDER BY po.po_date DESC, po.id DESC";
 
     $stmt = $db->prepare($sql);
     if ($stmt) {
@@ -503,7 +517,8 @@ if (!$db) {
             $fallbackDocumentTotalSelect = $poSupportsDocumentTotal
                 ? "po.document_total_amount, CASE WHEN po.document_total_amount IS NOT NULL AND po.document_total_amount > 0 THEN po.document_total_amount ELSE po.total_amount END AS display_total_amount,"
                 : "NULL AS document_total_amount, po.total_amount AS display_total_amount,";
-            $poResult = $db->query("SELECT po.id, po.system_reference, po.po_number, po.po_date, po.status, po.total_amount, {$fallbackDocumentTotalSelect} po.is_partial_entry, s.supplier_name, f.fund_name, mop.mode_name AS mode_of_procurement_name, po.place_of_delivery FROM purchase_orders po INNER JOIN suppliers s ON s.id = po.supplier_id INNER JOIN funds f ON f.id = po.fund_id LEFT JOIN mode_of_procurements mop ON mop.id = po.mode_of_procurement_id ORDER BY po.po_date DESC, po.id DESC");
+            $fallbackEntryStatusSelect = $poSupportsEntryStatus ? 'po.po_entry_status,' : "'full' AS po_entry_status,";
+            $poResult = $db->query("SELECT po.id, po.system_reference, po.po_number, po.po_date, po.status, po.total_amount, {$fallbackDocumentTotalSelect} po.is_partial_entry, {$fallbackEntryStatusSelect} s.supplier_name, f.fund_name, mop.mode_name AS mode_of_procurement_name, po.place_of_delivery FROM purchase_orders po INNER JOIN suppliers s ON s.id = po.supplier_id INNER JOIN funds f ON f.id = po.fund_id LEFT JOIN mode_of_procurements mop ON mop.id = po.mode_of_procurement_id ORDER BY po.po_date DESC, po.id DESC");
             if ($poResult) {
                 $purchaseOrders = $poResult->fetch_all(MYSQLI_ASSOC);
             }
@@ -667,8 +682,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </td>
                                         <td class="text-center">
                                             <?php echo po_status_badge($po['status']); ?>
-                                            <?php if (!empty($po['is_partial_entry'])): ?>
-                                                <div class="small mt-1"><span class="badge text-bg-info">Partial Entry</span></div>
+                                            <?php $entryBadge = po_entry_status_badge((string) ($po['po_entry_status'] ?? ''), !empty($po['is_partial_entry'])); ?>
+                                            <?php if ($entryBadge !== ''): ?>
+                                                <div class="small mt-1"><?php echo $entryBadge; ?></div>
                                             <?php endif; ?>
                                             <?php $pendingDistributionUnits = (int) ($po['pending_distribution_units'] ?? 0); ?>
                                             <?php if ($pendingDistributionUnits > 0): ?>
@@ -685,6 +701,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 </a>
                                                 <?php if (($po['status'] ?? '') !== 'completed' && ($po['status'] ?? '') !== 'cancelled'): ?>
                                                     <a href="<?php echo base_url('modules/purchase_orders/extensions.php?po_id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-warning">Extend</a>
+                                                <?php endif; ?>
+                                                <?php if (!empty($po['expected_delivery_date'])
+                                                    && $po['expected_delivery_date'] < date('Y-m-d')
+                                                    && (string) ($po['po_entry_status'] ?? '') !== 'property_items_complete'
+                                                    && in_array((string) ($po['status'] ?? ''), ['encoded', 'partial'], true)): ?>
+                                                    <a target="_blank" rel="noopener" href="<?php echo base_url('modules/purchase_orders/demand_letter.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-danger">Demand Letter</a>
                                                 <?php endif; ?>
                                                 <?php if ($po['status'] === 'encoded' || (!empty($po['is_partial_entry']) && ($po['status'] ?? '') !== 'cancelled')): ?>
                                                     <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-secondary"><?php echo !empty($po['is_partial_entry']) ? 'Edit / Add Items' : 'Edit'; ?></a>

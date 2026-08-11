@@ -244,7 +244,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function pingSessionKeepAlive() {
         if (window.fetch) {
-            fetch('<?php echo base_url('auth/keep_alive.php'); ?>', {
+            fetch(window.SPAMS_KEEP_ALIVE_URL || 'auth/keep_alive.php', {
                 method: 'POST',
                 headers: { 'X-Requested-With': 'XMLHttpRequest' },
                 credentials: 'same-origin'
@@ -1429,6 +1429,39 @@ document.addEventListener('DOMContentLoaded', function () {
         syncSelect2ValidationState(field);
     }
 
+    function repairOrphanedMasterDataForms() {
+        document.querySelectorAll('.master-data-editor').forEach(function (editor) {
+            if (editor.querySelector('form')) {
+                return;
+            }
+
+            var actionInput = editor.querySelector('input[name="action"][value="save"]');
+            if (!actionInput) {
+                return;
+            }
+
+            var form = document.createElement('form');
+            form.method = 'post';
+            while (editor.firstChild) {
+                form.appendChild(editor.firstChild);
+            }
+            editor.appendChild(form);
+        });
+
+        document.querySelectorAll('.modal-content').forEach(function (modalContent) {
+            if (modalContent.querySelector('form') || !modalContent.querySelector('input[name="action"]')) {
+                return;
+            }
+
+            var form = document.createElement('form');
+            form.method = 'post';
+            while (modalContent.firstChild) {
+                form.appendChild(modalContent.firstChild);
+            }
+            modalContent.appendChild(form);
+        });
+    }
+
     function initFormValidation(scope) {
         var root = scope || document;
         var forms = [];
@@ -1731,6 +1764,7 @@ document.addEventListener('DOMContentLoaded', function () {
         window.__spamsPendingMasterDataLists = [];
     }
 
+    repairOrphanedMasterDataForms();
     initSelect2(document);
     initMobileTableFrames(document);
     initTableSearch(document);

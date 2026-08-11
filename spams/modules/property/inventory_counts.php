@@ -1268,16 +1268,16 @@ if ($db) {
 
         if ($selectedSession) {
             $countSql = 'SELECT COUNT(*) AS total_count FROM inventory_count_items ici WHERE ici.session_id = ?';
-            $countTypes = 'i';
+            $countParamTypes = 'i';
             $countParams = [$selectedSessionId];
             if ($statusFilter !== '') {
                 $countSql .= ' AND ici.status = ?';
-                $countTypes .= 's';
+                $countParamTypes .= 's';
                 $countParams[] = $statusFilter;
             }
             $countStmt = $db->prepare($countSql);
             if ($countStmt) {
-                $countRefs = [$countTypes];
+                $countRefs = [$countParamTypes];
                 foreach ($countParams as $key => $value) {
                     $countRefs[] = &$countParams[$key];
                 }

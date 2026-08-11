@@ -331,12 +331,12 @@ $tagPrintUrl = $detailId > 0
         @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0.5in 0.07in 0.07in 0.07in' : '0.5in 0.07in 0.07in 0.07in'; ?>; }
         body { margin: 0; font-size: 12px; color: #000; font-family: "Times New Roman", serif; }
         table { font-size: 12px; }
-        .print-shell { width: 100%; max-width: none !important; margin: 0; padding: 0; }
+        .print-shell { width: 100%; max-width: none !important; margin: 0 auto; padding: 0; }
         .no-print { display: block; font-family: Arial, sans-serif; }
         .print-shell.short { font-size: 12px; }
         .print-shell.short table { font-size: 12px; }
-        .print-shell.short { width: 7.5in; max-width: 7.5in !important; padding: 0; }
-        .short-copies { width: 7.5in; }
+        .print-shell.short { width: 7.5in; max-width: 7.5in !important; margin: 0 auto; padding: 0; }
+        .short-copies { width: 7.5in; margin: 0 auto; }
         .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: block; overflow: hidden; }
         .short-sheet + .short-sheet { margin-top: 0; }
         .short-slot { height: 6.125in; box-sizing: border-box; display: block; overflow: hidden; }

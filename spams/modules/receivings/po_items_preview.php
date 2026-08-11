@@ -10,8 +10,30 @@ $poId = isset($_GET['po_id']) ? (int) $_GET['po_id'] : 0;
 $hasSemiTypeColumn = $db && function_exists('schema_has_column')
     ? schema_has_column($db, 'purchase_order_items', 'semi_expendable_type')
     : false;
+$poSupportsEntryStatus = $db && function_exists('schema_has_column')
+    ? schema_has_column($db, 'purchase_orders', 'po_entry_status')
+    : false;
 if (!$db || $poId <= 0) {
     echo json_encode(['ok' => false, 'error' => 'Invalid request']);
+    exit;
+}
+
+$poAvailabilitySql = "SELECT id FROM purchase_orders WHERE id = ?";
+if ($poSupportsEntryStatus) {
+    $poAvailabilitySql .= " AND po_entry_status != 'property_items_complete'";
+}
+$poAvailabilitySql .= " LIMIT 1";
+$poAvailabilityStmt = $db->prepare($poAvailabilitySql);
+if (!$poAvailabilityStmt) {
+    echo json_encode(['ok' => false, 'error' => 'PO validation failed']);
+    exit;
+}
+$poAvailabilityStmt->bind_param('i', $poId);
+$poAvailabilityStmt->execute();
+$poAvailabilityRow = $poAvailabilityStmt->get_result()->fetch_assoc();
+$poAvailabilityStmt->close();
+if (!$poAvailabilityRow) {
+    echo json_encode(['ok' => false, 'error' => 'Selected PO is unavailable for receiving']);
     exit;
 }
 

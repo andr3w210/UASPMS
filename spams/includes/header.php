@@ -67,6 +67,7 @@ $bodyClass = trim(implode(' ', array_filter($bodyClasses)));
 </head>
 <body class="<?php echo h($bodyClass); ?> app-shell">
 <script>
+window.SPAMS_KEEP_ALIVE_URL = <?php echo json_encode(base_url('auth/keep_alive.php')); ?>;
 window.__spamsPendingInitDataTables = window.__spamsPendingInitDataTables || [];
 if (typeof window.initDataTable !== 'function') {
     window.initDataTable = function () {

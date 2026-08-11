@@ -1074,7 +1074,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="text-muted small">Maintain employee profile and designation assignments. Additional assignments are stored in the new assignment table.</div>
                         </div>
                     </div>
-                    
+                    <form method="post" enctype="multipart/form-data">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
                         <input type="hidden" name="id" value="<?php echo (int)$form['id']; ?>">

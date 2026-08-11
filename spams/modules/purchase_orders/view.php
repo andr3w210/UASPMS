@@ -22,10 +22,12 @@ if ($purchaseOrderId <= 0) {
 
 $poSupportsDocumentTotal = function_exists('schema_has_column') ? schema_has_column($db, 'purchase_orders', 'document_total_amount') : false;
 $documentTotalSelect = $poSupportsDocumentTotal ? ', po.document_total_amount' : '';
+$poSupportsEntryStatus = function_exists('schema_has_column') ? schema_has_column($db, 'purchase_orders', 'po_entry_status') : false;
+$entryStatusSelect = $poSupportsEntryStatus ? ', po.po_entry_status' : ", 'full' AS po_entry_status";
 
 $stmt = $db->prepare("
     SELECT po.id, po.system_reference, po.po_number, po.po_date, po.supplier_address, po.place_of_delivery,
-           po.delivery_term_days, po.expected_delivery_date, po.total_amount{$documentTotalSelect}, po.status, po.is_partial_entry, po.created_at,
+           po.delivery_term_days, po.expected_delivery_date, po.total_amount{$documentTotalSelect}, po.status, po.is_partial_entry{$entryStatusSelect}, po.created_at,
            s.supplier_name, s.tin_no, f.fund_name, f.fund_code, f.fund_source, mop.mode_name AS mode_of_procurement_name
     FROM purchase_orders po
     INNER JOIN suppliers s ON s.id = po.supplier_id
@@ -281,7 +283,10 @@ $displayPoNumber = strpos((string) ($purchaseOrder['po_number'] ?? ''), 'NO-PO-'
             <div>
                 <div class="fw-semibold">Purchase Order Preview</div>
                 <small class="text-muted"><?php echo h($displayPoNumber !== '' ? $displayPoNumber . ' | ' . $purchaseOrder['system_reference'] : $purchaseOrder['system_reference']); ?></small>
-                <?php if (!empty($purchaseOrder['is_partial_entry'])): ?>
+                <?php $poEntryStatus = (string) ($purchaseOrder['po_entry_status'] ?? (!empty($purchaseOrder['is_partial_entry']) ? 'partial' : 'full')); ?>
+                <?php if ($poEntryStatus === 'property_items_complete'): ?>
+                    <span class="badge text-bg-success ms-1">Property Items Complete</span>
+                <?php elseif (!empty($purchaseOrder['is_partial_entry'])): ?>
                     <span class="badge text-bg-info ms-1">Partial Entry</span>
                 <?php endif; ?>
             </div>
@@ -291,7 +296,13 @@ $displayPoNumber = strpos((string) ($purchaseOrder['po_number'] ?? ''), 'NO-PO-'
                     <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $purchaseOrder['id']); ?>" class="btn btn-outline-secondary">Edit / Add Items</a>
                 <?php endif; ?>
                 <button type="button" class="btn btn-primary" onclick="window.print()">Print</button>
-                <?php if ($purchaseOrder['status'] !== 'completed' && $purchaseOrder['status'] !== 'cancelled'): ?>
+                <?php if (!empty($purchaseOrder['expected_delivery_date'])
+                    && $purchaseOrder['expected_delivery_date'] < date('Y-m-d')
+                    && $poEntryStatus !== 'property_items_complete'
+                    && in_array((string) $purchaseOrder['status'], ['encoded', 'partial'], true)): ?>
+                    <a class="btn btn-outline-danger" target="_blank" rel="noopener" href="<?php echo base_url('modules/purchase_orders/demand_letter.php?id=' . (int) $purchaseOrder['id']); ?>">Demand Letter</a>
+                <?php endif; ?>
+                <?php if ($purchaseOrder['status'] !== 'completed' && $purchaseOrder['status'] !== 'cancelled' && $poEntryStatus !== 'property_items_complete'): ?>
                     <a href="<?php echo base_url('modules/receivings/index.php?po_id=' . (int) $purchaseOrder['id']); ?>" class="btn btn-success">Receive Delivery</a>
                 <?php endif; ?>
                 <?php if (!empty($risOffices)): ?>
