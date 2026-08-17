@@ -70,6 +70,10 @@ if (!$db) {
                 }
             }
 
+            // New records receive their code only immediately before insertion. The
+            // preview can be stale when classifications were imported, so it must
+            // not be used to decide whether this new record is a duplicate.
+            if ($form['id'] === 0) $form['classification_code'] = '';
             $duplicateStmt = $db->prepare("SELECT id, classification_code, classification_name, classification_family, classification_group, account_code_id, is_active FROM classifications WHERE (classification_code = ? OR (classification_group = ? AND LOWER(TRIM(COALESCE(classification_family, ''))) = LOWER(TRIM(?)) AND LOWER(TRIM(classification_name)) = LOWER(TRIM(?)))) AND id != ? LIMIT 1");
             if ($duplicateStmt) {
                 $recordId = (int) $form['id'];
@@ -97,9 +101,26 @@ if (!$db) {
                     $stmt = $db->prepare("UPDATE classifications SET classification_code = ?, classification_name = ?, classification_family = ?, useful_life_years = NULLIF(?,0), classification_group = ?, account_code_id = ?, description = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
                     if ($stmt) { $recordId = (int) $form['id']; $stmt->bind_param('sssisisiii', $form['classification_code'], $form['classification_name'], $form['classification_family'], $form['useful_life_years'], $form['classification_group'], $accountCodeId, $form['description'], $isActive, $userId, $recordId); $saved = $stmt->execute(); $stmt->close(); if ($saved) { write_audit_log($db, ['action' => 'update', 'table_name' => 'classifications', 'record_id' => $recordId, 'module_name' => 'classifications', 'record_type' => 'classification', 'action_name' => 'update_classification', 'description' => 'Updated inventory class.', 'new_values' => ['classification_code' => $form['classification_code'], 'classification_name' => $form['classification_name'], 'classification_family' => $form['classification_family'], 'useful_life_years' => $form['useful_life_years'], 'classification_group' => $form['classification_group'], 'account_code_id' => $accountCodeId, 'is_active' => $isActive]]); set_flash('success', 'Inventory class updated successfully.'); redirect('modules/classifications/index.php'); } }
                 } else {
-                    $form['classification_code'] = next_module_code($db, 'classifications');
-                    $stmt = $db->prepare("INSERT INTO classifications (classification_code, classification_name, classification_family, useful_life_years, classification_group, account_code_id, description, is_active, created_by) VALUES (?, ?, ?, NULLIF(?,0), ?, ?, ?, ?, ?)");
-                    if ($stmt) { $stmt->bind_param('sssisisii', $form['classification_code'], $form['classification_name'], $form['classification_family'], $form['useful_life_years'], $form['classification_group'], $accountCodeId, $form['description'], $isActive, $userId); $saved = $stmt->execute(); $newId = (int) $stmt->insert_id; $stmt->close(); if ($saved) { write_audit_log($db, ['action' => 'insert', 'table_name' => 'classifications', 'record_id' => $newId, 'module_name' => 'classifications', 'record_type' => 'classification', 'action_name' => 'create_classification', 'description' => 'Created inventory class.', 'new_values' => ['classification_code' => $form['classification_code'], 'classification_name' => $form['classification_name'], 'classification_family' => $form['classification_family'], 'useful_life_years' => $form['useful_life_years'], 'classification_group' => $form['classification_group'], 'account_code_id' => $accountCodeId, 'is_active' => $isActive]]); set_flash('success', 'Inventory class created successfully.'); redirect('modules/classifications/index.php'); } }
+                    // Imported records may be ahead of series_numbers. Advance the
+                    // series until an unused code is found instead of rejecting an
+                    // unrelated inventory class as a duplicate.
+                    $codeInUse = true;
+                    for ($attempt = 0; $attempt < 100 && $codeInUse; $attempt++) {
+                        $form['classification_code'] = next_module_code($db, 'classifications');
+                        if ($form['classification_code'] === '') break;
+                        $codeStmt = $db->prepare("SELECT 1 FROM classifications WHERE classification_code = ? LIMIT 1");
+                        if (!$codeStmt) break;
+                        $codeStmt->bind_param('s', $form['classification_code']);
+                        $codeStmt->execute();
+                        $codeInUse = (bool) $codeStmt->get_result()->fetch_row();
+                        $codeStmt->close();
+                    }
+                    if ($form['classification_code'] === '' || $codeInUse) {
+                        $errors[] = 'Unable to generate a unique inventory class code.';
+                    } else {
+                        $stmt = $db->prepare("INSERT INTO classifications (classification_code, classification_name, classification_family, useful_life_years, classification_group, account_code_id, description, is_active, created_by) VALUES (?, ?, ?, NULLIF(?,0), ?, ?, ?, ?, ?)");
+                        if ($stmt) { $stmt->bind_param('sssisisii', $form['classification_code'], $form['classification_name'], $form['classification_family'], $form['useful_life_years'], $form['classification_group'], $accountCodeId, $form['description'], $isActive, $userId); $saved = $stmt->execute(); $newId = (int) $stmt->insert_id; $stmt->close(); if ($saved) { write_audit_log($db, ['action' => 'insert', 'table_name' => 'classifications', 'record_id' => $newId, 'module_name' => 'classifications', 'record_type' => 'classification', 'action_name' => 'create_classification', 'description' => 'Created inventory class.', 'new_values' => ['classification_code' => $form['classification_code'], 'classification_name' => $form['classification_name'], 'classification_family' => $form['classification_family'], 'useful_life_years' => $form['useful_life_years'], 'classification_group' => $form['classification_group'], 'account_code_id' => $accountCodeId, 'is_active' => $isActive]]); set_flash('success', 'Inventory class created successfully.'); redirect('modules/classifications/index.php'); } }
+                    }
                 }
                 $errors[] = 'Unable to save the inventory class.';
             }
