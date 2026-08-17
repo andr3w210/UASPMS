@@ -342,18 +342,18 @@ $tagPrintUrl = $detailId > 0
         @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0.5in 0.07in 0.07in 0.07in' : '0.5in 0.07in 0.07in 0.07in'; ?>; }
         body { margin: 0; font-size:12px; color:#000; font-family: "Times New Roman", serif; }
         table { font-size:12px; }
-        .print-shell { width: 100%; max-width: none !important; margin: 0; padding: 0; }
+        .print-shell { width: 100%; max-width: none !important; margin: 0 auto; padding: 0; }
         .no-print { display:block; font-family: Arial, sans-serif; }
         .print-shell.short { font-size: 12px; }
         .print-shell.short table { font-size: 12px; }
-        .print-shell.short { width: 7.5in; max-width: 7.5in !important; padding: 0; }
-        .short-copies { width: 7.5in; }
-        .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: block; overflow: hidden; }
+        .print-shell.short { width: 7.5in; max-width: 7.5in !important; margin: 0 auto; padding: 0; }
+        .short-copies { width: 7.5in; margin: 0 auto; }
+        .short-sheet { width: 7.5in; height: 12.4in; box-sizing: border-box; display: block; overflow: hidden; }
         .short-sheet + .short-sheet { margin-top: 0; }
-        .short-slot { height: 6.125in; box-sizing: border-box; display: block; overflow: hidden; }
-        .short-slot + .short-slot { padding-top: 0.25in; }
+        .short-slot { height: 6.1in; box-sizing: border-box; display: block; overflow: hidden; }
+        .short-slot + .short-slot { padding-top: 0.2in; }
         .short-slot + .short-slot { border-top: 1px dashed #bbb; }
-        .short-copy { height: 6.125in; min-height: 6.125in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
+        .short-copy { height: 6.1in; min-height: 6.1in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
         .par-form { position: relative; }
         .par-title { text-align:center; font-weight:bold; font-size:16px; text-transform:uppercase; margin:18px 0 22px; }
         .appendix { position:absolute; right:0; top:0; font-size:12px; font-style:italic; }
@@ -386,11 +386,12 @@ $tagPrintUrl = $detailId > 0
         @media print {
             .no-print, .no-print * { display:none !important; }
             thead { display: table-header-group; }
+            .par-print-toolbar { height: 0 !important; margin: 0 !important; overflow: visible !important; position: relative; }
             .print-shell.short .short-copies { width: 7.5in !important; height: auto !important; overflow: visible !important; }
-            .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display: block !important; overflow: hidden !important; }
-            .print-shell.short .short-slot { height: 6.125in !important; display: block !important; overflow: hidden !important; }
-            .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; }
-            .print-shell.short .short-copy { height: 6.125in !important; min-height: 6.125in !important; }
+            .print-shell.short .short-sheet { width: 7.5in !important; height: 12.4in !important; display: block !important; overflow: hidden !important; }
+            .print-shell.short .short-slot { height: 6.1in !important; display: block !important; overflow: hidden !important; }
+            .print-shell.short .short-slot + .short-slot { padding-top: 0.2in !important; }
+            .print-shell.short .short-copy { height: 6.1in !important; min-height: 6.1in !important; }
             .print-shell.short .short-slot + .short-slot { border-top: none; }
             .print-shell.short .short-sheet { break-after: page; page-break-after: always; }
             .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; }
@@ -404,7 +405,7 @@ $tagPrintUrl = $detailId > 0
         <?php if (isset($_GET['created']) && $_GET['created'] == '1'): ?>
             <div class="alert alert-info no-print">Distribution was just posted — ideal time to print this PAR now.</div>
         <?php endif; ?>
-        <div class="d-flex justify-content-between align-items-start mt-3 mb-2">
+        <div class="d-flex justify-content-between align-items-start mt-3 mb-2 par-print-toolbar">
                 <div class="d-flex gap-2 flex-wrap">
                 <a href="<?php echo base_url('modules/distributions/index.php?document_type=par'); ?>" class="btn btn-sm btn-outline-secondary no-print">Back</a>
                 <button onclick="window.print()" class="btn btn-sm btn-primary no-print">Print</button>

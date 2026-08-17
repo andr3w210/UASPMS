@@ -755,6 +755,17 @@ if (!$db) {
                         $updateClassificationStmt->close();
                     }
 
+                    $recalculatedStatus = recalculate_purchase_order_status($db, $id);
+                    $statusStmt = $db->prepare('UPDATE purchase_orders SET status = ? WHERE id = ?');
+                    if (!$statusStmt) {
+                        throw new RuntimeException('Unable to refresh the purchase order receiving status.');
+                    }
+                    $statusStmt->bind_param('si', $recalculatedStatus, $id);
+                    if (!$statusStmt->execute()) {
+                        throw new RuntimeException('Unable to refresh the purchase order receiving status: ' . $statusStmt->error);
+                    }
+                    $statusStmt->close();
+
                     $db->commit();
                     set_flash('success', 'Purchase order updated successfully.');
                     redirect('modules/purchase_orders/index.php');
