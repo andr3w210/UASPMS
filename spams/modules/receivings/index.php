@@ -370,6 +370,12 @@ if (!$db) {
                 $itemResult = $itemStmt->get_result();
                 while ($itemResult && ($item = $itemResult->fetch_assoc())) {
                     $remaining = max(0, (float) $item['quantity'] - (float) $item['quantity_already_received']);
+                    // Completed PO lines cannot receive another quantity. Keep them
+                    // out of the encoding workspace so users only work with items
+                    // that still have a balance to receive.
+                    if ($remaining <= 0.0001) {
+                        continue;
+                    }
                     $item['remaining_quantity'] = $remaining;
                     $item['deliver_quantity'] = '0.00';
                     $item['accept_quantity'] = '0.00';
@@ -1638,7 +1644,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                             <div class="receiving-po-overview-value"><?php echo h($selectedPurchaseOrder['place_of_delivery'] ?: ''); ?></div>
                                                         </div>
                                                         <div class="receiving-po-overview-item">
-                                                            <div class="receiving-po-overview-label">Total Lines</div>
+                                                            <div class="receiving-po-overview-label">Lines to Receive</div>
                                                             <div class="receiving-po-overview-value"><?php echo count($receivingItems); ?> item(s)</div>
                                                         </div>
                                                         <div class="receiving-po-overview-item">
