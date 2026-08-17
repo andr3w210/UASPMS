@@ -160,6 +160,49 @@ function extract_scanned_property_reference(string $rawValue): string
     return $rawValue;
 }
 
+function resolve_inventory_count_property_reference(mysqli $db, string $rawValue): string
+{
+    $rawValue = trim($rawValue);
+    if ($rawValue === '') {
+        return '';
+    }
+
+    // Current SPAMS tags encode TAG, PN, and SN fields. Prefer the embedded
+    // property number, then resolve an internal tag code or serial number.
+    $payload = function_exists('property_qr_parse_payload')
+        ? property_qr_parse_payload($rawValue)
+        : ['property_number' => '', 'tag_code' => '', 'serial_number' => ''];
+    $propertyNumber = trim((string) ($payload['property_number'] ?? ''));
+    if ($propertyNumber !== '') {
+        return $propertyNumber;
+    }
+
+    $tagCode = trim((string) ($payload['tag_code'] ?? ''));
+    $serialNumber = trim((string) ($payload['serial_number'] ?? ''));
+    $tagOrSerial = $tagCode !== '' ? $tagCode : $rawValue;
+    $serialOrRaw = $serialNumber !== '' ? $serialNumber : $rawValue;
+
+    if (function_exists('property_qr_ensure_schema')) {
+        property_qr_ensure_schema($db);
+    }
+    $stmt = $db->prepare(
+        "SELECT property_number FROM (
+            SELECT property_number FROM distribution_item_details WHERE qr_tag_code = ? OR serial_no = ?
+            UNION ALL
+            SELECT property_number FROM legacy_assets WHERE qr_tag_code = ? OR serial_no = ?
+        ) tagged_assets WHERE property_number IS NOT NULL AND TRIM(property_number) <> '' LIMIT 1"
+    );
+    if (!$stmt) {
+        return extract_scanned_property_reference($rawValue);
+    }
+    $stmt->bind_param('ssss', $tagOrSerial, $serialOrRaw, $tagOrSerial, $serialOrRaw);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    return trim((string) ($row['property_number'] ?? extract_scanned_property_reference($rawValue)));
+}
+
 function inventory_count_latest_update_message(mysqli $db, int $itemId): string
 {
     $auditStmt = $db->prepare("SELECT COALESCE(NULLIF(u.full_name, ''), u.username) AS updated_by FROM audit_logs al LEFT JOIN users u ON u.id = al.user_id WHERE al.table_name = 'inventory_count_items' AND al.record_id = ? ORDER BY al.created_at DESC, al.id DESC LIMIT 1");
@@ -282,7 +325,7 @@ if ($db) {
         }
 
         $sessionId = (int) ($_POST['session_id'] ?? 0);
-        $propertyReference = extract_scanned_property_reference(trim((string) ($_POST['scan_value'] ?? '')));
+        $propertyReference = resolve_inventory_count_property_reference($db, trim((string) ($_POST['scan_value'] ?? '')));
         $expectedUpdatedAt = trim((string) ($_POST['expected_updated_at'] ?? ''));
         $response = ['success' => false, 'error' => 'Unable to mark scanned asset as found.'];
 
@@ -923,7 +966,7 @@ if ($db) {
         if (empty($errors) && $action === 'scan_asset') {
             $sessionId = (int) ($_POST['session_id'] ?? 0);
             $rawScanValue = trim((string) ($_POST['scan_value'] ?? ''));
-            $propertyReference = extract_scanned_property_reference($rawScanValue);
+            $propertyReference = resolve_inventory_count_property_reference($db, $rawScanValue);
 
             if ($sessionId <= 0) {
                 $errors[] = 'Invalid count session.';
@@ -2304,8 +2347,22 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         html5QrScanner = new window.Html5Qrcode(readerId);
+        var cameraSource = { facingMode: { ideal: 'environment' } };
+        try {
+            var cameras = await window.Html5Qrcode.getCameras();
+            var droidCam = cameras.find(function (camera) {
+                return /droidcam/i.test(camera.label || '');
+            });
+            // Prefer the DroidCam virtual webcam when it is installed. This
+            // avoids requesting a phone-only rear-facing camera constraint.
+            if (droidCam && droidCam.id) {
+                cameraSource = droidCam.id;
+            }
+        } catch (error) {
+            // The scanner start call below will request permission if needed.
+        }
         await html5QrScanner.start(
-            { facingMode: 'environment' },
+            cameraSource,
             { fps: 10, qrbox: { width: 220, height: 220 } },
             function (decodedText) {
                 if (decodedText) {
@@ -2319,13 +2376,37 @@ document.addEventListener('DOMContentLoaded', function () {
         setCameraStatus('Fallback camera scanner is live. Point the QR tag inside the frame.');
     }
 
+    function cameraStartErrorMessage(error) {
+        var errorName = error && error.name ? error.name : '';
+        if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+            return 'Camera access requires HTTPS (or localhost). Open this site over HTTPS and try again.';
+        }
+        if (errorName === 'NotAllowedError' || errorName === 'SecurityError') {
+            return 'Camera permission was blocked. Allow camera access for this site in your browser and try again.';
+        }
+        if (errorName === 'NotFoundError' || errorName === 'DevicesNotFoundError') {
+            return 'No camera was found. Connect or enable your webcam, then try again.';
+        }
+        if (errorName === 'NotReadableError' || errorName === 'TrackStartError') {
+            return 'The camera is being used by another app. Close that app and try again.';
+        }
+        if (errorName === 'OverconstrainedError' || errorName === 'ConstraintNotSatisfiedError') {
+            return 'The selected camera does not support the requested settings. Select DroidCam as the browser camera, then try again.';
+        }
+        return 'Unable to start the camera. Check browser camera permission and try again.';
+    }
+
     async function startCameraScanner() {
         if (!scanInput || !scanForm) {
             return;
         }
 
         if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
-            setCameraStatus('Camera scanning is not available on this browser. Check the diagnostics below for the likely cause.', 'warning');
+            if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+                setCameraStatus('Camera access is blocked because this page is opened over HTTP. On this PC use http://localhost/UASPMS/spams/, or open the system through HTTPS. DroidCam will then be available to the browser.', 'warning');
+            } else {
+                setCameraStatus('Camera scanning is not available in this browser. Use a current version of Chrome, Edge, or Firefox and allow camera access.', 'warning');
+            }
             return;
         }
 
@@ -2342,17 +2423,25 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             if ('BarcodeDetector' in window) {
+                try {
                 cameraDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+                } catch (detectorError) {
+                    cameraDetector = null;
+                }
+            }
+
+            if (cameraDetector) {
                 cameraStream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: { ideal: 'environment' }
-                    },
+                    // Do not request a phone-specific rear camera here. DroidCam
+                    // and many USB webcams expose no facing-mode capability.
+                    video: true,
                     audio: false
                 });
 
                 if (cameraVideo) {
                     cameraVideo.classList.remove('d-none');
                     cameraVideo.srcObject = cameraStream;
+                    await cameraVideo.play();
                 }
 
                 setCameraStatus('Camera scanner is live. Point the QR tag inside the frame.');
@@ -2365,7 +2454,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         } catch (error) {
             stopCameraScanner(false);
-            setCameraStatus('Unable to start the camera. Check browser camera permission and try again.', 'warning');
+            setCameraStatus(cameraStartErrorMessage(error), 'warning');
         }
     }
 
