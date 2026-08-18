@@ -416,7 +416,7 @@ if ($db && $distributionId > 0) {
     if ($distribution) {
         $itemStmt = $db->prepare("
             SELECT di.id, di.quantity_distributed, di.unit_cost, di.line_total, di.remarks,
-                   ri.item_condition, poi.line_no, poi.item_type, poi.item_description, ac.account_code, c.classification_name, c.classification_family,
+                   ri.item_condition, poi.line_no, poi.item_type, COALESCE(NULLIF(di.reconciled_item_description, ''), poi.item_description) AS item_description, ac.account_code, c.classification_name, c.classification_family,
                    u.uom_name, u.abbreviation, r.system_reference AS receiving_reference
             FROM distribution_items di
             INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
