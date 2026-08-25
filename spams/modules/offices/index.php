@@ -186,6 +186,7 @@ $errors = [];
 $offices = [];
 $employees = [];
 $employeeAssignmentSummaryMap = [];
+$assignmentsEnabled = employee_assignments_enabled($db);
 $form = [
     'id' => 0,
     'office_code' => '',
@@ -219,7 +220,9 @@ if (!$db) {
             $form['id'] = (int) ($_POST['id'] ?? 0);
             $form['office_code'] = strtoupper(old($_POST, 'office_code'));
             $form['office_name'] = old($_POST, 'office_name');
-            $form['office_head_employee_id'] = old($_POST, 'office_head_employee_id');
+            if (!employee_assignments_enabled($db)) {
+                $form['office_head_employee_id'] = old($_POST, 'office_head_employee_id');
+            }
             $form['description'] = old($_POST, 'description');
             $form['is_active'] = isset($_POST['is_active']) ? '1' : '0';
 
@@ -243,7 +246,7 @@ if (!$db) {
             }
 
             if (empty($errors)) {
-                $officeHeadId = $form['office_head_employee_id'] !== '' ? (int) $form['office_head_employee_id'] : null;
+                $officeHeadId = !employee_assignments_enabled($db) && $form['office_head_employee_id'] !== '' ? (int) $form['office_head_employee_id'] : null;
                 $isActive = (int) $form['is_active'];
                 $userId = current_user_id();
 
@@ -256,9 +259,15 @@ if (!$db) {
                         'description',
                         'is_active',
                     ]);
-                    $stmt = $db->prepare("UPDATE offices SET office_code = ?, office_name = ?, department_id = NULL, office_head_employee_id = ?, description = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
+                    $stmt = employee_assignments_enabled($db)
+                        ? $db->prepare("UPDATE offices SET office_code = ?, office_name = ?, department_id = NULL, description = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?")
+                        : $db->prepare("UPDATE offices SET office_code = ?, office_name = ?, department_id = NULL, office_head_employee_id = ?, description = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
                     if ($stmt) {
-                        $stmt->bind_param('ssisiii', $form['office_code'], $form['office_name'], $officeHeadId, $form['description'], $isActive, $userId, $officeId);
+                        if (employee_assignments_enabled($db)) {
+                            $stmt->bind_param('sssiii', $form['office_code'], $form['office_name'], $form['description'], $isActive, $userId, $officeId);
+                        } else {
+                            $stmt->bind_param('ssisiii', $form['office_code'], $form['office_name'], $officeHeadId, $form['description'], $isActive, $userId, $officeId);
+                        }
                         $saved = $stmt->execute();
                         $stmt->close();
                         if ($saved) {
@@ -642,18 +651,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </div>
                                     </div>
                                     <div class="master-data-panel-body">
-                                        <div class="master-data-helper mb-3">
-                                            Recommendation: assign an employee here only when the office has a clear accountable head. If the employee has multiple assignments, choose the one that matches this office.
-                                        </div>
-                                        <label class="form-label">Office Head</label>
-                                        <select class="form-select" name="office_head_employee_id" data-placeholder="Select employee">
-                                            <option value="">Select employee</option>
-                                            <?php foreach ($employees as $employee): ?>
-                                                <option value="<?php echo (int) $employee['id']; ?>" <?php echo $form['office_head_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
-                                                    <?php echo h(employee_choice_label($employee, $employeeAssignmentSummaryMap[(int) ($employee['id'] ?? 0)] ?? '')); ?>
-                                                </option>
-                                            <?php endforeach; ?>
-                                        </select>
+                                        <?php if ($assignmentsEnabled): ?>
+                                            <div class="master-data-helper mb-0">Office head is derived automatically from the active employee assignment marked <strong>Unit head</strong>.</div>
+                                        <?php else: ?>
+                                            <div class="master-data-helper mb-3">Assign an employee only when the office has a clear accountable head.</div>
+                                            <label class="form-label">Office Head</label>
+                                            <select class="form-select" name="office_head_employee_id" data-placeholder="Select employee">
+                                                <option value="">Select employee</option>
+                                                <?php foreach ($employees as $employee): ?>
+                                                    <option value="<?php echo (int) $employee['id']; ?>" <?php echo $form['office_head_employee_id'] === (string) $employee['id'] ? 'selected' : ''; ?>>
+                                                        <?php echo h(employee_choice_label($employee, $employeeAssignmentSummaryMap[(int) ($employee['id'] ?? 0)] ?? '')); ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
 

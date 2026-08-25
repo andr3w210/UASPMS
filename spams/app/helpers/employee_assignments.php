@@ -282,6 +282,8 @@ function employee_choice_label(array $employee, string $summary = ''): string
 
 function employee_sync_legacy_assignment_fields(mysqli $db, int $employeeId): void
 {
+    // Legacy employee columns are a read-optimized cache of the active primary
+    // assignment. They must never be treated as a second writable assignment model.
     if ($employeeId <= 0) {
         return;
     }
@@ -304,21 +306,77 @@ function employee_sync_legacy_assignment_fields(mysqli $db, int $employeeId): vo
     $stmt->close();
 }
 
+function users_sync_office_from_employee(mysqli $db, int $employeeId): void
+{
+    if ($employeeId <= 0 || !schema_has_table($db, 'users')) {
+        return;
+    }
+    $primary = employee_fetch_primary_assignment($db, $employeeId);
+    $officeId = (int) ($primary['office_id'] ?? 0);
+    $stmt = $db->prepare('UPDATE users SET office_id = NULLIF(?, 0), updated_at = NOW() WHERE employee_id = ?');
+    if ($stmt) {
+        $stmt->bind_param('ii', $officeId, $employeeId);
+        $stmt->execute();
+        $stmt->close();
+    }
+}
+
+function employee_sync_office_head_cache(mysqli $db, int $officeId): void
+{
+    if ($officeId <= 0 || !employee_assignments_enabled($db)) {
+        return;
+    }
+    $stmt = $db->prepare('SELECT employee_id FROM employee_assignments WHERE office_id = ? AND is_active = 1 AND is_unit_head = 1 ORDER BY id ASC LIMIT 1');
+    if (!$stmt) return;
+    $stmt->bind_param('i', $officeId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: [];
+    $stmt->close();
+    $headId = (int) ($row['employee_id'] ?? 0);
+    $update = $db->prepare('UPDATE offices SET office_head_employee_id = NULLIF(?, 0), updated_at = NOW() WHERE id = ?');
+    if ($update) {
+        $update->bind_param('ii', $headId, $officeId);
+        $update->execute();
+        $update->close();
+    }
+}
+
 function employee_save_assignments(mysqli $db, int $employeeId, array $rows, int $userId): bool
+{
+    if ($employeeId <= 0 || !employee_assignments_enabled($db)) return false;
+    $rows = employee_normalize_assignment_rows($rows);
+    if (employee_validate_assignment_rows($db, $rows)) return false;
+    $db->begin_transaction();
+    try {
+        if (!employee_save_assignments_unlocked($db, $employeeId, $rows, $userId)) {
+            $db->rollback();
+            return false;
+        }
+        $db->commit();
+        return true;
+    } catch (Throwable $e) {
+        $db->rollback();
+        error_log('Employee assignment save failed: ' . $e->getMessage());
+        return false;
+    }
+}
+
+function employee_save_assignments_unlocked(mysqli $db, int $employeeId, array $rows, int $userId): bool
 {
     if ($employeeId <= 0 || !employee_assignments_enabled($db)) {
         return false;
     }
 
-    $existingResult = $db->query("SELECT id FROM employee_assignments WHERE employee_id = " . (int) $employeeId);
+    $existingResult = $db->query("SELECT id, office_id FROM employee_assignments WHERE employee_id = " . (int) $employeeId . " FOR UPDATE");
     $existingIds = [];
     if ($existingResult) {
         foreach ($existingResult->fetch_all(MYSQLI_ASSOC) as $existingRow) {
-            $existingIds[(int) $existingRow['id']] = true;
+            $existingIds[(int) $existingRow['id']] = (int) ($existingRow['office_id'] ?? 0);
         }
     }
 
     $submittedIds = [];
+    $affectedOfficeIds = array_values(array_filter(array_unique(array_values($existingIds))));
     foreach ($rows as $row) {
         $assignmentId = (int) ($row['id'] ?? 0);
         $officeId = (int) ($row['office_id'] ?? 0);
@@ -328,6 +386,9 @@ function employee_save_assignments(mysqli $db, int $employeeId, array $rows, int
         $isOic = !empty($row['is_oic']) ? 1 : 0;
         $isPrimary = !empty($row['is_primary']) ? 1 : 0;
         $isActive = !empty($row['is_active']) ? 1 : 0;
+        if ($officeId > 0) {
+            $affectedOfficeIds[] = $officeId;
+        }
         $isBlank = $officeId <= 0
             && $responsibilityCodeId <= 0
             && $roleTitle === ''
@@ -411,6 +472,10 @@ function employee_save_assignments(mysqli $db, int $employeeId, array $rows, int
     }
 
     employee_sync_legacy_assignment_fields($db, $employeeId);
+    users_sync_office_from_employee($db, $employeeId);
+    foreach (array_unique($affectedOfficeIds) as $affectedOfficeId) {
+        employee_sync_office_head_cache($db, (int) $affectedOfficeId);
+    }
     return true;
 }
 
@@ -434,6 +499,22 @@ function employee_find_default_responsibility_code(mysqli $db, int $officeId): i
 }
 
 function employee_ensure_office_assignment(mysqli $db, int $employeeId, int $officeId, string $roleTitle = '', bool $isUnitHead = false, int $userId = 0): bool
+{
+    if ($employeeId <= 0 || $officeId <= 0 || !employee_assignments_enabled($db)) return true;
+    $db->begin_transaction();
+    try {
+        $ok = employee_ensure_office_assignment_unlocked($db, $employeeId, $officeId, $roleTitle, $isUnitHead, $userId);
+        if (!$ok) { $db->rollback(); return false; }
+        $db->commit();
+        return true;
+    } catch (Throwable $e) {
+        $db->rollback();
+        error_log('Ensure office assignment failed: ' . $e->getMessage());
+        return false;
+    }
+}
+
+function employee_ensure_office_assignment_unlocked(mysqli $db, int $employeeId, int $officeId, string $roleTitle = '', bool $isUnitHead = false, int $userId = 0): bool
 {
     if ($employeeId <= 0 || $officeId <= 0 || !employee_assignments_enabled($db)) {
         return true;
@@ -460,7 +541,7 @@ function employee_ensure_office_assignment(mysqli $db, int $employeeId, int $off
     $updatedBy = $userId > 0 ? $userId : 0;
 
     $hasActiveAssignment = false;
-    $activeStmt = $db->prepare("SELECT id FROM employee_assignments WHERE employee_id = ? AND is_active = 1 LIMIT 1");
+    $activeStmt = $db->prepare("SELECT id FROM employee_assignments WHERE employee_id = ? AND is_active = 1 LIMIT 1 FOR UPDATE");
     if ($activeStmt) {
         $activeStmt->bind_param('i', $employeeId);
         $activeStmt->execute();
@@ -469,7 +550,7 @@ function employee_ensure_office_assignment(mysqli $db, int $employeeId, int $off
     }
     $isPrimaryValue = $hasActiveAssignment ? 0 : 1;
 
-    $assignmentStmt = $db->prepare("SELECT id, responsibility_code_id, role_title FROM employee_assignments WHERE employee_id = ? AND office_id = ? LIMIT 1");
+    $assignmentStmt = $db->prepare("SELECT id, responsibility_code_id, role_title FROM employee_assignments WHERE employee_id = ? AND office_id = ? LIMIT 1 FOR UPDATE");
     if (!$assignmentStmt) {
         return false;
     }
@@ -524,6 +605,8 @@ function employee_ensure_office_assignment(mysqli $db, int $employeeId, int $off
     }
 
     employee_sync_legacy_assignment_fields($db, $employeeId);
+    users_sync_office_from_employee($db, $employeeId);
+    employee_sync_office_head_cache($db, $officeId);
     return true;
 }
 
@@ -531,6 +614,37 @@ function employee_resolve_office_head(mysqli $db, int $officeId): array
 {
     if ($officeId <= 0) {
         return [];
+    }
+
+    // On assignment-aware schemas the flag, not the office cache, decides who heads an office.
+    if (employee_assignments_enabled($db)) {
+        $stmt = $db->prepare("SELECT ea.employee_id, e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, ea.role_title AS position_title, o.office_name
+                              FROM employee_assignments ea
+                              INNER JOIN employees e ON e.id = ea.employee_id AND e.is_active = 1
+                              INNER JOIN offices o ON o.id = ea.office_id
+                              WHERE ea.office_id = ? AND ea.is_active = 1 AND ea.is_unit_head = 1
+                              ORDER BY ea.id ASC LIMIT 1");
+        if (!$stmt) return [];
+        $stmt->bind_param('i', $officeId);
+        $stmt->execute();
+        $head = $stmt->get_result()->fetch_assoc() ?: [];
+        $stmt->close();
+        $cacheStmt = $db->prepare('SELECT office_head_employee_id FROM offices WHERE id = ? LIMIT 1');
+        if ($cacheStmt) {
+            $cacheStmt->bind_param('i', $officeId);
+            $cacheStmt->execute();
+            $cache = $cacheStmt->get_result()->fetch_assoc() ?: [];
+            $cacheStmt->close();
+            $cachedId = (int) ($cache['office_head_employee_id'] ?? 0);
+            $resolvedId = (int) ($head['employee_id'] ?? 0);
+            if ($cachedId !== $resolvedId && function_exists('write_audit_log')) {
+                write_audit_log($db, ['action' => 'update', 'table_name' => 'offices', 'record_id' => $officeId,
+                    'module_name' => 'employee_assignments', 'record_type' => 'office', 'action_name' => 'office_head_cache_mismatch',
+                    'description' => 'Office-head cache differed from the authoritative unit-head assignment.',
+                    'old_values' => ['office_head_employee_id' => $cachedId], 'new_values' => ['office_head_employee_id' => $resolvedId]]);
+            }
+        }
+        return $head;
     }
 
     $officeStmt = $db->prepare("SELECT office_head_employee_id FROM offices WHERE id = ? LIMIT 1");

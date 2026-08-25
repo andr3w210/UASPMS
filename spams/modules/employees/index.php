@@ -216,6 +216,28 @@ function employees_merge_records(mysqli $db, int $sourceEmployeeId, int $targetE
                 $stmt->close();
             }
 
+            // The target's active assignment wins when both records carry the
+            // same office/designation. This also makes the database unique key
+            // safe before source rows are re-pointed to the target employee.
+            $stmt = $db->prepare("UPDATE employee_assignments source
+                                  INNER JOIN employee_assignments target
+                                    ON target.employee_id = ?
+                                   AND target.office_id = source.office_id
+                                   AND target.role_title = source.role_title
+                                   AND target.is_active = 1
+                                  SET source.is_active = 0, source.is_primary = 0, source.updated_by = ?, source.updated_at = NOW()
+                                  WHERE source.employee_id = ? AND source.is_active = 1");
+            if (!$stmt) {
+                throw new RuntimeException('Unable to prepare assignment duplicate cleanup.');
+            }
+            $stmt->bind_param('iii', $targetEmployeeId, $userId, $sourceEmployeeId);
+            if (!$stmt->execute()) {
+                $error = $stmt->error;
+                $stmt->close();
+                throw new RuntimeException('Unable to deactivate duplicate assignments: ' . $error);
+            }
+            $stmt->close();
+
             $stmt = $db->prepare("UPDATE employee_assignments SET employee_id = ?, updated_by = ?, updated_at = NOW() WHERE employee_id = ?");
             if (!$stmt) {
                 throw new RuntimeException('Unable to prepare assignment merge.');
@@ -229,6 +251,16 @@ function employees_merge_records(mysqli $db, int $sourceEmployeeId, int $targetE
             $stmt->close();
 
             employee_sync_legacy_assignment_fields($db, $targetEmployeeId);
+            users_sync_office_from_employee($db, $targetEmployeeId);
+            $officeStmt = $db->prepare('SELECT DISTINCT office_id FROM employee_assignments WHERE employee_id IN (?, ?)');
+            if ($officeStmt) {
+                $officeStmt->bind_param('ii', $sourceEmployeeId, $targetEmployeeId);
+                $officeStmt->execute();
+                foreach ($officeStmt->get_result()->fetch_all(MYSQLI_ASSOC) as $officeRow) {
+                    employee_sync_office_head_cache($db, (int) ($officeRow['office_id'] ?? 0));
+                }
+                $officeStmt->close();
+            }
         }
 
         $stmt = $db->prepare("UPDATE employees SET is_active = 0, office_id = NULL, responsibility_code_id = NULL, position_title = '', is_unit_head = 0, updated_by = ?, updated_at = NOW() WHERE id = ?");
@@ -391,11 +423,13 @@ if (!$db) {
             $form['suffix_name']=old($_POST,'suffix_name');
             $form['email']=old($_POST,'email');
             $form['photo_path']=(string)($_POST['existing_photo_path'] ?? '');
-            $form['office_id']=old($_POST,'office_id');
-            $form['responsibility_code_id']=old($_POST,'responsibility_code_id');
-            $form['position_title']=old($_POST,'position_title');
+            if (!$assignmentsEnabled) {
+                $form['office_id']=old($_POST,'office_id');
+                $form['responsibility_code_id']=old($_POST,'responsibility_code_id');
+                $form['position_title']=old($_POST,'position_title');
+                $form['is_unit_head']=isset($_POST['is_unit_head'])?'1':'0';
+            }
             $form['employment_status']=employees_normalize_status((string) old($_POST,'employment_status'));
-            $form['is_unit_head']=isset($_POST['is_unit_head'])?'1':'0';
             $form['is_driver']=isset($_POST['is_driver'])?'1':'0';
             $form['is_active']=isset($_POST['is_active'])?'1':'0';
             $removePhoto = isset($_POST['remove_photo']);
@@ -481,12 +515,20 @@ if (!$db) {
 
                 if($recordId>0){
                     $auditBefore = employees_audit_snapshot($db, $recordId);
-                    $updateSql = $hasDriverColumn
+                    $updateSql = $assignmentsEnabled
+                        ? ($hasDriverColumn
+                            ? "UPDATE employees SET employee_no = ?, name_prefix = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, photo_path = ?, department_id = NULL, employment_status = ?, is_driver = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?"
+                            : "UPDATE employees SET employee_no = ?, name_prefix = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, photo_path = ?, department_id = NULL, employment_status = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?")
+                        : ($hasDriverColumn
                         ? "UPDATE employees SET employee_no = ?, name_prefix = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, photo_path = ?, department_id = NULL, office_id = ?, responsibility_code_id = ?, position_title = ?, employment_status = ?, is_unit_head = ?, is_driver = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?"
-                        : "UPDATE employees SET employee_no = ?, name_prefix = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, photo_path = ?, department_id = NULL, office_id = ?, responsibility_code_id = ?, position_title = ?, employment_status = ?, is_unit_head = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?";
+                        : "UPDATE employees SET employee_no = ?, name_prefix = ?, first_name = ?, middle_name = ?, last_name = ?, suffix_name = ?, email = ?, photo_path = ?, department_id = NULL, office_id = ?, responsibility_code_id = ?, position_title = ?, employment_status = ?, is_unit_head = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
                     $stmt=$db->prepare($updateSql);
                     if($stmt){
-                        if ($hasDriverColumn) {
+                        if ($assignmentsEnabled && $hasDriverColumn) {
+                            $stmt->bind_param('sssssssssiiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$form['employment_status'],$isDriver,$isActive,$userId,$recordId);
+                        } elseif ($assignmentsEnabled) {
+                            $stmt->bind_param('sssssssssiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$form['employment_status'],$isActive,$userId,$recordId);
+                        } elseif ($hasDriverColumn) {
                             $stmt->bind_param('ssssssssiissiiiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isDriver,$isActive,$userId,$recordId);
                         } else {
                             $stmt->bind_param('ssssssssiissiiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isActive,$userId,$recordId);
@@ -548,12 +590,20 @@ if (!$db) {
                     }
 
                     if (!$errors) {
-                        $insertSql = $hasDriverColumn
+                        $insertSql = $assignmentsEnabled
+                            ? ($hasDriverColumn
+                                ? "INSERT INTO employees (employee_no, name_prefix, first_name, middle_name, last_name, suffix_name, email, photo_path, department_id, employment_status, is_driver, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)"
+                                : "INSERT INTO employees (employee_no, name_prefix, first_name, middle_name, last_name, suffix_name, email, photo_path, department_id, employment_status, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)")
+                            : ($hasDriverColumn
                             ? "INSERT INTO employees (employee_no, name_prefix, first_name, middle_name, last_name, suffix_name, email, photo_path, department_id, office_id, responsibility_code_id, position_title, employment_status, is_unit_head, is_driver, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)"
-                            : "INSERT INTO employees (employee_no, name_prefix, first_name, middle_name, last_name, suffix_name, email, photo_path, department_id, office_id, responsibility_code_id, position_title, employment_status, is_unit_head, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)";
+                            : "INSERT INTO employees (employee_no, name_prefix, first_name, middle_name, last_name, suffix_name, email, photo_path, department_id, office_id, responsibility_code_id, position_title, employment_status, is_unit_head, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)");
                         $stmt=$db->prepare($insertSql);
                         if($stmt){
-                            if ($hasDriverColumn) {
+                            if ($assignmentsEnabled && $hasDriverColumn) {
+                                $stmt->bind_param('sssssssssiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$form['employment_status'],$isDriver,$isActive,$userId);
+                            } elseif ($assignmentsEnabled) {
+                                $stmt->bind_param('sssssssssii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$form['employment_status'],$isActive,$userId);
+                            } elseif ($hasDriverColumn) {
                                 $stmt->bind_param('ssssssssiissiiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isDriver,$isActive,$userId);
                             } else {
                                 $stmt->bind_param('ssssssssiissiii',$form['employee_no'],$form['name_prefix'],$form['first_name'],$form['middle_name'],$form['last_name'],$form['suffix_name'],$form['email'],$form['photo_path'],$officeId,$responsibilityCodeId,$form['position_title'],$form['employment_status'],$isUnitHead,$isActive,$userId);

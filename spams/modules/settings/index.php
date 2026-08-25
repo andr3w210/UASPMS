@@ -118,6 +118,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <a href="<?php echo base_url('modules/settings/assignment_cleanup.php'); ?>" class="btn btn-primary w-100">Open Assignment Cleanup</a>
                             </div>
                         </div>
+
+                        <div class="col-md-4">
+                            <div class="border rounded-3 p-4 h-100">
+                                <div class="d-flex align-items-center gap-3 mb-3">
+                                    <div class="fs-3 text-primary"><i class="bi bi-envelope-exclamation"></i></div>
+                                    <div><div class="text-uppercase small text-muted fw-semibold">Procurement</div><h5 class="mb-0">PO Email Alerts</h5></div>
+                                </div>
+                                <p class="text-muted small mb-4">Configure overdue delivery alerts, recipients, weekly reminder day, and delivered purchase-order summaries.</p>
+                                <a href="<?php echo base_url('modules/settings/purchase_order_notifications.php'); ?>" class="btn btn-primary w-100">Open PO Email Alerts</a>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
