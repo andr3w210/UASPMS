@@ -1519,11 +1519,39 @@ document.addEventListener('DOMContentLoaded', function () {
                     form.classList.add('was-validated');
 
                     var firstInvalid = invalidFields[0];
-                    if (window.jQuery && jQuery(firstInvalid).hasClass('select2-hidden-accessible')) {
-                        jQuery(firstInvalid).select2('open');
-                    } else {
-                        firstInvalid.focus();
+                    var focusFirstInvalid = function () {
+                        if (window.jQuery && jQuery(firstInvalid).hasClass('select2-hidden-accessible')) {
+                            jQuery(firstInvalid).select2('open');
+                        } else {
+                            firstInvalid.focus();
+                        }
+                    };
+
+                    if (form.id === 'receivingForm') {
+                        var feedback = document.getElementById('receiving_form_feedback');
+                        if (feedback) {
+                            feedback.textContent = 'Some fields need a valid value before this receiving can be saved. Check the highlighted field below.';
+                            feedback.classList.remove('d-none');
+                        }
+
+                        var collapsedParent = firstInvalid.closest('.collapse');
+                        if (collapsedParent && !collapsedParent.classList.contains('show')) {
+                            if (window.bootstrap && window.bootstrap.Collapse) {
+                                window.bootstrap.Collapse.getOrCreateInstance(collapsedParent, { toggle: false }).show();
+                            } else {
+                                collapsedParent.classList.add('show');
+                            }
+                            window.setTimeout(function () {
+                                firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                focusFirstInvalid();
+                            }, 200);
+                            return;
+                        }
+
+                        firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
+
+                    focusFirstInvalid();
                     return;
                 }
 
