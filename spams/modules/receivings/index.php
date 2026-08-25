@@ -1232,8 +1232,24 @@ require_once __DIR__ . '/../../includes/topbar.php';
     min-width: 1320px;
 }
 
+.receiving-items-table thead th {
+    height: auto;
+    line-height: 1.25;
+    min-height: 3.5rem;
+    overflow: visible;
+    vertical-align: middle;
+    white-space: normal;
+}
+
+.receiving-accepted-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    line-height: 1.2;
+}
+
 .receiving-detail-panel {
-    overflow-x: auto;
+    overflow-x: hidden;
 }
 
 .receiving-detail-row.is-no-brand-model .receiving-brand-model-group {
@@ -1716,7 +1732,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <th class="text-end" style="width: 90px;">Received</th>
                                         <th class="text-end" style="width: 90px;">Remaining</th>
                                         <th style="width: 120px;">Delivered</th>
-                                        <th style="width: 120px;">Accepted<br><span class="small text-danger">Verify physically</span></th>
+                                        <th style="width: 120px;"><div class="receiving-accepted-heading"><span>Accepted</span><span class="small text-danger">Verify physically</span></div></th>
                                         <th style="width: 120px;">Rejected</th>
                                         <th style="min-width: 140px;">Condition</th>
                                         <th style="min-width: 180px;">Remarks</th>
@@ -1754,19 +1770,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <div class="small text-muted"><?php echo h($item['account_code'] ?: ''); ?><?php echo $item['account_name'] ? ' - ' . h($item['account_name']) : ''; ?><?php echo $uomLabel ? ' | ' . h($uomLabel) : ''; ?></div>
                                                 <div class="mt-2 pt-2 border-top">
                                                     <?php $actualDescription = (string) ($item['actual_item_description'] ?? $item['item_description']); ?>
-                                                    <button type="button" class="btn btn-link btn-sm p-0 receiving-description-toggle" data-item-id="<?php echo $itemId; ?>">Add or edit actual delivered description/specs</button>
-                                                    <div class="receiving-description-fields d-none" data-item-id="<?php echo $itemId; ?>">
-                                                    <label class="form-label small mb-1">Actual delivered description/specs</label>
-                                                    <textarea class="form-control form-control-sm" name="items[<?php echo $itemId; ?>][actual_item_description]" rows="2"><?php echo h($actualDescription); ?></textarea>
-                                                    </div>
                                                     <?php
                                                     $varianceType = (string) ($item['variance_type'] ?? 'none');
                                                     $varianceNote = trim((string) ($item['variance_note'] ?? ''));
-                                                    $varianceExpanded = $varianceType !== 'none' || $varianceNote !== '' || !empty($item['accepted_no_additional_cost']);
+                                                    $descriptionChanged = trim($actualDescription) !== trim((string) $item['item_description']);
+                                                    $notesExpanded = $descriptionChanged || $varianceType !== 'none' || $varianceNote !== '' || !empty($item['accepted_no_additional_cost']);
                                                     ?>
-                                                    <button type="button" class="btn btn-link btn-sm p-0 mt-2 receiving-variance-toggle<?php echo $varianceExpanded ? ' d-none' : ''; ?>" data-item-id="<?php echo $itemId; ?>">Report a variance from the PO description</button>
-                                                    <div class="receiving-variance-fields<?php echo $varianceExpanded ? '' : ' d-none'; ?>" data-item-id="<?php echo $itemId; ?>">
-                                                    <div class="row g-2 mt-1">
+                                                    <button type="button" class="btn btn-link btn-sm p-0 receiving-notes-toggle<?php echo $notesExpanded ? ' d-none' : ''; ?>" data-item-id="<?php echo $itemId; ?>">Add delivery notes or report a variance</button>
+                                                    <div class="receiving-notes-fields<?php echo $notesExpanded ? '' : ' d-none'; ?>" data-item-id="<?php echo $itemId; ?>">
+                                                        <label class="form-label small mb-1">Actual delivered description/specs</label>
+                                                        <textarea class="form-control form-control-sm" name="items[<?php echo $itemId; ?>][actual_item_description]" rows="2"><?php echo h($actualDescription); ?></textarea>
+                                                    <div class="row g-2 mt-2">
                                                         <div class="col-md-5">
                                                             <select class="form-select form-select-sm" name="items[<?php echo $itemId; ?>][variance_type]">
                                                                 <?php
@@ -1801,9 +1815,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td class="text-end"><?php echo h(format_quantity($item['quantity'])); ?></td>
                                             <td class="text-end"><?php echo h(format_quantity($item['quantity_already_received'])); ?></td>
                                             <td class="text-end fw-semibold"><?php echo h(format_quantity($item['remaining_quantity'])); ?></td>
-                                            <td><input type="number" class="form-control form-control-sm receiving-deliver-input" step="1" min="0" max="<?php echo h((string) floor((float) $item['remaining_quantity'])); ?>" name="items[<?php echo $itemId; ?>][deliver_quantity]" value="<?php echo h((string) round((float) $item['deliver_quantity'])); ?>"></td>
-                                            <td><input type="number" class="form-control form-control-sm receiving-accept-input" step="1" min="0" max="<?php echo h((string) floor((float) $item['remaining_quantity'])); ?>" name="items[<?php echo $itemId; ?>][accept_quantity]" value="<?php echo h((string) round((float) $item['accept_quantity'])); ?>"></td>
-                                            <td><input type="number" class="form-control form-control-sm" step="1" min="0" max="<?php echo h((string) floor((float) $item['remaining_quantity'])); ?>" name="items[<?php echo $itemId; ?>][reject_quantity]" value="<?php echo h((string) round((float) $item['reject_quantity'])); ?>"></td>
+                                            <td><input type="number" class="form-control form-control-sm receiving-deliver-input" step="0.01" min="0" max="<?php echo h((string) (float) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][deliver_quantity]" value="<?php echo h((string) (float) $item['deliver_quantity']); ?>"></td>
+                                            <td><input type="number" class="form-control form-control-sm receiving-accept-input" step="0.01" min="0" max="<?php echo h((string) (float) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][accept_quantity]" value="<?php echo h((string) (float) $item['accept_quantity']); ?>"></td>
+                                            <td><input type="number" class="form-control form-control-sm" step="0.01" min="0" max="<?php echo h((string) (float) $item['remaining_quantity']); ?>" name="items[<?php echo $itemId; ?>][reject_quantity]" value="<?php echo h((string) (float) $item['reject_quantity']); ?>"></td>
                                             <td>
                                                 <?php
                                                 $condition = trim((string) $item['item_condition']);
@@ -1871,12 +1885,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                             <div class="col-12 col-lg-2">
                                                                 <button type="button" class="btn btn-outline-primary w-100 receiving-apply-brand-model-btn" data-item-id="<?php echo $itemId; ?>">Apply brand/model</button>
                                                             </div>
-                                                            <div class="col-12 col-lg-3">
+                                                            <div class="col-12 col-lg-4">
                                                                 <label class="form-label">Apply Remarks to All</label>
-                                                                <input type="text" class="form-control receiving-bulk-remarks-input" data-item-id="<?php echo $itemId; ?>" placeholder="Common remarks">
-                                                            </div>
-                                                            <div class="col-12 col-lg-1">
-                                                                <button type="button" class="btn btn-outline-secondary w-100 receiving-apply-remarks-btn" data-item-id="<?php echo $itemId; ?>">Apply</button>
+                                                                <div class="input-group">
+                                                                    <input type="text" class="form-control receiving-bulk-remarks-input" data-item-id="<?php echo $itemId; ?>" placeholder="Common remarks">
+                                                                    <button type="button" class="btn btn-outline-secondary receiving-apply-remarks-btn" data-item-id="<?php echo $itemId; ?>">Apply</button>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                         <div class="receiving-detail-rows" data-item-id="<?php echo $itemId; ?>">
@@ -2387,7 +2401,13 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!container || !status || !acceptInput) return;
         var expected = Math.max(0, Math.round(parseNum(acceptInput.value || 0)));
         var actual = container.querySelectorAll('.receiving-detail-row').length;
-        status.textContent = actual + ' of ' + expected + ' detail row(s)';
+        if (expected === 0) {
+            status.textContent = 'No detail rows needed yet';
+        } else if (actual >= expected) {
+            status.textContent = actual + ' of ' + expected + ' detail row(s) complete';
+        } else {
+            status.textContent = actual + ' of ' + expected + ' detail row(s)';
+        }
     }
 
     function ensureTrackedDetailRows(itemId) {
@@ -2443,20 +2463,12 @@ document.addEventListener('DOMContentLoaded', function () {
         syncBulkModelOptions(itemId);
     });
     document.addEventListener('click', function (event) {
-        var descriptionToggle = event.target.closest('.receiving-description-toggle');
-        if (descriptionToggle) {
-            var descriptionItemId = descriptionToggle.getAttribute('data-item-id');
-            var descriptionFields = document.querySelector('.receiving-description-fields[data-item-id="' + descriptionItemId + '"]');
-            if (descriptionFields) descriptionFields.classList.remove('d-none');
-            descriptionToggle.classList.add('d-none');
-            return;
-        }
-        var varianceToggle = event.target.closest('.receiving-variance-toggle');
-        if (varianceToggle) {
-            var varianceItemId = varianceToggle.getAttribute('data-item-id');
-            var varianceFields = document.querySelector('.receiving-variance-fields[data-item-id="' + varianceItemId + '"]');
-            if (varianceFields) varianceFields.classList.remove('d-none');
-            varianceToggle.classList.add('d-none');
+        var notesToggle = event.target.closest('.receiving-notes-toggle');
+        if (notesToggle) {
+            var notesItemId = notesToggle.getAttribute('data-item-id');
+            var notesFields = document.querySelector('.receiving-notes-fields[data-item-id="' + notesItemId + '"]');
+            if (notesFields) notesFields.classList.remove('d-none');
+            notesToggle.classList.add('d-none');
             return;
         }
         if (event.target.classList.contains('receiving-apply-brand-model-btn')) {
