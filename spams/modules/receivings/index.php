@@ -1176,38 +1176,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
     border: 1px solid var(--bs-border-color);
     border-radius: 0.85rem;
     cursor: pointer;
-    padding: 0.75rem 0.85rem;
-}
-
-.receiving-line-card.active {
-    border-color: rgba(13, 110, 253, 0.45);
-    box-shadow: 0 0 0 0.18rem rgba(13, 110, 253, 0.12);
-}
-
-.receiving-line-card.done {
-    background: rgba(25, 135, 84, 0.05);
-}
-
-.receiving-line-card.needs-details {
-    border-color: rgba(220, 53, 69, 0.28);
-}
-
-.receiving-line-title {
-    font-size: 0.9rem;
-    font-weight: 700;
-    line-height: 1.35;
-}
-
-.receiving-line-meta {
-    color: var(--bs-secondary-color);
-    font-size: 0.76rem;
-}
-
-.receiving-line-card {
-    background: #fff;
-    border: 1px solid var(--bs-border-color);
-    border-radius: 0.85rem;
-    cursor: pointer;
     padding: 0.8rem 0.85rem;
     transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
 }
@@ -1785,13 +1753,23 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <div class="small"><?php echo h(mb_strimwidth(str_replace(["\r", "\n"], ' ', $item['item_description']), 0, 120, '...')); ?></div>
                                                 <div class="small text-muted"><?php echo h($item['account_code'] ?: ''); ?><?php echo $item['account_name'] ? ' - ' . h($item['account_name']) : ''; ?><?php echo $uomLabel ? ' | ' . h($uomLabel) : ''; ?></div>
                                                 <div class="mt-2 pt-2 border-top">
+                                                    <?php $actualDescription = (string) ($item['actual_item_description'] ?? $item['item_description']); ?>
+                                                    <button type="button" class="btn btn-link btn-sm p-0 receiving-description-toggle" data-item-id="<?php echo $itemId; ?>">Add or edit actual delivered description/specs</button>
+                                                    <div class="receiving-description-fields d-none" data-item-id="<?php echo $itemId; ?>">
                                                     <label class="form-label small mb-1">Actual delivered description/specs</label>
-                                                    <textarea class="form-control form-control-sm" name="items[<?php echo $itemId; ?>][actual_item_description]" rows="2"><?php echo h((string) ($item['actual_item_description'] ?? $item['item_description'])); ?></textarea>
+                                                    <textarea class="form-control form-control-sm" name="items[<?php echo $itemId; ?>][actual_item_description]" rows="2"><?php echo h($actualDescription); ?></textarea>
+                                                    </div>
+                                                    <?php
+                                                    $varianceType = (string) ($item['variance_type'] ?? 'none');
+                                                    $varianceNote = trim((string) ($item['variance_note'] ?? ''));
+                                                    $varianceExpanded = $varianceType !== 'none' || $varianceNote !== '' || !empty($item['accepted_no_additional_cost']);
+                                                    ?>
+                                                    <button type="button" class="btn btn-link btn-sm p-0 mt-2 receiving-variance-toggle<?php echo $varianceExpanded ? ' d-none' : ''; ?>" data-item-id="<?php echo $itemId; ?>">Report a variance from the PO description</button>
+                                                    <div class="receiving-variance-fields<?php echo $varianceExpanded ? '' : ' d-none'; ?>" data-item-id="<?php echo $itemId; ?>">
                                                     <div class="row g-2 mt-1">
                                                         <div class="col-md-5">
                                                             <select class="form-select form-select-sm" name="items[<?php echo $itemId; ?>][variance_type]">
                                                                 <?php
-                                                                $varianceType = (string) ($item['variance_type'] ?? 'none');
                                                                 $varianceOptions = [
                                                                     'none' => 'No variance',
                                                                     'higher_specs' => 'Higher/equivalent specs',
@@ -1807,12 +1785,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                             </select>
                                                         </div>
                                                         <div class="col-md-7">
-                                                            <input type="text" class="form-control form-control-sm" name="items[<?php echo $itemId; ?>][variance_note]" value="<?php echo h((string) ($item['variance_note'] ?? '')); ?>" placeholder="Variance / inspection note">
+                                                            <input type="text" class="form-control form-control-sm" name="items[<?php echo $itemId; ?>][variance_note]" value="<?php echo h($varianceNote); ?>" placeholder="Variance / inspection note">
                                                         </div>
                                                     </div>
                                                     <div class="form-check mt-1">
                                                         <input class="form-check-input" type="checkbox" id="no-additional-cost-<?php echo $itemId; ?>" name="items[<?php echo $itemId; ?>][accepted_no_additional_cost]" value="1" <?php echo !empty($item['accepted_no_additional_cost']) ? 'checked' : ''; ?>>
                                                         <label class="form-check-label small" for="no-additional-cost-<?php echo $itemId; ?>">Accepted at no additional cost</label>
+                                                    </div>
                                                     </div>
                                                 </div>
                                             </td>
@@ -1953,7 +1932,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="d-flex justify-content-end" id="receivingSaveSection"><button type="submit" class="btn btn-primary">Save Receiving</button></div>
                     </form>
                 <?php else: ?>
-                    <div class="text-muted">Select a purchase order first to load items for receiving.</div>
+                    <div class="receiving-empty-state text-center">
+                        <i class="bi bi-clipboard2-plus" aria-hidden="true"></i>
+                        <h6>No purchase order selected</h6>
+                        <p>Select a purchase order first to load items for receiving.</p>
+                        <a class="btn btn-outline-primary btn-sm" href="#poSelectorPanel" data-scroll-to-po-selector><i class="bi bi-arrow-up me-1"></i>Choose a purchase order</a>
+                    </div>
                 <?php endif; ?>
             </div>
         </div>
@@ -2002,7 +1986,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </form>
 
                 <div class="table-responsive mobile-table-frame">
-                    <table class="table align-middle">
+                    <table class="table align-middle receiving-records-table">
                         <thead><tr><th data-sort="ref">Reference <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="ris">RIS No. <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="date">Received Date <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="po">PO Number <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="supplier">Supplier <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="dr">DR No. <i class="bi bi-arrow-down-up text-muted small"></i></th><th data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th><th class="text-end" data-sort="amount">Amount <i class="bi bi-arrow-down-up text-muted small"></i></th><th class="text-end">Actions</th></tr></thead>
                         <tbody>
                             <?php if ($receivings): foreach ($receivings as $receiving): ?>
@@ -2017,18 +2001,24 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td class="text-end"><?php echo h(number_format((float) $receiving['total_received_amount'], 2)); ?></td>
                                     <td class="text-end">
                                         <?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?>
-                                            <a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print IAR</a>
-                                            <a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="btn btn-sm btn-outline-secondary me-1" target="_blank">Final IAR by PO</a>
-                                            <a href="<?php echo base_url('modules/receivings/correct_receiving.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-warning me-1">Correct</a>
-                                            <?php if (receiving_can_cancel()): ?>
-                                                
+                                            <div class="dropdown">
+                                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i><span class="visually-hidden">Actions</span></button>
+                                                <ul class="dropdown-menu dropdown-menu-end">
+                                                    <li><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="dropdown-item" target="_blank"><i class="bi bi-printer me-2"></i>Print IAR</a></li>
+                                                    <li><a href="<?php echo base_url('modules/receivings/iar_po.php?po_id=' . (int) $receiving['purchase_order_id']); ?>" class="dropdown-item" target="_blank"><i class="bi bi-file-earmark-text me-2"></i>Final IAR by PO</a></li>
+                                                    <li><a href="<?php echo base_url('modules/receivings/correct_receiving.php?id=' . (int) $receiving['id']); ?>" class="dropdown-item"><i class="bi bi-pencil-square me-2"></i>Correct</a></li>
+                                                    <?php if (receiving_can_cancel()): ?>
+                                                        <li><hr class="dropdown-divider"></li>
+                                                        <li><form method="post" onsubmit="return confirm('Cancel this receiving record?');">
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="cancel_receiving">
                                                     <input type="hidden" name="receiving_id" value="<?php echo (int) $receiving['id']; ?>">
                                                     <input type="hidden" name="cancel_reason" value="Admin cancelled receiving from receiving list">
-                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Cancel Receiving</button>
-                                                </form>
-                                            <?php endif; ?>
+                                                            <button type="submit" class="dropdown-item text-danger"><i class="bi bi-x-circle me-2"></i>Cancel Receiving</button>
+                                                        </form></li>
+                                                    <?php endif; ?>
+                                                </ul>
+                                            </div>
                                         <?php else: ?>
                                             <span class="text-muted small">No items received yet</span>
                                         <?php endif; ?>
@@ -2055,6 +2045,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
 </section>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    document.querySelector('[data-scroll-to-po-selector]')?.addEventListener('click', function (event) {
+        event.preventDefault();
+        document.getElementById('poSelectorPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
     var brands = <?php echo json_encode($brands, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
     var models = <?php echo json_encode($models, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
 
@@ -2449,6 +2443,22 @@ document.addEventListener('DOMContentLoaded', function () {
         syncBulkModelOptions(itemId);
     });
     document.addEventListener('click', function (event) {
+        var descriptionToggle = event.target.closest('.receiving-description-toggle');
+        if (descriptionToggle) {
+            var descriptionItemId = descriptionToggle.getAttribute('data-item-id');
+            var descriptionFields = document.querySelector('.receiving-description-fields[data-item-id="' + descriptionItemId + '"]');
+            if (descriptionFields) descriptionFields.classList.remove('d-none');
+            descriptionToggle.classList.add('d-none');
+            return;
+        }
+        var varianceToggle = event.target.closest('.receiving-variance-toggle');
+        if (varianceToggle) {
+            var varianceItemId = varianceToggle.getAttribute('data-item-id');
+            var varianceFields = document.querySelector('.receiving-variance-fields[data-item-id="' + varianceItemId + '"]');
+            if (varianceFields) varianceFields.classList.remove('d-none');
+            varianceToggle.classList.add('d-none');
+            return;
+        }
         if (event.target.classList.contains('receiving-apply-brand-model-btn')) {
             applyBrandModelToAll(event.target.getAttribute('data-item-id'));
             updateWorkspaceSummary();

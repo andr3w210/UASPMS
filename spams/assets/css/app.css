@@ -6264,6 +6264,12 @@ body.module-master-data .master-data-workspace .master-data-list-card .d-flex.ju
     }
 }
 /* Receiving module — mobile card layout, v2 */
+.module-receivings .receiving-variance-toggle { color:var(--bs-primary); font-size:.78rem; text-decoration:none; }
+.module-receivings .receiving-variance-toggle:hover, .module-receivings .receiving-variance-toggle:focus { text-decoration:underline; }
+.module-receivings .receiving-variance-fields { border-left:2px solid rgba(13,110,253,.22); margin-top:.45rem; padding-left:.65rem; }
+.module-receivings .receiving-description-toggle { color:var(--bs-secondary-color); font-size:.78rem; text-decoration:none; }
+.module-receivings .receiving-description-toggle:hover, .module-receivings .receiving-description-toggle:focus { color:var(--bs-primary); text-decoration:underline; }
+.module-receivings .receiving-description-fields { margin-top:.4rem; }
 .module-receivings .receiving-section { margin-bottom: 1.5rem; }
 .module-receivings .receiving-section-heading { display:flex; gap:.75rem; align-items:flex-start; margin:0 0 .8rem; }
 .module-receivings .receiving-section-heading > i { align-items:center; background:rgba(13,110,253,.1); border-radius:.75rem; color:var(--bs-primary); display:inline-flex; font-size:1.1rem; height:2.35rem; justify-content:center; width:2.35rem; }
@@ -6277,6 +6283,10 @@ body.module-master-data .master-data-workspace .master-data-list-card .d-flex.ju
 .module-receivings .receiving-details-btn { position:relative; }
 .module-receivings .receiving-details-btn.needs-details::after { background:var(--bs-danger); border:2px solid #fff; border-radius:50%; content:""; height:.65rem; position:absolute; right:-.25rem; top:-.28rem; width:.65rem; animation:receiving-details-pulse 1.5s infinite; }
 .module-receivings .receiving-step-locked { cursor:not-allowed; opacity:.5; }
+.module-receivings .receiving-empty-state { background:var(--bs-secondary-bg); border:1px solid var(--bs-border-color); border-radius:1rem; margin:1rem 0; padding:2.25rem 1.25rem; }
+.module-receivings .receiving-empty-state > i { color:var(--bs-secondary-color); display:block; font-size:2.5rem; margin-bottom:.65rem; }
+.module-receivings .receiving-empty-state h6 { font-weight:700; margin-bottom:.35rem; }
+.module-receivings .receiving-empty-state p { color:var(--bs-secondary-color); font-size:.9rem; margin-bottom:1rem; }
 @keyframes receiving-details-pulse { 0%,100% { box-shadow:0 0 0 0 rgba(220,53,69,.5); } 60% { box-shadow:0 0 0 .45rem rgba(220,53,69,0); } }
 
 @media (max-width: 767.98px) {
@@ -6309,4 +6319,19 @@ body.module-master-data .master-data-workspace .master-data-list-card .d-flex.ju
   .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(12) .btn { width:100%; }
   .module-receivings .receiving-detail-wrapper > td { display:block; padding:0 !important; }
   .module-receivings .receiving-detail-wrapper .receiving-detail-box { border-radius:.85rem; margin:-.45rem 0 1rem; }
+  .module-receivings .receiving-records-table, .module-receivings .receiving-records-table tbody, .module-receivings .receiving-records-table tr, .module-receivings .receiving-records-table td { display:block; width:100%; }
+  .module-receivings .receiving-records-table thead { display:none; }
+  .module-receivings .receiving-records-table tbody > tr { background:var(--bs-body-bg); border:1px solid var(--bs-border-color); border-radius:.9rem; margin:0 0 .8rem; overflow:hidden; padding:.65rem .85rem; }
+  .module-receivings .receiving-records-table tbody > tr > td { border:0; display:flex; justify-content:space-between; gap:1rem; padding:.35rem 0; text-align:right !important; }
+  .module-receivings .receiving-records-table tbody > tr > td::before { color:var(--bs-secondary-color); content:attr(data-label); font-size:.7rem; font-weight:700; text-align:left; text-transform:uppercase; }
+  .module-receivings .receiving-records-table tbody > tr > td:nth-child(1)::before { content:"Reference"; }
+  .module-receivings .receiving-records-table tbody > tr > td:nth-child(2)::before { content:"RIS No."; }
+  .module-receivings .receiving-records-table tbody > tr > td:nth-child(3)::before { content:"Received date"; }
+  .module-receivings .receiving-records-table tbody > tr > td:nth-child(4)::before { content:"PO number"; }
+  .module-receivings .receiving-records-table tbody > tr > td:nth-child(5)::before { content:"Supplier"; }
+  .module-receivings .receiving-records-table tbody > tr > td:nth-child(6)::before { content:"DR no."; }
+  .module-receivings .receiving-records-table tbody > tr > td:nth-child(7)::before { content:"Status"; }
+  .module-receivings .receiving-records-table tbody > tr > td:nth-child(8)::before { content:"Amount"; }
+  .module-receivings .receiving-records-table tbody > tr > td:nth-child(9)::before { content:"Actions"; }
+  .module-receivings .receiving-records-table tbody > tr > td:last-child .dropdown { margin-left:auto; }
 }
