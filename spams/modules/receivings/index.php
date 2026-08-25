@@ -1437,8 +1437,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <p class="text-muted mb-0">Capture deliveries, inspect accepted quantities, and prepare IAR output from a receiving workspace that stays usable on smaller screens.</p>
                     </div>
                 </div>
-                <?php if ($errors): ?><div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
-                <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?>
+                <?php if ($errors): ?><div class="alert alert-danger receiving-alert receiving-alert-danger"><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i><div><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div></div><?php endif; ?>
+                <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?> receiving-alert"><i class="bi bi-info-circle-fill" aria-hidden="true"></i><div><?php echo h($flash['message']); ?></div></div><?php endif; ?>
 
                                 <?php if (!$selectedPurchaseOrderId): ?>
                                 <!-- PO SELECTOR — shown when no PO is selected yet -->
@@ -1587,9 +1587,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 <a href="<?php echo base_url('modules/receivings/index.php'); ?>" class="btn btn-sm btn-outline-secondary">← Change PO</a>
                                             </div>
                                         </div>
-                                        <div class="alert alert-info mb-4">
-                                            <div class="fw-semibold">Workflow cue</div>
+                                        <div class="alert alert-info mb-4 receiving-alert">
+                                            <i class="bi bi-info-circle-fill" aria-hidden="true"></i><div><div class="fw-semibold">Workflow cue</div>
                                             <div class="small">After saving this receiving, print the IAR. If equipment or semi-expendable units were accepted, continue to Distribution for PAR or ICS posting. If supplies were accepted, review RIS and stock cards.</div>
+                                            </div>
                                         </div>
                                 <?php endif; ?>
 
@@ -1662,7 +1663,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <?php echo '<input type="hidden" name="_csrf" value="' . h(csrf_token()) . '">'; ?>
                             <input type="hidden" name="confirm_physical_receipt_checked" id="confirm_physical_receipt_checked" value="<?php echo $form['confirm_physical_receipt'] === '1' ? '1' : '0'; ?>">
                             <input type="hidden" name="purchase_order_id" value="<?php echo (int) $selectedPurchaseOrder['id']; ?>">
-                        <div class="row g-3 mb-4 workspace-filter-panel receiving-header-panel" id="receivingHeaderSection">
+                        <section class="receiving-section" id="receivingHeaderSection">
+                        <div class="receiving-section-heading"><i class="bi bi-clipboard2-check"></i><div><h6>Receiving Header</h6><p>Record the delivery date, receipt references, inspector, and notes.</p></div></div>
+                        <div class="row g-3 mb-4 workspace-filter-panel receiving-header-panel">
                             <div class="col-12">
                                 <div id="receiving_form_feedback" class="alert alert-danger small py-2 px-3 mb-0 d-none" role="alert" aria-live="polite"></div>
                             </div>
@@ -1673,7 +1676,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="col-md-3"><label for="invoice_no" class="form-label">Invoice No.</label><input type="text" class="form-control" id="invoice_no" name="invoice_no" value="<?php echo h($form['invoice_no']); ?>"></div>
                             <div class="col-md-3"><label for="inspected_by" class="form-label">Inspected By</label><input type="text" class="form-control" id="inspected_by" name="inspected_by" value="<?php echo h($form['inspected_by']); ?>" placeholder="Inspection officer / committee"></div>
                             <div class="col-12"><label for="remarks" class="form-label">Receiving Remarks</label><textarea class="form-control" id="remarks" name="remarks" rows="2"><?php echo h($form['remarks']); ?></textarea></div>
-                        </div>
+                        </div></section>
 
                         <div class="receiving-summary-strip mb-3 workspace-form-section">
                             <div class="row g-3 align-items-center">
@@ -1683,8 +1686,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             </div>
                         </div>
 
-                        <div class="receiving-workspace mb-4" id="receivingItemsSection">
+                        <section class="receiving-section" id="receivingItemsSection">
+                        <div class="receiving-section-heading"><i class="bi bi-box-seam"></i><div><h6>Items Workspace</h6><p>Encode delivered, accepted, and rejected quantities one line at a time.</p></div></div>
+                        <div class="receiving-workspace mb-4">
                             <aside class="receiving-line-list">
+                                <label class="form-label small fw-semibold d-md-none" for="receivingLinePicker">Jump to line</label>
+                                <select class="form-select d-md-none mb-2" id="receivingLinePicker">
+                                    <?php foreach ($receivingItems as $pickerIndex => $pickerItem): ?><option value="<?php echo (int) $pickerItem['id']; ?>" <?php echo $pickerIndex === 0 ? 'selected' : ''; ?>>Line <?php echo (int) $pickerItem['line_no']; ?> — <?php echo h(mb_strimwidth((string) (!empty($pickerItem['catalog_item_name']) ? $pickerItem['catalog_item_name'] : ($pickerItem['classification_name'] ?: 'Unclassified Item')), 0, 42, '...')); ?></option><?php endforeach; ?>
+                                </select>
                                 <div class="mb-2"><input type="search" id="receivingLineSearch" class="form-control form-control-sm" placeholder="Search line, stock no, description..."></div>
                                 <div class="d-flex gap-2 mb-2">
                                     <input type="number" id="receivingJumpLine" class="form-control form-control-sm" placeholder="Line #" min="1">
@@ -1714,13 +1723,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="workspace-header-copy">
                                 <div class="small text-muted">Use the compact grid below for fast encoding. Expand details only for semi-expendable and equipment lines.</div>
                             </div>
-                            <div class="workspace-actions workspace-toolbar-cluster">
+                            <div class="workspace-actions receiving-filter-group">
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn active" data-filter="all">All</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="supply">Supplies</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="semi_expendable">Semi</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="equipment">Equipment</button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="remaining">Remaining Only</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary receiving-filter-btn" data-filter="remaining">Remaining</button>
+                            </div>
+                            <div class="workspace-actions receiving-line-pager">
                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="receivingPrevLineBtn">Previous</button>
+                                <span class="small text-muted text-nowrap" id="receivingLineCounter">Line 1 of <?php echo count($receivingItems); ?></span>
                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="receivingNextLineBtn">Next</button>
                             </div>
                         </div>
@@ -1830,7 +1842,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td><input type="text" class="form-control form-control-sm" name="items[<?php echo $itemId; ?>][remarks]" value="<?php echo h($item['remarks']); ?>"></td>
                                             <td>
                                                 <?php if ($trackIdentity): ?>
-                                                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#receiving-details-<?php echo $itemId; ?>" aria-expanded="false">Details</button>
+                                                    <button type="button" class="btn btn-sm btn-outline-primary receiving-details-btn" data-bs-toggle="collapse" data-bs-target="#receiving-details-<?php echo $itemId; ?>" aria-expanded="false"><i class="bi bi-upc-scan me-1"></i>Details</button>
                                                 <?php else: ?>
                                                     <span class="small text-success">Stock</span>
                                                 <?php endif; ?>
@@ -1923,7 +1935,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <?php endforeach; ?>
                                 </tbody>
                             </table>
-                        </div>
+                        </div></section>
                             </div>
                         </div>
 
@@ -2594,6 +2606,12 @@ document.addEventListener('DOMContentLoaded', function () {
             wrapper.classList.toggle('show', active);
             wrapper.classList.toggle('d-none', !active);
         });
+        var picker = document.getElementById('receivingLinePicker');
+        if (picker) picker.value = String(lineId);
+        var cards = visibleLineCards();
+        var activeCard = document.querySelector('.receiving-line-card.active');
+        var counter = document.getElementById('receivingLineCounter');
+        if (counter) counter.textContent = 'Line ' + Math.max(1, cards.indexOf(activeCard) + 1) + ' of ' + cards.length;
     }
 
     function visibleLineCards() {
@@ -2639,6 +2657,26 @@ document.addEventListener('DOMContentLoaded', function () {
             var row = document.querySelector('.receiving-line-row[data-line-id="' + lineId + '"]');
             var deliver = parseNum((row && row.querySelector('.receiving-deliver-input') ? row.querySelector('.receiving-deliver-input').value : 0));
             card.classList.toggle('done', deliver > 0);
+            var detailContainer = document.querySelector('.receiving-detail-rows[data-item-id="' + lineId + '"]');
+            var expected = Math.max(0, Math.round(parseNum((row && row.querySelector('.receiving-accept-input') ? row.querySelector('.receiving-accept-input').value : 0))));
+            var needsDetails = detailContainer && expected > detailContainer.querySelectorAll('.receiving-detail-row').length;
+            card.classList.toggle('needs-details', !!needsDetails);
+            var detailsButton = row ? row.querySelector('.receiving-details-btn') : null;
+            if (detailsButton) detailsButton.classList.toggle('needs-details', !!needsDetails);
+        });
+        updateReceivingSteps(ready);
+    }
+
+    function updateReceivingSteps(linesTouched) {
+        var headerDone = !!((document.getElementById('received_date') || {}).value || '');
+        var itemsDone = linesTouched > 0;
+        Array.from(document.querySelectorAll('.receiving-step[data-scroll-target]')).forEach(function (step, index) {
+            var done = index === 0 || (index === 1 && headerDone) || (index === 2 && itemsDone);
+            step.classList.toggle('done', done && !step.classList.contains('active'));
+            if (index === 3) {
+                step.classList.toggle('receiving-step-locked', !itemsDone);
+                step.setAttribute('aria-disabled', itemsDone ? 'false' : 'true');
+            }
         });
     }
 
@@ -2926,6 +2964,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     document.querySelectorAll('.receiving-step[data-scroll-target]').forEach(function (stepBtn) {
         stepBtn.addEventListener('click', function () {
+            if (stepBtn.getAttribute('aria-disabled') === 'true') return;
             var target = document.getElementById(stepBtn.getAttribute('data-scroll-target') || '');
             document.querySelectorAll('.receiving-step[data-scroll-target]').forEach(function (btn) {
                 btn.classList.remove('active');
@@ -2946,6 +2985,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 row.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         });
+    });
+
+    document.getElementById('receivingLinePicker')?.addEventListener('change', function () {
+        setActiveLine(this.value);
+        document.querySelector('.receiving-line-row[data-line-id="' + this.value + '"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
     document.getElementById('receivingPrevLineBtn')?.addEventListener('click', function () {

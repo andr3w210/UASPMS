@@ -6263,3 +6263,50 @@ body.module-master-data .master-data-workspace .master-data-list-card .d-flex.ju
         max-height: 300px !important;
     }
 }
+/* Receiving module — mobile card layout, v2 */
+.module-receivings .receiving-section { margin-bottom: 1.5rem; }
+.module-receivings .receiving-section-heading { display:flex; gap:.75rem; align-items:flex-start; margin:0 0 .8rem; }
+.module-receivings .receiving-section-heading > i { align-items:center; background:rgba(13,110,253,.1); border-radius:.75rem; color:var(--bs-primary); display:inline-flex; font-size:1.1rem; height:2.35rem; justify-content:center; width:2.35rem; }
+.module-receivings .receiving-section-heading h6 { margin:0 0 .1rem; font-weight:700; }
+.module-receivings .receiving-section-heading p { color:var(--bs-secondary-color); font-size:.83rem; margin:0; }
+.module-receivings .receiving-alert { align-items:flex-start; display:flex; gap:.7rem; }
+.module-receivings .receiving-alert > i { font-size:1.1rem; margin-top:.1rem; }
+.module-receivings .receiving-alert-danger { border-width:2px; }
+.module-receivings .receiving-filter-group, .module-receivings .receiving-line-pager { display:flex; flex-wrap:wrap; gap:.35rem; }
+.module-receivings .receiving-line-pager { align-items:center; margin-left:auto; }
+.module-receivings .receiving-details-btn { position:relative; }
+.module-receivings .receiving-details-btn.needs-details::after { background:var(--bs-danger); border:2px solid #fff; border-radius:50%; content:""; height:.65rem; position:absolute; right:-.25rem; top:-.28rem; width:.65rem; animation:receiving-details-pulse 1.5s infinite; }
+.module-receivings .receiving-step-locked { cursor:not-allowed; opacity:.5; }
+@keyframes receiving-details-pulse { 0%,100% { box-shadow:0 0 0 0 rgba(220,53,69,.5); } 60% { box-shadow:0 0 0 .45rem rgba(220,53,69,0); } }
+
+@media (max-width: 767.98px) {
+  .module-receivings .receiving-stepper { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .module-receivings .receiving-step { padding:.65rem .75rem; }
+  .module-receivings .receiving-step-copy { display:none; }
+  .module-receivings .receiving-workspace { display:block; }
+  .module-receivings .receiving-line-list { margin-bottom:.8rem; padding:.7rem; }
+  .module-receivings .receiving-line-list > .mb-2, .module-receivings .receiving-line-list > .d-flex, .module-receivings .receiving-line-scroll { display:none !important; }
+  .module-receivings .workspace-header { align-items:stretch; flex-direction:column; }
+  .module-receivings .receiving-filter-group { overflow-x:auto; flex-wrap:nowrap; padding-bottom:.25rem; }
+  .module-receivings .receiving-filter-group .btn { flex:0 0 auto; }
+  .module-receivings .receiving-line-pager { justify-content:space-between; margin-left:0; }
+  .module-receivings .receiving-items-table, .module-receivings .receiving-items-table tbody, .module-receivings .receiving-items-table tr, .module-receivings .receiving-items-table td { display:block; min-width:0 !important; width:100%; }
+  .module-receivings .receiving-items-table thead { display:none; }
+  .module-receivings .receiving-items-table .receiving-line-row { background:var(--bs-body-bg); border:1px solid var(--bs-border-color); border-radius:1rem; margin:0 0 1rem; overflow:hidden; padding:.85rem; }
+  .module-receivings .receiving-items-table .receiving-line-row > td { border:0; padding:.35rem 0; text-align:left !important; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(1), .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(2), .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(3) { display:block; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(4), .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(5), .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(6) { display:inline-flex; flex-direction:column; width:32%; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(4)::before { content:"Ordered"; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(5)::before { content:"Received"; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(6)::before { content:"Remaining"; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(7), .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(8), .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(9) { display:inline-block; vertical-align:top; width:32%; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(7)::before { content:"Delivered"; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(8)::before { content:"Accepted"; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(9)::before { content:"Rejected"; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(4)::before, .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(5)::before, .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(6)::before, .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(7)::before, .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(8)::before, .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(9)::before { color:var(--bs-secondary-color); display:block; font-size:.7rem; font-weight:700; margin-bottom:.18rem; text-transform:uppercase; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(10)::before { content:"Condition"; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(11)::before { content:"Remarks"; }
+  .module-receivings .receiving-items-table .receiving-line-row > td:nth-child(12) .btn { width:100%; }
+  .module-receivings .receiving-detail-wrapper > td { display:block; padding:0 !important; }
+  .module-receivings .receiving-detail-wrapper .receiving-detail-box { border-radius:.85rem; margin:-.45rem 0 1rem; }
+}
