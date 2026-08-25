@@ -410,7 +410,10 @@ if (!$db) {
         $form['invoice_no'] = old($_POST, 'invoice_no');
         $form['inspected_by'] = old($_POST, 'inspected_by');
         $form['remarks'] = old($_POST, 'remarks');
-        $form['confirm_physical_receipt'] = !empty($_POST['confirm_physical_receipt']) ? '1' : '0';
+        // This value is placed near the start of the form because large PO
+        // submissions can otherwise exceed PHP's input-variable limit before
+        // reaching the visual confirmation checkbox at the end of the form.
+        $form['confirm_physical_receipt'] = (($_POST['confirm_physical_receipt_checked'] ?? '') === '1' || ($_POST['confirm_physical_receipt'] ?? '') === '1') ? '1' : '0';
         $postedItems = $_POST['items'] ?? [];
         $validatedItems = [];
         $remainingAfterSave = [];
@@ -1657,6 +1660,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <form method="post" id="receivingForm" data-semi-hv-min="<?php echo h(number_format($semiHighValueMin, 2, '.', '')); ?>" data-submit-loading="1">
                             <input type="hidden" name="action" value="save">
                             <?php echo '<input type="hidden" name="_csrf" value="' . h(csrf_token()) . '">'; ?>
+                            <input type="hidden" name="confirm_physical_receipt_checked" id="confirm_physical_receipt_checked" value="<?php echo $form['confirm_physical_receipt'] === '1' ? '1' : '0'; ?>">
                             <input type="hidden" name="purchase_order_id" value="<?php echo (int) $selectedPurchaseOrder['id']; ?>">
                         <div class="row g-3 mb-4 workspace-filter-panel receiving-header-panel" id="receivingHeaderSection">
                             <div class="col-12">
@@ -2774,6 +2778,21 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     var receivingForm = document.getElementById('receivingForm');
+    var physicalConfirmationCheckbox = document.getElementById('confirm_physical_receipt');
+    var physicalConfirmationValue = document.getElementById('confirm_physical_receipt_checked');
+    function syncPhysicalConfirmationValue() {
+        if (physicalConfirmationCheckbox && physicalConfirmationValue) {
+            physicalConfirmationValue.value = physicalConfirmationCheckbox.checked ? '1' : '0';
+        }
+    }
+    if (physicalConfirmationCheckbox) {
+        physicalConfirmationCheckbox.addEventListener('change', syncPhysicalConfirmationValue);
+    }
+    if (receivingForm) {
+        receivingForm.addEventListener('submit', syncPhysicalConfirmationValue);
+    }
+    syncPhysicalConfirmationValue();
+
     if (receivingForm && window.SPAMS && typeof window.SPAMS.setupRequiredSummaryValidation === 'function') {
         receivingRequiredValidation = window.SPAMS.setupRequiredSummaryValidation({
             form: receivingForm,

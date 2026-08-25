@@ -1070,7 +1070,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                     <div class="report-filter-card">
                         <h6 class="report-filter-title">Record Return</h6>
-                        
+                        <form method="post" class="row g-3" data-submit-loading="1">
                             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                             <input type="hidden" name="source_type" id="returnSourceType" value="<?php echo h($form['source_type']); ?>">
                             <input type="hidden" name="legacy_asset_id" id="returnLegacyAssetId" value="<?php echo h($form['legacy_asset_id']); ?>">

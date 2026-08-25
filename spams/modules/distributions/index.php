@@ -1868,6 +1868,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <label for="consolidated_extra_rows" class="form-label small mb-1">Extra rows</label>
                         <input type="number" class="form-control form-control-sm" id="consolidated_extra_rows" name="extra_rows" value="0" min="0" max="35" step="1" style="width:90px;">
                     </div>
+                    <div>
+                        <label for="consolidated_print_format" class="form-label small mb-1">Print format</label>
+                        <select class="form-select form-select-sm" id="consolidated_print_format" name="print_format" onchange="document.getElementById('consolidated_copies_wrap').classList.toggle('d-none', this.value !== 'short');" style="width:100px;">
+                            <option value="long">Long</option>
+                            <option value="short">Short</option>
+                        </select>
+                    </div>
+                    <div id="consolidated_copies_wrap" class="d-none">
+                        <label for="consolidated_copies" class="form-label small mb-1">Copies on sheet</label>
+                        <input type="number" class="form-control form-control-sm" id="consolidated_copies" name="copies" value="1" min="1" max="20" step="1" style="width:100px;">
+                    </div>
                     <button type="submit" class="btn btn-sm btn-primary">
                         Print Selected Acceptance
                     </button>
@@ -1953,6 +1964,32 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    var distributionForm = document.getElementById('distributionForm');
+
+    // The unit preview can contain hundreds of rows. Remarks are only used for
+    // selected units, so omit every unselected row from the POST. This keeps a
+    // bulk distribution safely below PHP's max_input_vars limit.
+    function limitBulkDistributionFields() {
+        if (!distributionForm) return;
+        distributionForm.querySelectorAll('.unit-row').forEach(function (unitRow) {
+            var unitCheckbox = unitRow.querySelector('.unit-checkbox');
+            var unitRemarks = unitRow.querySelector('input[name^="unit_remarks["]');
+            var unitPhoto = unitRow.querySelector('input[type="file"][name^="unit_photo["]');
+            if (unitRemarks) {
+                unitRemarks.disabled = !unitCheckbox || !unitCheckbox.checked;
+            }
+            // Empty file controls have no business value and can cause a large
+            // bulk form to exceed PHP's request-field limit.
+            if (unitPhoto) {
+                unitPhoto.disabled = !unitPhoto.files || unitPhoto.files.length === 0;
+            }
+        });
+    }
+
+    if (distributionForm) {
+        distributionForm.addEventListener('submit', limitBulkDistributionFields);
+    }
+
     var officeSelect = document.getElementById('office_id');
     var employeeSelect = document.getElementById('employee_id');
     var editOfficeSelect = document.getElementById('edit_office_id');

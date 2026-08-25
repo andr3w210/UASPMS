@@ -31,6 +31,7 @@ function responsibility_codes_has_reference(mysqli $db, int $recordId): bool
 
     if (has_foreign_key_reference($db, 'responsibility_codes', $recordId, [
         "SELECT 1 FROM employees WHERE responsibility_code_id = ? LIMIT 1",
+        "SELECT 1 FROM employee_assignments WHERE responsibility_code_id = ? LIMIT 1",
     ])) {
             return true;
     }

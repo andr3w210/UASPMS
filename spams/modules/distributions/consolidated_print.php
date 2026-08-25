@@ -7,6 +7,9 @@ $db = db();
 $errors = [];
 $printDate = trim((string) ($_GET['print_date'] ?? date('Y-m-d')));
 $extraRows = max(0, min(35, (int) ($_GET['extra_rows'] ?? 0)));
+$printFormat = ($_GET['print_format'] ?? 'long') === 'short' ? 'short' : 'long';
+$isShort = $printFormat === 'short';
+$copyCount = max(1, min(20, (int) ($_GET['copies'] ?? 1)));
 $documentType = strtolower(trim((string) ($_GET['document_type'] ?? '')));
 if (!in_array($documentType, ['ics', 'par'], true)) {
     $documentType = '';
@@ -382,7 +385,7 @@ $identityLines = static function (array $item): array {
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title><?php echo $selectionMode ? 'Consolidated Acceptance' : 'Consolidated ' . h($docLabel); ?></title>
     <style>
-        @page { size: 8.5in 13in; margin: 0.5in; }
+        @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0.5in 0.07in 0.07in' : '0.5in'; ?>; }
         body { margin:0; color:#000; font-family:"Times New Roman", serif; font-size:12px; }
         table { font-size:12px; }
         .screen { font-family:Arial, sans-serif; max-width:1200px; margin:18px auto; padding:0 16px; }
@@ -418,9 +421,21 @@ $identityLines = static function (array $item): array {
         .meta-box .underlined-value { min-width:68%; }
         .text-end { text-align:right; }
         .small { font-size:10px; }
+        .short-copies { width:7.5in; margin:0 auto; }
+        .short-copies .form-wrap { height:6.125in; overflow:hidden; box-sizing:border-box; break-inside:avoid; page-break-inside:avoid; }
+        .short-copies .form-wrap:nth-child(2n) { padding-top:.25in; border-top:1px dashed #bbb; }
+        .short-copies .title { font-size:14px; margin:10px 0 12px; }
+        .short-copies .items tbody td { height:14px; }
+        .short-copies .sign .sign-box { height:58px; padding-top:5px; font-size:9px; }
+        .short-copies .sign .sign-name { font-size:12px; margin-top:13px; }
+        .short-copies .sign .meta-box { height:38px; padding-top:3px; }
+        .short-copies .sign .meta-value { margin-top:6px; font-size:10px; }
         @media print {
             .no-print,.no-print *,.screen { display:none !important; }
             thead { display:table-header-group; }
+            .short-copies .form-wrap:nth-child(2n) { border-top:0; }
+            .short-copies .form-wrap:nth-child(2n+1) { break-before:page; page-break-before:always; }
+            .short-copies .form-wrap:first-child { break-before:auto; page-break-before:auto; }
         }
     
             <?php echo print_page_number_css(); ?></style>
@@ -482,6 +497,17 @@ $identityLines = static function (array $item): array {
                 <input type="hidden" name="print_date" value="<?php echo h($printDate); ?>">
                 <div class="toolbar">
                     <div class="field">
+                        <label for="print_format">Print format</label>
+                        <select id="print_format" name="print_format" onchange="document.getElementById('selection_copies_field').style.display = this.value === 'short' ? 'flex' : 'none';">
+                            <option value="long" <?php echo !$isShort ? 'selected' : ''; ?>>Long</option>
+                            <option value="short" <?php echo $isShort ? 'selected' : ''; ?>>Short</option>
+                        </select>
+                    </div>
+                    <div class="field" id="selection_copies_field" style="display:<?php echo $isShort ? 'flex' : 'none'; ?>;">
+                        <label for="selection_copies">Copies on sheet</label>
+                        <input type="number" id="selection_copies" name="copies" value="<?php echo (int) $copyCount; ?>" min="1" max="20" step="1" style="width:110px;">
+                    </div>
+                    <div class="field">
                         <label for="extra_rows">Extra blank rows</label>
                         <input type="number" id="extra_rows" name="extra_rows" value="<?php echo (int) $extraRows; ?>" min="0" max="35" step="1" style="width:110px;">
                     </div>
@@ -534,18 +560,32 @@ $identityLines = static function (array $item): array {
     <div class="toolbar no-print">
         <a href="<?php echo h(base_url('modules/distributions/consolidated_print.php?po_id=' . (int) ($header['purchase_order_id'] ?? 0) . '&document_type=' . urlencode($docType) . '&office_id=' . (int) ($header['office_id'] ?? 0) . '&employee_id=' . (int) ($header['employee_id'] ?? 0) . '&print_date=' . urlencode($printDate))); ?>">Back</a>
         <button type="button" onclick="window.print()">Print</button>
+        <a href="<?php echo h(base_url('modules/distributions/consolidated_print.php?' . http_build_query(['detail_ids' => $detailIds, 'distribution_ids' => $distributionIds, 'print_date' => $printDate, 'extra_rows' => $extraRows, 'print_format' => 'short', 'copies' => $copyCount]))); ?>" class="<?php echo $isShort ? 'btn-primary' : ''; ?>">Short</a>
+        <a href="<?php echo h(base_url('modules/distributions/consolidated_print.php?' . http_build_query(['detail_ids' => $detailIds, 'distribution_ids' => $distributionIds, 'print_date' => $printDate, 'extra_rows' => $extraRows, 'print_format' => 'long']))); ?>" class="<?php echo !$isShort ? 'btn-primary' : ''; ?>">Long</a>
         <form method="get" class="toolbar" style="margin:0;">
             <?php foreach ($detailIds as $detailId): ?><input type="hidden" name="detail_ids[]" value="<?php echo (int) $detailId; ?>"><?php endforeach; ?>
             <?php foreach ($distributionIds as $distributionId): ?><input type="hidden" name="distribution_ids[]" value="<?php echo (int) $distributionId; ?>"><?php endforeach; ?>
             <input type="hidden" name="print_date" value="<?php echo h($printDate); ?>">
+            <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
             <div class="field">
                 <label for="extra_rows_print">Add blank rows</label>
                 <input type="number" id="extra_rows_print" name="extra_rows" value="<?php echo (int) $extraRows; ?>" min="0" max="35" step="1" style="width:100px;">
             </div>
             <button type="submit">Apply Rows</button>
         </form>
+        <?php if ($isShort): ?>
+        <form method="get" class="toolbar" style="margin:0;">
+            <?php foreach ($detailIds as $detailId): ?><input type="hidden" name="detail_ids[]" value="<?php echo (int) $detailId; ?>"><?php endforeach; ?>
+            <?php foreach ($distributionIds as $distributionId): ?><input type="hidden" name="distribution_ids[]" value="<?php echo (int) $distributionId; ?>"><?php endforeach; ?>
+            <input type="hidden" name="print_date" value="<?php echo h($printDate); ?>"><input type="hidden" name="extra_rows" value="<?php echo (int) $extraRows; ?>"><input type="hidden" name="print_format" value="short">
+            <div class="field"><label for="copies">Copies on sheet</label><input type="number" id="copies" name="copies" value="<?php echo (int) $copyCount; ?>" min="1" max="20" step="1" style="width:100px;"></div>
+            <button type="submit">Apply Copies</button>
+        </form>
+        <?php endif; ?>
     </div>
     <div class="notice no-print">Consolidated acceptance print only. Original receiving and distribution records remain unchanged. Source documents: <?php echo h($documentNoDisplay); ?></div>
+    <?php if ($isShort): ?><div class="short-copies"><?php endif; ?>
+    <?php for ($copyIndex = 0; $copyIndex < ($isShort ? $copyCount : 1); $copyIndex++): ?>
     <div class="form-wrap">
         <div class="appendix"><?php echo $isPar ? 'Appendix 71' : 'Annex A.3'; ?></div>
         <div class="title"><?php echo h($docTitle); ?></div>
@@ -601,7 +641,9 @@ $identityLines = static function (array $item): array {
             <tr><td class="meta-box"><div class="meta-value"><span class="underlined-value"><?php echo h(format_date($printDate, 'm/d/Y')); ?></span></div><div class="meta-caption">Date</div></td><td class="meta-box"><div class="meta-value"><span class="underlined-value"><?php echo h(format_date($printDate, 'm/d/Y')); ?></span></div><div class="meta-caption">Date</div></td></tr>
         </table>
     </div>
+    <?php endfor; ?>
+    <?php if ($isShort): ?></div><?php endif; ?>
 <?php endif; ?>
 
-<?php render_print_page_number(); ?></body>
+<?php if (!$isShort) { render_print_page_number(); } ?></body>
 </html>
