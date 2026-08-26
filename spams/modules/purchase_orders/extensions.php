@@ -8,6 +8,9 @@ $flash = get_flash();
 $errors = [];
 $extensions = [];
 $eligiblePurchaseOrders = [];
+$attentionPurchaseOrders = [];
+$overduePurchaseOrderCount = 0;
+$dueSoonPurchaseOrderCount = 0;
 
 $form = [
     'system_reference' => '',
@@ -24,9 +27,20 @@ if (!$db) {
 } else {
     $form['system_reference'] = preview_module_code($db, 'po_delivery_extensions');
 
+    $poSupportsDocumentTotal = schema_has_column($db, 'purchase_orders', 'document_total_amount');
+    $documentTotalSelect = $poSupportsDocumentTotal
+        ? "po.document_total_amount, CASE WHEN po.document_total_amount IS NOT NULL AND po.document_total_amount > 0 THEN po.document_total_amount ELSE po.total_amount END AS display_total_amount,"
+        : "NULL AS document_total_amount, po.total_amount AS display_total_amount,";
     $eligibleSql = "
         SELECT po.id, po.system_reference, po.po_number, po.po_date, po.expected_delivery_date,
-               po.status, s.supplier_name
+               po.status, po.total_amount, {$documentTotalSelect} s.supplier_name,
+               DATEDIFF(CURDATE(), po.expected_delivery_date) AS days_overdue,
+               COALESCE((
+                   SELECT COUNT(*)
+                   FROM purchase_order_delivery_extensions ext
+                   WHERE ext.purchase_order_id = po.id
+                     AND ext.status = 'posted'
+               ), 0) AS extension_count
         FROM purchase_orders po
         INNER JOIN suppliers s ON s.id = po.supplier_id
         WHERE po.status NOT IN ('completed', 'cancelled')
@@ -36,6 +50,18 @@ if (!$db) {
     $eligibleResult = $db->query($eligibleSql);
     if ($eligibleResult) {
         $eligiblePurchaseOrders = $eligibleResult->fetch_all(MYSQLI_ASSOC);
+        foreach ($eligiblePurchaseOrders as $po) {
+            $expectedDate = (string) ($po['expected_delivery_date'] ?? '');
+            if ($expectedDate < date('Y-m-d')) {
+                $po['attention_bucket'] = 'overdue';
+                $attentionPurchaseOrders[] = $po;
+                $overduePurchaseOrderCount++;
+            } elseif ($expectedDate <= date('Y-m-d', strtotime('+7 days'))) {
+                $po['attention_bucket'] = 'due_soon';
+                $attentionPurchaseOrders[] = $po;
+                $dueSoonPurchaseOrderCount++;
+            }
+        }
     }
 
     $requestedPoId = (int) ($_GET['po_id'] ?? 0);
@@ -188,6 +214,69 @@ require_once __DIR__ . '/../../includes/topbar.php';
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
+                <div class="workspace-header mb-3">
+                    <div class="workspace-header-copy">
+                        <p class="page-kicker mb-1">Delivery monitoring</p>
+                        <h5 class="page-title mb-1">POs needing extension</h5>
+                        <p class="text-muted mb-0">Choose an overdue or due-soon purchase order to load it into the extension form.</p>
+                    </div>
+                    <div class="workspace-actions workspace-toolbar-cluster">
+                        <span class="badge text-bg-light" id="poExtendVisibleCount"><?php echo count($attentionPurchaseOrders); ?> shown</span>
+                    </div>
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-sm-7 col-lg-8">
+                        <input type="search" id="poExtendSearchInput" class="form-control form-control-sm" placeholder="Search PO number or supplier...">
+                    </div>
+                    <div class="col-sm-5 col-lg-4 d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-primary po-extend-filter" data-bucket="overdue">Overdue <span class="badge text-bg-light"><?php echo $overduePurchaseOrderCount; ?></span></button>
+                        <button type="button" class="btn btn-sm btn-primary po-extend-filter" data-bucket="due_soon">Due soon <span class="badge text-bg-light"><?php echo $dueSoonPurchaseOrderCount; ?></span></button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary po-extend-partial-filter">Partial only</button>
+                    </div>
+                </div>
+                <div id="poExtendListScroll" style="max-height:560px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
+                    <?php foreach ($attentionPurchaseOrders as $po): ?>
+                        <?php
+                        $isOverdue = ($po['attention_bucket'] ?? '') === 'overdue';
+                        $daysOverdue = (int) ($po['days_overdue'] ?? 0);
+                        $daysUntilDue = abs($daysOverdue);
+                        ?>
+                        <div class="iar-list-row po-extension-card<?php echo $form['purchase_order_id'] === (string) ($po['id'] ?? '') ? ' active border-primary bg-primary-subtle' : ''; ?>"
+                             data-po-id="<?php echo (int) $po['id']; ?>"
+                             data-current-end="<?php echo h((string) ($po['expected_delivery_date'] ?? '')); ?>"
+                             data-bucket="<?php echo h((string) $po['attention_bucket']); ?>"
+                             data-status="<?php echo h(strtolower((string) ($po['status'] ?? ''))); ?>"
+                             data-search="<?php echo h(strtolower((string) ($po['po_number'] ?? '') . ' ' . (string) ($po['supplier_name'] ?? ''))); ?>"
+                             style="padding:10px 12px;border-radius:10px;cursor:pointer;border:1px solid var(--bs-border-color);">
+                            <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                                <span class="fw-semibold"><?php echo h((string) ($po['po_number'] ?? '')); ?></span>
+                                <?php if ($isOverdue): ?>
+                                    <span class="badge text-bg-danger"><?php echo h((string) $daysOverdue); ?> day<?php echo $daysOverdue === 1 ? '' : 's'; ?> overdue</span>
+                                <?php else: ?>
+                                    <span class="badge text-bg-warning">Due in <?php echo h((string) $daysUntilDue); ?> day<?php echo $daysUntilDue === 1 ? '' : 's'; ?></span>
+                                <?php endif; ?>
+                                <?php if ((int) ($po['extension_count'] ?? 0) > 0): ?>
+                                    <span class="badge text-bg-secondary">Extended <?php echo h((string) $po['extension_count']); ?>x</span>
+                                <?php endif; ?>
+                                <?php if (strtolower((string) ($po['status'] ?? '')) === 'partial'): ?>
+                                    <span class="badge text-bg-info">Partial PO</span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="small text-muted"><?php echo h((string) ($po['supplier_name'] ?? '')); ?></div>
+                            <div class="small text-muted mt-1">Expected delivery: <?php echo h(date('M d, Y', strtotime((string) $po['expected_delivery_date']))); ?> · <?php echo h(format_currency((float) ($po['display_total_amount'] ?? $po['total_amount'] ?? 0))); ?></div>
+                        </div>
+                    <?php endforeach; ?>
+                    <?php if (!$attentionPurchaseOrders): ?>
+                        <div class="text-center text-muted py-4">No purchase orders are overdue or due soon.</div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12" id="deliveryExtensionFormCard">
+        <div class="card">
+            <div class="card-body p-4">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                     <div>
                         <h5 class="card-title mb-0">Extend Delivery End Date</h5>
@@ -332,6 +421,68 @@ document.addEventListener('DOMContentLoaded', function () {
         var diffMs = newDate.getTime() - oldDate.getTime();
         var diffDays = Math.round(diffMs / 86400000);
         requestedDaysInput.value = diffDays > 0 ? String(diffDays) : '';
+    }
+
+    var poExtendList = document.getElementById('poExtendListScroll');
+    var poExtendSearch = document.getElementById('poExtendSearchInput');
+    var poExtendVisibleCount = document.getElementById('poExtendVisibleCount');
+    var poExtendFilters = { overdue: true, due_soon: true };
+    var poExtendPartialOnly = false;
+
+    function filterExtensionCards() {
+        if (!poExtendList) return;
+        var query = (poExtendSearch ? poExtendSearch.value : '').trim().toLowerCase();
+        var visible = 0;
+        poExtendList.querySelectorAll('.po-extension-card').forEach(function (card) {
+            var matchesBucket = poExtendFilters[card.getAttribute('data-bucket')] !== false;
+            var matchesSearch = !query || (card.getAttribute('data-search') || '').indexOf(query) !== -1;
+            var matchesPartial = !poExtendPartialOnly || card.getAttribute('data-status') === 'partial';
+            var show = matchesBucket && matchesSearch && matchesPartial;
+            card.classList.toggle('d-none', !show);
+            if (show) visible++;
+        });
+        if (poExtendVisibleCount) poExtendVisibleCount.textContent = visible + ' shown';
+    }
+
+    if (poExtendSearch) {
+        poExtendSearch.addEventListener('input', filterExtensionCards);
+    }
+    document.querySelectorAll('.po-extend-filter').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var bucket = button.getAttribute('data-bucket');
+            poExtendFilters[bucket] = !poExtendFilters[bucket];
+            button.classList.toggle('btn-primary', poExtendFilters[bucket]);
+            button.classList.toggle('btn-outline-secondary', !poExtendFilters[bucket]);
+            filterExtensionCards();
+        });
+    });
+    var poExtendPartialFilter = document.querySelector('.po-extend-partial-filter');
+    if (poExtendPartialFilter) {
+        poExtendPartialFilter.addEventListener('click', function () {
+            poExtendPartialOnly = !poExtendPartialOnly;
+            poExtendPartialFilter.classList.toggle('btn-primary', poExtendPartialOnly);
+            poExtendPartialFilter.classList.toggle('btn-outline-secondary', !poExtendPartialOnly);
+            filterExtensionCards();
+        });
+    }
+    if (poExtendList) {
+        poExtendList.addEventListener('click', function (event) {
+            var card = event.target.closest('.po-extension-card');
+            if (!card || !purchaseOrderSelect) return;
+            purchaseOrderSelect.value = card.getAttribute('data-po-id') || '';
+            purchaseOrderSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            if (window.jQuery) {
+                window.jQuery(purchaseOrderSelect).trigger('change.select2').trigger('select2:select');
+            }
+            poExtendList.querySelectorAll('.po-extension-card').forEach(function (item) {
+                item.classList.remove('active', 'border-primary', 'bg-primary-subtle');
+            });
+            card.classList.add('active', 'border-primary', 'bg-primary-subtle');
+            var formCard = document.getElementById('deliveryExtensionFormCard');
+            if (formCard && window.matchMedia('(max-width: 767.98px)').matches) {
+                formCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        });
     }
 
     if (purchaseOrderSelect) {
