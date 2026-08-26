@@ -964,7 +964,7 @@ if (!$db) {
                 }
 
                 if ($hasDistributableUnits) {
-                    redirect('modules/distributions/index.php?receiving_id=' . $receivingId);
+                    redirect('modules/distributions/create.php?receiving_id=' . $receivingId);
                 }
 
                 redirect('modules/receivings/index.php');

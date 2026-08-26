@@ -3,8 +3,13 @@ require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/employee_assignments.php';
 require_role('Administrator', 'Supply Officer', 'Property Officer');
 
+$distributionPage = $distributionPage ?? 'list';
+if (!in_array($distributionPage, ['list', 'create', 'edit'], true)) {
+    $distributionPage = 'list';
+}
+
 // Page metadata and UI state
-$page_title = 'Distribution';
+$page_title = $distributionPage === 'create' ? 'New Distribution' : ($distributionPage === 'edit' ? 'Edit Distribution' : 'Posted Distributions');
 $errors = [];
 $flash = get_flash();
 
@@ -1235,17 +1240,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $db->commit();
                 set_flash('success', strtoupper($form['document_type']) . ' distribution posted successfully.');
-                // Redirect to the canonical document (ICS or PAR) with a created flag
-                if ($form['document_type'] === 'par') {
-                    $redirectUrl = 'modules/distributions/par.php?id=' . $distributionId . '&created=1';
-                } else {
-                    // ICS (include semi_type when present)
-                    $redirectUrl = 'modules/distributions/ics.php?id=' . $distributionId . '&created=1';
-                    if (!empty($postSemi)) {
-                        $redirectUrl .= '&semi_type=' . urlencode($postSemi);
-                    }
-                }
-                redirect($redirectUrl);
+                redirect('modules/distributions/index.php?document_type=' . urlencode($form['document_type']));
             } catch (Throwable $e) {
                 $db->rollback();
                 foreach ($savedDistributionPhotoPaths ?? [] as $savedPath) {
@@ -1410,6 +1405,7 @@ require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 <section class="row g-4 page-section">
+    <?php if ($distributionPage === 'create'): ?>
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
@@ -1423,6 +1419,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <div class="alert alert-info mb-3">
                                     <div class="fw-semibold">Workflow cue</div>
                                     <div class="small">Start from completed receiving records, choose the right accountability document, assign the accountable office and employee, then print PAR/ICS and QR tags after posting.</div>
+                                </div>
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-3" aria-label="Distribution workflow steps">
+                                    <span class="badge text-bg-primary rounded-pill">1</span><span class="small fw-semibold me-2">Document</span>
+                                    <span class="badge text-bg-primary rounded-pill">2</span><span class="small fw-semibold me-2">Source IAR</span>
+                                    <span class="badge text-bg-primary rounded-pill">3</span><span class="small fw-semibold me-2">Units &amp; accountability</span>
+                                    <span class="badge text-bg-primary rounded-pill">4</span><span class="small fw-semibold">Review &amp; post</span>
                                 </div>
                                 <form method="post" id="distributionForm">
                                 <!-- SPA: Step 1 + Split panel editor -->
@@ -1640,7 +1642,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
             </div>
         </div>
     </div>
+    <?php endif; ?>
 
+    <?php if ($distributionPage !== 'create'): ?>
     <div class="col-12">
         <div class="card">
             <div class="card-body p-4">
@@ -1650,6 +1654,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <p class="text-muted mb-0">Review posted accountability documents and correct the header details when the assigned office, employee, or notes were entered incorrectly.</p>
                     </div>
                     <div class="workspace-actions">
+                        <?php if ($distributionPage === 'list'): ?>
+                            <a href="<?php echo base_url('modules/distributions/create.php?document_type=' . urlencode((string) $distributionType) . '&semi_type=' . urlencode((string) $distributionSemiType)); ?>" class="btn btn-primary">New Distribution</a>
+                        <?php endif; ?>
                         <a href="<?php echo h(base_url('modules/distributions/index.php?' . http_build_query(array_merge($_GET, ['export' => 'csv'])))); ?>" class="btn btn-sm btn-outline-success">Export CSV</a>
                         <a href="<?php echo base_url('modules/distributions/par_office.php'); ?>" class="btn btn-sm btn-outline-primary" target="_blank">PAR by Office</a>
                         <a href="<?php echo base_url('modules/distributions/ics_office.php'); ?>" class="btn btn-sm btn-outline-success" target="_blank">ICS by Office</a>
@@ -1832,6 +1839,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </div>
                 <?php endif; ?>
 
+                <?php if ($distributionPage === 'list'): ?>
                 <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
                     <span class="small text-muted fw-semibold">Quick filters:</span>
                     <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType)); ?>" class="btn btn-sm <?php echo empty($filterDistType) ? 'btn-primary' : 'btn-outline-secondary'; ?>">All Posted</a>
@@ -1937,15 +1945,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td><?php echo $distribution['employee_no'] ? h(employee_display_name($distribution)) . ' - ' . h($distribution['employee_no']) : '<span class="text-muted">Not specified</span>'; ?></td>
                                         <td><?php echo operational_status_badge('posted_transaction', (string) ($distribution['status'] ?? 'posted')); ?></td>
                                         <td class="text-end">
-                                            <a href="<?php echo base_url('modules/distributions/view.php?id=' . (int) $distribution['id']); ?>" class="btn btn-sm btn-outline-dark me-1">View</a>
-                                            <a href="<?php echo base_url('modules/distributions/index.php?document_type=' . urlencode((string) $distributionType) . '&edit_id=' . (int) $distribution['id'] . '#distribution-edit-panel'); ?>" class="btn btn-sm btn-outline-secondary me-1">Edit</a>
-                                            <?php if (($distribution['document_type'] ?? '') === 'par'): ?>
-                                                <a href="<?php echo base_url('modules/distributions/par.php?id=' . (int)$distribution['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print PAR</a>
-                                            <?php else: ?>
-                                                <a href="<?php echo base_url('modules/distributions/ics.php?id=' . (int)$distribution['id']); ?>" class="btn btn-sm btn-outline-primary me-1" target="_blank">Print ICS</a>
-                                            <?php endif; ?>
-                                            <a href="<?php echo base_url('modules/property/tags.php?distribution_id=' . (int)$distribution['id']); ?>" class="btn btn-outline-secondary btn-sm me-1" target="_blank">QR Tags</a>
-                                            <!-- "View / Print" removed: Print PAR/ICS and QR Tags are sufficient -->
+                                            <div class="dropdown">
+                                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Actions</button>
+                                                <ul class="dropdown-menu dropdown-menu-end">
+                                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/view.php?id=' . (int) $distribution['id']); ?>">View</a></li>
+                                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/edit.php?id=' . (int) $distribution['id']); ?>">Edit</a></li>
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <?php if (($distribution['document_type'] ?? '') === 'par'): ?>
+                                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/par.php?id=' . (int)$distribution['id']); ?>" target="_blank">Print PAR</a></li>
+                                                    <?php else: ?>
+                                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/ics.php?id=' . (int) $distribution['id']); ?>" target="_blank">Print ICS</a></li>
+                                                    <?php endif; ?>
+                                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/property/tags.php?distribution_id=' . (int) $distribution['id']); ?>" target="_blank">QR Tags</a></li>
+                                                </ul>
+                                            </div>
                                         </td>
                                         <td class="text-end"><?php echo h(number_format((float) $distribution['total_amount'], 2)); ?></td>
                                     </tr>
@@ -1957,9 +1970,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </table>
                 </div>
                 </form>
+                <?php endif; ?>
             </div>
         </div>
     </div>
+    <?php endif; ?>
 </section>
 
 <script>

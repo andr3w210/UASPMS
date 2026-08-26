@@ -157,6 +157,17 @@ $menuGroups = [
         ],
     ],
     [
+        'id' => 'dtr-menu',
+        'label' => 'OJT / DTR',
+        'icon' => 'bi bi-clock-history',
+        'roles' => ['Administrator', 'Time Keeper'],
+        'items' => [
+            ['label' => 'DTR Logs', 'path' => 'modules/dtr/index.php', 'needle' => '/dtr/', 'icon' => 'bi bi-clock-history', 'roles' => ['Administrator', 'Time Keeper']],
+            ['label' => 'OJT Trainees', 'path' => 'modules/dtr/trainees.php', 'needle' => '/dtr/trainees', 'icon' => 'bi bi-mortarboard', 'roles' => ['Administrator', 'Time Keeper']],
+            ['label' => 'DTR Schedule', 'path' => 'modules/dtr/settings.php', 'needle' => '/dtr/settings', 'icon' => 'bi bi-clock', 'roles' => ['Administrator', 'Time Keeper']],
+        ],
+    ],
+    [
         'id' => 'administration-menu',
         'label' => 'Administration',
         'icon' => 'bi bi-sliders',

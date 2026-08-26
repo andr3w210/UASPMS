@@ -41,7 +41,7 @@ $stmt = $db->prepare(
            rid.brand, rid.model, rid.serial_no,
            poi.item_description,
            ri.unit_cost, r.received_date, COALESCE(NULLIF(r.ris_no, ''), r.system_reference) AS iar_ref,
-           c.useful_life_years,
+           c.useful_life_years, c.classification_name, c.classification_family,
            ac.account_name,
            d.document_no AS par_no, d.distribution_date,
            o.office_name, e.first_name, e.last_name, e.position_title,
@@ -84,6 +84,7 @@ $cards = [];
 foreach ($rows as $r) {
     $groupKey = implode('|', [
         property_card_single_normalize_value($r['item_description'] ?? ''),
+        property_card_single_normalize_value($r['classification_name'] ?? ''),
         property_card_single_normalize_value($r['brand'] ?? ''),
         property_card_single_normalize_value($r['model'] ?? ''),
         property_card_single_normalize_value($r['unit_cost'] ?? 0),
@@ -101,6 +102,8 @@ foreach ($rows as $r) {
             'model' => $r['model'] ?? '',
             'serial_no' => '',
             'item_description' => $r['item_description'] ?? '',
+            'classification_name' => $r['classification_name'] ?? '',
+            'classification_family' => $r['classification_family'] ?? '',
             'unit_cost' => $r['unit_cost'] ?? 0,
             'received_date' => $r['received_date'] ?? null,
             'iar_ref' => $r['iar_ref'] ?? '',
@@ -295,6 +298,10 @@ unset($card);
                     trim((string) ($card['serial_no'] ?? '')),
                 ]);
                 $description = implode(' | ', $descriptionParts);
+                $classificationLabel = trim((string) (($card['classification_name'] ?? '') ?: ($card['classification_family'] ?? '')));
+                if ($classificationLabel !== '') {
+                    $description = $classificationLabel . ' - ' . $description;
+                }
                 $targetRows = 16;
                 $blankRows = max(0, $targetRows - count($card['ledger']));
             ?>

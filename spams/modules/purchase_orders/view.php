@@ -241,7 +241,7 @@ $poWorkflowTone = 'warning';
 if (($purchaseOrder['status'] ?? '') === 'completed') {
     $poWorkflowStep = $hasEquipment ? 'Review Property Cards And Distribution' : 'Review RIS And Stock Cards';
     $poWorkflowNote = 'Receiving is complete. Continue with cards, tags, distribution, and official reports.';
-    $poWorkflowHref = $hasEquipment ? base_url('modules/distributions/index.php') : base_url('modules/receivings/ris.php?po_id=' . (int) $purchaseOrder['id']);
+    $poWorkflowHref = $hasEquipment ? base_url('modules/distributions/create.php') : base_url('modules/receivings/ris.php?po_id=' . (int) $purchaseOrder['id']);
     $poWorkflowTone = 'success';
 } elseif (($purchaseOrder['status'] ?? '') === 'cancelled') {
     $poWorkflowStep = 'No Next Action';

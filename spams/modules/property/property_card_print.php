@@ -27,6 +27,8 @@ $purchaseOrders = [];
 $offices = [];
 $years = [];
 $cards = [];
+$fundNumberLabels = [];
+$hasScopingFilter = $purchaseOrderId > 0 || $officeId > 0 || $year > 0;
 
 if ($db) {
     ensure_legacy_assets_fund_column($db);
@@ -184,6 +186,16 @@ if ($db) {
         $offices = $officeRes->fetch_all(MYSQLI_ASSOC);
     }
 
+    $fundRes = $db->query("SELECT fund_code, fund_source, fund_name FROM funds ORDER BY fund_name ASC");
+    if ($fundRes) {
+        while ($fundRow = $fundRes->fetch_assoc()) {
+            $fundNo = fund_number_from_source((string) ($fundRow['fund_code'] ?? ''), (string) ($fundRow['fund_source'] ?? ''));
+            if ($fundNo !== '' && !isset($fundNumberLabels[$fundNo])) {
+                $fundNumberLabels[$fundNo] = (string) ($fundRow['fund_name'] ?? '');
+            }
+        }
+    }
+
     $yearRes = $db->query(
         "SELECT report_year
          FROM (
@@ -204,7 +216,7 @@ if ($db) {
         }
     }
 
-    if ($source !== 'legacy') {
+    if ($hasScopingFilter && $source !== 'legacy') {
         $sql = "SELECT
                     si.id AS card_key,
                     'system' AS source_type,
@@ -349,7 +361,7 @@ if ($db) {
         }
     }
 
-    if ($source !== 'system' && $purchaseOrderId === 0) {
+    if ($hasScopingFilter && $source !== 'system' && $purchaseOrderId === 0) {
         $legacySql = "SELECT
                         la.id AS card_key,
                         'legacy' AS source_type,
@@ -477,6 +489,8 @@ if ($db) {
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Property Card Print</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="<?php echo h(base_url('assets/css/app.css')); ?>" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
     <style>
         @page { size: landscape; margin: 0.35in; }
         body { color: #000; }
@@ -592,31 +606,26 @@ if ($db) {
 <body>
 <div class="container mt-3 print-wrap">
     <div class="no-print mb-3">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-            <div>
-                <h4 class="mb-0">Property Card Print</h4>
-                <div class="text-muted small">Print property cards by PO, office, or source.</div>
-            </div>
-            <div class="d-flex gap-2">
-                <a href="<?php echo base_url('modules/property/index.php'); ?>" class="btn btn-outline-secondary">Back to Property Register</a>
-                <?php if ($cards): ?>
-                    <a href="<?php echo h(base_url('modules/property/property_card_print.php?' . http_build_query(array_filter([
-                        'purchase_order_id' => $purchaseOrderId ?: null,
-                        'office_id' => $officeId ?: null,
-                        'source' => $source !== 'all' ? $source : null,
-                        'item_type' => $itemType !== 'all' ? $itemType : null,
-                        'year' => $year ?: null,
-                        'fund_number' => $fundNumber !== '' ? $fundNumber : null,
-                        'print' => 1,
-                    ])))); ?>" class="btn btn-primary">Print Current Result</a>
-                <?php endif; ?>
-            </div>
-        </div>
+        <div class="card">
+            <div class="card-body p-4">
+                <div class="workspace-header mb-3">
+                    <div class="workspace-header-copy">
+                        <p class="page-kicker mb-1">Property reports</p>
+                        <h4 class="page-title mb-1">Property Card Print</h4>
+                        <p class="text-muted small mb-0">Choose a purchase order, office, or year to generate property cards.</p>
+                    </div>
+                    <div class="workspace-actions">
+                        <a href="<?php echo base_url('modules/property/index.php'); ?>" class="btn btn-outline-secondary">Back to Property Register</a>
+                        <?php if ($hasScopingFilter && $cards): ?>
+                            <button type="button" class="btn btn-primary" id="printCurrentResult">Print Current Result</button>
+                        <?php endif; ?>
+                    </div>
+                </div>
 
         <form method="get" class="row g-3 align-items-end">
             <div class="col-md-4">
                 <label class="form-label">Purchase Order</label>
-                <select name="purchase_order_id" class="form-select">
+                <select name="purchase_order_id" class="form-select" data-placeholder="All Purchase Orders">
                     <option value="">All Purchase Orders</option>
                     <?php foreach ($purchaseOrders as $po): ?>
                         <option value="<?php echo (int) $po['id']; ?>" <?php echo $purchaseOrderId === (int) $po['id'] ? 'selected' : ''; ?>>
@@ -628,7 +637,7 @@ if ($db) {
             </div>
             <div class="col-md-3">
                 <label class="form-label">Office</label>
-                <select name="office_id" class="form-select">
+                <select name="office_id" class="form-select" data-placeholder="All Offices">
                     <option value="">All Offices</option>
                     <?php foreach ($offices as $office): ?>
                         <option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>>
@@ -657,10 +666,9 @@ if ($db) {
                 <label class="form-label">Fund No.</label>
                 <select name="fund_number" class="form-select">
                     <option value="">All</option>
-                    <option value="01" <?php echo $fundNumber === '01' ? 'selected' : ''; ?>>01</option>
-                    <option value="05" <?php echo $fundNumber === '05' ? 'selected' : ''; ?>>05</option>
-                    <option value="06" <?php echo $fundNumber === '06' ? 'selected' : ''; ?>>06</option>
-                    <option value="07" <?php echo $fundNumber === '07' ? 'selected' : ''; ?>>07</option>
+                    <?php foreach (['01', '05', '06', '07'] as $fundOption): ?>
+                        <option value="<?php echo h($fundOption); ?>" <?php echo $fundNumber === $fundOption ? 'selected' : ''; ?>><?php echo h($fundOption . ' — ' . ($fundNumberLabels[$fundOption] ?? ('Fund ' . $fundOption))); ?></option>
+                    <?php endforeach; ?>
                 </select>
             </div>
             <div class="col-md-1">
@@ -679,21 +687,31 @@ if ($db) {
                 <a href="<?php echo base_url('modules/property/property_card_print.php'); ?>" class="btn btn-outline-secondary">Clear</a>
             </div>
         </form>
-
-        <div class="small text-muted mt-3"><?php echo count($cards); ?> card(s) found.</div>
+                <?php if ($hasScopingFilter && $cards): ?>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                        <span class="badge text-bg-light"><?php echo count($cards); ?> card(s) match this filter</span>
+                        <button type="button" class="btn btn-sm btn-link p-0" id="selectAllCards">Select all</button>
+                        <button type="button" class="btn btn-sm btn-link p-0" id="selectNoCards">Select none</button>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
     </div>
 
-    <?php if (!$cards): ?>
+    <?php if (!$hasScopingFilter): ?>
+        <div class="text-center text-muted border rounded-3 bg-light-subtle py-5 px-3">
+            <i class="bi bi-clipboard2-plus d-block fs-1 mb-2"></i>
+            <h5 class="mb-1">Choose a report scope</h5>
+            <p class="mb-0">Choose a purchase order, office, or year to generate property cards.</p>
+        </div>
+    <?php elseif (!$cards): ?>
         <div class="alert alert-info">No property cards found for the current filter.</div>
     <?php endif; ?>
 
     <?php foreach ($cards as $card): ?>
         <?php $meta = property_card_meta($card); ?>
         <?php
-            $assetName = trim((string) ($card['classification_name'] ?: $card['classification_family']));
-            if ($assetName === '') {
-                $assetName = trim((string) ($card['item_description'] ?? ''));
-            }
+            $classificationLabel = trim((string) ($card['classification_name'] ?: $card['classification_family']));
             $descriptionParts = array_filter([
                 trim((string) ($card['item_description'] ?? '')),
                 trim((string) ($card['brand'] ?? '')),
@@ -701,10 +719,16 @@ if ($db) {
                 trim((string) ($card['serial_no'] ?? '')),
             ]);
             $description = implode(' | ', $descriptionParts);
+            if ($classificationLabel !== '') {
+                $description = $classificationLabel . ' - ' . $description;
+            }
             $targetRows = 16;
             $blankRows = max(0, $targetRows - count($card['ledger']));
         ?>
-        <div class="coa-card coa-card-page mb-4">
+        <div class="coa-card coa-card-page mb-4" data-card-key="<?php echo h((string) ($card['card_key'] ?? '')); ?>">
+            <div class="no-print position-absolute top-0 start-0 p-2 bg-white border rounded-end">
+                <label class="form-check-label small"><input class="form-check-input property-card-select" type="checkbox" name="card_keys[]" value="<?php echo h((string) ($card['card_key'] ?? '')); ?>"> Select card</label>
+            </div>
             <div class="p-3 p-lg-4 coa-sheet">
                 <div class="coa-appendix"><?php echo h($meta['appendix']); ?></div>
                 <div class="coa-title"><?php echo h($meta['title']); ?></div>
@@ -801,7 +825,31 @@ if ($db) {
         </div>
     <?php endforeach; ?>
 </div>
-<?php if ($autoPrint && $cards): ?>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (window.jQuery && window.jQuery.fn.select2) {
+        window.jQuery('select[name="purchase_order_id"], select[name="office_id"]').each(function () {
+            window.jQuery(this).select2({ width: '100%', placeholder: this.getAttribute('data-placeholder'), allowClear: true });
+        });
+    }
+
+    var cards = Array.prototype.slice.call(document.querySelectorAll('.coa-card'));
+    var selectAll = document.getElementById('selectAllCards');
+    var selectNone = document.getElementById('selectNoCards');
+    var printButton = document.getElementById('printCurrentResult');
+    if (selectAll) selectAll.addEventListener('click', function () { cards.forEach(function (card) { card.querySelector('.property-card-select').checked = true; }); });
+    if (selectNone) selectNone.addEventListener('click', function () { cards.forEach(function (card) { card.querySelector('.property-card-select').checked = false; }); });
+    if (printButton) printButton.addEventListener('click', function () {
+        var selected = cards.filter(function (card) { return card.querySelector('.property-card-select').checked; });
+        cards.forEach(function (card) { card.style.display = selected.length && selected.indexOf(card) === -1 ? 'none' : ''; });
+        window.print();
+        window.setTimeout(function () { cards.forEach(function (card) { card.style.display = ''; }); }, 500);
+    });
+});
+</script>
+<?php if ($autoPrint && $hasScopingFilter && $cards): ?>
 <script>window.addEventListener('load', function(){ window.print(); });</script>
 <?php endif; ?>
 
