@@ -772,6 +772,29 @@ a {
     max-width: 32rem;
 }
 
+/* Asset details: make recorded remarks easy to locate. */
+.asset-remarks-highlight {
+    background: #fff8db;
+    border: 1px solid #f0c54d;
+    border-left: 4px solid #d89b00;
+    border-radius: 0.5rem;
+    color: #4d3a00;
+    padding: 0.75rem 0.9rem;
+}
+
+.asset-remarks-label {
+    color: #725300;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.asset-remarks-content {
+    margin-top: 0.25rem;
+    white-space: pre-wrap;
+}
+
 .asset-registry-cell-primary {
     white-space: nowrap;
 }

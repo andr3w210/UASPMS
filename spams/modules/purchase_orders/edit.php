@@ -276,20 +276,11 @@ if (!$db) {
             }
 
             $validatedItems = [];
-            $existingPartialClassificationUpdates = [];
             $hasNewItemsForReceiving = false;
             $totalAmount = 0.0;
             $lineNo = 0;
 
             foreach (($postedRows ?: []) as $row) {
-                // Partial entries keep their existing line details, except their classification may be corrected.
-                if ($existingIsPartial && !empty($row['is_existing'])) {
-                    $existingPartialClassificationUpdates[] = [
-                        'id' => (int) ($row['id'] ?? 0),
-                        'classification_id' => (int) ($row['classification_id'] ?? 0),
-                    ];
-                    continue;
-                }
                 $description = trim((string) ($row['item_description'] ?? ''));
                 $itemId = (int) ($row['id'] ?? 0);
                 $itemType = trim((string) ($row['item_type'] ?? 'supply'));
@@ -588,23 +579,9 @@ if (!$db) {
                         }
 
                         $keptItemIds = [];
-                        $lineNoOffset = 0;
-                        if ($existingIsPartial) {
-                            $maxLineStmt = $db->prepare('SELECT COALESCE(MAX(line_no), 0) FROM purchase_order_items WHERE purchase_order_id = ?');
-                            if ($maxLineStmt) {
-                                $maxLineStmt->bind_param('i', $id);
-                                $maxLineStmt->execute();
-                                $maxLineResult = $maxLineStmt->get_result();
-                                if ($maxLineResult) {
-                                    $lineNoOffset = (int) $maxLineResult->fetch_row()[0];
-                                }
-                                $maxLineStmt->close();
-                            }
-                        }
-
                         foreach ($validatedItems as $index => $item) {
-                            $ln = $existingIsPartial ? ($lineNoOffset + $index + 1) : ($index + 1);
-                            if (!$existingIsPartial && $item['id'] <= 0 && isset($existingItemIdsByPosition[$index])) {
+                            $ln = $index + 1;
+                            if ($item['id'] <= 0 && isset($existingItemIdsByPosition[$index])) {
                                 $item['id'] = $existingItemIdsByPosition[$index];
                             }
                             if ($item['id'] > 0 && isset($existingItemIds[$item['id']])) {
@@ -728,32 +705,6 @@ if (!$db) {
                             }
                         }
                     } // end if ($validatedItems)
-
-                    if ($existingIsPartial && $existingPartialClassificationUpdates) {
-                        $updateClassificationStmt = $db->prepare('
-                            UPDATE purchase_order_items
-                            SET classification_id = NULLIF(?, 0)
-                            WHERE id = ? AND purchase_order_id = ?
-                        ');
-                        if (!$updateClassificationStmt) {
-                            throw new RuntimeException('Unable to prepare PO item classification update.');
-                        }
-                        foreach ($existingPartialClassificationUpdates as $classificationUpdate) {
-                            if ($classificationUpdate['id'] <= 0) {
-                                continue;
-                            }
-                            $updateClassificationStmt->bind_param(
-                                'iii',
-                                $classificationUpdate['classification_id'],
-                                $classificationUpdate['id'],
-                                $id
-                            );
-                            if (!$updateClassificationStmt->execute()) {
-                                throw new RuntimeException('Unable to update PO item classification: ' . $updateClassificationStmt->error);
-                            }
-                        }
-                        $updateClassificationStmt->close();
-                    }
 
                     $recalculatedStatus = recalculate_purchase_order_status($db, $id);
                     $statusStmt = $db->prepare('UPDATE purchase_orders SET status = ? WHERE id = ?');
@@ -1162,7 +1113,9 @@ document.addEventListener('DOMContentLoaded', function () {
     var semiHvMin = <?php echo json_encode((float) (($activeThreshold['semi_hv_min'] ?? 5000.01))); ?>;
 
     var poLinesFromPhp = <?php echo json_encode(array_values($itemRows), JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?> || [];
-    var isPartialMode = <?php echo !empty($existingPo['is_partial_entry']) ? 'true' : 'false'; ?>;
+    // Existing source-PO lines are editable. The server still prevents deleting
+    // any line that has already been used by a receiving record.
+    var isPartialMode = false;
     <?php
     // If the PO was loaded and $form populated server-side, update the page title
     if (!empty($form['system_reference'])) {
@@ -1869,6 +1822,23 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
         baseSaveCurrentLine();
+    };
+
+    // Existing source PO lines may be corrected, but remain non-removable.
+    // This preserves the PO's source-line history and avoids changing the
+    // relationship of any line that may later be used for receiving.
+    deleteLine = function(idx) {
+        if (poLines[idx] && poLines[idx].is_existing) {
+            showFormSummary('Existing source PO lines cannot be removed. You can edit their details instead.');
+            return;
+        }
+        if (poLines.length <= 1) {
+            showFormSummary('At least one line is required.');
+            return;
+        }
+        poLines.splice(idx, 1);
+        poLines.forEach(function(line, index) { line.index = index; });
+        loadLineEditor(Math.min(idx, poLines.length - 1));
     };
 
     if (el.editorClassification) {

@@ -1562,27 +1562,33 @@ document.addEventListener('DOMContentLoaded', function () {
                 var submitter = event.submitter || null;
                 var submitButtons = Array.from(form.querySelectorAll('button[type="submit"], input[type="submit"]'));
 
-                submitButtons.forEach(function (button) {
-                    if (button.disabled) {
+                window.setTimeout(function () {
+                    if (event.defaultPrevented) {
                         return;
                     }
 
-                    button.disabled = true;
-
-                    if (!submitter || button === submitter) {
-                        if (button.tagName === 'BUTTON') {
-                            if (!button.hasAttribute('data-submit-original-html')) {
-                                button.setAttribute('data-submit-original-html', button.innerHTML);
-                            }
-                            button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Saving...';
-                        } else {
-                            if (!button.hasAttribute('data-submit-original-value')) {
-                                button.setAttribute('data-submit-original-value', button.value);
-                            }
-                            button.value = 'Saving...';
+                    submitButtons.forEach(function (button) {
+                        if (button.disabled) {
+                            return;
                         }
-                    }
-                });
+
+                        button.disabled = true;
+
+                        if (!submitter || button === submitter) {
+                            if (button.tagName === 'BUTTON') {
+                                if (!button.hasAttribute('data-submit-original-html')) {
+                                    button.setAttribute('data-submit-original-html', button.innerHTML);
+                                }
+                                button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Saving...';
+                            } else {
+                                if (!button.hasAttribute('data-submit-original-value')) {
+                                    button.setAttribute('data-submit-original-value', button.value);
+                                }
+                                button.value = 'Saving...';
+                            }
+                        }
+                    });
+                }, 0);
             });
 
             form.setAttribute('data-form-validation-initialized', 'true');
