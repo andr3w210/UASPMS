@@ -2902,8 +2902,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </div>
                                     <?php if (trim((string) ($asset['remarks'] ?? '')) !== ''): ?>
                                         <div class="col-12">
-                                            <div class="small text-muted">Remarks</div>
-                                            <div><?php echo h((string) $asset['remarks']); ?></div>
+                                            <div class="asset-remarks-highlight">
+                                                <div class="asset-remarks-label"><i class="bi bi-chat-left-text-fill" aria-hidden="true"></i> Remarks</div>
+                                                <div class="asset-remarks-content"><?php echo h((string) $asset['remarks']); ?></div>
+                                            </div>
                                         </div>
                                     <?php endif; ?>
                                     <?php if ($source === 'legacy'): ?>
