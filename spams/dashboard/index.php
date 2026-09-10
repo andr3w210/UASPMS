@@ -737,6 +737,7 @@ $quickLinks = [
     ['label' => 'Counts', 'href' => base_url('modules/property/inventory_counts.php'), 'icon' => 'bi-clipboard-check'],
     ['label' => 'Reconcile', 'href' => base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'), 'icon' => 'bi-clipboard2-x'],
     ['label' => 'Distribution', 'href' => base_url('modules/distributions/index.php'), 'icon' => 'bi-send-check'],
+    ['label' => 'Delivery Calendar', 'href' => base_url('modules/suppliers/monitoring_calendar.php'), 'icon' => 'bi-calendar3'],
 ];
 if ($isAdministrator) {
     $quickLinks[] = ['label' => 'Audit Log', 'href' => base_url('modules/audit_log/index.php'), 'icon' => 'bi-shield-check'];
@@ -762,6 +763,7 @@ $cardVisibleForRole = static function (array $item) use ($roleName): bool {
         '/modules/property/stock_card.php' => ['Administrator', 'Supply Officer'],
         '/modules/property/supply_counts.php' => ['Administrator', 'Supply Officer'],
         '/modules/property/stock_adjustments.php' => ['Administrator', 'Supply Officer'],
+        '/modules/suppliers/monitoring_calendar.php' => ['Administrator', 'Supply Officer'],
         '/modules/stock_catalog/' => ['Administrator'],
         '/modules/audit_log/' => ['Administrator'],
     ];
@@ -945,7 +947,12 @@ require_once __DIR__ . '/../includes/topbar.php';
                             <div class="dashboard-hub-section-kicker">Recent Procurement</div>
                             <h2 class="dashboard-hub-section-title">Latest purchase orders</h2>
                         </div>
-                        <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/purchase_orders/index.php'); ?>">View All</a>
+                        <div class="d-flex gap-2 flex-wrap justify-content-end">
+                            <?php if (in_array($roleName, ['Administrator', 'Supply Officer'], true)): ?>
+                                <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/suppliers/monitoring_calendar.php'); ?>"><i class="bi bi-calendar3 me-1"></i>Delivery Calendar</a>
+                            <?php endif; ?>
+                            <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/purchase_orders/index.php'); ?>">View All</a>
+                        </div>
                     </div>
                     <div class="dashboard-hub-feed">
                         <?php if ($recentPurchaseOrders): ?>
@@ -1037,7 +1044,7 @@ require_once __DIR__ . '/../includes/topbar.php';
         </div>
     </div>
 
-    <div class="dashboard-hub-panel is-active" data-dashboard-panel="inventory">
+    <div class="dashboard-hub-panel" data-dashboard-panel="inventory">
         <div class="dashboard-hub-grid dashboard-hub-grid-wide">
             <div class="dashboard-hub-stack">
                 <article class="dashboard-hub-surface dashboard-hub-surface-strong">

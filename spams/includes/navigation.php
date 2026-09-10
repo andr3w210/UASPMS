@@ -118,6 +118,7 @@ $menuGroups = [
         'items' => [
             ['label' => 'Purchase Orders', 'path' => 'modules/purchase_orders/index.php', 'needle' => '/purchase_orders/', 'icon' => 'bi bi-journal-text', 'roles' => ['Administrator', 'Supply Officer']],
             ['label' => 'Delivery Extensions', 'path' => 'modules/purchase_orders/extensions.php', 'needle' => '/purchase_orders/extensions', 'icon' => 'bi bi-calendar2-plus', 'roles' => ['Administrator', 'Supply Officer']],
+            ['label' => 'Supplier Delivery Calendar', 'path' => 'modules/suppliers/monitoring_calendar.php', 'needle' => '/suppliers/monitoring_calendar', 'icon' => 'bi bi-calendar3', 'roles' => ['Administrator', 'Supply Officer']],
             ['label' => 'Receiving', 'path' => 'modules/receivings/index.php', 'needle' => '/receivings/', 'icon' => 'bi bi-box-seam', 'roles' => ['Administrator', 'Supply Officer']],
             ['label' => 'Issuances', 'path' => 'modules/issuances/index.php', 'needle' => '/issuances/', 'icon' => 'bi bi-box-arrow-up-right', 'roles' => ['Administrator', 'Supply Officer']],
             ['label' => 'Distribution', 'path' => 'modules/distributions/index.php', 'needle' => '/distributions/', 'icon' => 'bi bi-diagram-3', 'roles' => ['Administrator', 'Supply Officer', 'Property Officer']],
@@ -178,7 +179,7 @@ $menuGroups = [
             ['label' => 'Offices', 'path' => 'modules/offices/index.php', 'needle' => '/offices/', 'icon' => 'bi bi-building', 'roles' => ['Administrator']],
             ['label' => 'Locations', 'path' => 'modules/locations/index.php', 'needle' => '/locations/', 'icon' => 'bi bi-geo-alt', 'roles' => ['Administrator']],
             ['label' => 'Responsibility Codes', 'path' => 'modules/responsibility_codes/index.php', 'needle' => '/responsibility_codes/', 'icon' => 'bi bi-upc-scan', 'roles' => ['Administrator']],
-            ['label' => 'Suppliers', 'path' => 'modules/suppliers/index.php', 'needle' => '/suppliers/', 'icon' => 'bi bi-truck', 'roles' => ['Administrator']],
+            ['label' => 'Suppliers', 'path' => 'modules/suppliers/index.php', 'needle' => '/suppliers/index', 'icon' => 'bi bi-truck', 'roles' => ['Administrator']],
             ['label' => 'Funds', 'path' => 'modules/funds/index.php', 'needle' => '/funds/', 'icon' => 'bi bi-wallet2', 'roles' => ['Administrator']],
             ['label' => 'Account Codes', 'path' => 'modules/account_codes/index.php', 'needle' => '/account_codes/', 'icon' => 'bi bi-journal-code', 'roles' => ['Administrator']],
             ['label' => 'Item Classifications', 'path' => 'modules/classifications/index.php', 'needle' => '/classifications/', 'icon' => 'bi bi-tags', 'roles' => ['Administrator']],
