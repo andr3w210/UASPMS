@@ -266,6 +266,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div id="recordCount" class="text-muted small">Showing <?php echo count($suppliers); ?> of <?php echo count($suppliers); ?> records</div>
                 </div>
                 <div class="d-flex gap-2 flex-wrap">
+                    <a href="<?php echo h(base_url('modules/suppliers/monitoring_calendar.php')); ?>" class="btn btn-outline-primary"><i class="bi bi-calendar3 me-1"></i>Delivery Calendar</a>
                     <?php if ($form['id'] > 0): ?>
                         <a href="<?php echo base_url('modules/suppliers/index.php'); ?>" class="btn btn-outline-secondary">Cancel Edit</a>
                     <?php endif; ?>
