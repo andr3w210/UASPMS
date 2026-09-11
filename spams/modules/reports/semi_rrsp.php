@@ -380,7 +380,7 @@ if ($isExport && $record) {
             trim(implode(' | ', array_filter([$row['reason'] ?? '', $row['remarks'] ?? '']))),
         ];
     }, $recordRows);
-    export_excel_rows('semi_rrsp_' . ($record['system_reference'] ?? date('Ymd')) . '.xls', ['RRSP No.', 'Date', 'Item Description', 'Property Number', 'Quantity', 'ICS No.', 'End-user', 'Remarks'], $exportRows);
+    export_excel_rows('semi_rrsp_' . ($record['system_reference'] ?? date('Ymd')) . '.xls', ['RRSP No.', 'Date', 'Item Description', 'Property No.', 'Quantity', 'ICS No.', 'End-user', 'Remarks'], $exportRows);
 }
 
 if ($isPrint && $record) {

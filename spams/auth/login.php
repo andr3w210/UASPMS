@@ -231,7 +231,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?> auth-login-alert"><?php echo h($flash['message']); ?></div>
             <?php endif; ?>
 
-            <form method="post" action="" class="auth-login-form">
+            <form method="post" action="" class="auth-login-form" data-no-confirm>
                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                 <div class="auth-login-field">
                     <label for="username" class="form-label">Username or Email</label>

@@ -325,7 +325,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 </a>
 
                                                 <?php if ((int) $procurementMode['is_active'] === 1): ?>
-                                                    
+                                                    <form method="post" class="d-inline">
                                                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                         <input type="hidden" name="action" value="delete">
                                                         <input type="hidden" name="id" value="<?php echo (int) $procurementMode['id']; ?>">
@@ -334,7 +334,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         </button>
                                                     </form>
                                                 <?php else: ?>
-                                                    
+                                                    <form method="post" class="d-inline">
                                                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                         <input type="hidden" name="action" value="reactivate">
                                                         <input type="hidden" name="id" value="<?php echo (int) $procurementMode['id']; ?>">
