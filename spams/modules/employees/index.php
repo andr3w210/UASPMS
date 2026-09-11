@@ -1474,7 +1474,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <?php if ($linkedUser): ?>
                                                 <span class="btn btn-sm btn-light border disabled"><i class="bi bi-person-check"></i> <?php echo h($linkedUser['username']); ?></span>
                                             <?php elseif ((int)$employee['is_active']===1): ?>
-                                                
+                                                <form method="post" class="d-inline">
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="create_user_account">
                                                     <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
@@ -1483,14 +1483,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <?php endif; ?>
                                         <?php endif; ?>
                                         <?php if((int)$employee['is_active']===1): ?>
-                                            
+                                            <form method="post" class="d-inline">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
                                                 <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button>
                                             </form>
                                         <?php else: ?>
-                                            
+                                            <form method="post" class="d-inline">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="reactivate">
                                                 <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
@@ -1501,7 +1501,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <button type="button" class="btn btn-sm btn-outline-secondary" data-merge-source-id="<?php echo (int)$employee['id']; ?>" data-merge-source-label="<?php echo h(employee_choice_label($employee)); ?>">
                                                 <i class="bi bi-intersect"></i> Merge
                                             </button>
-                                            
+                                            <form method="post" class="d-inline">
                                                 <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="hard_delete">
                                                 <input type="hidden" name="id" value="<?php echo (int)$employee['id']; ?>">
@@ -1532,7 +1532,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
 <div class="modal fade" id="mergeEmployeeModal" tabindex="-1" aria-labelledby="mergeEmployeeModalLabel" aria-hidden="true">
     <div class="modal-dialog">
-        
+    <form method="post" class="modal-content">
             <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
             <input type="hidden" name="action" value="merge">
             <input type="hidden" name="source_employee_id" id="mergeSourceEmployeeId" value="">
@@ -1858,7 +1858,9 @@ document.addEventListener('DOMContentLoaded', function () {
         var targetSelect = document.getElementById('mergeTargetEmployeeId');
 
         document.querySelectorAll('[data-merge-source-id]').forEach(function (button) {
-            button.addEventListener('click', function () {
+            button.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
                 var sourceId = String(button.getAttribute('data-merge-source-id') || '');
                 sourceIdInput.value = sourceId;
                 sourceLabelInput.value = button.getAttribute('data-merge-source-label') || '';

@@ -200,7 +200,7 @@ if ($isExport) {
     }
     export_excel_rows(
         'semi_physical_count_' . date('Ymd') . '.xls',
-        ['Article', 'Description', 'Semi-Expendable Property No.', 'Unit of Measure', 'Unit Value', 'Balance Per Card Qty', 'On Hand Per Count Qty', 'Shortage/Overage Qty', 'Shortage/Overage Value', 'Remarks'],
+        ['Article', 'Description', 'Property No.', 'Unit of Measure', 'Unit Value', 'Balance per Card Qty', 'On Hand per Count Qty', 'Shortage/Overage Qty', 'Shortage/Overage Value', 'Remarks'],
         $exportRows
     );
 }

@@ -300,14 +300,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <div class="d-inline-flex flex-wrap justify-content-end gap-2">
                                             <a href="<?php echo base_url('modules/models/index.php?edit=' . (int) $model['id']); ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit</a>
                                             <?php if ((int) $model['is_active'] === 1): ?>
-                                                
+                                                <form method="post" class="d-inline">
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="delete">
                                                     <input type="hidden" name="id" value="<?php echo (int) $model['id']; ?>">
                                                     <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Deactivate</button>
                                                 </form>
                                             <?php else: ?>
-                                                
+                                                <form method="post" class="d-inline">
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="reactivate">
                                                     <input type="hidden" name="id" value="<?php echo (int) $model['id']; ?>">
@@ -315,7 +315,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                 </form>
                                             <?php endif; ?>
                                             <?php if (($_SESSION['user_role'] ?? '') === 'Administrator'): ?>
-                                                
+                                                <form method="post" class="d-inline">
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="hard_delete">
                                                     <input type="hidden" name="id" value="<?php echo (int) $model['id']; ?>">

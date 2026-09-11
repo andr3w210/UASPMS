@@ -166,12 +166,77 @@
         });
     }
 
+    function mutationMessage(form, submitter) {
+        var actionInput = form.querySelector('input[name="action"], select[name="action"]');
+        var action = actionInput ? String(actionInput.value || '').toLowerCase() : '';
+        var buttonText = submitter ? String(submitter.textContent || '').replace(/\s+/g, ' ').trim() : '';
+        var label = buttonText || action.replace(/[_-]+/g, ' ');
+
+        if (action.indexOf('delete') !== -1 || action.indexOf('remove') !== -1 || /\b(delete|remove|deactivate|discard|cancel)\b/i.test(label)) {
+            return 'Are you sure you want to delete or remove this record? This action may not be reversible.';
+        }
+        if (action.indexOf('merge') !== -1 || /\bmerge\b/i.test(label)) {
+            return 'Are you sure you want to merge these records? The duplicate record will be deactivated.';
+        }
+        if (action.indexOf('reactivate') !== -1 || /\breactivate\b/i.test(label)) {
+            return 'Are you sure you want to reactivate this record?';
+        }
+        if (action.indexOf('save') !== -1 || action.indexOf('update') !== -1 || action.indexOf('create') !== -1 || action.indexOf('add') !== -1 || /\b(save|update|create|add|post|send|submit)\b/i.test(label)) {
+            return 'Are you sure you want to save these changes?';
+        }
+        return 'Are you sure you want to continue with this change?';
+    }
+
+    function patchMutationForms(root) {
+        if (!root) {
+            return;
+        }
+
+        Array.prototype.slice.call(root.querySelectorAll('form[method="post"], form[method="POST"]')).forEach(function (form) {
+            if (form.hasAttribute('data-no-confirm') || form.hasAttribute('data-confirm') || form.hasAttribute('data-confirm-message')) {
+                return;
+            }
+
+            form.addEventListener('submit', function (event) {
+                if (form.getAttribute('data-confirm-bypass') === '1') {
+                    form.removeAttribute('data-confirm-bypass');
+                    return;
+                }
+
+                if (event.defaultPrevented) {
+                    return;
+                }
+
+                event.preventDefault();
+                var submitter = event.submitter || document.activeElement;
+                window.confirmAction({
+                    title: 'Confirm change',
+                    message: mutationMessage(form, submitter),
+                    confirmText: 'Continue',
+                    onConfirm: function () {
+                        form.setAttribute('data-confirm-bypass', '1');
+                        if (typeof form.requestSubmit === 'function') {
+                            form.requestSubmit(submitter && submitter.form === form ? submitter : undefined);
+                        } else {
+                            form.submit();
+                        }
+                    }
+                });
+            });
+        });
+    }
+
+    function patchAllConfirmations(root) {
+        patchInlineConfirmHandlers(root);
+        patchMutationForms(root);
+    }
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () {
-            patchInlineConfirmHandlers(document);
+            patchAllConfirmations(document);
         });
     } else {
-        patchInlineConfirmHandlers(document);
+        patchAllConfirmations(document);
     }
 
     window.confirmAction = confirmAction;

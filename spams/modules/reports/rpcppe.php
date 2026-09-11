@@ -435,7 +435,7 @@ if ($isExport) {
 
     export_excel_rows(
         'rpcppe_' . date('Ymd') . '.xls',
-        ['Article', 'Description', 'Property Number', 'Unit of Measure', 'Unit Value', 'Date Acquired', 'Qty per Property Card', 'Qty per Physical Count', 'Shortage/Overage Qty', 'Shortage/Overage Value', 'Remarks'],
+        ['Article', 'Description', 'Property No.', 'Unit of Measure', 'Unit Value', 'Date Acquired', 'Qty per Property Card', 'Qty per Physical Count', 'Shortage/Overage Qty', 'Shortage/Overage Value', 'Remarks'],
         $exportRows
     );
 }
