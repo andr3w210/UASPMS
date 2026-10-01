@@ -21,6 +21,10 @@ $duplicateSource = null;
 $form = [
     'property_number' => '',
     'po_number' => '',
+    'acquisition_source' => 'purchase',
+    'donor_name' => '',
+    'donation_reference' => '',
+    'donation_date' => '',
     'item_type' => 'equipment',
     'item_description' => '',
     'classification_id' => '',
@@ -677,6 +681,9 @@ if ($db) {
         }
         if ($form['item_description'] === '') { add_validation_error($errors, 'Description is required.'); }
         if (!is_allowed_value($form['item_type'], ['semi_expendable', 'equipment'])) { add_validation_error($errors, 'Inventory type must be semi-expendable or equipment.'); }
+        if (!is_allowed_value($form['acquisition_source'], ['purchase', 'donation', 'transfer', 'other'])) { add_validation_error($errors, 'Acquisition source is invalid.'); }
+        if ($form['acquisition_source'] === 'donation' && $form['donor_name'] === '') { add_validation_error($errors, 'Donor name is required for donated assets.'); }
+        if ($form['donation_date'] !== '' && !is_valid_date_string($form['donation_date'])) { add_validation_error($errors, 'Donation date format is invalid.'); }
         if ($form['quantity'] === '' || !ctype_digit($form['quantity']) || (int) $form['quantity'] <= 0) { add_validation_error($errors, 'Quantity is required.'); }
         if ($form['unit_of_measure_id'] !== '') {
             $unitExists = false;
@@ -928,6 +935,10 @@ if ($db) {
                     $legacyAssetId = legacy_asset_insert_record($db, [
                         'system_reference' => $systemReference,
                         'po_number' => $form['po_number'],
+                        'acquisition_source' => $form['acquisition_source'],
+                        'donor_name' => $form['donor_name'],
+                        'donation_reference' => $form['donation_reference'],
+                        'donation_date' => $form['donation_date'],
                         'property_number' => $rowPropertyNumber,
                         'item_type' => $form['item_type'],
                         'item_description' => $form['item_description'],
@@ -1060,6 +1071,34 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <div class="col-md-4">
                             <label class="form-label">PO Number</label>
                             <input type="text" class="form-control" name="po_number" value="<?php echo h($form['po_number']); ?>" placeholder="Enter PO number if available">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Acquisition Source</label>
+                            <select name="acquisition_source" class="form-select" id="acquisition_source" onchange="document.getElementById('donationMetadataFields').classList.toggle('d-none', this.value !== 'donation');">
+                                <option value="purchase" <?php echo $form['acquisition_source'] === 'purchase' ? 'selected' : ''; ?>>Purchase</option>
+                                <option value="donation" <?php echo $form['acquisition_source'] === 'donation' ? 'selected' : ''; ?>>Donation</option>
+                                <option value="transfer" <?php echo $form['acquisition_source'] === 'transfer' ? 'selected' : ''; ?>>Transfer</option>
+                                <option value="other" <?php echo $form['acquisition_source'] === 'other' ? 'selected' : ''; ?>>Other</option>
+                            </select>
+                        </div>
+                        <div class="col-12 <?php echo $form['acquisition_source'] === 'donation' ? '' : 'd-none'; ?>" id="donationMetadataFields">
+                            <div class="row g-3 p-3 rounded-3 border border-warning-subtle bg-warning-subtle">
+                                <div class="col-12">
+                                    <div class="small text-uppercase fw-semibold text-warning-emphasis">Donation Details</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Donor Name</label>
+                                    <input type="text" class="form-control" name="donor_name" value="<?php echo h($form['donor_name']); ?>" placeholder="Required for donations">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Deed / Donation Reference</label>
+                                    <input type="text" class="form-control" name="donation_reference" value="<?php echo h($form['donation_reference']); ?>" placeholder="Deed or acceptance number">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Donation Date</label>
+                                    <input type="date" class="form-control" name="donation_date" value="<?php echo h($form['donation_date']); ?>">
+                                </div>
+                            </div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Acquisition Date</label>
@@ -2114,6 +2153,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
         }
     }
 
+    function setupDonationFields() {
+        var sourceSelect = document.getElementById('acquisition_source');
+        var donationFields = document.getElementById('donationMetadataFields');
+        if (!sourceSelect || !donationFields) {
+            return;
+        }
+
+        var syncDonationFields = function () {
+            donationFields.classList.toggle('d-none', sourceSelect.value !== 'donation');
+        };
+        sourceSelect.addEventListener('change', syncDonationFields);
+        syncDonationFields();
+    }
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () {
             [
@@ -2139,6 +2192,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
             setupBulkImportPreview();
             setupBulkAccountFilters();
             setupBulkOfficeEmployeeFilter();
+            setupDonationFields();
         });
     } else {
         [
@@ -2164,6 +2218,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
         setupBulkImportPreview();
         setupBulkAccountFilters();
         setupBulkOfficeEmployeeFilter();
+        setupDonationFields();
     }
 })();
 </script>

@@ -144,16 +144,141 @@ function offices_merge_location_pin(mysqli $db, int $fromOfficeId, int $toOffice
     return offices_update_reference($db, 'office_location_pins', 'office_id', $fromOfficeId, $toOfficeId, $userId);
 }
 
+function offices_merge_employee_assignments(mysqli $db, int $fromOfficeId, int $toOfficeId, int $userId, array &$pendingCodes = []): int
+{
+    if (!employee_assignments_enabled($db)) {
+        return 0;
+    }
+
+    $headStmt = $db->prepare('SELECT 1 FROM employee_assignments WHERE office_id = ? AND is_active = 1 AND is_unit_head = 1 LIMIT 1');
+    if (!$headStmt) {
+        throw new RuntimeException('Unable to inspect target office assignments.');
+    }
+    $headStmt->bind_param('i', $toOfficeId);
+    $headStmt->execute();
+    $targetHasHead = (bool) $headStmt->get_result()->fetch_assoc();
+    $headStmt->close();
+
+    $sourceStmt = $db->prepare('SELECT id, employee_id, responsibility_code_id, role_title, is_unit_head, is_oic, is_primary FROM employee_assignments WHERE office_id = ? AND is_active = 1 ORDER BY id ASC');
+    if (!$sourceStmt) {
+        throw new RuntimeException('Unable to inspect source office assignments.');
+    }
+    $sourceStmt->bind_param('i', $fromOfficeId);
+    $sourceStmt->execute();
+    $sourceAssignments = $sourceStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $sourceStmt->close();
+
+    $changed = 0;
+    foreach ($sourceAssignments as $source) {
+        $sourceId = (int) ($source['id'] ?? 0);
+        $employeeId = (int) ($source['employee_id'] ?? 0);
+        $roleTitle = (string) ($source['role_title'] ?? '');
+        $sourceRcId = (int) ($source['responsibility_code_id'] ?? 0);
+        $targetStmt = $db->prepare('SELECT id, is_unit_head, is_oic, is_primary FROM employee_assignments WHERE employee_id = ? AND office_id = ? AND role_title = ? AND is_active = 1 LIMIT 1');
+        if (!$targetStmt) {
+            throw new RuntimeException('Unable to inspect duplicate employee assignment.');
+        }
+        $targetStmt->bind_param('iis', $employeeId, $toOfficeId, $roleTitle);
+        $targetStmt->execute();
+        $target = $targetStmt->get_result()->fetch_assoc() ?: null;
+        $targetStmt->close();
+
+        if ($target) {
+            $targetId = (int) ($target['id'] ?? 0);
+            $targetIsHead = (int) ($target['is_unit_head'] ?? 0) === 1;
+            $targetIsPrimary = (int) ($target['is_primary'] ?? 0) === 1;
+            $mergedHead = $targetIsHead || (!$targetHasHead && (int) ($source['is_unit_head'] ?? 0) === 1) ? 1 : 0;
+            $mergedOic = ((int) ($target['is_oic'] ?? 0) === 1 || (int) ($source['is_oic'] ?? 0) === 1) ? 1 : 0;
+            $mergedPrimary = $targetIsPrimary || (int) ($source['is_primary'] ?? 0) === 1 ? 1 : 0;
+
+            $updateTarget = $db->prepare('UPDATE employee_assignments SET is_unit_head = ?, is_oic = ?, is_primary = ?, updated_by = ?, updated_at = NOW() WHERE id = ?');
+            if (!$updateTarget) {
+                throw new RuntimeException('Unable to consolidate duplicate employee assignment.');
+            }
+            $updateTarget->bind_param('iiiii', $mergedHead, $mergedOic, $mergedPrimary, $userId, $targetId);
+            $updateTarget->execute();
+            $updateTarget->close();
+
+            $deactivate = $db->prepare('UPDATE employee_assignments SET is_active = 0, is_primary = 0, is_unit_head = 0, updated_by = ?, updated_at = NOW() WHERE id = ?');
+            if (!$deactivate) {
+                throw new RuntimeException('Unable to deactivate duplicate employee assignment.');
+            }
+            $deactivate->bind_param('ii', $userId, $sourceId);
+            $deactivate->execute();
+            $changed += max(0, $deactivate->affected_rows);
+            $deactivate->close();
+            if ($mergedHead === 1) {
+                $targetHasHead = true;
+            }
+            continue;
+        }
+
+        $targetRcId = 0;
+        if ($sourceRcId > 0) {
+            $rcStmt = $db->prepare('SELECT rc.code, target.id AS target_id FROM responsibility_codes rc LEFT JOIN responsibility_codes target ON target.office_id = ? AND target.code = rc.code AND target.is_active = 1 WHERE rc.id = ? LIMIT 1');
+            if (!$rcStmt) {
+                throw new RuntimeException('Unable to inspect assignment responsibility code.');
+            }
+            $rcStmt->bind_param('ii', $toOfficeId, $sourceRcId);
+            $rcStmt->execute();
+            $rcRow = $rcStmt->get_result()->fetch_assoc() ?: [];
+            $rcStmt->close();
+            $targetRcId = (int) ($rcRow['target_id'] ?? 0);
+        }
+
+        $sourceIsHead = (int) ($source['is_unit_head'] ?? 0) === 1;
+        $newHead = $sourceIsHead && !$targetHasHead ? 1 : 0;
+        if ($sourceRcId > 0 && $targetRcId <= 0) {
+            $pendingCodes[$sourceId] = $sourceRcId;
+        }
+        $move = $db->prepare('UPDATE employee_assignments SET office_id = ?, responsibility_code_id = NULLIF(?, 0), is_unit_head = ?, updated_by = ?, updated_at = NOW() WHERE id = ? AND is_active = 1');
+        if (!$move) {
+            throw new RuntimeException('Unable to move employee assignment to target office.');
+        }
+        $move->bind_param('iiiii', $toOfficeId, $targetRcId, $newHead, $userId, $sourceId);
+        $move->execute();
+        $changed += max(0, $move->affected_rows);
+        $move->close();
+        if ($newHead === 1) {
+            $targetHasHead = true;
+        }
+    }
+
+    foreach ($sourceAssignments as $source) {
+        employee_sync_legacy_assignment_fields($db, (int) ($source['employee_id'] ?? 0));
+    }
+    employee_sync_office_head_cache($db, $toOfficeId);
+    return $changed;
+}
+
+function offices_restore_assignment_responsibility_codes(mysqli $db, array $pendingCodes, int $userId): int
+{
+    $restored = 0;
+    foreach ($pendingCodes as $assignmentId => $responsibilityCodeId) {
+        $stmt = $db->prepare('UPDATE employee_assignments SET responsibility_code_id = ?, updated_by = ?, updated_at = NOW() WHERE id = ? AND is_active = 1');
+        if (!$stmt) {
+            throw new RuntimeException('Unable to restore assignment responsibility code.');
+        }
+        $stmt->bind_param('iii', $responsibilityCodeId, $userId, $assignmentId);
+        $stmt->execute();
+        $restored += max(0, $stmt->affected_rows);
+        $stmt->close();
+    }
+    return $restored;
+}
+
 function offices_merge_into(mysqli $db, int $fromOfficeId, int $toOfficeId, int $userId): array
 {
     $changes = [];
-    $changes['responsibility_codes'] = offices_merge_responsibility_codes($db, $fromOfficeId, $toOfficeId, $userId);
     $changes['office_location_pins'] = offices_merge_location_pin($db, $fromOfficeId, $toOfficeId, $userId);
+    $pendingCodes = [];
+    $changes['employee_assignments'] = offices_merge_employee_assignments($db, $fromOfficeId, $toOfficeId, $userId, $pendingCodes);
+    $changes['responsibility_codes'] = offices_merge_responsibility_codes($db, $fromOfficeId, $toOfficeId, $userId);
+    $changes['assignment_responsibility_codes'] = offices_restore_assignment_responsibility_codes($db, $pendingCodes, $userId);
 
     $references = [
         ['users', 'office_id'],
         ['employees', 'office_id'],
-        ['employee_assignments', 'office_id'],
         ['purchase_orders', 'office_id'],
         ['issuances', 'office_id'],
         ['distributions', 'office_id'],

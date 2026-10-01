@@ -14,6 +14,7 @@ $encodedSummary = [
 ];
 $search = trim((string) ($_GET['q'] ?? ''));
 $itemTypeFilter = trim((string) ($_GET['item_type'] ?? 'all'));
+$acquisitionSourceFilter = trim((string) ($_GET['acquisition_source'] ?? 'all'));
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPageOptions = [25, 50, 100, 250];
 $perPage = (int) ($_GET['per_page'] ?? 25);
@@ -22,6 +23,9 @@ if (!in_array($perPage, $perPageOptions, true)) {
 }
 if (!in_array($itemTypeFilter, ['all', 'equipment', 'semi_expendable'], true)) {
     $itemTypeFilter = 'all';
+}
+if (!in_array($acquisitionSourceFilter, ['all', 'purchase', 'donation', 'transfer', 'other'], true)) {
+    $acquisitionSourceFilter = 'all';
 }
 $totalRecords = 0;
 $totalPages = 1;
@@ -77,6 +81,11 @@ if ($db) {
         $whereSql .= " AND la.item_type = ?";
         $whereTypes .= 's';
         $whereParams[] = $itemTypeFilter;
+    }
+    if ($acquisitionSourceFilter !== 'all') {
+        $whereSql .= " AND la.acquisition_source = ?";
+        $whereTypes .= 's';
+        $whereParams[] = $acquisitionSourceFilter;
     }
     if ($search !== '') {
         $whereSql .= " AND (
@@ -191,7 +200,7 @@ if ($db) {
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         $output = fopen('php://output', 'w');
         fputcsv($output, [
-            'ID', 'System Reference', 'Property Number', 'PO Number', 'Item Type', 'Description',
+            'ID', 'System Reference', 'Property Number', 'PO Number', 'Acquisition Source', 'Donor Name', 'Donation Reference', 'Donation Date', 'Item Type', 'Description',
             'Classification', 'Classification Family', 'Account Code', 'Account Name',
             'Fund', 'Supplier', 'Brand', 'Model', 'Serial No', 'Acquisition Date',
             'Quantity', 'Unit Cost', 'Acquisition Cost',
@@ -209,6 +218,10 @@ if ($db) {
                 $row['system_reference'] ?? '',
                 $row['property_number'] ?? '',
                 $row['po_number'] ?? '',
+                $row['acquisition_source'] ?? '',
+                $row['donor_name'] ?? '',
+                $row['donation_reference'] ?? '',
+                $row['donation_date'] ?? '',
                 $row['item_type'] ?? '',
                 preg_replace('/\s+/', ' ', (string) ($row['item_description'] ?? '')),
                 $row['classification_name'] ?? '',
@@ -249,6 +262,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 $pageBaseParams = [
     'q' => $search,
     'item_type' => $itemTypeFilter,
+    'acquisition_source' => $acquisitionSourceFilter,
     'per_page' => $perPage,
 ];
 $prevUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(array_merge($pageBaseParams, ['page' => max(1, $page - 1)])));
@@ -367,6 +381,16 @@ $exportUrl = base_url('modules/property/legacy_assets.php?' . http_build_query(a
                                 <option value="all" <?php echo $itemTypeFilter === 'all' ? 'selected' : ''; ?>>All</option>
                                 <option value="equipment" <?php echo $itemTypeFilter === 'equipment' ? 'selected' : ''; ?>>Equipment</option>
                                 <option value="semi_expendable" <?php echo $itemTypeFilter === 'semi_expendable' ? 'selected' : ''; ?>>Semi-Expendable</option>
+                            </select>
+                        </div>
+                        <div class="col-sm-4 col-lg-2">
+                            <label class="form-label">Acquisition Source</label>
+                            <select name="acquisition_source" class="form-select" data-no-select2>
+                                <option value="all" <?php echo $acquisitionSourceFilter === 'all' ? 'selected' : ''; ?>>All Sources</option>
+                                <option value="purchase" <?php echo $acquisitionSourceFilter === 'purchase' ? 'selected' : ''; ?>>Purchase</option>
+                                <option value="donation" <?php echo $acquisitionSourceFilter === 'donation' ? 'selected' : ''; ?>>Donation</option>
+                                <option value="transfer" <?php echo $acquisitionSourceFilter === 'transfer' ? 'selected' : ''; ?>>Transfer</option>
+                                <option value="other" <?php echo $acquisitionSourceFilter === 'other' ? 'selected' : ''; ?>>Other</option>
                             </select>
                         </div>
                         <div class="col-sm-4 col-lg-1">

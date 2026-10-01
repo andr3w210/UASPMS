@@ -298,7 +298,7 @@ $signatoryDisplayName = static function (array $person): string {
 };
 
 $recipientHeadName = !empty($recipientHead) ? $signatoryDisplayName($recipientHead) : '';
-$recipientHeadTitle = trim((string) ($recipientHead['position_title'] ?? ''));
+$recipientHeadTitle = employee_office_context_title($db, (int) ($recipientHead['id'] ?? 0), $officeId, (string) ($recipientHead['position_title'] ?? ''));
 $recipientOfficeName = trim((string) ($header['office_name'] ?? ''));
 
 $supplyHeadName = !empty($supplyHead) ? $signatoryDisplayName($supplyHead) : '';
