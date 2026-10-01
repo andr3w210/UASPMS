@@ -456,7 +456,7 @@ $recipientHead = $singleAssetRecipient ?: (($db && $officeId > 0) ? $resolveOffi
 $supplyHead = $db ? $resolveSupplyOfficeHead($db) : [];
 
 $recipientHeadName = !empty($recipientHead) ? $signatoryDisplayName($recipientHead) : '';
-$recipientHeadTitle = trim((string) ($recipientHead['position_title'] ?? ''));
+$recipientHeadTitle = employee_office_context_title($db, (int) ($recipientHead['id'] ?? 0), $officeId, (string) ($recipientHead['position_title'] ?? ''));
 $recipientOfficeName = trim((string) ($header['office_name'] ?? ''));
 
 $supplyHeadName = !empty($supplyHead) ? $signatoryDisplayName($supplyHead) : '';
@@ -534,7 +534,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
     <title>PAR by Office</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        @page { size: 8.5in 13in; margin: <?php echo $isShort ? '0.5in 0.07in 0.07in 0.07in' : '0.5in 0.07in 0.07in 0.07in'; ?>; }
+        @page { size: 8.5in 13in; margin: 0.2in 0.5in 0.5in 0.5in; }
         body { margin: 0; font-size:12px; color:#000; font-family: "Times New Roman", serif; }
         table { font-size:11px; }
         .no-print { display:block; font-family: Arial, sans-serif; }

@@ -1711,6 +1711,17 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             filterResponsibilityCodesForPair(officeSelect, codeSelect, false);
         }
+
+        var oicCheckbox = row.querySelector('input[name$="[is_oic]"]');
+        var unitHeadCheckbox = row.querySelector('input[name$="[is_unit_head]"]');
+        if (oicCheckbox && unitHeadCheckbox) {
+            oicCheckbox.addEventListener('change', function () {
+                // OIC is saved as acting headship, so reflect that immediately in the UI.
+                if (oicCheckbox.checked) {
+                    unitHeadCheckbox.checked = true;
+                }
+            });
+        }
     }
 
     function createAssignmentRow(index) {

@@ -2075,8 +2075,8 @@ function legacy_asset_insert_record(mysqli $db, array $payload): int
 {
     $stmt = $db->prepare(
         "INSERT INTO legacy_assets
-            (system_reference, po_number, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_of_measure_id, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?)"
+                (system_reference, po_number, acquisition_source, donor_name, donation_reference, donation_date, property_number, item_type, item_description, classification_id, account_code_id, fund_id, supplier_id, brand_id, model_id, brand, model, serial_no, acquisition_date, quantity, unit_of_measure_id, unit_cost, acquisition_cost, office_id, employee_id, responsibility_code_id, condition_status, remarks, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     if (!$stmt) {
         return 0;
@@ -2084,6 +2084,12 @@ function legacy_asset_insert_record(mysqli $db, array $payload): int
 
     $systemReference = (string) ($payload['system_reference'] ?? '');
     $poNumber = (string) ($payload['po_number'] ?? '');
+    $acquisitionSource = (string) ($payload['acquisition_source'] ?? 'purchase');
+    $donorName = (string) ($payload['donor_name'] ?? '');
+    $donationReference = (string) ($payload['donation_reference'] ?? '');
+    $donationDate = trim((string) ($payload['donation_date'] ?? '')) !== ''
+        ? (string) $payload['donation_date']
+        : null;
     $propertyNumber = (string) ($payload['property_number'] ?? '');
     $itemType = (string) ($payload['item_type'] ?? 'equipment');
     $itemDescription = (string) ($payload['item_description'] ?? '');
@@ -2096,7 +2102,9 @@ function legacy_asset_insert_record(mysqli $db, array $payload): int
     $brand = (string) ($payload['brand'] ?? '');
     $model = (string) ($payload['model'] ?? '');
     $serialNo = (string) ($payload['serial_no'] ?? '');
-    $acquisitionDate = (string) ($payload['acquisition_date'] ?? '');
+    $acquisitionDate = trim((string) ($payload['acquisition_date'] ?? '')) !== ''
+        ? (string) $payload['acquisition_date']
+        : null;
     $quantity = max(1, (int) ($payload['quantity'] ?? 1));
     $unitOfMeasureId = isset($payload['unit_of_measure_id']) ? (int) $payload['unit_of_measure_id'] : null;
     $unitCost = round((float) ($payload['unit_cost'] ?? 0), 2);
@@ -2108,10 +2116,15 @@ function legacy_asset_insert_record(mysqli $db, array $payload): int
     $remarks = (string) ($payload['remarks'] ?? '');
     $createdBy = isset($payload['created_by']) ? (int) $payload['created_by'] : null;
 
+    $bindTypes = str_repeat('s', 9) . str_repeat('i', 6) . str_repeat('s', 4) . 'ii' . 'dd' . 'iii' . 'ss' . 'i';
     $stmt->bind_param(
-        'sssssiiiiiissssiiddiiissi',
+        $bindTypes,
         $systemReference,
         $poNumber,
+        $acquisitionSource,
+        $donorName,
+        $donationReference,
+        $donationDate,
         $propertyNumber,
         $itemType,
         $itemDescription,

@@ -280,6 +280,16 @@ function employee_choice_label(array $employee, string $summary = ''): string
     return trim($label);
 }
 
+function employee_format_title_with_oic(string $roleTitle, bool $isOic): string
+{
+    $roleTitle = trim($roleTitle);
+    if (!$isOic) {
+        return $roleTitle;
+    }
+
+    return $roleTitle !== '' ? 'OIC, ' . $roleTitle : 'OIC';
+}
+
 function employee_sync_legacy_assignment_fields(mysqli $db, int $employeeId): void
 {
     // Legacy employee columns are a read-optimized cache of the active primary
@@ -291,7 +301,7 @@ function employee_sync_legacy_assignment_fields(mysqli $db, int $employeeId): vo
     $primary = employee_fetch_primary_assignment($db, $employeeId);
     $officeId = !empty($primary['office_id']) ? (int) $primary['office_id'] : null;
     $responsibilityCodeId = !empty($primary['responsibility_code_id']) ? (int) $primary['responsibility_code_id'] : null;
-    $roleTitle = trim((string) ($primary['role_title'] ?? ''));
+    $roleTitle = employee_format_title_with_oic((string) ($primary['role_title'] ?? ''), !empty($primary['is_oic']));
     $isUnitHead = !empty($primary['is_unit_head']) ? 1 : 0;
 
     $officeValue = $officeId ?? 0;
@@ -382,8 +392,11 @@ function employee_save_assignments_unlocked(mysqli $db, int $employeeId, array $
         $officeId = (int) ($row['office_id'] ?? 0);
         $responsibilityCodeId = $row['responsibility_code_id'] !== '' ? (int) $row['responsibility_code_id'] : 0;
         $roleTitle = trim((string) ($row['role_title'] ?? ''));
-        $isUnitHead = !empty($row['is_unit_head']) ? 1 : 0;
         $isOic = !empty($row['is_oic']) ? 1 : 0;
+        // OIC denotes acting headship in this system; without this, an office can end up
+        // with two "heads" (a stale unit head plus an OIC) since only is_unit_head is used
+        // to resolve signatories.
+        $isUnitHead = (!empty($row['is_unit_head']) || $isOic === 1) ? 1 : 0;
         $isPrimary = !empty($row['is_primary']) ? 1 : 0;
         $isActive = !empty($row['is_active']) ? 1 : 0;
         if ($officeId > 0) {
@@ -610,6 +623,22 @@ function employee_ensure_office_assignment_unlocked(mysqli $db, int $employeeId,
     return true;
 }
 
+function employee_office_context_title(mysqli $db, int $employeeId, int $officeId, string $fallbackTitle = ''): string
+{
+    // employees.position_title only ever caches the PRIMARY assignment. A person
+    // can be accountable/signing for a different office (e.g. OIC of a second
+    // office) where that cached title does not apply, so resolve per-office here.
+    if ($employeeId > 0 && $officeId > 0 && employee_assignments_enabled($db)) {
+        foreach (employee_fetch_assignments($db, $employeeId, true) as $assignment) {
+            if ((int) ($assignment['office_id'] ?? 0) === $officeId) {
+                return employee_format_title_with_oic((string) ($assignment['role_title'] ?? ''), !empty($assignment['is_oic']));
+            }
+        }
+    }
+
+    return trim($fallbackTitle);
+}
+
 function employee_resolve_office_head(mysqli $db, int $officeId): array
 {
     if ($officeId <= 0) {
@@ -618,7 +647,7 @@ function employee_resolve_office_head(mysqli $db, int $officeId): array
 
     // On assignment-aware schemas the flag, not the office cache, decides who heads an office.
     if (employee_assignments_enabled($db)) {
-        $stmt = $db->prepare("SELECT ea.employee_id, e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, ea.role_title AS position_title, o.office_name
+        $stmt = $db->prepare("SELECT ea.employee_id, e.id, e.name_prefix, e.first_name, e.middle_name, e.last_name, e.suffix_name, ea.role_title AS position_title, ea.is_oic, o.office_name
                               FROM employee_assignments ea
                               INNER JOIN employees e ON e.id = ea.employee_id AND e.is_active = 1
                               INNER JOIN offices o ON o.id = ea.office_id
@@ -629,6 +658,9 @@ function employee_resolve_office_head(mysqli $db, int $officeId): array
         $stmt->execute();
         $head = $stmt->get_result()->fetch_assoc() ?: [];
         $stmt->close();
+        if ($head) {
+            $head['position_title'] = employee_format_title_with_oic((string) ($head['position_title'] ?? ''), !empty($head['is_oic']));
+        }
         $cacheStmt = $db->prepare('SELECT office_head_employee_id FROM offices WHERE id = ? LIMIT 1');
         if ($cacheStmt) {
             $cacheStmt->bind_param('i', $officeId);
@@ -671,7 +703,10 @@ function employee_resolve_office_head(mysqli $db, int $officeId): array
             if ($head) {
                 foreach (employee_fetch_assignments($db, $employeeId, true) as $assignment) {
                     if ((int) ($assignment['office_id'] ?? 0) === $officeId) {
-                        $head['position_title'] = $assignment['role_title'] ?? ($head['position_title'] ?? '');
+                        $head['position_title'] = employee_format_title_with_oic(
+                            (string) ($assignment['role_title'] ?? ($head['position_title'] ?? '')),
+                            !empty($assignment['is_oic'])
+                        );
                         $head['office_name'] = $assignment['office_name'] ?? '';
                         $head['has_active_office_assignment'] = 1;
                         break;

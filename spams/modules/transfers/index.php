@@ -126,17 +126,7 @@ function transfer_clean_office_suffix(string $officeCode): string
 
 function transfer_force_office_suffix(string $propertyNumber, string $toOfficeCode): string
 {
-    $propertyNumber = trim($propertyNumber);
-    $toOfficeCode = transfer_clean_office_suffix($toOfficeCode);
-    if ($propertyNumber === '' || $toOfficeCode === '') {
-        return $propertyNumber;
-    }
-
-    if (preg_match('/-([A-Z0-9]{2,12})$/i', $propertyNumber)) {
-        return (string) preg_replace('/-([A-Z0-9]{2,12})$/i', '-' . strtoupper($toOfficeCode), $propertyNumber, 1);
-    }
-
-    return $propertyNumber;
+    return trim($propertyNumber);
 }
 
 function transfer_office_code(array $offices, int $officeId): string
@@ -389,7 +379,7 @@ function transfer_post_asset(
     $sourceType = (string) ($asset['source_type'] ?? '');
     $distributionItemDetailId = $sourceType === 'system' ? (int) ($asset['source_id'] ?? 0) : 0;
     $legacyAssetId = $sourceType === 'legacy' ? (int) ($asset['source_id'] ?? 0) : 0;
-    $propertyNumber = transfer_force_office_suffix((string) ($asset['property_number'] ?? ''), $toOfficeCode);
+    $propertyNumber = trim((string) ($asset['property_number'] ?? ''));
     $fromOfficeId = (int) ($asset['current_office_id'] ?? 0);
     $fromEmployeeId = (int) ($asset['current_employee_id'] ?? 0);
     $fromRcId = (int) ($asset['current_rc_id'] ?? 0);
@@ -837,7 +827,7 @@ if (!$db) {
                             (int) current_user_id()
                         );
                         foreach ($documentAssets as $asset) {
-                            $updatedPropertyNumber = transfer_force_office_suffix((string) ($asset['property_number'] ?? ''), $toOfficeCode);
+                            $originalPropertyNumber = trim((string) ($asset['property_number'] ?? ''));
                             $transferId = transfer_post_asset(
                                 $db,
                                 $asset,
@@ -852,7 +842,7 @@ if (!$db) {
                                 (int) $batch['id'],
                                 $toOfficeCode
                             );
-                            transfer_attach_batch_item($db, (int) $batch['id'], $transferId, $asset, $updatedPropertyNumber);
+                            transfer_attach_batch_item($db, (int) $batch['id'], $transferId, $asset, $originalPropertyNumber);
                         }
                         $postedDocuments[] = strtoupper((string) $batch['document_type']) . ' ' . $batch['system_reference'] . ' (' . count($documentAssets) . ' item' . (count($documentAssets) === 1 ? '' : 's') . ')';
                     }
@@ -931,7 +921,7 @@ if (!$db) {
                             (int) current_user_id()
                         );
                         foreach ($documentAssets as $asset) {
-                            $updatedPropertyNumber = transfer_force_office_suffix((string) ($asset['property_number'] ?? ''), $toOfficeCode);
+                            $originalPropertyNumber = trim((string) ($asset['property_number'] ?? ''));
                             $transferId = transfer_post_asset(
                                 $db,
                                 $asset,
@@ -946,7 +936,7 @@ if (!$db) {
                                 (int) $batch['id'],
                                 $toOfficeCode
                             );
-                            transfer_attach_batch_item($db, (int) $batch['id'], $transferId, $asset, $updatedPropertyNumber);
+                            transfer_attach_batch_item($db, (int) $batch['id'], $transferId, $asset, $originalPropertyNumber);
                         }
                         $postedDocuments[] = strtoupper((string) $batch['document_type']) . ' ' . $batch['system_reference'] . ' (' . count($documentAssets) . ' item' . (count($documentAssets) === 1 ? '' : 's') . ')';
                     }
