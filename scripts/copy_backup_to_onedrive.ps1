@@ -5,7 +5,7 @@ try {
         exit 0
     }
     $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
-    $one = $cfg.output_dir
+    $one = if ($cfg.secondary_output_dir) { [string] $cfg.secondary_output_dir } else { [string] $cfg.output_dir }
     if ([string]::IsNullOrWhiteSpace($one)) {
         Write-Host 'No OneDrive output_dir in settings'
         exit 0

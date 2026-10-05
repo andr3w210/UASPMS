@@ -1,0 +1,926 @@
+692	
+421	Desktop Computer
+294	Printer
+268	Laptop
+248	Aircon
+172	LED TV
+126	Projector
+104	Table
+77	Photocopier Machine
+70	Camera
+70	Airconditioner
+64	Cabinet
+62	TV
+60	All In One Desktop Computer
+49	Gas Range
+43	Television
+39	All-In-One Computer
+35	Chair
+33	Air Conditioner
+31	KITCHEN LABORATORY EQUIPMENT
+27	Software
+25	UPS
+25	Shelves
+23	Vehicle
+22	Scanner
+21	Lathe Machine
+21	Welding Machine
+21	Loudspeaker System
+20	Monoblock Tablet Armchair
+19	Steel Filing Cabinet
+19	Smart TV
+19	DSLR Camera
+19	Shelving Rack
+19	Others
+19	Oven
+19	Laboratory Equipment
+18	Tablet
+18	Sofa
+18	Refrigerator
+18	Biometric Time Recorder
+18	SIMULATOR
+18	Fire Extinguisher
+18	Measurement tools
+18	Water Dispenser
+18	Preparation Table with Plain Bottom Shelf
+18	Partition
+18	Monitor
+18	Sewing Machine
+17	Sensor
+16	CCTV
+16	Combinder
+14	Instrument
+14	Laboratory Tables
+13	Office Table
+13	Cleaning Machine
+13	sofa set
+12	Drawing Tablet
+12	Transformer
+12	Folding Chair
+12	Freezer
+11	Compressor
+11	Manage Switch
+11	Office chair
+11	Customized Shelves with Seating Cushion
+10	Hand Tools
+10	Function Generator
+10	Storage Cabinet Utensils
+10	Sports Equipment
+10	Server
+9	V. Dragon Con E5001
+9	Stand Mixer
+8	Motor Control Trainer
+8	Oscilloscope
+8	Copy Printer Machine
+8	Generator Set
+8	Radial Drilling Machine
+7	Chain Block
+7	Dynamic Microphones
+7	Generator
+7	Distribution Switches
+7	Wrench
+7	Demonstration Table
+7	Document Scanner
+7	Public Address System
+7	Grinder
+7	Photocopier
+7	Electric Drill
+6	LED WALL
+6	Portable Instructional Demo Table with Overhead Mirror, Burner, Sink and Drawers
+6	Treadmill
+6	SPOTLIGHT
+6	Digital Board
+6	Machine
+6	Washing Machine
+6	Water Supply Systems
+6	Metal Curtain Rod
+6	PUMP
+6	Micrometer Caliper
+6	Digital Multitester
+6	Dough Mixer
+6	Customized Shelves with High Table
+6	Reading Tables and Chairs
+6	Slip Metal Roller
+6	Camera Lens
+6	Netbook
+6	Circulation Counter
+6	Multimedia projector
+5	Fumehood
+5	Base Unit
+5	Fume Hoods
+5	Trapezoidal Loud Speaker
+5	Cutting Tools
+5	Portable PA System
+5	Rectangular Gazebo Type
+5	Multicolor
+5	TV with Customized Whiteboard
+5	Canopy Hood
+5	TIG Welding Machine
+5	Reading Hub (main area)
+5	Mini Hotel & Tourism Center
+5	Battery Charger
+5	Notebook
+5	Sound System
+4	Lawn Mower
+4	Chainsaw
+4	core i7
+4	Multi Gym
+4	Laminating  Machine
+4	Kitchen Sprinkler System
+4	ECB (Enclosed Circuit Breaker)
+4	Periodical Shelves
+4	Vacuum Pump
+4	Theodolite
+4	Laboratory Table with chair
+4	Recovery Machine
+4	Espresso Machine
+4	Digital Training System
+4	Sala Set
+4	Medical/Dental Clinic
+4	Laptop AMD Ryzen 5
+4	Bed
+4	Other Machinery and Equipment
+4	Diesel Engine
+4	Air Cooler
+4	KOOLER DRINKING WATER
+4	Bain Marie
+4	Portable Welding Machine
+4	Treatment Vat
+4	Laboratory table
+4	10" Way Active Speaker
+4	Gas Tank and Pipe Installation services
+4	Panel Board
+4	Mechatronics Trainer
+4	Drill press
+4	Analytical Balance
+4	Logic Trainer
+4	CCTV Camera
+4	Commercial Rice Steamer
+4	Chest Freezer
+4	Nordic Chair
+4	Commercial Kitchen with Vent Hood, Range and Washing Sink
+4	Wall Design & Fixtures
+4	SWITCH
+4	Smoker BBQ Grill
+4	Breaker
+4	Const of pavement, pathwalk & drainage
+4	Ice Cream Maker Machine
+4	Bread Proofer
+4	Customized shelves with high Table and highchair
+4	Stationary Bike
+4	Mooring Line Breided Rope
+4	Professional Flight Drones
+4	Flatscreen TV
+4	Solid Top Griller
+4	Portable Electronic Keyboard
+3	Overhead Crane
+3	Licensed Software
+3	Digital Learning Teaching
+3	Lapel Microphone
+3	Lamp Post w/ Solar Powered Lights
+3	Technical and Scientific Equipment
+3	Filing Cabinet
+3	Steam Turbine
+3	UA Victor's Arc with fountain and pump room
+3	Sextant
+3	Power Supply
+3	Wood Shaper
+3	Pistol
+3	Two Way Radio
+3	New Arrival Book Display
+3	Stabilizer
+3	Biometric Scanner
+3	Maximum Pressure Indicator
+3	Title No. N-4814
+3	Gas Oven
+3	Drying Oven
+3	Power Supply Systems
+3	Folding Table
+3	Power Rack
+3	Typewriter
+3	Circular/Elliptical collab.
+3	Digital Lab
+3	FLP Office
+3	Blinds
+3	Enclosure
+3	CABINET FIXTURE, closed shelves w/ lock;
+3	Office Equipment
+3	Digital Camera
+3	Concrete Mixer
+3	Pipe Wrench
+3	Thickness Planer
+3	Bandsaw
+3	Mig welding Machine
+3	Information and Communication Technology Equipment
+3	3D Printer
+3	Emergency Light
+3	Electric Mixer
+3	Furniture and Fixtures
+3	Revolver
+3	Amplifier
+3	Accessory
+3	Uninterruptible Power Supply
+3	Judges Desk and witness stand
+3	Rack
+3	Drinking Fountain
+3	Television Set w/ Home Theater
+3	Fire Alarm
+3	Notebook PC
+3	Communication Equipment
+3	Document Scanner,
+3	Computer Printer
+3	Computer Server
+3	Trolley
+3	Weighing Scale
+3	Combinder Machine
+3	Radio Transmitter
+3	Wireless Transmitters
+3	Marine Engine
+3	Guard House - Main Gate
+3	Technology Building
+3	CONFERENCE PROJECTIVE MEDIA EQUIPMENT
+3	Man-Overboard
+3	Wood Lathe Machine
+2	Server with Virtualization,
+2	Signalling Lamp
+2	Incubator
+2	High Pressure water Pump
+2	Academic Affairs Building
+2	Deck Oven
+2	Water Borehole Drilling
+2	UA" book display
+2	Boiler
+2	Memory Game wall
+2	Bulletin Board
+2	Television Set
+2	Advanced Digital Training System
+2	Pugmill
+2	Microwave Oven
+2	Dessicator Cabinet
+2	Image Scanner
+2	Professional Camera Recorder
+2	Cart
+2	Office File Storage Cabinet
+2	Pipe Cutting Tools
+2	Traditional Knowledge Center
+2	Gasoline Engine
+2	Bilge Pump
+2	Wireless Receiver
+2	Hammer Drill
+2	World Map
+2	Office Cubicles
+2	Olympic Floatlane
+2	Safety Vault
+2	Inorganic Chemistry
+2	20KVA Floor Mounted AVR
+2	Other Structures
+2	UIIS
+2	Operational Synchronizing Equipment
+2	Bore Gauge
+2	Excitation and Power Supply for the brake
+2	KVM Console
+2	CLASSIC GUITAR
+2	Complete Accessories for Brookfield Texture Analyzer CTX
+2	Microcentrifuge
+2	Oil Separator
+2	Electronic Trainer w/ Software
+2	College Grandstand
+2	Stand Fan
+2	OPAC Kiosk
+2	Old General Education Bldg.
+2	REFRIGERATION
+2	Digital Copier
+2	Supply Building
+2	Laminar Flow Hood
+2	Baggage Counter
+2	Ice Stores in Refrigeration Training Equipment Compressor
+2	Valve Seat Cutter
+2	Laboratory Furnace Exhaust Hood
+2	Lib. & Academic Affairs Bldg.
+2	Point of Sale (POS) System
+2	Electric Welding Machine
+2	Indoor Badminton Court
+2	College Gym
+2	Colorimeter
+2	Steel Rack
+2	Forensic Comparison Microscope
+2	Hardwood Conference Long Table
+2	Shelves and Cabinets
+2	CPR Dummy Set
+2	Automatic Knife Grinder
+2	Mini Lathe Machine
+2	I/O Board Modules
+2	Netgate
+2	Machinery
+2	Industrial Ceiling Fan
+2	Displacement Pump
+2	Mackie Audio Mixer
+2	Manual Sealing Vacuum Packaging Machine
+2	MTS (Manual Transfer Switch)
+2	Touchmix 30 Digital Professional Mixer
+2	Air Compressor
+2	Intra Oral Camera
+2	Kit
+2	Student Comfort Room
+2	Web Server
+2	Tech & Livelihood Resource Center Bldg. w/ Extra Work
+2	Budget Allocation and Asset Mgt. System
+2	License Software
+2	Covered Gym (Cultural Center)
+2	Drop Ceiling
+2	Dual Traced Oscilloscope
+2	Paddle
+2	6-Placer Hotplate with Magnetic Stirrer
+2	D.C. Motor
+2	New Gen. Education Bldg.
+2	Motor Vehicles
+2	Marine Building
+2	Automatic Potentiometric Titrator
+2	Cooler
+2	Total Station
+2	Title No. N-4826
+2	Wooden Cabinet
+2	Drop Ceiling (Area - 199.2sq.m.)
+2	ENGINE
+2	Full Mission Deck Simulator
+2	Arc Welding Machine
+2	Hanging Cabinet 4
+2	Surface Planer
+2	Paper Shredder Machine
+2	Transformer Installation & Materials
+2	Shredder
+2	Teknu Kafe
+2	Generating Set
+2	Shaper Machine
+2	LED Screen with Cabinet
+2	Audio System
+2	Soxhlet Fat Extraction
+2	Grass Cutter
+2	Solar Powered Charging Station
+2	Pipe Threader
+2	Dish Washing Machine
+2	Dental Periapical X-Ray
+2	Express Espresso Machine
+2	Cooling System Master Kit
+2	Comfort Room & Powder Room
+2	Dummy
+2	Swivel Chair
+2	Card Printer
+2	Motor Pool
+2	Texture Analyzer
+2	Drill Press-Brass
+2	Virtual Desktop Interface
+2	Audio Mixer
+2	Hydraulic
+2	Centrifugal Separator
+2	Enclosures
+2	Portable Sound
+2	Boiler Machine
+2	Auto Level
+2	Electronic Trainer Module
+2	Electric Metal Cutter
+2	Old Science Building
+2	Computer Software
+2	Tool Set
+2	Electrical Rotating Machine
+2	2 Bay Network Attached Storage
+2	Old Library
+2	Cooling System Pump
+2	Oxidation Stability Reactor
+2	Barcode Scanner
+2	Plate-Type Cooler
+2	Motor Control Module
+2	Pyth Welding Machine
+2	Hanging Cabinet 6
+2	Heat Combustion Calorimeter/Bomb Calorimeter
+2	Digital Full Color Copier
+2	3 Phase primary line extension and transformer banking at Power Plant
+2	Disaster Response and Rescue Equipment
+2	UA Victor's Arc Pathwalk
+2	Basketball Equipment
+2	Conference Table and Chair
+2	Commercial/conventional oven
+2	Fence
+2	Communication Tech 8
+2	Water Activity Meter
+2	Handy Cam
+2	Preparation Table
+2	Rigid Doughnut Liferaft
+2	Chemistry Table
+2	Extra Oral Dental Aerosol Suction System
+2	PV Solar System
+2	Spring Resiliency Tester
+2	Hyraulic Bench
+2	TLRC Gate & Guard House
+2	Marine Training Software
+2	Construction of Canopy
+2	Cargo Block
+2	Asphalt Penetrometer
+2	Physics
+2	Marine Safety Switch Box
+2	Hydraulic Press
+2	V. Dragon Simulator System
+2	Photo Enlarger
+2	Edging Sewing Machine
+2	Handwheel Autoclave
+2	Electronic Microscope
+2	Reservoir
+2	Server 2-Bay Network Attached Storage
+2	E-Building
+2	Digital Recorder
+2	High End Computer
+2	Chiller
+2	V. Dragon Con E5001 Control
+2	Moisture Analyzer
+2	Administration Building
+2	Universal Testing Machine
+2	Micro Educational System
+2	Top Loading Balance
+2	Basic Electronics/Electrical Trainer
+2	Twin Rip Saw
+2	Modern Vertical White Wooden
+2	Squaring Shear
+2	Tool Bit Holder
+2	Engineer's Transit
+2	Fiber Optic Fusion Splicer
+2	Feeder line
+2	Nordic Table
+2	Bamboo Park Project
+2	Office Cubicle
+2	Communication Tech 5
+2	Procurement of Maritime Virtual and Augmented Reality Laboratory
+2	Drum Set
+2	Inflatable Liferaft
+2	Floor Polisher
+2	System Unit
+2	Dental Chair Unit
+2	General Chemistry
+2	Rehabilitation of Football Field and Construction of Perimeter Fence
+2	Cutter Plotter
+2	School Buildings
+2	Ball Gear
+2	Software for Library Automation
+2	Data Center Rack, 42U
+2	Centrifugal Pump
+2	Inkjet Printer
+2	Desk
+2	NEC AT-40 Basic SLT AT-40
+2	Couch-Customise Sofa(set)
+2	Milling Machine
+2	Universal Milling Machine
+2	CHARGER
+2	Cutting Machine
+2	Executive House (Cottage)
+2	Covid-19 Triage and Isolation Facility
+2	Double Deep Fat Fryer
+2	Mock Bridge
+2	Divider
+1	Multifunction Digital Measuring System
+1	E-Bamboo Production Center w/ Extra Work
+1	Star Delta Unit Switch
+1	Flow Over Weirs
+1	HRM & Tourism Laboratory
+1	Landscaping of Old GEB Lawn
+1	U-Shape Manometer
+1	Extended Power Supply
+1	Pavement of Quadrangle-caluya
+1	Questioned Document Analysis
+1	ATS
+1	Spectrum Analyzer
+1	Reynolds Apparatus
+1	Architechture Building (refurbishment)
+1	O2 Gas Sensor
+1	Hurdle
+1	New General Education Building
+1	LED WALL DISPLAY
+1	Engineering Transit w/ Tripod and Stadia Rod
+1	Physical Health & Wellness Facility
+1	Marine Radio Transmitter
+1	Fiber Analyzer
+1	intel Core i5
+1	Reading Tables and Chairs (3rd Floor)
+1	Title No. N-4813
+1	Headworn Microphone
+1	Training Posters
+1	Power Systems Laboratory Equipment
+1	Course-Electrical Engineering 1
+1	Queuing System
+1	Core Switch
+1	Vac Table Top Vacuum Packaging Machine
+1	Floor Cabinet 13
+1	Portable Speaker
+1	Colony Counter
+1	Course Electronics 2
+1	Construction of Phase II of Multi-Purpose Stage with Canal
+1	Plastic Shredder
+1	Emulation Board
+1	DIGITAL CAMERA with LENS and GIMBAL:
+1	VDI-IN-A BOX DESKTOP PC
+1	Heat Press
+1	PUMP, FLUX METER, LINEAR MOTOR OPERATED VALVE, SOLENOID VALVES, MANUALLY OPERATED
+1	HRM & Tourism Lab. Phase III (Hot & Cold Kitchen)
+1	Magnetic Compass
+1	A.C. Arc Welder (PDAF)
+1	Network attached storage
+1	HRM & Tourism Lab. Phase-1
+1	High Frequency Driver
+1	Dressing Area & Comfort Rooms
+1	Female Dormitory
+1	Instrumentation and Process Control Trainer
+1	Transmission Line Simulator
+1	Orifice Discharge Apparatus
+1	Extension of HRM Laboratory (Libertad Extension Campus)
+1	Spiral Dough Mixer
+1	Title No. N-4808
+1	Fireman Outfit
+1	Microscope
+1	Saw
+1	Floor Cabinet 7
+1	Safety Features & Launching Procedure
+1	Electronic Pistol
+1	Platform Balance
+1	Construction of Motor Pool
+1	15' TWO WAY FULL RANGE ACTIVE SPEAKER
+1	Repair of water systen
+1	Architecture Building & Finishing
+1	DOJO Hall and Fitness Center
+1	Limit Gauge
+1	Refrigerator (inactive duplicate)
+1	Reciprocating Air-Driven Pump
+1	Repair of Roofing and Ceiling with Electrical Rewiring at E-Building
+1	Portable Keyboard
+1	Carwash, Auto Electrical Tune up and Vulcanizing Area
+1	ANDROID AI TV
+1	Load and Rheostat
+1	Environemental Monitoring System for Data Center and Automation
+1	DOJO Hall and Fitness Center (completion/Phase 2)
+1	Adapter Bracket
+1	Orifice and Jet Flow
+1	SIGNALLING LAMPS
+1	Library - Libertad Extension
+1	Centrifugal Pump Module
+1	Marine Dial Indicator
+1	Landscaping at the front of perimeter fence along national road (carabao grass front of center gate)
+1	Autodesk Academic Adoption Program
+1	Technology Building Extension
+1	Quick Closing Valves
+1	Connection Cable
+1	Traditional Knowledge Center-Phase II (Stage)
+1	Water Purification System with UV System
+1	Digital Trainer
+1	LED SCREEN WITH CABINET (ABRAM)
+1	Siemens SLMA 16
+1	Ladder
+1	Crime Scene Sketch Kit Prof
+1	University Power Distribution System
+1	Cutting Threads
+1	Double Bag Dust Collector
+1	IP Telephone
+1	Digital Polygraph
+1	Construction of 3X9m Extension of HRM Laboratory (Libertad Extension Campus)
+1	Battery Charger (PDAF)
+1	Male Dormitory (original & contigouos contract)
+1	Tent
+1	Electro Chemistry
+1	Smoke Machine
+1	Antenna Training System
+1	Entrance of Physical Health Wellness Facility
+1	Acquisition and Installation of IPPABX Telephone System
+1	Telephone
+1	Hand Wheel Vertical Autoclave
+1	ICT Related Equipment
+1	Bench Vise
+1	Water Purification System with UV System; MRC
+1	Course-Electrical Engineering 2
+1	College Dormitory
+1	Search Light
+1	Preferred Pack "All-in-One" Hi-Speed L-Sealer & Shrink Tunnel
+1	Hanging Cabinet 3
+1	Vacuum Cleaner
+1	Course Electronics 8
+1	Construction of Sports Training Center Phase III (pump room)
+1	Outdoor Projector
+1	Jackhammer
+1	PROCESS CONTROL SIMULATION SOFTWARE CONTROLLER
+1	Library - Libertad Exension
+1	Marine Compass
+1	Powerhouse on Generaor Set NO. 2
+1	Parallel Board
+1	LED Fresnel Light
+1	UA Libertad Campus Mini Hostel (Phase 1)
+1	Cubicle
+1	Industrial Process Control
+1	Over Current and Earth Fault Relay
+1	Fully Automatic Kjeldal Digestion Unit
+1	Gas Deck Oven
+1	Title No. N-4809
+1	ICT Related Equipment , Delivery, Installation and Commisioning
+1	Box
+1	Viscotester
+1	High Vacuum Pump
+1	Floor Cabinet 8
+1	Ball
+1	Digestor
+1	Course Electronics 1
+1	Construction of Motor Pool Phase II
+1	V. Dragon E5001
+1	2.5 INDOOR ADVERTISING LED DISPLAY
+1	Database Server
+1	Land
+1	APPLICATION BOARD FOR POSITION CONTROL
+1	Integrated ICT Learning Resource Dev't Center -Phase-2 w/ Extra Work
+1	Compound Rest
+1	HRM and Tourism Laboratory Phase II Washing Area
+1	Hydraulic Pump Direct Reading Differential
+1	MDA EMS 196
+1	ANALYZER
+1	Smart Classroom / Network System Package
+1	Shell and Tube Cooler
+1	Volleyball Equipment
+1	Covered Walkway Libertad Extension Campus
+1	Dough Kneader/Roller
+1	Three Phase Transformer
+1	Hot-spots for students
+1	Student and Personnel Services Center Phase 1
+1	Load Cell 100N
+1	Steno Writer (Stenography)
+1	Metacentric Height Apparatus
+1	Architecture Building
+1	Electronics Module
+1	Generator w/ Propeller Assembly
+1	Construction of road network (pool area)
+1	Counterfeit Machine
+1	Water Bath
+1	RACK ENCLOSURE
+1	Portable Lightweight Steel Gangway
+1	Polisher
+1	Digital Rotary Viscometer
+1	Connection Plugs
+1	Traditional Knowledge Center-Phase III (Stage)
+1	Three-Channel data Acquisition eBook
+1	Tank
+1	Sala  Bed
+1	Multiparameter pH Meter
+1	Introduction to Forensic Toxicology
+1	Rewiring at Second Floor of the Technology Building
+1	VDI-in -a-Box Desktop PC
+1	Switch L2
+1	T-Shirt Printer
+1	College Gym (Refurbishment of Paghiusa Hall)
+1	Refrigerant Recovery Oil Filling
+1	Data Acquisition USB Interface
+1	Research Resource Development Center
+1	OPEN DISSECTABLE AC/DC MACHINE
+1	Electric Pipe Threader Machine
+1	Cash Register
+1	Drainage System
+1	Shotgun
+1	Muffle Furnance
+1	Lectern
+1	Echo Sounder
+1	Microprocessors
+1	Hanging Cabinet
+1	Tilting Flume
+1	Interface Virtual Instrument
+1	Flagpole
+1	Printing Machine (set)
+1	PALLET TRUCK
+1	Mic Mini
+1	Stomacher
+1	Double Beam Balance
+1	Construction of Sports Training Center Phase IV (bleachers)
+1	Knurling Tools
+1	Communication Trainer Set
+1	Digital Plotter
+1	ID Card printer
+1	MICROPROCESSOR-BASED PROCESS CONTROLLER
+1	Old General Education Building, Repair Phase II (Architectural design & retrofittin/facelifting)
+1	Orsat Gas Analysis Unit
+1	Motor Control, Mechatronics and PLC Trainer
+1	Karatedo Dujo Mat
+1	Kawasaki Power Washer
+1	Pump Room
+1	Mechanic Power Measuring Unit
+1	Filter
+1	Osborne Reynolds Apparatus
+1	Electro-Mechanical Training Set
+1	Non-Insulated Proofing Cabinet
+1	Title No. N-4810
+1	Reception / General Information counter
+1	Ultraviolet Rays Machine
+1	Venturimeter
+1	Reading Tables and Chairs (First Floor)
+1	Marine Generating Set
+1	Floor Cabinet 10
+1	Bench Press
+1	UV.Vis SPECTROPHOTOMETER
+1	Course Electronics 3
+1	Construction of Multi-Purpose Stage @ Libertad Campus
+1	3.5Mx2.5M P3.91 INDOOR FULL COLOR LED DISPLAY
+1	All in One PC Touch
+1	Other Land Improvements
+1	APPLICATION BOARD FOR SPEED SYSTEM
+1	Accounting Building Phase II
+1	Compression
+1	ROTC Office
+1	Copier Machine
+1	Differential Pressure Indicator
+1	BDA Building
+1	Power Saw
+1	Starting and Synchronozation Unit
+1	Generator Set with Automatic transfer Switch
+1	Construction of HRM and Tourism Laboratory Phase II Washing Area
+1	Software for Automatic Data Acquisition
+1	Bernaulli's Theorem Apparatus
+1	Refurbishment of Paghiusa Hall
+1	Electrochemistry
+1	Air Inflator
+1	Construction of sports training center phase 2 (retaining wall north side)
+1	Azure Dev for Education
+1	Photo Laboratory Kit
+1	Flash point and Fire Point Apparatus
+1	TINA PRO Software
+1	Traditional Knowledge Center-Phase IV (Stage)
+1	ITDI-SAFE WATERS
+1	CONFERENCE PROJECTIVE MEDIA EQUIPMENT(DAHUA INTERACTICE WHITEBOARD LCH75-MC410-B
+1	Camcorder
+1	Construction of Water System of UA-Caluya Extension
+1	Master Firearms Detector Kit
+1	New Sci. Laboratory Bldg.
+1	Terracotta Production
+1	Counter Table
+1	CEA Building-Annex
+1	Terracotta Production Center Phase I
+1	Single Phase Transformer
+1	Analog Speech Laboratory
+1	Bench Milling Machine
+1	pH/ORP Meter
+1	Rehab of UA drainage (side of Covered Gym) 2nd payment
+1	Maritime E-Learning Management System
+1	pH/ORP Meter with Cal Check
+1	Student and Personnel Services Center
+1	Reading Tables and Chair (Second Floor)
+1	Title No. N-5641
+1	Display
+1	Experimenter
+1	Stage
+1	Exhaust Fan
+1	Industrial Motor Control with PLC Trainer
+1	Conventional Polygraph
+1	Construction of Transformer Pad
+1	Spur Gear
+1	Computer Set
+1	Transmitter
+1	Science and Technology Laburatory @ UA Caluya Extension Campus with contiquous
+1	Sieving
+1	Electric Pipe Threader
+1	Data Logger
+1	RFID Encoder and Scanner Kit
+1	Hot Stick
+1	Bleachers
+1	Clamp Meter
+1	Keyboard
+1	Title No. N-4811
+1	Customized shelves with
+1	Fingerprint Kit
+1	Materials Testing & Properties Equipment
+1	Circuit Breaker
+1	Pneumatic Overarm Router
+1	Floor Cabinet 11
+1	Dumbbell
+1	Benchtop Incubator
+1	Course Electronics 4
+1	Construction of Traditional Knowledge cum Evacuation Center Phase V (dressing Areaa & Comfort rooms)
+1	Fuel Flow Meter
+1	Motorized Travel Curtain
+1	Network Attached Storage (NAS)
+1	Coffee Table
+1	Buildings
+1	APPLICATION BOARD FOR TEMPERATURE CONTROL
+1	Accounting Building Phase III with Extra Work
+1	Oxygen Analyzer
+1	Integrated Service Router
+1	Dojo Hall & Fitness Center-Phase 1
+1	Automatic Starter Timer
+1	HP Pavillon
+1	Locking and Rotatable Device
+1	Fiber Optic Cabling
+1	Knowledge Dev't & Record Management Center (Phase-2)
+1	Power Factor Loadbank
+1	Flow Meter demo Apparatus
+1	Old General Education Building
+1	Perimeter fence and drainage system along national road phase IV (shed extension and walk rays)-Repair
+1	Table Top High Speed Centrifuge
+1	Circular Saw
+1	Arc Welder
+1	Floor Cabinet 1
+1	Modules
+1	Industrial Stand Fan
+1	Digital Multimeter
+1	Construction of Covered Walkway Libertad Extension Campus
+1	Gauges
+1	Common Cycle Refrigeration Training Equipment
+1	Copyprinter Machine
+1	Realignment of Waterline System
+1	Narcotics and Drug Indentification Kit
+1	Eng'g. Science Bldg.
+1	E-Bamboo Production Center
+1	Sheet Metal Bender
+1	Food Chemistry
+1	Copy Printer
+1	Construction of CEA Building-Annex (Contiguous)
+1	Power Supply Module
+1	Network and Cabling Infrastructure (Supply, delivery, Installation and commissioning of Fiber Optic Cable (Core Switch)
+1	Terracotta Production Center Phase II w/ Extra Work
+1	Pole Changing Unit
+1	Hydraulic Bench
+1	Double Throw Safety Switches
+1	Integrated ICT Learning Resource Development Center
+1	Compressed Air Breathing Aparatus
+1	Land Improvement form Architecture Building to Gate 3 (Provision for Pathwalk)
+1	Integrated Research Information System
+1	Ammunition Collector
+1	Microscope with camera, 22" LED Monitor, Keyboard and wireless optical Mouse
+1	UA Libertad Campus Mini Hostel
+1	Reception/General Information Counter
+1	Drum Microphone
+1	Dryer
+1	Pitot Tubes
+1	Set of Shunts
+1	Grand Stand-UA Field
+1	Access Point
+1	Variable Frequency Drive Trainer
+1	Pro Photo Camera Set
+1	Power System & Installation
+1	Chemical Storage Cabinet
+1	ID Card printer w/ Camera and Signature Pen Tablet
+1	Fiber Switch
+1	Medical Equipment
+1	Planimeter
+1	Technology Building - Refurbishment of COT Faculty Office, Ground Floor Hallway and Classrooms @ second floor and repainting
+1	Co2 Gas Sensor
+1	RFID INVENTORY SCANNER
+1	High Jump Landing Pit
+1	Abrasive Cutting
+1	Library & Academic Affairs Bldg.
+1	Aircon & Refrigeration Trainer w/ Heat Pump
+1	Roadway
+1	Commercial Kitchen with Vent Hood, Range and
+1	DIGITAL VISCOMETER
+1	Title No. N-4812
+1	Periodical shelves 104 x 220 x 35 with back issue
+1	Electric Iron
+1	Thermal Power Plant Engine Trainer
+1	Human Torso Chart w/ stand
+1	Shelves and Cabinet
+1	core i9
+1	Horizontal Boring Machine
+1	Floor Cabinet 12
+1	Kettlebell
+1	Autoclave
+1	Course Electronics 6
+1	Payment for the Construction of Powerhouse for Generator Set NO.2
+1	Turbo Charger
+1	Water Storage Tank with Pump and Accessories
+1	Laptop AMD Ryzen 9
+1	Bookshelves
+1	REGULATION AND CONTROL BOARD WITH UNLIMITED INSTALLATION cai SOFTWARE, WITH ATLEAST 7 FAULT INSERTION MICRO SWITCHES OF COMPUTER INSERTION, WITH POWER SUPPLY AND BASE FRAME
+1	Integrated ICT Learning Resource Dev't.Center Phase-III
+1	Dual Actuator Control
+1	Knowledge Dev't & Record Management Center (Phase-1)
+1	Mirror
+1	Brunton Compass
+1	Multi-purpose Stage @ Libertad Campus
+1	Software and Training
+1	Electromagnetic Brake
+1	Construction Of ROTC Office
+1	Room
+1	DC Power Supply
+1	Digital Marshall Stability Tester
+1	Pipe Friction Apparatus
+1	Sieves
+1	Sports Training Center (Swimming pool Including contiguous)
+1	Procurement System
+1	Tanks
+1	Microwave Plasma
+1	Bamboo Engraving Machine
+1	Floor Cabinet 5
+1	Home Gym
+1	Laminar Flowhood
+1	Storage Case
+1	Carwash, Auto Electrical Tune up and Vulcanizing Area -COT Laboratory
+1	Modular Mobile Innovation Hub
+1	Instrumentation and Process Control
+1	Multimedia
+1	Forensic Optical Comparator
+1	Air Purifier
+1	Construction of Water Tank and Looping of Existing Waterline in the University
+1	Master Evidence Collection Kit
+1	Integrated ICT Learning Resource Dev't Center -Phase-1
+1	Image Runner
+1	Compressor Indicator Analyzer
+1	Plotter
+1	sterilisers
+1	Muffle Furnace
+1	Pneumatic Transmitter
+1	Construction of Technology Building Extension

@@ -1,0 +1,378 @@
+﻿{
+    "desktop-computer":  {
+                             "file":  "desktop-computer.jpg",
+                             "title":  "Desktop Computer",
+                             "creator":  "Dave Meier",
+                             "license":  "CC0 1.0",
+                             "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                             "source_url":  "https://stocksnap.io/photo/desktop-computer-B4145FFE64"
+                         },
+    "laptop":  {
+                   "file":  "laptop.jpg",
+                   "title":  "Laptop Computer",
+                   "creator":  "Startup Stock Photos",
+                   "license":  "CC0 1.0",
+                   "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                   "source_url":  "https://stocksnap.io/photo/laptop-computer-4O4FZUVSIU"
+               },
+    "tablet":  {
+                   "file":  "tablet.jpg",
+                   "title":  "Tablet Computer",
+                   "creator":  "Birch Landing Home",
+                   "license":  "CC0 1.0",
+                   "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                   "source_url":  "https://stocksnap.io/photo/tablet-computer-KCEVT4PCQ1"
+               },
+    "printer":  {
+                    "file":  "printer.jpg",
+                    "title":  "My work center",
+                    "creator":  "FotoGuy 49057",
+                    "license":  "BY 2.0",
+                    "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                    "source_url":  "https://www.flickr.com/photos/28682774@N00/49168925721"
+                },
+    "photocopier":  {
+                        "file":  "photocopier.jpg",
+                        "title":  "Stokes Adrian Oxford crew 1952 03 29 PHOTOCOPY boatrace start in snow",
+                        "creator":  "Teresa Mary Stokes",
+                        "license":  "BY-SA 2.0",
+                        "license_url":  "https://creativecommons.org/licenses/by-sa/2.0/",
+                        "source_url":  "https://www.flickr.com/photos/75674919@N07/53016101153"
+                    },
+    "projector":  {
+                      "file":  "projector.jpg",
+                      "title":  "Video projector",
+                      "creator":  "",
+                      "license":  "CC0 1.0",
+                      "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                      "source_url":  "https://www.rawpixel.com/image/5921858/video-projector-free-public-domain-cc0-image"
+                  },
+    "television":  {
+                       "file":  "television.jpg",
+                       "title":  "DSC_8584: a living room filled with furniture and a flat screen tv",
+                       "creator":  "PattayaPatrol",
+                       "license":  "BY-SA 2.0",
+                       "license_url":  "https://creativecommons.org/licenses/by-sa/2.0/",
+                       "source_url":  "https://www.flickr.com/photos/194424926@N05/54298165566"
+                   },
+    "camera":  {
+                   "file":  "camera.jpg",
+                   "title":  "Rode Shotgun Mic for Canon DSLR Camera",
+                   "creator":  "bradjavernick",
+                   "license":  "BY 2.0",
+                   "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                   "source_url":  "https://www.flickr.com/photos/156466858@N02/50267848691"
+               },
+    "cctv":  {
+                 "file":  "cctv.jpg",
+                 "title":  "Free cctv camera image",
+                 "creator":  "",
+                 "license":  "CC0 1.0",
+                 "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                 "source_url":  "https://www.rawpixel.com/image/5922012/photo-image-public-domain-sky-camera"
+             },
+    "air-conditioner":  {
+                            "file":  "air-conditioner.jpg",
+                            "title":  "Air Conditioner",
+                            "creator":  "Dick Thomas Johnson",
+                            "license":  "BY 2.0",
+                            "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                            "source_url":  "https://www.flickr.com/photos/31029865@N06/15221671907"
+                        },
+    "fan":  {
+                "file":  "fan.jpg",
+                "title":  "McMurtry SpÃ©irling Electric Fan Car",
+                "creator":  "Dave Hamster",
+                "license":  "BY 2.0",
+                "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                "source_url":  "https://www.flickr.com/photos/14265068@N00/52337836692"
+            },
+    "refrigerator":  {
+                         "file":  "refrigerator.jpg",
+                         "title":  "1953 Crosley Shelvador Refrigerator",
+                         "creator":  "aldenjewell",
+                         "license":  "BY 2.0",
+                         "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                         "source_url":  "https://www.flickr.com/photos/31411679@N08/52056234862"
+                     },
+    "gas-range":  {
+                      "file":  "gas-range.jpg",
+                      "title":  "Gas stove burner",
+                      "creator":  "jasonwoodhead23",
+                      "license":  "BY 2.0",
+                      "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                      "source_url":  "https://www.flickr.com/photos/80365963@N00/51317460232"
+                  },
+    "oven":  {
+                 "file":  "oven.jpg",
+                 "title":  "Microwave Oven",
+                 "creator":  "string_bass_dave",
+                 "license":  "BY-SA 2.0",
+                 "license_url":  "https://creativecommons.org/licenses/by-sa/2.0/",
+                 "source_url":  "https://www.flickr.com/photos/16069488@N00/52279067703"
+             },
+    "water-dispenser":  {
+                            "file":  "water-dispenser.jpg",
+                            "title":  "Water dispenser.",
+                            "creator":  "MIKI Yoshihito. (#mikiyoshihito)",
+                            "license":  "BY 2.0",
+                            "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                            "source_url":  "https://www.flickr.com/photos/7940758@N07/52120979283"
+                        },
+    "mixer-blender":  {
+                          "file":  "mixer-blender.jpg",
+                          "title":  "Free kitchen mixer whisk image",
+                          "creator":  "",
+                          "license":  "CC0 1.0",
+                          "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                          "source_url":  "https://www.rawpixel.com/image/5926651/photo-image-public-domain-technology-kitchen"
+                      },
+    "ups":  {
+                "file":  "ups.jpg",
+                "title":  "Layout and installation of Uninterruptible Power Supply (UPS) panel and their corresponding power feed conduits in an equipment room. 07-29-21",
+                "creator":  "MTA C\u0026D - EAST SIDE ACCESS",
+                "license":  "BY 2.0",
+                "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                "source_url":  "https://www.flickr.com/photos/59595815@N03/51361770384"
+            },
+    "speaker":  {
+                    "file":  "speaker.jpg",
+                    "title":  "Loudspeaker and a surveillance camera on top of a pole",
+                    "creator":  "Ivan Radic",
+                    "license":  "BY 2.0",
+                    "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                    "source_url":  "https://www.flickr.com/photos/26344495@N05/51313558921"
+                },
+    "microphone":  {
+                       "file":  "microphone.jpg",
+                       "title":  "Microphone Audio",
+                       "creator":  "Maciej Korsan",
+                       "license":  "CC0 1.0",
+                       "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                       "source_url":  "https://stocksnap.io/photo/microphone-audio-IQVHQYS3GL"
+                   },
+    "network-device":  {
+                           "file":  "network-device.jpg",
+                           "title":  "Network Switch",
+                           "creator":  "",
+                           "license":  "CC0 1.0",
+                           "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                           "source_url":  "https://www.rawpixel.com/image/5969845/network-switch"
+                       },
+    "server":  {
+                   "file":  "server.jpg",
+                   "title":  "Fans wires back computer server",
+                   "creator":  "",
+                   "license":  "CC0 1.0",
+                   "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                   "source_url":  "https://www.rawpixel.com/image/3287862/free-photo-image-server-architecture-building"
+               },
+    "two-way-radio":  {
+                          "file":  "two-way-radio.jpg",
+                          "title":  "Securing the Two-way Radio",
+                          "creator":  "Chris Hunkeler",
+                          "license":  "BY-SA 2.0",
+                          "license_url":  "https://creativecommons.org/licenses/by-sa/2.0/",
+                          "source_url":  "https://www.flickr.com/photos/14913305@N00/54514498993"
+                      },
+    "chair":  {
+                  "file":  "chair.jpg",
+                  "title":  "Patches on a blue towel on my office chair",
+                  "creator":  "Steam Pipe Trunk Distribution Venue",
+                  "license":  "BY 2.0",
+                  "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                  "source_url":  "https://www.flickr.com/photos/65067366@N00/51670719886"
+              },
+    "sofa":  {
+                 "file":  "sofa.jpg",
+                 "title":  "Sofa",
+                 "creator":  "Daquella manera",
+                 "license":  "CC0 1.0",
+                 "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                 "source_url":  "https://www.flickr.com/photos/62518311@N00/14568204935"
+             },
+    "cabinet":  {
+                    "file":  "cabinet.jpg",
+                    "title":  "Fire Investigators Tom Urquhart and George Birnie posing with \u0027Arson\u0027 filing cabinet",
+                    "creator":  "City of Vancouver Archives",
+                    "license":  "BY 2.0",
+                    "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                    "source_url":  "https://www.flickr.com/photos/42385626@N06/51608185405"
+                },
+    "shelves":  {
+                    "file":  "shelves.jpg",
+                    "title":  "DSC_9758: a motorcycle parked in front of a coffee shop",
+                    "creator":  "PattayaPatrol",
+                    "license":  "BY-SA 2.0",
+                    "license_url":  "https://creativecommons.org/licenses/by-sa/2.0/",
+                    "source_url":  "https://www.flickr.com/photos/194424926@N05/54368059108"
+                },
+    "whiteboard":  {
+                       "file":  "whiteboard.jpg",
+                       "title":  "Whiteboard Post-Itnotes",
+                       "creator":  "Startup Stock Photos",
+                       "license":  "CC0 1.0",
+                       "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                       "source_url":  "https://stocksnap.io/photo/whiteboard-post-itnotes-YR89OQFMT1"
+                   },
+    "bed":  {
+                "file":  "bed.jpg",
+                "title":  "Art Moderne - full size bed frame 1",
+                "creator":  "KC Mike",
+                "license":  "BY 2.0",
+                "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                "source_url":  "https://www.flickr.com/photos/77985281@N00/8075797741"
+            },
+    "fire-extinguisher":  {
+                              "file":  "fire-extinguisher.jpg",
+                              "title":  "Blowing Out Candles with Fire Extinguisher",
+                              "creator":  "Scribbler.com Images",
+                              "license":  "BY 2.0",
+                              "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                              "source_url":  "https://www.flickr.com/photos/193667744@N08/51367414718"
+                          },
+    "vehicle":  {
+                    "file":  "vehicle.jpg",
+                    "title":  "Amercian Cop Cars",
+                    "creator":  "Phil_Parker",
+                    "license":  "BY 2.0",
+                    "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                    "source_url":  "https://www.flickr.com/photos/45131642@N00/52499921821"
+                },
+    "generator":  {
+                      "file":  "generator.jpg",
+                      "title":  "Water Turbine and Electric Generator 1903",
+                      "creator":  "Eric Friedebach",
+                      "license":  "BY 2.0",
+                      "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                      "source_url":  "https://www.flickr.com/photos/146295701@N02/51661414822"
+                  },
+    "welding-machine":  {
+                            "file":  "welding-machine.jpg",
+                            "title":  "EMD 51-1556",
+                            "creator":  "Jungfrau \u0026 Altglas",
+                            "license":  "PDM 1.0",
+                            "license_url":  "https://creativecommons.org/publicdomain/mark/1.0/",
+                            "source_url":  "https://www.flickr.com/photos/95595837@N03/54946447842"
+                        },
+    "lathe":  {
+                  "file":  "lathe.jpg",
+                  "title":  "P3300289.JPG",
+                  "creator":  "helsinkihacklab",
+                  "license":  "BY 2.0",
+                  "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                  "source_url":  "https://www.flickr.com/photos/119568453@N05/16357767873"
+              },
+    "power-tool":  {
+                       "file":  "power-tool.jpg",
+                       "title":  "DIY assembly of wooden furniture using a power drill in a well-lit indoor workspace",
+                       "creator":  "nenadstojkovicart",
+                       "license":  "BY 2.0",
+                       "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                       "source_url":  "https://www.flickr.com/photos/202846129@N03/54550155042"
+                   },
+    "sewing-machine":  {
+                           "file":  "sewing-machine.jpg",
+                           "title":  "Trade card for Household Sewing Machine Co., Providence, R. I.",
+                           "creator":  "MCAD Library",
+                           "license":  "BY 2.0",
+                           "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                           "source_url":  "https://www.flickr.com/photos/69184488@N06/51761345842"
+                       },
+    "washing-machine":  {
+                            "file":  "washing-machine.jpg",
+                            "title":  "Washing Machine Selfie - 88/365",
+                            "creator":  "Mr Moss",
+                            "license":  "BY 2.0",
+                            "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                            "source_url":  "https://www.flickr.com/photos/49734171@N00/16982473245"
+                        },
+    "lawn-mower":  {
+                       "file":  "lawn-mower.jpg",
+                       "title":  "Robot lawn mower close-up",
+                       "creator":  "Ivan Radic",
+                       "license":  "BY 2.0",
+                       "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                       "source_url":  "https://www.flickr.com/photos/26344495@N05/51331550196"
+                   },
+    "treadmill":  {
+                      "file":  "treadmill.jpg",
+                      "title":  "Knee Sports Injury on Treadmill at Home Gym",
+                      "creator":  "our30",
+                      "license":  "BY 2.0",
+                      "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                      "source_url":  "https://www.flickr.com/photos/195165849@N04/51925624706"
+                  },
+    "measuring-instrument":  {
+                                 "file":  "measuring-instrument.jpg",
+                                 "title":  "SDM3055_01",
+                                 "creator":  "Mortymore",
+                                 "license":  "BY 2.0",
+                                 "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                                 "source_url":  "https://www.flickr.com/photos/42537987@N07/52596568803"
+                             },
+    "pump":  {
+                 "file":  "pump.jpg",
+                 "title":  "Sir John Hales Baronett:Gave this Water and at his own chargehad it brought hither.1733\u0027The handle is no longer attached and the water pump is tainted with rust. It has the manufacturer/model near the top as \u0027Pike 183L\u0027.",
+                 "creator":  "JOHN K THORNE",
+                 "license":  "CC0 1.0",
+                 "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                 "source_url":  "https://www.flickr.com/photos/89918055@N05/52692167406"
+             },
+    "shredder":  {
+                     "file":  "shredder.jpg",
+                     "title":  "A Failure in the Teeth",
+                     "creator":  "John Loo",
+                     "license":  "BY 2.0",
+                     "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                     "source_url":  "https://www.flickr.com/photos/8510225@N07/51368666843"
+                 },
+    "biometric":  {
+                      "file":  "biometric.jpg",
+                      "title":  "Face recognition autofocus responded.",
+                      "creator":  "MIKI Yoshihito. (#mikiyoshihito)",
+                      "license":  "BY 2.0",
+                      "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                      "source_url":  "https://www.flickr.com/photos/7940758@N07/53804024791"
+                  },
+    "light":  {
+                  "file":  "light.jpg",
+                  "title":  "Red emergency lights Boston firefighter",
+                  "creator":  "",
+                  "license":  "CC0 1.0",
+                  "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                  "source_url":  "https://www.rawpixel.com/image/3337360/free-photo-image-asphalt-bicycle-bike"
+              },
+    "ladder":  {
+                   "file":  "ladder.jpg",
+                   "title":  "Balcony, Ladder, Bicycle",
+                   "creator":  "kohlmann.sascha",
+                   "license":  "BY-SA 2.0",
+                   "license_url":  "https://creativecommons.org/licenses/by-sa/2.0/",
+                   "source_url":  "https://www.flickr.com/photos/96323831@N06/13623854404"
+               },
+    "scanner":  {
+                    "file":  "scanner.jpg",
+                    "title":  "radiation scanner",
+                    "creator":  "Muffet",
+                    "license":  "BY 2.0",
+                    "license_url":  "https://creativecommons.org/licenses/by/2.0/",
+                    "source_url":  "https://www.flickr.com/photos/53133240@N00/25408402353"
+                },
+    "monitor":  {
+                    "file":  "monitor.jpg",
+                    "title":  "Computer Monitors",
+                    "creator":  "Tran Mau Tri Tam",
+                    "license":  "CC0 1.0",
+                    "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                    "source_url":  "https://stocksnap.io/photo/computer-monitors-SLZRDLFT96"
+                },
+    "table":  {
+                  "file":  "table.jpg",
+                  "title":  "Office Desk",
+                  "creator":  "Bench Accounting",
+                  "license":  "CC0 1.0",
+                  "license_url":  "https://creativecommons.org/publicdomain/zero/1.0/",
+                  "source_url":  "https://stocksnap.io/photo/office-desk-N7FUTW0RY5"
+              }
+}

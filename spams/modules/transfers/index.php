@@ -414,13 +414,13 @@ function transfer_post_asset(
     $stmt->close();
 
     if ($sourceType === 'system') {
-        $stmt = $db->prepare("UPDATE distribution_item_details SET property_number = ?, current_office_id = ?, current_employee_id = NULLIF(?,0), current_responsibility_code_id = NULLIF(?,0) WHERE id = ?");
+        $stmt = $db->prepare("UPDATE distribution_item_details SET property_number = ?, is_distributed = 1, current_office_id = ?, current_employee_id = NULLIF(?,0), current_responsibility_code_id = NULLIF(?,0) WHERE id = ?");
         if (!$stmt) {
             throw new RuntimeException('Unable to prepare system accountability update.');
         }
         $stmt->bind_param('siiii', $propertyNumber, $toOfficeId, $toEmployeeId, $toRcId, $distributionItemDetailId);
     } else {
-        $stmt = $db->prepare("UPDATE legacy_assets SET property_number = ?, office_id = ?, employee_id = NULLIF(?,0), responsibility_code_id = NULLIF(?,0) WHERE id = ?");
+        $stmt = $db->prepare("UPDATE legacy_assets SET property_number = ?, office_id = ?, employee_id = NULLIF(?,0), responsibility_code_id = NULLIF(?,0), accountability_status = 'active', accountability_cleared_at = NULL, accountability_cleared_by = NULL WHERE id = ?");
         if (!$stmt) {
             throw new RuntimeException('Unable to prepare legacy accountability update.');
         }
@@ -432,6 +432,20 @@ function transfer_post_asset(
         throw new RuntimeException('Unable to update asset accountability: ' . $err);
     }
     $stmt->close();
+
+    if ($sourceType === 'system') {
+        $receivingDetailStmt = $db->prepare("UPDATE receiving_item_details rid INNER JOIN distribution_item_details did ON did.receiving_item_detail_id = rid.id SET rid.is_distributed = 1 WHERE did.id = ?");
+        if (!$receivingDetailStmt) {
+            throw new RuntimeException('Unable to reserve the transferred receiving unit.');
+        }
+        $receivingDetailStmt->bind_param('i', $distributionItemDetailId);
+        if (!$receivingDetailStmt->execute()) {
+            $error = $receivingDetailStmt->error;
+            $receivingDetailStmt->close();
+            throw new RuntimeException('Unable to reserve the transferred receiving unit: ' . $error);
+        }
+        $receivingDetailStmt->close();
+    }
 
     if ($sourceType === 'system' && !transfer_sync_system_property_number($db, $distributionItemDetailId, $propertyNumber)) {
         throw new RuntimeException('Unable to sync system property number after transfer.');
@@ -618,7 +632,22 @@ if (!$db) {
             LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id
             LEFT JOIN responsibility_codes curr_rc ON curr_rc.id = did.current_responsibility_code_id
             WHERE poi.item_type IN ('equipment','semi_expendable')
-              AND did.is_distributed = 1
+                            AND (
+                                    did.is_distributed = 1
+                                    OR EXISTS (
+                                            SELECT 1 FROM returns ready_return
+                                            WHERE ready_return.source_type = 'system'
+                                                AND ready_return.distribution_item_detail_id = did.id
+                                                AND ready_return.status = 'posted'
+                                                AND ready_return.disposition_status = 'ready_for_reissue'
+                                                AND ready_return.id = (
+                                                        SELECT MAX(latest_return.id) FROM returns latest_return
+                                                        WHERE latest_return.source_type = 'system'
+                                                            AND latest_return.distribution_item_detail_id = did.id
+                                                            AND latest_return.status = 'posted'
+                                                )
+                                    )
+                            )
               AND (did.is_disposed IS NULL OR did.is_disposed = 0)";
     $res = $db->query($sql);
     if ($res) while ($row = $res->fetch_assoc()) $assets[] = $row;

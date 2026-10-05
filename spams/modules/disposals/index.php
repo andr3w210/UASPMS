@@ -127,7 +127,13 @@ if (!$db) {
         $systemAssets = [];
         if (!$errors) {
             if ($sourceType === 'legacy') {
-                $assetStmt = $db->prepare("SELECT id, item_type FROM legacy_assets WHERE id = ? AND is_active = 1 LIMIT 1");
+                $assetStmt = $db->prepare("SELECT la.id, la.item_type,
+                                  (SELECT COALESCE(rt.disposition_status, 'pending_inspection')
+                                   FROM returns rt
+                                   WHERE rt.source_type = 'legacy' AND rt.legacy_asset_id = la.id AND rt.status = 'posted'
+                                   ORDER BY rt.id DESC LIMIT 1) AS latest_return_disposition
+                               FROM legacy_assets la
+                               WHERE la.id = ? AND la.is_active = 1 LIMIT 1");
                 if ($assetStmt) {
                     $assetStmt->bind_param('i', $legacyAssetId);
                     $assetStmt->execute();
@@ -138,6 +144,9 @@ if (!$db) {
                 if (!$asset) {
                     $errors[] = 'The selected legacy asset could not be found.';
                 } else {
+                    if (!empty($asset['latest_return_disposition']) && $asset['latest_return_disposition'] !== 'for_disposal') {
+                        $errors[] = 'This returned asset must be marked For Disposal in the Supply Pool before disposal.';
+                    }
                     $dupStmt = $db->prepare("SELECT id FROM disposals WHERE source_type = 'legacy' AND legacy_asset_id = ? AND status = 'posted' LIMIT 1");
                     if ($dupStmt) {
                         $dupStmt->bind_param('i', $legacyAssetId);
@@ -154,6 +163,7 @@ if (!$db) {
                     SELECT
                         rt.id AS return_id,
                         rt.return_date,
+                        COALESCE(rt.disposition_status, 'pending_inspection') AS disposition_status,
                         did.id,
                         did.property_number,
                         did.serial_no,
@@ -195,6 +205,11 @@ if (!$db) {
 
                         if ((int) ($assetRow['is_distributed'] ?? 0) !== 0) {
                             $errors[] = 'Asset ' . ((string) ($assetRow['property_number'] ?? ('#' . $selectedReturnId))) . ' is not yet returned to Supply Office.';
+                            continue;
+                        }
+
+                        if (($assetRow['disposition_status'] ?? 'pending_inspection') !== 'for_disposal') {
+                            $errors[] = 'Asset ' . ((string) ($assetRow['property_number'] ?? ('#' . $selectedReturnId))) . ' must be marked For Disposal in the Supply Pool before disposal.';
                             continue;
                         }
 
@@ -340,6 +355,7 @@ if (!$db) {
             rt.id AS return_id,
             rt.system_reference AS return_reference,
             rt.return_date,
+            COALESCE(rt.disposition_status, 'pending_inspection') AS disposition_status,
             did.id,
             did.property_number,
             did.brand,
@@ -369,6 +385,7 @@ if (!$db) {
         LEFT JOIN offices o ON o.id = COALESCE(rt.office_id, d.office_id)
         LEFT JOIN employees e ON e.id = COALESCE(rt.employee_id, d.employee_id)
         WHERE rt.status = 'posted'
+                    AND COALESCE(rt.disposition_status, 'pending_inspection') = 'for_disposal'
           AND did.is_distributed = 0
           AND (did.is_disposed IS NULL OR did.is_disposed = 0)
           AND COALESCE(poi.item_type, si.item_type) IN ('semi_expendable', 'equipment')

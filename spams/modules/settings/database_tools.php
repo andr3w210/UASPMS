@@ -334,6 +334,9 @@ function db_tools_default_auto_backup_config(): array
         'output_dir' => db_tools_backups_root() . DIRECTORY_SEPARATOR . 'auto',
         'photos_dir' => db_tools_project_root() . DIRECTORY_SEPARATOR . 'spams' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'assets',
         'include_photos' => false,
+        'upload_onedrive' => false,
+        'onedrive_folder' => 'UASPMS-Backups',
+        'onedrive_drive_id' => '',
         'keep_days' => 30,
         'schedule_type' => 'daily',
         'start_time' => '23:00',
@@ -687,6 +690,13 @@ function db_tools_run_backup_now(array $config, array &$errors): bool
         $commandParts[] = '-PhotosDir';
         $commandParts[] = escapeshellarg((string) ($config['photos_dir'] ?? ''));
     }
+    if (!empty($config['upload_onedrive'])) {
+        $commandParts[] = '-UploadOneDrive';
+        $commandParts[] = '-OneDriveFolder';
+        $commandParts[] = escapeshellarg((string) ($config['onedrive_folder'] ?? 'UASPMS-Backups'));
+        $commandParts[] = '-OneDriveDriveId';
+        $commandParts[] = escapeshellarg((string) ($config['onedrive_drive_id'] ?? ''));
+    }
 
     $output = [];
     $exitCode = 0;
@@ -836,6 +846,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $outputDir = db_tools_normalize_output_dir((string) ($_POST['output_dir'] ?? ''));
         $photosDir = db_tools_normalize_output_dir((string) ($_POST['photos_dir'] ?? ''));
         $includePhotos = isset($_POST['include_photos']) && $_POST['include_photos'] === '1';
+        $uploadOneDrive = isset($_POST['upload_onedrive']) && $_POST['upload_onedrive'] === '1';
+        $onedriveFolder = trim((string) ($_POST['onedrive_folder'] ?? 'UASPMS-Backups'));
+        $onedriveDriveId = trim((string) ($_POST['onedrive_drive_id'] ?? ''));
         $keepDays = (int) ($_POST['keep_days'] ?? 30);
         $scheduleType = strtolower(trim((string) ($_POST['schedule_type'] ?? 'daily')));
         $startTime = trim((string) ($_POST['start_time'] ?? '23:00'));
@@ -848,6 +861,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($outputDir === '') {
             $errors[] = 'Backup output directory is required.';
+        }
+        if ($uploadOneDrive && $onedriveFolder === '') {
+            $errors[] = 'OneDrive folder is required when OneDrive upload is enabled.';
+        }
+        if ($uploadOneDrive && $onedriveDriveId === '') {
+            $errors[] = 'OneDrive Drive ID is required when OneDrive upload is enabled.';
         }
 
         if ($keepDays < 1) {
@@ -878,6 +897,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'output_dir' => $outputDir,
                 'photos_dir' => $photosDir,
                 'include_photos' => (bool) $includePhotos,
+                'upload_onedrive' => (bool) $uploadOneDrive,
+                'onedrive_folder' => $onedriveFolder,
+                'onedrive_drive_id' => $onedriveDriveId,
                 'keep_days' => $keepDays,
                 'schedule_type' => $scheduleType,
                 'start_time' => $startTime,
@@ -921,6 +943,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'include_tripdb' => $includeTripDb,
                 'photos_dir' => $photosDir,
                 'include_photos' => (bool) $includePhotos,
+                'upload_onedrive' => (bool) $uploadOneDrive,
+                'onedrive_folder' => $onedriveFolder,
+                'onedrive_drive_id' => $onedriveDriveId,
             ];
         }
         $autoBackupTaskStatus = db_tools_get_task_status((string) $autoBackupConfig['task_name']);
@@ -1053,7 +1078,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
 <section class="section">
     <div class="row g-4">
         <div class="col-12">
-            <div class="card shadow-sm border-0">
+            <div class="card shadow-sm border-0 backup-tools-card">
                 <div class="card-body p-4 p-lg-5">
                     <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
                         <div>
@@ -1091,6 +1116,21 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                     <div id="backupRunNotice" class="alert alert-info d-none" role="status" aria-live="polite"></div>
 
+                    <div class="backup-overview-grid mb-4">
+                        <div class="backup-overview-item">
+                            <span class="backup-overview-icon text-primary"><i class="bi bi-hdd-stack"></i></span>
+                            <div><small>Primary backup</small><strong><?php echo h(db_tools_relative_path((string) $autoBackupConfig['output_dir'])); ?></strong></div>
+                        </div>
+                        <div class="backup-overview-item">
+                            <span class="backup-overview-icon text-success"><i class="bi bi-calendar-check"></i></span>
+                            <div><small>Schedule</small><strong><?php echo h(ucfirst((string) ($autoBackupConfig['schedule_type'] ?? 'daily')) . ' at ' . (string) ($autoBackupConfig['start_time'] ?? '23:00')); ?></strong></div>
+                        </div>
+                        <div class="backup-overview-item">
+                            <span class="backup-overview-icon text-warning"><i class="bi bi-cloud-arrow-up"></i></span>
+                            <div><small>Cloud copy</small><strong><?php echo !empty($autoBackupConfig['upload_onedrive']) ? 'OneDrive enabled' : 'Local only'; ?></strong></div>
+                        </div>
+                    </div>
+
                     <div class="row g-4">
                         <div class="col-12">
                             <div class="border rounded-3 p-4">
@@ -1107,6 +1147,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                     <input type="hidden" name="action" id="auto_backup_action" value="save_auto_backup_settings">
 
+                                    <div class="col-12"><div class="backup-settings-step"><span>1</span><div><strong>Where to save</strong><small>Keep the primary backup local for reliable scheduled execution.</small></div></div></div>
+
                                     <div class="col-md-6">
                                         <label for="task_name" class="form-label">Task Name</label>
                                         <input type="text" class="form-control" id="task_name" name="task_name" value="<?php echo h((string) $autoBackupConfig['task_name']); ?>" required>
@@ -1117,6 +1159,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <input type="text" class="form-control" id="output_dir" name="output_dir" value="<?php echo h((string) $autoBackupConfig['output_dir']); ?>" placeholder="D:\\UASPMS-Backups" required>
                                         <div class="form-text">Use any local drive/folder path, including OneDrive (example: <code>%OneDrive%\UASPMS-Backups</code> or <code>C:\Users\YourName\OneDrive\UASPMS-Backups</code>).</div>
                                     </div>
+
+                                    <div class="col-12"><div class="backup-settings-step"><span>2</span><div><strong>When to run</strong><small>Choose the automatic schedule and retention period.</small></div></div></div>
 
                                     <div class="col-md-4">
                                         <label for="schedule_type" class="form-label">Repetition</label>
@@ -1147,6 +1191,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </select>
                                     </div>
 
+                                    <div class="col-12"><div class="backup-settings-step"><span>3</span><div><strong>What to include</strong><small>Choose databases and asset photos for the backup set.</small></div></div></div>
+
                                     <div class="col-md-6">
                                         <label for="keep_days" class="form-label">Retention (Days)</label>
                                         <input type="number" min="1" class="form-control" id="keep_days" name="keep_days" value="<?php echo h((string) ((int) $autoBackupConfig['keep_days'])); ?>" required>
@@ -1166,20 +1212,42 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </div>
                                     </div>
 
+                                    <div class="col-12"><div class="backup-settings-step"><span>4</span><div><strong>Cloud copy</strong><small>Optionally upload the completed local backup through Microsoft Graph.</small></div></div></div>
+
+                                    <div class="col-md-6">
+                                        <label for="backup_destination" class="form-label">Backup Destination</label>
+                                        <select class="form-select" id="backup_destination" name="upload_onedrive">
+                                            <option value="0" <?php echo empty($autoBackupConfig['upload_onedrive']) ? 'selected' : ''; ?>>Local backup only</option>
+                                            <option value="1" <?php echo !empty($autoBackupConfig['upload_onedrive']) ? 'selected' : ''; ?>>Local backup and OneDrive</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <label for="onedrive_folder" class="form-label">OneDrive folder</label>
+                                        <input type="text" class="form-control" id="onedrive_folder" name="onedrive_folder" value="<?php echo h((string) ($autoBackupConfig['onedrive_folder'] ?? 'UASPMS-Backups')); ?>" placeholder="UASPMS-Backups">
+                                        <div class="form-text">Folder path inside the selected Microsoft Graph Drive.</div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <label for="onedrive_drive_id" class="form-label">OneDrive account / Drive ID</label>
+                                        <input type="text" class="form-control" id="onedrive_drive_id" name="onedrive_drive_id" value="<?php echo h((string) ($autoBackupConfig['onedrive_drive_id'] ?? '')); ?>" placeholder="b!xxxxxxxxxxxxxxxx">
+                                        <div class="form-text">The Drive ID identifies the OneDrive account or SharePoint drive used by Microsoft Graph. Credentials remain in the server environment.</div>
+                                    </div>
+
                                     <div class="col-md-12">
                                         <label for="photos_dir" class="form-label">Photos directory (optional)</label>
                                         <input type="text" class="form-control" id="photos_dir" name="photos_dir" value="<?php echo h((string) ($autoBackupConfig['photos_dir'] ?? '')); ?>" placeholder="C:\\xampp\\htdocs\\UASPMS\\spams\\uploads\\assets">
                                         <div class="form-text">Set the folder that contains asset photos to copy into the backup folder when enabled.</div>
                                     </div>
 
-                                    <div class="col-12 d-flex flex-wrap gap-2">
-                                        <button type="submit" class="btn btn-success" onclick="document.getElementById('auto_backup_action').value='save_auto_backup_settings';">
+                                    <div class="col-12 d-flex flex-wrap gap-2 pt-2 border-top">
+                                        <button type="submit" class="btn btn-success" data-backup-action="save_auto_backup_settings">
                                             <i class="bi bi-save me-1"></i>Save Auto Backup Settings
                                         </button>
-                                        <button type="submit" class="btn btn-outline-secondary" onclick="document.getElementById('auto_backup_action').value='validate_auto_backup_path';">
+                                        <button type="submit" class="btn btn-outline-secondary" data-backup-action="validate_auto_backup_path">
                                             <i class="bi bi-folder-check me-1"></i>Validate Path
                                         </button>
-                                        <button type="submit" class="btn btn-primary" onclick="document.getElementById('auto_backup_action').value='run_auto_backup_test';">
+                                        <button type="submit" class="btn btn-primary" data-backup-action="run_auto_backup_test">
                                             <i class="bi bi-database-down me-1"></i>Manual Backup Now
                                         </button>
                                     </div>
@@ -1200,6 +1268,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <?php endif; ?>
                             </div>
                         </div>
+
+                        <div class="col-12"><div class="backup-tools-section-label">Manual actions</div></div>
 
                         <div class="col-lg-6">
                             <div class="border rounded-3 p-4 h-100">
@@ -1222,7 +1292,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
 
                         <div class="col-lg-6">
-                            <div class="border rounded-3 p-4 h-100">
+                            <div class="border border-warning-subtle rounded-3 p-4 h-100 backup-restore-card">
                                 <div class="d-flex align-items-center gap-3 mb-3">
                                     <div class="fs-2 text-warning"><i class="bi bi-upload"></i></div>
                                     <div>
@@ -1391,7 +1461,12 @@ require_once __DIR__ . '/../../includes/topbar.php';
         }
 
         if (autoBackupForm) {
-            autoBackupForm.addEventListener('submit', function () {
+            autoBackupForm.addEventListener('submit', function (event) {
+                const submitter = event.submitter;
+                const requestedAction = submitter ? submitter.getAttribute('data-backup-action') : '';
+                if (requestedAction && autoBackupAction) {
+                    autoBackupAction.value = requestedAction;
+                }
                 const action = autoBackupAction ? autoBackupAction.value : 'save_auto_backup_settings';
                 if (action === 'run_auto_backup_test') {
                     setRunningNotice('Manual backup is running. Please wait...');

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" role="img" aria-labelledby="title description">
+  <title id="title">Temporary asset photo</title>
+  <desc id="description">A neutral placeholder illustration with a label indicating that an asset photo should be added.</desc>
+  <rect width="960" height="520" rx="24" fill="#eef3f2"/>
+  <path d="M0 390h960v130H0z" fill="#e0e9e7"/>
+  <rect x="300" y="116" width="360" height="250" rx="18" fill="#fff" stroke="#b8c9c5" stroke-width="8"/>
+  <path d="M360 190h240M360 228h160" fill="none" stroke="#d2dedb" stroke-linecap="round" stroke-width="12"/>
+  <rect x="380" y="270" width="200" height="54" rx="8" fill="#dcebe6"/>
+  <path d="M422 297h116" fill="none" stroke="#53786c" stroke-linecap="round" stroke-width="8"/>
+  <circle cx="480" cy="386" r="54" fill="#53786c"/>
+  <path d="M453 386h54M480 359v54" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="10"/>
+  <text x="480" y="470" fill="#405c55" font-family="Arial, sans-serif" font-size="25" font-weight="700" text-anchor="middle">TEMPORARY ASSET IMAGE</text>
+</svg>

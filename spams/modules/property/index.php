@@ -4,6 +4,12 @@ require_login();
 
 $db = db();
 $officeId = isset($_GET['office_id']) ? (int) $_GET['office_id'] : 0;
+$fundCodeFilter = trim((string) ($_GET['fund_code'] ?? ''));
+$allowedFundCodes = ['01', '05', '06', '07'];
+if (!in_array($fundCodeFilter, $allowedFundCodes, true)) {
+    $fundCodeFilter = '';
+}
+$accountCodeId = max(0, (int) ($_GET['account_code_id'] ?? 0));
 $search = trim($_GET['q'] ?? '');
 $itemType = trim($_GET['item_type'] ?? '');
 $sourceFilter = trim($_GET['source'] ?? '');
@@ -61,6 +67,7 @@ if ($amountMin !== null && $amountMax !== null && $amountMin > $amountMax) {
 
 $rows = [];
 $offices = [];
+$accountCodes = [];
 $summary = ['total' => 0, 'equipment' => 0, 'semi_expendable' => 0, 'legacy' => 0];
 $total = 0;
 $totalPages = 0;
@@ -79,6 +86,10 @@ if ($db) {
     $res = $db->query("SELECT id, office_name FROM offices WHERE is_active = 1 ORDER BY office_name ASC");
     if ($res instanceof mysqli_result) {
         $offices = $res->fetch_all(MYSQLI_ASSOC);
+    }
+    $accountCodeResult = $db->query("SELECT id, account_code, account_name, account_group FROM account_codes WHERE is_active = 1 AND account_group IN ('asset', 'fixed_asset', 'semi_expendable') ORDER BY account_code");
+    if ($accountCodeResult instanceof mysqli_result) {
+        $accountCodes = $accountCodeResult->fetch_all(MYSQLI_ASSOC);
     }
     $canViewAllOffices = rbac_has_full_registry_access();
     $allowedOfficeIds = $canViewAllOffices ? [] : current_user_active_designated_office_ids($db);
@@ -135,6 +146,9 @@ if ($db) {
             INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
             INNER JOIN receivings r ON r.id = ri.receiving_id
             INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+            LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+            LEFT JOIN funds f ON f.id = po.fund_id
+            LEFT JOIN account_codes ac ON ac.id = poi.account_code_id
             LEFT JOIN classifications c ON c.id = poi.classification_id
             LEFT JOIN offices o ON o.id = d.office_id
             LEFT JOIN employees e ON e.id = d.employee_id
@@ -150,6 +164,16 @@ if ($db) {
             $systemSql .= " AND COALESCE(did.current_office_id, d.office_id) = ?";
             $types .= 'i';
             $params[] = $officeId;
+        }
+        if ($fundCodeFilter !== '') {
+            $systemSql .= " AND LPAD(COALESCE(NULLIF(TRIM(f.fund_source), ''), NULLIF(TRIM(f.fund_code), '')), 2, '0') = ?";
+            $types .= 's';
+            $params[] = $fundCodeFilter;
+        }
+        if ($accountCodeId > 0) {
+            $systemSql .= " AND poi.account_code_id = ?";
+            $types .= 'i';
+            $params[] = $accountCodeId;
         }
         if ($searchTerms !== []) {
             $systemSearchColumns = [
@@ -264,6 +288,8 @@ if ($db) {
                 COALESCE(last_e.suffix_name, '') AS last_suffix_name
             FROM legacy_assets la
             LEFT JOIN classifications c ON c.id = la.classification_id
+            LEFT JOIN funds f ON f.id = la.fund_id
+            LEFT JOIN account_codes ac ON ac.id = la.account_code_id
             LEFT JOIN offices o ON o.id = la.office_id
             LEFT JOIN employees e ON e.id = la.employee_id
             LEFT JOIN offices last_o ON last_o.id = la.last_office_id
@@ -278,6 +304,16 @@ if ($db) {
             $types .= 'ii';
             $params[] = $officeId;
             $params[] = $officeId;
+        }
+        if ($fundCodeFilter !== '') {
+            $legacySql .= " AND LPAD(COALESCE(NULLIF(TRIM(f.fund_source), ''), NULLIF(TRIM(f.fund_code), '')), 2, '0') = ?";
+            $types .= 's';
+            $params[] = $fundCodeFilter;
+        }
+        if ($accountCodeId > 0) {
+            $legacySql .= " AND la.account_code_id = ?";
+            $types .= 'i';
+            $params[] = $accountCodeId;
         }
         if ($searchTerms !== []) {
             $legacySearchColumns = [
@@ -538,6 +574,8 @@ function build_registry_url(array $overrides = []): string
 {
     $params = [
         'office_id' => $_GET['office_id'] ?? '',
+        'fund_code' => $_GET['fund_code'] ?? '',
+        'account_code_id' => $_GET['account_code_id'] ?? '',
         'q' => $_GET['q'] ?? '',
         'item_type' => $_GET['item_type'] ?? '',
         'source' => $_GET['source'] ?? '',
@@ -599,7 +637,7 @@ $rangeStart = $total > 0 ? (($page - 1) * $perPage) + 1 : 0;
 $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
 $shouldShowPagination = $total > $perPage || $totalPages > 1 || $page > 1 || $hasNextPage;
 $activeFilterCount = 0;
-foreach ([$officeId, $search, $itemType, $sourceFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $filterValue) {
+foreach ([$officeId, $fundCodeFilter, $accountCodeId, $search, $itemType, $sourceFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $filterValue) {
     if ((string) $filterValue !== '') {
         $activeFilterCount++;
     }
@@ -607,6 +645,8 @@ foreach ([$officeId, $search, $itemType, $sourceFilter, $brandModelFilter, $seri
 $amountFilterCount = ($amountMin !== null ? 1 : 0) + ($amountMax !== null ? 1 : 0);
 $activeFilterCount += $amountFilterCount;
 $hasAdvancedFiltersActive = $officeId > 0
+    || $fundCodeFilter !== ''
+    || $accountCodeId > 0
     || $itemType !== ''
     || $sourceFilter !== ''
     || $rpcppeFilter !== ''
@@ -617,9 +657,18 @@ $hasAdvancedFiltersActive = $officeId > 0
     || $dateFrom !== ''
     || $dateTo !== '';
 $advancedFilterCount = 0;
-foreach ([$officeId, $itemType, $sourceFilter, $rpcppeFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $advancedValue) {
+foreach ([$officeId, $fundCodeFilter, $accountCodeId, $itemType, $sourceFilter, $rpcppeFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $advancedValue) {
     if ((string) $advancedValue !== '') {
         $advancedFilterCount++;
+    }
+}
+
+$selectedFundLabel = $fundCodeFilter !== '' ? $fundCodeFilter : '';
+$selectedAccountCodeLabel = '';
+foreach ($accountCodes as $accountCode) {
+    if ((int) ($accountCode['id'] ?? 0) === $accountCodeId) {
+        $selectedAccountCodeLabel = trim((string) ($accountCode['account_code'] ?? '') . ' - ' . (string) ($accountCode['account_name'] ?? ''));
+        break;
     }
 }
 $advancedFilterCount += $amountFilterCount;
@@ -645,6 +694,18 @@ if ($selectedOfficeName !== '') {
     $activeFilters[] = [
         'label' => 'Office: ' . $selectedOfficeName,
         'url' => build_registry_url(['office_id' => '', 'page' => 1]),
+    ];
+}
+if ($selectedFundLabel !== '') {
+    $activeFilters[] = [
+        'label' => 'Fund Code: ' . $selectedFundLabel,
+        'url' => build_registry_url(['fund_code' => '', 'page' => 1]),
+    ];
+}
+if ($selectedAccountCodeLabel !== '') {
+    $activeFilters[] = [
+        'label' => 'Account Code: ' . $selectedAccountCodeLabel,
+        'url' => build_registry_url(['account_code_id' => '', 'page' => 1]),
     ];
 }
 if ($itemType !== '') {
@@ -801,10 +862,10 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                 <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#registryAdvancedFilters" aria-expanded="<?php echo $hasAdvancedFiltersActive ? 'true' : 'false'; ?>">
                                     Advanced<?php echo $advancedFilterCount > 0 ? ' (' . number_format($advancedFilterCount) . ')' : ''; ?>
                                 </button>
-                                <a href="<?php echo h(build_registry_url(['office_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'amount_min' => '', 'amount_max' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="btn btn-outline-danger">Clear</a>
+                                <a href="<?php echo h(build_registry_url(['office_id' => '', 'fund_code' => '', 'account_code_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'amount_min' => '', 'amount_max' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="btn btn-outline-danger">Clear</a>
                             </div>
                         </div>
-                        <div class="small text-muted mt-2">Enter a keyword, then click Search. Use Advanced for office, type, source, brand/model, serial, amount, and date filters.</div>
+                        <div class="small text-muted mt-2">Enter a keyword, then click Search. Use Advanced for office, fund, account code, type, source, brand/model, serial, amount, and date filters.</div>
                         <div id="registryAdvancedFilters" class="collapse <?php echo $hasAdvancedFiltersActive ? 'show' : ''; ?> mt-3">
                             <div class="row g-3">
                                 <div class="col-md-3">
@@ -818,6 +879,27 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                         <?php foreach ($offices as $office): ?>
                                             <option value="<?php echo (int) $office['id']; ?>" <?php echo $officeId === (int) $office['id'] ? 'selected' : ''; ?>>
                                                 <?php echo h($office['office_name']); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Fund Code</label>
+                                    <select name="fund_code" class="form-select" data-autosubmit="true">
+                                        <option value="">All Fund Codes</option>
+                                        <option value="01" <?php echo $fundCodeFilter === '01' ? 'selected' : ''; ?>>01</option>
+                                        <option value="05" <?php echo $fundCodeFilter === '05' ? 'selected' : ''; ?>>05</option>
+                                        <option value="06" <?php echo $fundCodeFilter === '06' ? 'selected' : ''; ?>>06</option>
+                                        <option value="07" <?php echo $fundCodeFilter === '07' ? 'selected' : ''; ?>>07</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Account Code</label>
+                                    <select name="account_code_id" class="form-select" data-autosubmit="true">
+                                        <option value="">All Account Codes</option>
+                                        <?php foreach ($accountCodes as $accountCode): ?>
+                                            <option value="<?php echo (int) $accountCode['id']; ?>" <?php echo $accountCodeId === (int) $accountCode['id'] ? 'selected' : ''; ?>>
+                                                <?php echo h(($accountCode['account_code'] ?? '') . ' - ' . ($accountCode['account_name'] ?? '')); ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
@@ -887,7 +969,7 @@ if ($dateFrom !== '' || $dateTo !== '') {
                                     </a>
                                 <?php endforeach; ?>
                             </div>
-                            <a href="<?php echo h(build_registry_url(['office_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'amount_min' => '', 'amount_max' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="small text-decoration-none">Clear all filters</a>
+                            <a href="<?php echo h(build_registry_url(['office_id' => '', 'fund_code' => '', 'account_code_id' => '', 'q' => '', 'item_type' => '', 'source' => '', 'brand_model' => '', 'serial_no' => '', 'amount_min' => '', 'amount_max' => '', 'date_from' => '', 'date_to' => '', 'per_page' => 25, 'page' => 1])); ?>" class="small text-decoration-none">Clear all filters</a>
                         </div>
                     <?php endif; ?>
 
