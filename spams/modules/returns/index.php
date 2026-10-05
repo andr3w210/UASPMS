@@ -13,13 +13,13 @@ function return_asset_label(array $row): string
     return trim(($prefix !== '' ? $prefix . ' - ' : '') . (string) ($row['item_description'] ?? ''));
 }
 
-function return_asset_person_label(array $row): string
+function return_asset_person_label(array $row, string $prefix = ''): string
 {
     return trim((string) employee_display_name([
-        'first_name' => $row['first_name'] ?? '',
-        'middle_name' => $row['middle_name'] ?? '',
-        'last_name' => $row['last_name'] ?? '',
-        'suffix_name' => $row['suffix_name'] ?? '',
+        'first_name' => $row[$prefix . 'first_name'] ?? '',
+        'middle_name' => $row[$prefix . 'middle_name'] ?? '',
+        'last_name' => $row[$prefix . 'last_name'] ?? '',
+        'suffix_name' => $row[$prefix . 'suffix_name'] ?? '',
     ]));
 }
 
@@ -146,6 +146,9 @@ $errors = [];
 $success = '';
 $available = [];
 $rows = [];
+$supplyPoolAssets = [];
+$supplyOfficeAssets = [];
+$supplyOfficeId = 0;
 $selectedLegacyAsset = null;
 $legacyAvailable = [];
 $typeFilter = trim((string) ($_GET['item_type'] ?? 'all'));
@@ -189,6 +192,113 @@ if (!$db) {
         $errors[] = 'Database schema is outdated: returns.legacy_asset_id is missing. Apply latest migrations before continuing.';
     }
 
+    $supplyOfficeId = return_resolve_spmu_office_id($db);
+
+    if ($requestMethod === 'POST' && ($_POST['action'] ?? '') === 'update_return_disposition') {
+        if (!csrf_verify()) {
+            $errors[] = 'Invalid CSRF token.';
+        }
+
+        $returnId = (int) ($_POST['return_id'] ?? 0);
+        $disposition = trim((string) ($_POST['disposition_status'] ?? ''));
+        if ($returnId <= 0 || !in_array($disposition, ['pending_inspection', 'ready_for_reissue', 'for_disposal'], true)) {
+            $errors[] = 'Choose a valid return record and disposition.';
+        }
+
+        if (!$errors) {
+            $stmt = $db->prepare("SELECT id, source_type, legacy_asset_id, distribution_item_detail_id, status FROM returns WHERE id = ? LIMIT 1");
+            $stmt->bind_param('i', $returnId);
+            $stmt->execute();
+            $returnAsset = $stmt->get_result()->fetch_assoc() ?: [];
+            $stmt->close();
+            if (!$returnAsset || ($returnAsset['status'] ?? '') !== 'posted') {
+                $errors[] = 'Only posted returns can be moved through the Supply Pool workflow.';
+            }
+        }
+
+        if (!$errors) {
+            $userId = (int) current_user_id();
+            $db->begin_transaction();
+            try {
+                if ($disposition === 'ready_for_reissue' && ($returnAsset['source_type'] ?? '') === 'system') {
+                    $detailId = (int) ($returnAsset['distribution_item_detail_id'] ?? 0);
+                    $stmt = $db->prepare("SELECT did.receiving_item_detail_id, did.is_disposed FROM distribution_item_details did WHERE did.id = ? LIMIT 1 FOR UPDATE");
+                    if (!$stmt) {
+                        throw new RuntimeException('Unable to inspect returned asset for reassignment.');
+                    }
+                    $stmt->bind_param('i', $detailId);
+                    $stmt->execute();
+                    $detail = $stmt->get_result()->fetch_assoc() ?: [];
+                    $stmt->close();
+                    if (!$detail || (int) ($detail['is_disposed'] ?? 0) === 1) {
+                        throw new RuntimeException('This asset is disposed or unavailable for reassignment.');
+                    }
+                    $receivingDetailId = (int) ($detail['receiving_item_detail_id'] ?? 0);
+                    if ($receivingDetailId > 0) {
+                        $release = $db->prepare('UPDATE receiving_item_details SET is_distributed = 0 WHERE id = ?');
+                        if (!$release) {
+                            throw new RuntimeException('Unable to release returned unit for reassignment.');
+                        }
+                        $release->bind_param('i', $receivingDetailId);
+                        if (!$release->execute()) {
+                            $release->close();
+                            throw new RuntimeException('Unable to release returned unit for reassignment.');
+                        }
+                        $release->close();
+                    }
+                } elseif (($returnAsset['source_type'] ?? '') === 'system') {
+                    $detailId = (int) ($returnAsset['distribution_item_detail_id'] ?? 0);
+                    $stmt = $db->prepare('SELECT receiving_item_detail_id FROM distribution_item_details WHERE id = ? LIMIT 1 FOR UPDATE');
+                    if (!$stmt) {
+                        throw new RuntimeException('Unable to inspect returned unit availability.');
+                    }
+                    $stmt->bind_param('i', $detailId);
+                    $stmt->execute();
+                    $detail = $stmt->get_result()->fetch_assoc() ?: [];
+                    $stmt->close();
+                    $receivingDetailId = (int) ($detail['receiving_item_detail_id'] ?? 0);
+                    if ($receivingDetailId > 0) {
+                        $hold = $db->prepare('UPDATE receiving_item_details SET is_distributed = 1 WHERE id = ?');
+                        if (!$hold) {
+                            throw new RuntimeException('Unable to keep inspected asset out of distribution availability.');
+                        }
+                        $hold->bind_param('i', $receivingDetailId);
+                        $hold->execute();
+                        $hold->close();
+                    }
+                }
+
+                $stmt = $db->prepare('UPDATE returns SET disposition_status = ?, disposition_updated_by = ?, disposition_updated_at = NOW() WHERE id = ? AND status = \'posted\'');
+                if (!$stmt) {
+                    throw new RuntimeException('Unable to update the returned asset disposition.');
+                }
+                $stmt->bind_param('sii', $disposition, $userId, $returnId);
+                if (!$stmt->execute()) {
+                    $stmt->close();
+                    throw new RuntimeException('Unable to update the returned asset disposition.');
+                }
+                $stmt->close();
+                write_audit_log($db, [
+                    'action' => 'update',
+                    'table_name' => 'returns',
+                    'record_id' => $returnId,
+                    'module_name' => 'returns',
+                    'record_type' => 'return',
+                    'action_name' => 'update_return_disposition',
+                    'new_values' => ['disposition_status' => $disposition],
+                    'description' => 'Updated returned asset Supply Pool disposition.',
+                ]);
+                $db->commit();
+                $label = ['pending_inspection' => 'Pending inspection', 'ready_for_reissue' => 'Ready for reissue', 'for_disposal' => 'For disposal'][$disposition];
+                set_flash('success', 'Return disposition updated: ' . $label . '.');
+                redirect('modules/returns/index.php?tab=supply-pool');
+            } catch (Throwable $e) {
+                $db->rollback();
+                $errors[] = $e->getMessage();
+            }
+        }
+    }
+
     if ($requestMethod === 'POST' && ($_POST['action'] ?? '') === 'cancel_return') {
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
@@ -206,6 +316,7 @@ if (!$db) {
                     rt.system_reference,
                     rt.source_type,
                     rt.distribution_item_detail_id,
+                    did.receiving_item_detail_id,
                     rt.legacy_asset_id,
                     rt.return_batch_id,
                     rt.office_id,
@@ -213,6 +324,7 @@ if (!$db) {
                     rt.status,
                     dp.id AS disposal_id
                 FROM returns rt
+                LEFT JOIN distribution_item_details did ON did.id = rt.distribution_item_detail_id
                 LEFT JOIN disposals dp
                   ON dp.status = 'posted'
                  AND (
@@ -255,7 +367,10 @@ if (!$db) {
                                         FROM employees e
                                         WHERE e.id = NULLIF(?, 0)
                                         LIMIT 1
-                                    )
+                                    ),
+                                    accountability_status = 'active',
+                                    accountability_cleared_at = NULL,
+                                    accountability_cleared_by = NULL
                                 WHERE id = ?
                             ");
                             if (!$assetStmt) {
@@ -290,6 +405,17 @@ if (!$db) {
                                 throw new RuntimeException('Unable to restore the returned asset.');
                             }
                             $assetStmt->close();
+
+                            $receivingDetailId = (int) ($returnRow['receiving_item_detail_id'] ?? 0);
+                            if ($receivingDetailId > 0) {
+                                $receivingStmt = $db->prepare('UPDATE receiving_item_details SET is_distributed = 1 WHERE id = ?');
+                                if (!$receivingStmt) {
+                                    throw new RuntimeException('Unable to restore receiving-unit distribution status.');
+                                }
+                                $receivingStmt->bind_param('i', $receivingDetailId);
+                                $receivingStmt->execute();
+                                $receivingStmt->close();
+                            }
                         }
 
                         $cancelStmt = $db->prepare("
@@ -514,10 +640,6 @@ if (!$db) {
             if ($spmuOfficeId <= 0) {
                 $errors[] = 'SPMU office record could not be found. Please add or activate the Supply and Property Management Unit office first.';
             }
-            $spmuEmployeeId = $spmuOfficeId > 0 ? return_resolve_spmu_employee_id($db, $spmuOfficeId) : 0;
-            if ($spmuEmployeeId <= 0) {
-                $errors[] = 'SPMU accountable employee could not be found. Please assign an active SPMU office head first.';
-            }
         }
 
         if (!$errors && !empty($assets)) {
@@ -548,7 +670,12 @@ if (!$db) {
                 if ($sourceType === 'legacy') {
                     $upd = $db->prepare("
                         UPDATE legacy_assets
-                        SET office_id = ?, employee_id = ?, responsibility_code_id = NULL
+                        SET last_office_id = COALESCE(office_id, last_office_id),
+                            last_employee_id = COALESCE(employee_id, last_employee_id),
+                            last_responsibility_code_id = COALESCE(responsibility_code_id, last_responsibility_code_id),
+                            office_id = ?, employee_id = NULL, responsibility_code_id = NULL,
+                            accountability_status = 'for_reconciliation',
+                            accountability_cleared_at = NOW(), accountability_cleared_by = ?
                         WHERE id = ?
                     ");
                     if (!$upd) {
@@ -560,7 +687,7 @@ if (!$db) {
                         SET
                             is_distributed = 0,
                             current_office_id = ?,
-                            current_employee_id = ?,
+                            current_employee_id = NULL,
                             current_responsibility_code_id = NULL
                         WHERE id = ?
                     ");
@@ -600,9 +727,9 @@ if (!$db) {
                     $returnId = (int) $ins->insert_id;
 
                     if ($sourceType === 'legacy') {
-                        $upd->bind_param('iii', $spmuOfficeId, $spmuEmployeeId, $legacyIdToSave);
+                        $upd->bind_param('iii', $spmuOfficeId, $userId, $legacyIdToSave);
                     } else {
-                        $upd->bind_param('iii', $spmuOfficeId, $spmuEmployeeId, $detailIdToSave);
+                        $upd->bind_param('ii', $spmuOfficeId, $detailIdToSave);
                     }
                     $upd->execute();
 
@@ -917,6 +1044,7 @@ if (!$db) {
             rt.reason,
             rt.remarks,
             rt.status,
+            COALESCE(rt.disposition_status, 'pending_inspection') AS disposition_status,
             COALESCE(did.property_number, la.property_number) AS property_number,
             COALESCE(did.serial_no, la.serial_no) AS serial_no,
             COALESCE(poi.item_type, si.item_type, la.item_type) AS item_type,
@@ -956,6 +1084,85 @@ if (!$db) {
     $rowsResult = $db->query($rowsSql);
     if ($rowsResult) {
         $rows = $rowsResult->fetch_all(MYSQLI_ASSOC);
+    }
+
+    if ($supplyOfficeId > 0) {
+        $poolSql = "
+            SELECT 'system' AS source_type, did.id AS asset_id, rt.id AS return_id, did.property_number,
+                   did.serial_no, COALESCE(poi.item_type, si.item_type) AS item_type,
+                   COALESCE(poi.item_description, si.item_description) AS item_description,
+                     ro.office_name AS previous_office_name, re.first_name AS previous_first_name, re.middle_name AS previous_middle_name, re.last_name AS previous_last_name, re.suffix_name AS previous_suffix_name,
+                   rt.return_date, COALESCE(rt.disposition_status, 'pending_inspection') AS disposition_status
+            FROM distribution_item_details did
+            JOIN (SELECT distribution_item_detail_id, MAX(id) AS latest_id FROM returns WHERE source_type='system' AND status='posted' GROUP BY distribution_item_detail_id) latest ON latest.distribution_item_detail_id=did.id
+            JOIN returns rt ON rt.id=latest.latest_id
+            JOIN distribution_items di ON di.id=did.distribution_item_id
+            LEFT JOIN issuance_items ii ON ii.id=di.issuance_item_id
+            LEFT JOIN stock_items si ON si.id=ii.stock_item_id
+            LEFT JOIN receiving_items ri ON ri.id=COALESCE(di.receiving_item_id,si.receiving_item_id)
+            LEFT JOIN purchase_order_items poi ON poi.id=ri.purchase_order_item_id
+            LEFT JOIN offices o ON o.id=did.current_office_id
+            LEFT JOIN employees e ON e.id=did.current_employee_id
+            LEFT JOIN offices ro ON ro.id=rt.office_id
+            LEFT JOIN employees re ON re.id=rt.employee_id
+                        WHERE did.current_office_id=? AND did.is_distributed=0 AND (did.is_disposed IS NULL OR did.is_disposed=0)
+                            AND NOT EXISTS (SELECT 1 FROM distribution_item_details issued_again WHERE issued_again.receiving_item_detail_id=did.receiving_item_detail_id AND issued_again.is_distributed=1 AND issued_again.id<>did.id)
+            UNION ALL
+            SELECT 'legacy' AS source_type, la.id AS asset_id, rt.id AS return_id, la.property_number,
+                     la.serial_no, la.item_type, la.item_description, ro.office_name AS previous_office_name,
+                     re.first_name AS previous_first_name, re.middle_name AS previous_middle_name, re.last_name AS previous_last_name, re.suffix_name AS previous_suffix_name,
+                   rt.return_date, COALESCE(rt.disposition_status, 'pending_inspection') AS disposition_status
+            FROM legacy_assets la
+            JOIN (SELECT legacy_asset_id, MAX(id) AS latest_id FROM returns WHERE source_type='legacy' AND status='posted' GROUP BY legacy_asset_id) latest ON latest.legacy_asset_id=la.id
+            JOIN returns rt ON rt.id=latest.latest_id
+            LEFT JOIN offices ro ON ro.id=rt.office_id
+            LEFT JOIN employees re ON re.id=rt.employee_id
+                        WHERE la.is_active=1 AND la.office_id=?
+                            AND COALESCE(la.accountability_status, 'active') = 'for_reconciliation'
+              AND NOT EXISTS (SELECT 1 FROM disposals dp WHERE dp.source_type='legacy' AND dp.legacy_asset_id=la.id AND dp.status='posted')
+              AND NOT EXISTS (SELECT 1 FROM asset_transfers at WHERE at.source_type='legacy' AND at.legacy_asset_id=la.id AND at.status='posted' AND at.created_at>rt.created_at)
+            ORDER BY return_date DESC, property_number ASC";
+        $poolStmt = $db->prepare($poolSql);
+        if ($poolStmt) {
+            $poolStmt->bind_param('ii', $supplyOfficeId, $supplyOfficeId);
+            $poolStmt->execute();
+            $supplyPoolAssets = $poolStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $poolStmt->close();
+        }
+
+        $officeAssetsSql = "
+            SELECT 'system' AS source_type, did.id AS asset_id, did.property_number, did.serial_no,
+                   COALESCE(poi.item_type,si.item_type) AS item_type,
+                   COALESCE(poi.item_description,si.item_description) AS item_description,
+                   o.office_name,e.first_name,e.middle_name,e.last_name,e.suffix_name
+            FROM distribution_item_details did
+            JOIN distribution_items di ON di.id=did.distribution_item_id
+            JOIN distributions d ON d.id=di.distribution_id AND d.status='posted'
+            LEFT JOIN issuance_items ii ON ii.id=di.issuance_item_id
+            LEFT JOIN stock_items si ON si.id=ii.stock_item_id
+            LEFT JOIN receiving_items ri ON ri.id=COALESCE(di.receiving_item_id,si.receiving_item_id)
+            LEFT JOIN purchase_order_items poi ON poi.id=ri.purchase_order_item_id
+            LEFT JOIN offices o ON o.id=COALESCE(did.current_office_id,d.office_id)
+            LEFT JOIN employees e ON e.id=COALESCE(did.current_employee_id,d.employee_id)
+            WHERE COALESCE(did.current_office_id,d.office_id)=? AND did.is_distributed=1 AND (did.is_disposed IS NULL OR did.is_disposed=0)
+            UNION ALL
+            SELECT 'legacy' AS source_type, la.id AS asset_id, la.property_number, la.serial_no,
+                   la.item_type, la.item_description, o.office_name,
+                   e.first_name,e.middle_name,e.last_name,e.suffix_name
+            FROM legacy_assets la
+            LEFT JOIN offices o ON o.id=la.office_id
+            LEFT JOIN employees e ON e.id=la.employee_id
+                        WHERE la.is_active=1 AND la.office_id=?
+                            AND COALESCE(la.accountability_status, 'active') = 'active'
+              AND NOT EXISTS (SELECT 1 FROM disposals dp WHERE dp.source_type='legacy' AND dp.legacy_asset_id=la.id AND dp.status='posted')
+            ORDER BY item_description, property_number";
+        $officeAssetsStmt = $db->prepare($officeAssetsSql);
+        if ($officeAssetsStmt) {
+            $officeAssetsStmt->bind_param('ii', $supplyOfficeId, $supplyOfficeId);
+            $officeAssetsStmt->execute();
+            $supplyOfficeAssets = $officeAssetsStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $officeAssetsStmt->close();
+        }
     }
 }
 
@@ -1027,6 +1234,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="posted-returns-tab" data-bs-toggle="pill" data-bs-target="#posted-returns" type="button" role="tab" aria-controls="posted-returns" aria-selected="false">
                                 <i class="bi bi-clock-history me-1"></i>Posted Returns
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="supply-pool-tab" data-bs-toggle="pill" data-bs-target="#supply-pool" type="button" role="tab" aria-controls="supply-pool" aria-selected="false">
+                                <i class="bi bi-box-seam me-1"></i>Supply Pool
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
@@ -1288,6 +1500,78 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </form>
                     </div>
 
+                        </div>
+                        <div class="tab-pane fade" id="supply-pool" role="tabpanel" aria-labelledby="supply-pool-tab">
+                            <div class="report-filter-card mb-3">
+                                <h6 class="report-filter-title mb-1">Returned to Supply Pool</h6>
+                                <div class="small text-muted">Returned assets remain in Supply custody while awaiting inspection. Mark repaired assets ready for reassignment, or send unserviceable assets to disposal.</div>
+                            </div>
+                            <div class="report-table-card table-responsive mobile-table-frame mb-4">
+                                <table class="table align-middle">
+                                    <thead><tr><th>Property No.</th><th>Asset</th><th>Previous Office / Person</th><th>Returned</th><th>Disposition</th><th>Next Step</th></tr></thead>
+                                    <tbody>
+                                        <?php if ($supplyPoolAssets): ?>
+                                            <?php foreach ($supplyPoolAssets as $poolAsset): ?>
+                                                <?php $poolDisposition = (string) ($poolAsset['disposition_status'] ?? 'pending_inspection'); ?>
+                                                <tr>
+                                                    <td class="fw-semibold"><?php echo h((string) ($poolAsset['property_number'] ?? '')); ?><?php if (!empty($poolAsset['serial_no'])): ?><div class="small text-muted">SN: <?php echo h((string) $poolAsset['serial_no']); ?></div><?php endif; ?></td>
+                                                    <td><div class="fw-semibold"><?php echo h(return_asset_label($poolAsset)); ?></div><div class="small text-muted"><?php echo h(($poolAsset['item_type'] ?? '') === 'equipment' ? 'Equipment' : 'Semi-Expendable'); ?> · <?php echo h(ucfirst((string) ($poolAsset['source_type'] ?? ''))); ?></div></td>
+                                                    <td><?php echo h(trim(implode(' / ', array_filter([$poolAsset['previous_office_name'] ?? '', return_asset_person_label($poolAsset, 'previous_')])))); ?></td>
+                                                    <td><?php echo h(!empty($poolAsset['return_date']) ? date('M d, Y', strtotime((string) $poolAsset['return_date'])) : ''); ?></td>
+                                                    <td><span class="badge <?php echo $poolDisposition === 'ready_for_reissue' ? 'text-bg-success' : ($poolDisposition === 'for_disposal' ? 'text-bg-danger' : 'text-bg-warning'); ?>"><?php echo h(['pending_inspection' => 'Pending Inspection', 'ready_for_reissue' => 'Ready for Reissue', 'for_disposal' => 'For Disposal'][$poolDisposition] ?? 'Pending Inspection'); ?></span></td>
+                                                    <td>
+                                                        <?php if ($poolDisposition !== 'for_disposal'): ?>
+                                                            <form method="post" class="d-flex gap-2 flex-wrap">
+                                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                                <input type="hidden" name="action" value="update_return_disposition">
+                                                                <input type="hidden" name="return_id" value="<?php echo (int) ($poolAsset['return_id'] ?? 0); ?>">
+                                                                <select name="disposition_status" class="form-select form-select-sm" aria-label="Return disposition">
+                                                                    <option value="pending_inspection" <?php echo $poolDisposition === 'pending_inspection' ? 'selected' : ''; ?>>Pending Inspection</option>
+                                                                    <option value="ready_for_reissue" <?php echo $poolDisposition === 'ready_for_reissue' ? 'selected' : ''; ?>>Ready for Reissue</option>
+                                                                    <option value="for_disposal" <?php echo $poolDisposition === 'for_disposal' ? 'selected' : ''; ?>>For Disposal</option>
+                                                                </select>
+                                                                <button type="submit" class="btn btn-sm btn-primary">Update</button>
+                                                            </form>
+                                                            <?php if ($poolDisposition === 'ready_for_reissue'): ?>
+                                                                <a class="btn btn-sm btn-outline-primary mt-2" href="<?php echo h(base_url('modules/transfers/index.php?mode=direct&asset_key=' . urlencode((string) ($poolAsset['source_type'] ?? '') . ':' . (int) ($poolAsset['asset_id'] ?? 0)))); ?>">Property Transfer</a>
+                                                            <?php endif; ?>
+                                                        <?php else: ?>
+                                                            <a class="btn btn-sm btn-outline-danger" href="<?php echo h(base_url(($poolAsset['source_type'] ?? '') === 'legacy' ? 'modules/disposals/index.php?source=legacy&legacy_asset_id=' . (int) ($poolAsset['asset_id'] ?? 0) : 'modules/disposals/index.php?detail_id=' . (int) ($poolAsset['asset_id'] ?? 0))); ?>">Open Disposal</a>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        <?php else: ?>
+                                            <tr><td colspan="6" class="text-center text-muted py-4">No returned assets are currently in the Supply pool.</td></tr>
+                                        <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="report-filter-card mb-3">
+                                <h6 class="report-filter-title mb-1">Assets Assigned to Supply Office</h6>
+                                <div class="small text-muted">These are currently accountable to Supply Office and are not in the returned-item pool.</div>
+                            </div>
+                            <div class="report-table-card table-responsive mobile-table-frame">
+                                <table class="table align-middle">
+                                    <thead><tr><th>Property No.</th><th>Asset</th><th>Accountable Person</th><th>Type</th><th>Source</th></tr></thead>
+                                    <tbody>
+                                        <?php if ($supplyOfficeAssets): ?>
+                                            <?php foreach ($supplyOfficeAssets as $officeAsset): ?>
+                                                <tr>
+                                                    <td class="fw-semibold"><?php echo h((string) ($officeAsset['property_number'] ?? '')); ?></td>
+                                                    <td><?php echo h(return_asset_label($officeAsset)); ?></td>
+                                                    <td><?php echo h(return_asset_person_label($officeAsset) ?: 'Unassigned'); ?></td>
+                                                    <td><?php echo h(($officeAsset['item_type'] ?? '') === 'equipment' ? 'Equipment' : 'Semi-Expendable'); ?></td>
+                                                    <td><?php echo h(ucfirst((string) ($officeAsset['source_type'] ?? ''))); ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        <?php else: ?>
+                                            <tr><td colspan="5" class="text-center text-muted py-4">No assets are currently assigned to Supply Office.</td></tr>
+                                        <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                         <div class="tab-pane fade" id="posted-returns" role="tabpanel" aria-labelledby="posted-returns-tab">
                     <div class="report-filter-card">

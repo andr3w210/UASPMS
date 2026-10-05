@@ -28,7 +28,12 @@ $offices = [];
 $years = [];
 $cards = [];
 $fundNumberLabels = [];
-$hasScopingFilter = $purchaseOrderId > 0 || $officeId > 0 || $year > 0;
+$hasScopingFilter = $purchaseOrderId > 0
+    || $officeId > 0
+    || $year > 0
+    || $fundNumber !== ''
+    || $source !== 'all'
+    || $itemType !== 'all';
 
 if ($db) {
     ensure_legacy_assets_fund_column($db);
@@ -233,11 +238,11 @@ if ($db) {
                     d.document_type,
                     d.distribution_date,
                     o.office_name,
-                    e.first_name,
-                    e.middle_name,
-                    e.last_name,
-                    e.suffix_name,
-                    e.position_title,
+                    CASE WHEN COALESCE(did.current_office_id, 0) > 0 THEN curr_e.first_name ELSE e.first_name END AS first_name,
+                    CASE WHEN COALESCE(did.current_office_id, 0) > 0 THEN curr_e.middle_name ELSE e.middle_name END AS middle_name,
+                    CASE WHEN COALESCE(did.current_office_id, 0) > 0 THEN curr_e.last_name ELSE e.last_name END AS last_name,
+                    CASE WHEN COALESCE(did.current_office_id, 0) > 0 THEN curr_e.suffix_name ELSE e.suffix_name END AS suffix_name,
+                    CASE WHEN COALESCE(did.current_office_id, 0) > 0 THEN curr_e.position_title ELSE e.position_title END AS position_title,
                     rc.code AS rc_code,
                     did.property_number,
                     f.fund_code,
@@ -259,9 +264,10 @@ if ($db) {
                 LEFT JOIN funds f ON f.id = po.fund_id
                 LEFT JOIN classifications c ON c.id = poi.classification_id
                 LEFT JOIN account_codes ac ON ac.id = poi.account_code_id
-                LEFT JOIN offices o ON o.id = d.office_id
+                LEFT JOIN offices o ON o.id = COALESCE(NULLIF(did.current_office_id, 0), d.office_id)
                 LEFT JOIN employees e ON e.id = d.employee_id
-                LEFT JOIN responsibility_codes rc ON rc.office_id = d.office_id
+                LEFT JOIN employees curr_e ON curr_e.id = did.current_employee_id
+                LEFT JOIN responsibility_codes rc ON rc.id = did.current_responsibility_code_id
                 WHERE poi.item_type IN ('equipment', 'semi_expendable')";
 
         $types = '';
@@ -272,7 +278,7 @@ if ($db) {
             $params[] = $purchaseOrderId;
         }
         if ($officeId > 0) {
-            $sql .= " AND d.office_id = ?";
+            $sql .= " AND COALESCE(NULLIF(did.current_office_id, 0), d.office_id) = ?";
             $types .= 'i';
             $params[] = $officeId;
         }
@@ -287,10 +293,10 @@ if ($db) {
             $params[] = $year;
         }
         if ($fundNumber !== '') {
-            $sql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
+            $sql .= " AND (LPAD(NULLIF(TRIM(f.fund_source), ''), 2, '0') = ? OR LPAD(NULLIF(TRIM(f.fund_code), ''), 2, '0') = ?)";
             $types .= 'ss';
-            $params[] = '%' . $fundNumber . '%';
-            $params[] = '%' . $fundNumber . '%';
+            $params[] = $fundNumber;
+            $params[] = $fundNumber;
         }
         $sql .= " ORDER BY poi.item_type ASC, po.po_number ASC, did.property_number ASC, si.id ASC";
 
@@ -418,10 +424,10 @@ if ($db) {
             $legacyParams[] = $year;
         }
         if ($fundNumber !== '') {
-            $legacySql .= " AND (f.fund_code LIKE ? OR f.fund_source LIKE ?)";
+            $legacySql .= " AND (LPAD(NULLIF(TRIM(f.fund_source), ''), 2, '0') = ? OR LPAD(NULLIF(TRIM(f.fund_code), ''), 2, '0') = ?)";
             $legacyTypes .= 'ss';
-            $legacyParams[] = '%' . $fundNumber . '%';
-            $legacyParams[] = '%' . $fundNumber . '%';
+            $legacyParams[] = $fundNumber;
+            $legacyParams[] = $fundNumber;
         }
         $legacySql .= " ORDER BY la.item_type ASC, la.property_number ASC, la.id ASC";
 
@@ -612,7 +618,7 @@ if ($db) {
                     <div class="workspace-header-copy">
                         <p class="page-kicker mb-1">Property reports</p>
                         <h4 class="page-title mb-1">Property Card Print</h4>
-                        <p class="text-muted small mb-0">Choose a purchase order, office, or year to generate property cards.</p>
+                        <p class="text-muted small mb-0">Choose at least one filter: purchase order, office, source, item type, fund number, or year.</p>
                     </div>
                     <div class="workspace-actions">
                         <a href="<?php echo base_url('modules/property/index.php'); ?>" class="btn btn-outline-secondary">Back to Property Register</a>
@@ -702,7 +708,7 @@ if ($db) {
         <div class="text-center text-muted border rounded-3 bg-light-subtle py-5 px-3">
             <i class="bi bi-clipboard2-plus d-block fs-1 mb-2"></i>
             <h5 class="mb-1">Choose a report scope</h5>
-            <p class="mb-0">Choose a purchase order, office, or year to generate property cards.</p>
+            <p class="mb-0">Choose at least one filter: purchase order, office, source, item type, fund number, or year.</p>
         </div>
     <?php elseif (!$cards): ?>
         <div class="alert alert-info">No property cards found for the current filter.</div>

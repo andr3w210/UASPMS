@@ -203,6 +203,20 @@ a {
     font-size: 2rem;
 }
 
+.asset-photo-temporary {
+    padding: 1rem;
+    text-align: center;
+    width: 100%;
+}
+
+.asset-photo-temporary img {
+    max-height: 300px;
+}
+
+.asset-photo-temporary [data-temporary-photo-credit] a {
+    color: inherit;
+}
+
 .asset-photo-grid {
     display: grid;
     gap: 1rem;
@@ -6392,6 +6406,112 @@ body.module-master-data .master-data-workspace .master-data-list-card .d-flex.ju
 
 .admin-skin .workspace-filter-panel {
     border-radius: 14px;
+}
+
+.backup-tools-card {
+    overflow: hidden;
+}
+
+.backup-overview-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.backup-overview-item {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-width: 0;
+    padding: 0.85rem 1rem;
+    border: 1px solid rgba(18, 48, 77, 0.1);
+    border-radius: 12px;
+    background: #fff;
+}
+
+.backup-overview-icon {
+    flex: 0 0 auto;
+    font-size: 1.25rem;
+}
+
+.backup-overview-item small,
+.backup-overview-item strong {
+    display: block;
+}
+
+.backup-overview-item small {
+    color: #65758b;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.backup-overview-item strong {
+    overflow: hidden;
+    color: #12304d;
+    font-size: 0.88rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.backup-tools-card > .card-body {
+    background: linear-gradient(180deg, #fbfdff 0%, #ffffff 34%);
+}
+
+.backup-settings-step {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 0.65rem;
+    padding: 0.8rem 0 0.25rem;
+    border-top: 1px solid rgba(18, 48, 77, 0.1);
+}
+
+.backup-settings-step span {
+    display: inline-grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: #12304d;
+    color: #fff;
+    font-weight: 800;
+}
+
+.backup-settings-step strong,
+.backup-settings-step small {
+    display: block;
+}
+
+.backup-settings-step strong {
+    color: #12304d;
+}
+
+.backup-settings-step small {
+    margin-top: 0.15rem;
+    color: #65758b;
+}
+
+.backup-tools-section-label {
+    margin-top: 0.35rem;
+    padding: 0.8rem 0 0.15rem;
+    border-top: 1px solid rgba(18, 48, 77, 0.12);
+    color: #12304d;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.backup-restore-card {
+    background: #fffdf9;
+}
+
+@media (max-width: 767.98px) {
+    .backup-overview-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .admin-skin .workspace-filter-panel .form-label.small {

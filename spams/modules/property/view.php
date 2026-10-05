@@ -117,6 +117,70 @@ function asset_view_sort_timeline(array &$entries): void
     });
 }
 
+function asset_view_reference_image(string $classification): ?array
+{
+    static $keywordMap = [
+        'all in one' => 'desktop-computer', 'all-in-one' => 'desktop-computer', 'desktop' => 'desktop-computer',
+        'laptop' => 'laptop', 'notebook' => 'laptop', 'netbook' => 'laptop',
+        'tablet arm' => 'chair', 'tablet' => 'tablet', 'monitor' => 'monitor',
+        'printer' => 'printer', 'photocopier' => 'photocopier', 'copy printer' => 'photocopier',
+        'scanner' => 'scanner', 'projector' => 'projector',
+        'television' => 'television', 'smart tv' => 'television', 'led tv' => 'television', 'tv' => 'television',
+        'dslr' => 'camera', 'camera' => 'camera', 'cctv' => 'cctv',
+        'airconditioner' => 'air-conditioner', 'air conditioner' => 'air-conditioner', 'aircon' => 'air-conditioner',
+        'fan' => 'fan', 'refrigerator' => 'refrigerator', 'freezer' => 'refrigerator',
+        'gas range' => 'gas-range', 'oven' => 'oven', 'water dispenser' => 'water-dispenser',
+        'mixer' => 'mixer-blender', 'blender' => 'mixer-blender',
+        'ups' => 'ups', 'speaker' => 'speaker', 'microphone' => 'microphone',
+        'router' => 'network-device', 'switch' => 'network-device', 'access point' => 'network-device',
+        'server' => 'server', 'radio' => 'two-way-radio',
+        'chair' => 'chair', 'sofa' => 'sofa', 'whiteboard' => 'whiteboard', 'white board' => 'whiteboard',
+        'cabinet' => 'cabinet', 'locker' => 'cabinet', 'shelves' => 'shelves', 'shelving' => 'shelves', 'rack' => 'shelves',
+        'table' => 'table', 'bed' => 'bed', 'fire extinguisher' => 'fire-extinguisher',
+        'vehicle' => 'vehicle', 'generator' => 'generator', 'welding' => 'welding-machine', 'lathe' => 'lathe',
+        'drill' => 'power-tool', 'grinder' => 'power-tool', 'sewing' => 'sewing-machine',
+        'washing machine' => 'washing-machine', 'lawn mower' => 'lawn-mower', 'treadmill' => 'treadmill',
+        'multitester' => 'measuring-instrument', 'oscilloscope' => 'measuring-instrument', 'multimeter' => 'measuring-instrument',
+        'pump' => 'pump', 'compressor' => 'pump', 'shredder' => 'shredder', 'laminating' => 'shredder',
+        'biometric' => 'biometric', 'emergency light' => 'light', 'ladder' => 'ladder',
+    ];
+
+    $parts = array_reverse(array_filter(array_map('trim', explode('/', $classification))));
+    $slug = '';
+    foreach ($parts as $part) {
+        $text = ' ' . strtolower((string) preg_replace('/[^a-z0-9]+/i', ' ', $part)) . ' ';
+        foreach ($keywordMap as $keyword => $candidate) {
+            if (strpos($text, ' ' . $keyword . ' ') !== false || strpos($text, ' ' . $keyword . 's ') !== false) {
+                $slug = $candidate;
+                break 2;
+            }
+        }
+    }
+    if ($slug === '') {
+        return null;
+    }
+
+    $directory = APP_ROOT . 'assets/img/asset-references/';
+    if (!is_file($directory . $slug . '.jpg')) {
+        return null;
+    }
+
+    $credit = [];
+    $creditsFile = $directory . 'credits.json';
+    if (is_file($creditsFile)) {
+        $credits = json_decode((string) file_get_contents($creditsFile), true);
+        $credit = is_array($credits[$slug] ?? null) ? $credits[$slug] : [];
+    }
+
+    return [
+        'url' => base_url('assets/img/asset-references/' . $slug . '.jpg'),
+        'label' => ucwords(str_replace('-', ' ', $slug)),
+        'creator' => (string) ($credit['creator'] ?? ''),
+        'license' => (string) ($credit['license'] ?? ''),
+        'source_url' => (string) ($credit['source_url'] ?? ''),
+    ];
+}
+
 function asset_view_parse_coordinate(string $value, float $min, float $max): ?float
 {
     $value = trim($value);
@@ -2696,20 +2760,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <?php endif; ?>
 
                                     <div class="col-12 d-flex justify-content-end">
-                                        <?php if ($source === 'legacy'): ?>
-                                            <button
-                                                type="submit"
-                                                name="action"
-                                                value="clear_legacy_accountability"
-                                                class="btn btn-outline-danger me-2"
-                                                onclick="return confirm('Remove current accountability and keep the previous office/person in history?');"
-                                            >
-                                                Clear Accountability
-                                            </button>
-                                        <?php endif; ?>
-                                        <button type="submit" class="btn btn-warning">Save Changes</button>
+                                        <button type="submit" class="btn btn-warning btn-lg px-5 fw-bold shadow-sm">Save Changes</button>
                                     </div>
                                 </form>
+
+                                <?php if ($source === 'legacy'): ?>
+                                    <form method="post" id="clearAccountabilityForm" class="d-flex justify-content-end mt-3 pt-3 border-top" onsubmit="return confirm('Remove current accountability and keep the previous office/person in history?');">
+                                        <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                        <input type="hidden" name="action" value="clear_legacy_accountability">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Clear Accountability</button>
+                                    </form>
+                                <?php endif; ?>
 
                                 <datalist id="assetBrandOptions">
                                     <?php foreach ($brandOptions as $option): ?>
@@ -2763,7 +2824,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <?php if ($source === 'legacy' && $accountabilityStatus === 'for_reconciliation'): ?>
                         <div class="col-md-3">
                             <div class="border rounded-3 p-3 h-100 bg-light-subtle">
-                                <div class="text-muted small">Last Accountable</div>
+                                <div class="text-muted small">Previous Accountability (History)</div>
                                 <div class="fw-semibold"><?php echo h($asset['last_office_name'] ?? 'Unassigned'); ?></div>
                                 <div><?php echo h($lastAccountableName !== '' ? $lastAccountableName : 'Unassigned'); ?></div>
                                 <div class="small text-muted">
@@ -2801,9 +2862,23 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <?php if ($primaryPhoto): ?>
                                                 <img src="<?php echo h(upload_url($primaryPhoto['photo_path'])); ?>" alt="<?php echo h($detailTitle); ?>">
                                             <?php else: ?>
-                                                <div class="asset-photo-empty">
-                                                    <i class="bi bi-camera"></i>
-                                                    <div>No asset photo uploaded yet.</div>
+                                                <?php $referenceImage = asset_view_reference_image($classificationLabel); ?>
+                                                <div class="asset-photo-empty asset-photo-temporary">
+                                                    <?php if ($referenceImage): ?>
+                                                        <img src="<?php echo h($referenceImage['url']); ?>" alt="Generic <?php echo h($referenceImage['label']); ?> reference image; not a photo of this asset">
+                                                        <div>Generic reference: <?php echo h($referenceImage['label']); ?> - not a photo of this asset.</div>
+                                                        <?php if ($referenceImage['creator'] !== '' || $referenceImage['license'] !== ''): ?>
+                                                            <div class="small">
+                                                                <?php if (preg_match('#^https://#i', $referenceImage['source_url'])): ?>
+                                                                    <a href="<?php echo h($referenceImage['source_url']); ?>" target="_blank" rel="noopener noreferrer">Image source</a> |
+                                                                <?php endif; ?>
+                                                                <?php echo h(trim($referenceImage['creator'] . ' | ' . $referenceImage['license'], ' |')); ?>
+                                                            </div>
+                                                        <?php endif; ?>
+                                                    <?php else: ?>
+                                                        <img src="<?php echo h(base_url('assets/img/temporary-asset-photo.svg')); ?>" alt="Temporary image for <?php echo h($detailTitle); ?>">
+                                                        <div>Temporary placeholder - not a photo of this asset.</div>
+                                                    <?php endif; ?>
                                                 </div>
                                             <?php endif; ?>
                                         </div>
@@ -2940,7 +3015,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 </div>
                                 <?php if ($source === 'legacy' && $accountabilityStatus === 'for_reconciliation'): ?>
                                     <div class="mb-3">
-                                        <div class="small text-muted">Last Accountable Office / Person</div>
+                                        <div class="small text-muted">Previous Accountability (History)</div>
                                         <div class="fw-semibold"><?php echo h($asset['last_office_name'] ?? 'Unassigned'); ?></div>
                                         <div><?php echo h($lastAccountableName !== '' ? $lastAccountableName : 'Unassigned'); ?></div>
                                         <div class="text-muted small"><?php echo h($asset['last_position_title'] ?? ''); ?><?php echo !empty($asset['last_rc_code']) ? ' | ' . h($asset['last_rc_code']) : ''; ?></div>

@@ -146,9 +146,13 @@
                     message: target.getAttribute('data-confirm-message') || 'Confirm this action?',
                     confirmText: 'Confirm',
                     onConfirm: function () {
-                        var form = target.closest('form');
+                        var form = target.form || target.closest('form');
                         if (form) {
-                            form.submit();
+                            if (typeof form.requestSubmit === 'function' && target.form === form) {
+                                form.requestSubmit(target);
+                            } else {
+                                form.submit();
+                            }
                             return;
                         }
 
@@ -177,6 +181,9 @@
         }
         if (action === 'delete_session') {
             return 'Are you sure you want to delete this inventory count session and its checklist? This action cannot be undone.';
+        }
+        if (action.indexOf('clear') !== -1 || /\bclear accountability\b/i.test(label)) {
+            return 'Are you sure you want to clear the current accountability and keep the previous assignment in history?';
         }
         if (action.indexOf('hard_delete') !== -1 || /\b(delete|remove|discard)\b/i.test(label)) {
             return 'Are you sure you want to permanently delete this record? This action cannot be undone.';
@@ -231,7 +238,7 @@
         var actionInput = form.querySelector('input[name="action"], select[name="action"]');
         var action = actionInput ? String(actionInput.value || '').toLowerCase() : '';
         var buttonText = submitter ? String(submitter.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase() : '';
-        var mutationWords = /\b(save|update|create|add|delete|remove|deactivate|reactivate|merge|post|send|cancel|approve|resolve|issue|distribute|transfer|return|dispose|record|upload|import|reset password|close|mark|keep as primary|unit head)\b/;
+        var mutationWords = /\b(save|update|create|add|clear|delete|remove|deactivate|reactivate|merge|post|send|cancel|approve|resolve|issue|distribute|transfer|return|dispose|record|upload|import|reset password|close|mark|keep as primary|unit head)\b/;
 
         return mutationWords.test(action.replace(/[_-]+/g, ' ')) || mutationWords.test(buttonText);
     }
