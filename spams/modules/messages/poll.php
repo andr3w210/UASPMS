@@ -283,6 +283,33 @@ if ($threadChannel === 'general') {
 }
 
 if ($threadUserId > 0) {
+    // Do not mark messages read or expose an empty success-shaped thread when
+    // the current user is not a participant in this direct conversation.
+    $accessStmt = $db->prepare("
+        SELECT id
+        FROM user_messages
+        WHERE ((sender_user_id = ? AND recipient_user_id = ?)
+           OR (sender_user_id = ? AND recipient_user_id = ?))
+          AND ((sender_user_id = ? AND hidden_for_sender = 0)
+           OR (recipient_user_id = ? AND hidden_for_recipient = 0))
+          " . $contextSqlFilter . "
+        LIMIT 1
+    ");
+    if (!$accessStmt) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'message' => 'Unable to load message updates.']);
+        exit;
+    }
+    $accessStmt->bind_param('iiiiii', $currentUserId, $threadUserId, $threadUserId, $currentUserId, $currentUserId, $currentUserId);
+    $accessStmt->execute();
+    $hasThreadAccess = (bool) $accessStmt->get_result()->fetch_assoc();
+    $accessStmt->close();
+    if (!$hasThreadAccess) {
+        http_response_code(404);
+        echo json_encode(['ok' => false, 'message' => 'Message thread not found.']);
+        exit;
+    }
+
     $markReadStmt = $db->prepare("
         UPDATE user_messages
         SET is_read = 1,
