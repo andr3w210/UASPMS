@@ -144,7 +144,16 @@ define('TRIP_DB_PASS', $tripDbPass);
 
 // Misc
 define('APP_NAME', spams_env('APP_NAME', 'University of Antique'));
-define('APP_URL', rtrim((string) spams_env('APP_URL', ''), '/'));
+$configuredAppUrl = trim((string) spams_env('APP_URL', ''));
+$configuredAppUrlParts = $configuredAppUrl !== '' ? parse_url($configuredAppUrl) : false;
+if (
+    !filter_var($configuredAppUrl, FILTER_VALIDATE_URL)
+    || !is_array($configuredAppUrlParts)
+    || strtolower((string) ($configuredAppUrlParts['scheme'] ?? '')) !== 'https'
+) {
+    $configuredAppUrl = 'https://spmu-andrew.tail985047.ts.net';
+}
+define('APP_URL', rtrim($configuredAppUrl, '/'));
 define('BASE_URL', rtrim((string) spams_env('BASE_URL', '/UASPMS/spams'), '/'));
 define('LOGO_PATH', BASE_URL . '/assets/img/ua-logo.png');
 define('TIMEZONE', spams_env('TIMEZONE', 'Asia/Manila'));

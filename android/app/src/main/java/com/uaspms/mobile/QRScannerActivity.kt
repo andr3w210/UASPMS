@@ -56,7 +56,7 @@ class QRScannerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_qr_scanner)
-        baseUrl = intent.getStringExtra("BASE_URL") ?: BuildConfig.BASE_URL
+        baseUrl = normalizeSecureBaseUrl(intent.getStringExtra("BASE_URL")) ?: BuildConfig.BASE_URL
 
         previewView = findViewById(R.id.previewView)
         scannerFrame = findViewById(R.id.scannerFrame)
@@ -77,6 +77,17 @@ class QRScannerActivity : AppCompatActivity() {
         } else {
             ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
         }
+    }
+
+    private fun normalizeSecureBaseUrl(value: String?): String? {
+        val trimmed = value?.trim().orEmpty()
+        val uri = Uri.parse(trimmed)
+        val secure = uri.scheme.equals("https", ignoreCase = true)
+        val officeLan = uri.scheme.equals("http", ignoreCase = true) && uri.host == "172.16.1.42"
+        if ((!secure && !officeLan) || uri.host.isNullOrBlank()) {
+            return null
+        }
+        return trimmed.trimEnd('/') + "/"
     }
 
     private fun startCamera() {

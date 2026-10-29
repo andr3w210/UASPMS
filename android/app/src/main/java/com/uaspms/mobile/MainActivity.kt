@@ -258,14 +258,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadHome() {
-        val fallbackUrls = orderedBaseUrls(
-            listOf(
-                BuildConfig.LAN_BASE_URL,
-                BuildConfig.LOCAL_BASE_URL,
-                BuildConfig.BASE_URL,
-                BuildConfig.TAILSCALE_IP_BASE_URL
-            )
-        )
+        val fallbackUrls = orderedBaseUrls(listOf(BuildConfig.LOCAL_BASE_URL, BuildConfig.BASE_URL))
 
         Thread {
             val syncedUrls = fetchServerConfiguredUrls(fallbackUrls)
@@ -304,14 +297,7 @@ class MainActivity : AppCompatActivity() {
             return resolvedBaseUrls
         }
 
-        return orderedBaseUrls(
-            listOf(
-                BuildConfig.LAN_BASE_URL,
-                BuildConfig.LOCAL_BASE_URL,
-                BuildConfig.BASE_URL,
-                BuildConfig.TAILSCALE_IP_BASE_URL
-            )
-        )
+        return orderedBaseUrls(listOf(BuildConfig.LOCAL_BASE_URL, BuildConfig.BASE_URL))
     }
 
     private fun orderedBaseUrls(urls: List<String>): List<String> {
@@ -324,7 +310,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun normalizeBaseUrl(url: String): String? {
         val trimmed = url.trim()
-        if (trimmed.isEmpty()) {
+        val uri = Uri.parse(trimmed)
+        val isHttps = uri.scheme.equals("https", ignoreCase = true)
+        val isOfficeLanHttp = uri.scheme.equals("http", ignoreCase = true)
+            && uri.host == "172.16.1.42"
+        if ((!isHttps && !isOfficeLanHttp) || uri.host.isNullOrBlank()) {
             return null
         }
 

@@ -25,17 +25,36 @@ function app_url(string $path = ''): string
             $db = db();
             if ($db) {
                 $savedUrls = [
-                    get_system_setting($db, 'local_access_url', ''),
                     get_system_setting($db, 'tailscale_serve_url', ''),
-                    get_system_setting($db, 'tailscale_ip_url', ''),
                     get_system_setting($db, 'app_url', APP_URL),
                 ];
 
-                foreach ($savedUrls as $savedUrl) {
-                    $savedUrl = trim((string) $savedUrl);
-                    if ($savedUrl !== '') {
-                        $configuredBase = $savedUrl;
-                        break;
+                $localUrl = trim((string) get_system_setting($db, 'local_access_url', 'http://172.16.1.42'));
+                if ($localUrl === '') {
+                    $localUrl = 'http://172.16.1.42';
+                }
+                $localParts = $localUrl !== '' ? parse_url($localUrl) : false;
+                $requestHost = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+                $localHost = is_array($localParts) ? strtolower((string) ($localParts['host'] ?? '')) : '';
+                $localPort = is_array($localParts) ? (int) ($localParts['port'] ?? 0) : 0;
+                $hostOnly = preg_replace('/:\\d+$/', '', $requestHost) ?? $requestHost;
+                $expectedHost = $localHost . ($localPort ? ':' . $localPort : '');
+                $localRequest = $localHost !== '' && $hostOnly === $localHost
+                    && ($localPort === 0 || $requestHost === $expectedHost)
+                    && filter_var($localUrl, FILTER_VALIDATE_URL)
+                    && is_array($localParts)
+                    && in_array(strtolower((string) ($localParts['scheme'] ?? '')), ['http', 'https'], true);
+
+                if ($localRequest) {
+                    $configuredBase = $localUrl;
+                } else {
+                    foreach ($savedUrls as $savedUrl) {
+                        $savedUrl = trim((string) $savedUrl);
+                        $urlParts = $savedUrl !== '' ? parse_url($savedUrl) : false;
+                        if (filter_var($savedUrl, FILTER_VALIDATE_URL) && is_array($urlParts) && strtolower((string) ($urlParts['scheme'] ?? '')) === 'https') {
+                            $configuredBase = $savedUrl;
+                            break;
+                        }
                     }
                 }
             }
@@ -46,15 +65,7 @@ function app_url(string $path = ''): string
         return rtrim($configuredBase, '/') . $relative;
     }
 
-    $isHttps = (
-        (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
-        || (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] === '443')
-        || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
-    );
-    $scheme = $isHttps ? 'https' : 'http';
-    $host = trim((string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost'));
-
-    return $scheme . '://' . $host . $relative;
+    return 'https://spmu-andrew.tail985047.ts.net' . $relative;
 }
 
 function set_flash(string $type, string $message): void

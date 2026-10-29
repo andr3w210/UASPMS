@@ -13,38 +13,18 @@ Configured in:
 - SPAMS web settings page for system/QR access URLs
 - `app/build.gradle.kts` for Android startup fallback defaults
 
-At startup, the app attempts to fetch live URL order from:
+At startup, the app attempts the office LAN address first, then uses the Tailscale address as a remote fallback. It fetches the configured addresses from:
 - `/UASPMS/spams/modules/settings/access_urls_public.php`
 
-If reachable, Android uses the server-configured list (local first). If not reachable, it uses bundled fallback defaults from `BuildConfig`.
+Remote access uses the trusted Tailscale HTTPS address:
+- `https://spmu-andrew.tail985047.ts.net/UASPMS/spams/`
 
-The app now prioritizes local network URLs first, then Tailscale URLs.
-
-LAN/Local priority:
-- `http://172.16.1.42/UASPMS/spams/`
-- `http://10.0.2.2/UASPMS/spams/`
-
-Tailscale fallback:
-- `http://spmu-andrew.tail985047.ts.net/UASPMS/spams/`
-- `http://100.84.75.22/UASPMS/spams/`
-
-Update Tailscale Serve URL, Tailscale IP, and Local URL from the SPAMS web page: Administration > Settings > System Access URL. The Android app only uses its bundled fallback list to reach SPAMS.
-
-## Real phone setup
-For a physical device, replace `BASE_URL` with your PC LAN IP, for example:
-- `http://192.168.1.10/UASPMS/spams/`
-
-For Tailscale access, use the PC's Tailscale IP:
-- `http://100.84.75.22/UASPMS/spams/`
-
-With Tailscale Serve enabled, use the MagicDNS URL:
-- `http://spmu-andrew.tail985047.ts.net/UASPMS/spams/`
+Office network devices can also use the configured LAN address, currently `http://172.16.1.42/UASPMS/spams/`. The Android app permits cleartext only to that exact LAN IP; other HTTP URLs are rejected. LAN HTTP is unencrypted, so use it only on a trusted office network. For Tailscale access, the Tailscale Serve endpoint presents a publicly trusted certificate.
 
 Requirements:
-1. For Tailscale access, both devices must be connected to the same Tailscale account/network.
-2. For LAN access, phone and PC must be on same local network.
-3. XAMPP Apache must be running.
-4. Firewall must allow inbound HTTP to Apache.
+1. For Tailscale access, both devices must be connected to the same Tailscale network.
+2. For LAN access, devices must be on the office network and Apache must be running.
+3. Firewall must allow the selected network's access to the service.
 
 ## Build and run
 1. Open the android folder in Android Studio.
@@ -89,5 +69,4 @@ Output locations:
 3. Tap APK and install.
 
 ## Notes
-- Cleartext HTTP is allowed for local network use (network_security_config.xml).
-- For production, use HTTPS and tighten network security config.
+- Cleartext HTTP is allowed only for the configured office LAN IP (network_security_config.xml).

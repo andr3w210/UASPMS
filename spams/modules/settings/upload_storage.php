@@ -58,6 +58,11 @@ function normalize_upload_public_url(string $value): string
         return '';
     }
 
+    $parts = parse_url($clean);
+    if (!filter_var($clean, FILTER_VALIDATE_URL) || !is_array($parts) || strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
+        return '';
+    }
+
     return rtrim($clean, '/');
 }
 
@@ -237,7 +242,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($uploadsRootPublicUrl !== '' && !filter_var($uploadsRootPublicUrl, FILTER_VALIDATE_URL)) {
-            $errors[] = 'Uploads public base URL must be a valid URL such as http://192.168.1.42/uploads.';
+            $errors[] = 'Uploads public base URL must be a valid HTTPS URL.';
         }
 
         if ($inventoryPhotoRoot === '' || !preg_match('/^[A-Za-z0-9_\/-]+$/', $inventoryPhotoRoot)) {
@@ -456,7 +461,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="mb-3">
                             <label for="uploads_root_public_url" class="form-label">Uploads Public Base URL (Optional)</label>
-                            <input type="url" id="uploads_root_public_url" name="uploads_root_public_url" class="form-control" value="<?php echo h($uploadsRootPublicUrl); ?>" placeholder="http://172.16.1.42/uploads">
+                            <input type="url" id="uploads_root_public_url" name="uploads_root_public_url" class="form-control" value="<?php echo h($uploadsRootPublicUrl); ?>" placeholder="https://files.example.org/uploads">
                             <div class="form-text">Needed when Absolute mode points outside the app folder and files are served from a separate web URL.</div>
                         </div>
                         <div class="mb-3">

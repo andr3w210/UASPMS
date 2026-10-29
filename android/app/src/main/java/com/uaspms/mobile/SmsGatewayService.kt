@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.telephony.SmsManager
@@ -43,7 +44,10 @@ class SmsGatewayService : Service() {
         }
         val suppliedBaseUrl = intent?.getStringExtra(EXTRA_BASE_URL)?.trim().orEmpty()
         val savedBaseUrl = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(PREF_BASE_URL, null).orEmpty()
-        baseUrl = (suppliedBaseUrl.ifBlank { savedBaseUrl.ifBlank { baseUrl } }).trimEnd('/') + "/"
+        baseUrl = normalizeSecureBaseUrl(suppliedBaseUrl)
+            ?: normalizeSecureBaseUrl(savedBaseUrl)
+            ?: normalizeSecureBaseUrl(baseUrl)
+            ?: BuildConfig.BASE_URL
         getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(PREF_BASE_URL, baseUrl).apply()
         ensureNotificationChannel()
         startForeground(NOTIFICATION_ID, makeNotification())
@@ -55,6 +59,17 @@ class SmsGatewayService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    private fun normalizeSecureBaseUrl(value: String): String? {
+        val trimmed = value.trim()
+        val uri = Uri.parse(trimmed)
+        val secure = uri.scheme.equals("https", ignoreCase = true)
+        val officeLan = uri.scheme.equals("http", ignoreCase = true) && uri.host == "172.16.1.42"
+        if ((!secure && !officeLan) || uri.host.isNullOrBlank()) {
+            return null
+        }
+        return trimmed.trimEnd('/') + "/"
     }
 
     override fun onDestroy() {

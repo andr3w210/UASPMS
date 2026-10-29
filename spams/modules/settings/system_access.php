@@ -6,13 +6,13 @@ $db = db();
 $page_title = 'System Access URL';
 $flash = get_flash();
 $errors = [];
-$appUrl = $db ? get_system_setting($db, 'app_url', APP_URL) : APP_URL;
-$tailscaleServeUrl = $db ? get_system_setting($db, 'tailscale_serve_url', '') : '';
-$tailscaleIpUrl = $db ? get_system_setting($db, 'tailscale_ip_url', '') : '';
-$localUrl = $db ? get_system_setting($db, 'local_access_url', '') : '';
+$defaultSecureUrl = 'https://spmu-andrew.tail985047.ts.net';
+$defaultLocalUrl = 'http://172.16.1.42';
+$appUrl = $db ? get_system_setting($db, 'app_url', $defaultSecureUrl) : (APP_URL !== '' ? APP_URL : $defaultSecureUrl);
+$tailscaleServeUrl = $db ? get_system_setting($db, 'tailscale_serve_url', $appUrl) : $appUrl;
+$localAccessUrl = $db ? get_system_setting($db, 'local_access_url', $defaultLocalUrl) : $defaultLocalUrl;
+$localAccessUrl = trim((string) $localAccessUrl) !== '' ? $localAccessUrl : $defaultLocalUrl;
 $sessionTimeoutMinutes = $db ? get_system_setting($db, 'session_timeout_minutes', '30') : '30';
-$caCertificatePath = trim((string) spams_env('UASPMS_CA_CERT_PATH', ''));
-$caCertificateExists = is_file($caCertificatePath);
 
 function normalize_access_url(string $value): string
 {
@@ -22,42 +22,16 @@ function normalize_access_url(string $value): string
     }
 
     if (!preg_match('/^https?:\/\//i', $value)) {
-        $value = 'http://' . $value;
+        $value = 'https://' . $value;
     }
 
     $value = preg_replace('#/UASPMS/spams/?$#i', '', $value) ?? $value;
     return rtrim($value, '/');
 }
 
-function first_available_access_url(string ...$urls): string
-{
-    foreach ($urls as $url) {
-        $url = normalize_access_url($url);
-        if ($url !== '') {
-            return $url;
-        }
-    }
-
-    return '';
-}
-
-if (isset($_GET['download']) && $_GET['download'] === 'lan_ca') {
-    if (!$caCertificateExists) {
-        http_response_code(404);
-        exit('LAN certificate was not found on this server.');
-    }
-
-    header('Content-Type: application/x-x509-ca-cert');
-    header('Content-Disposition: attachment; filename="uaspms-lan-ca.crt"');
-    header('Content-Length: ' . (string) filesize($caCertificatePath));
-    readfile($caCertificatePath);
-    exit;
-}
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     request_schema_enforce([
         'tailscale_serve_url' => ['type' => 'string', 'max' => 255],
-        'tailscale_ip_url' => ['type' => 'string', 'max' => 255],
         'local_access_url' => ['type' => 'string', 'max' => 255],
         'session_timeout_minutes' => ['type' => 'int', 'min' => 0, 'max' => 10080],
     ]);
@@ -65,30 +39,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Invalid CSRF token.';
     } else {
         $tailscaleServeUrl = normalize_access_url((string) ($_POST['tailscale_serve_url'] ?? ''));
-        $tailscaleIpUrl = normalize_access_url((string) ($_POST['tailscale_ip_url'] ?? ''));
-        $localUrl = normalize_access_url((string) ($_POST['local_access_url'] ?? ''));
+        $localAccessUrl = normalize_access_url((string) ($_POST['local_access_url'] ?? ''));
         $sessionTimeoutMinutes = trim((string) ($_POST['session_timeout_minutes'] ?? '30'));
+        $appUrl = $tailscaleServeUrl;
+        $urlParts = $appUrl !== '' ? parse_url($appUrl) : false;
 
-        $appUrl = first_available_access_url($localUrl, $tailscaleServeUrl, $tailscaleIpUrl, $appUrl);
-
-        if ($appUrl !== '' && !filter_var($appUrl, FILTER_VALIDATE_URL)) {
-            $errors[] = 'System Access URL must be a valid URL like http://192.168.1.10 or http://server-name.';
+        if (!filter_var($appUrl, FILTER_VALIDATE_URL) || !is_array($urlParts) || strtolower((string) ($urlParts['scheme'] ?? '')) !== 'https') {
+            $errors[] = 'Enter a valid HTTPS URL for Tailscale Serve.';
         }
 
-        if ($tailscaleServeUrl !== '' && !filter_var($tailscaleServeUrl, FILTER_VALIDATE_URL)) {
-            $errors[] = 'Tailscale Serve URL must be a valid URL like http://server.tailnet.ts.net.';
-        }
-
-        if ($tailscaleIpUrl !== '' && !filter_var($tailscaleIpUrl, FILTER_VALIDATE_URL)) {
-            $errors[] = 'Tailscale IP URL must be a valid URL like http://100.84.75.22.';
-        }
-
-        if ($localUrl !== '' && !filter_var($localUrl, FILTER_VALIDATE_URL)) {
-            $errors[] = 'Local URL must be a valid URL like http://172.16.1.42.';
-        }
-
-        if ($appUrl === '') {
-            $errors[] = 'Enter at least one access URL.';
+        $localParts = $localAccessUrl !== '' ? parse_url($localAccessUrl) : false;
+        $localHost = is_array($localParts) ? (string) ($localParts['host'] ?? '') : '';
+        $isPrivateIpv4 = filter_var($localHost, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+            && (str_starts_with($localHost, '10.') || str_starts_with($localHost, '192.168.')
+                || preg_match('/^172\.(1[6-9]|2[0-9]|3[0-1])\./', $localHost));
+        if ($localAccessUrl !== '' && (!filter_var($localAccessUrl, FILTER_VALIDATE_URL) || !is_array($localParts)
+            || !in_array(strtolower((string) ($localParts['scheme'] ?? '')), ['http', 'https'], true) || !$isPrivateIpv4)) {
+            $errors[] = 'Local access must be an HTTP or HTTPS URL using a private IPv4 address.';
         }
 
         if ($sessionTimeoutMinutes === '' || !ctype_digit($sessionTimeoutMinutes)) {
@@ -103,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'app_url' => get_system_setting($db, 'app_url', ''),
                 'tailscale_serve_url' => get_system_setting($db, 'tailscale_serve_url', ''),
                 'tailscale_ip_url' => get_system_setting($db, 'tailscale_ip_url', ''),
-                'local_access_url' => get_system_setting($db, 'local_access_url', ''),
+                'local_access_url' => get_system_setting($db, 'local_access_url', $defaultLocalUrl),
                 'session_timeout_minutes' => (int) get_system_setting($db, 'session_timeout_minutes', '30'),
             ];
             $stmt = $db->prepare(
@@ -117,8 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $settingsToSave = [
                     'app_url' => $appUrl,
                     'tailscale_serve_url' => $tailscaleServeUrl,
-                    'tailscale_ip_url' => $tailscaleIpUrl,
-                    'local_access_url' => $localUrl,
+                    'tailscale_ip_url' => '',
+                    'local_access_url' => $localAccessUrl,
                     'session_timeout_minutes' => (string) ((int) $sessionTimeoutMinutes),
                 ];
 
@@ -147,8 +114,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'new_values' => [
                                 'app_url' => $appUrl,
                                 'tailscale_serve_url' => $tailscaleServeUrl,
-                                'tailscale_ip_url' => $tailscaleIpUrl,
-                                'local_access_url' => $localUrl,
+                                'tailscale_ip_url' => '',
+                                'local_access_url' => $localAccessUrl,
                                 'session_timeout_minutes' => (int) $sessionTimeoutMinutes,
                             ],
                         ]);
@@ -192,49 +159,20 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="mb-4">
                         <div class="text-uppercase small text-muted fw-semibold">System Settings</div>
                         <h4 class="mb-2">System Access & Session</h4>
-                        <p class="text-muted mb-0">Set the network address used by QR links and control how long idle users stay signed in.</p>
+                        <p class="text-muted mb-0">Office network links use the LAN address first. Tailscale remains available for remote access.</p>
                     </div>
 
                     <form method="post" data-submit-loading="1">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <div class="mb-3">
-                            <label class="form-label">Access URLs</label>
-                            <div class="form-text mb-3">Set every address the system may use. The system tries them in this order: Local Network, Tailscale Serve, then Tailscale IP. Do not add <code>/UASPMS/spams</code>; the system app path is appended automatically.</div>
-
-                            <div class="border rounded p-3 mb-3">
-                                <div class="d-flex align-items-start gap-2 mb-2">
-                                    <div class="flex-grow-1">
-                                        <label for="tailscale_serve_url" class="form-label mb-1 fw-semibold">2. Tailscale Serve URL</label>
-                                        <input type="url" id="tailscale_serve_url" name="tailscale_serve_url" class="form-control" value="<?php echo h($tailscaleServeUrl); ?>" placeholder="http://spmu-andrew.tail985047.ts.net" aria-describedby="tailscale_serve_url_help">
-                                        <div class="form-text" id="tailscale_serve_url_help">Recommended for Android phones connected through Tailscale.</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <div class="border rounded p-3 h-100">
-                                        <div class="d-flex align-items-start gap-2 mb-2">
-                                            <div class="flex-grow-1">
-                                                <label for="tailscale_ip_url" class="form-label mb-1 fw-semibold">3. Tailscale IP URL</label>
-                                                <input type="url" id="tailscale_ip_url" name="tailscale_ip_url" class="form-control" value="<?php echo h($tailscaleIpUrl); ?>" placeholder="http://100.84.75.22" aria-describedby="tailscale_ip_url_help">
-                                                <div class="form-text" id="tailscale_ip_url_help">Use this when Tailscale Serve URL is unavailable.</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="border rounded p-3 h-100">
-                                        <div class="d-flex align-items-start gap-2 mb-2">
-                                            <div class="flex-grow-1">
-                                                <label for="local_access_url" class="form-label mb-1 fw-semibold">1. Local Network URL</label>
-                                                <input type="url" id="local_access_url" name="local_access_url" class="form-control" value="<?php echo h($localUrl); ?>" placeholder="http://172.16.1.42" aria-describedby="local_access_url_help">
-                                                <div class="form-text" id="local_access_url_help">Use only when phone and server PC are on the same LAN.</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            <label for="local_access_url" class="form-label">Office LAN URL</label>
+                            <input type="url" id="local_access_url" name="local_access_url" class="form-control" value="<?php echo h($localAccessUrl); ?>" placeholder="http://172.16.1.42" aria-describedby="local_access_url_help">
+                            <div class="form-text" id="local_access_url_help">Used by PCs and phones on the office network when Tailscale is unavailable. HTTP traffic is unencrypted; use this only on a trusted LAN. HTTPS requires a certificate trusted by each device.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="tailscale_serve_url" class="form-label">Remote Tailscale HTTPS URL</label>
+                            <input type="url" id="tailscale_serve_url" name="tailscale_serve_url" class="form-control" value="<?php echo h($tailscaleServeUrl); ?>" placeholder="https://spmu-andrew.tail985047.ts.net" aria-describedby="tailscale_serve_url_help" required>
+                            <div class="form-text" id="tailscale_serve_url_help">Used as the remote access address when you are outside the office network.</div>
                         </div>
                         <div class="mb-3">
                             <label for="session_timeout_minutes" class="form-label">Session Timeout (Minutes)</label>
@@ -250,9 +188,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="d-grid gap-2 d-sm-flex">
                             <button type="submit" class="btn btn-primary">Save System Settings</button>
-                            <?php if ($caCertificateExists): ?>
-                                <a href="<?php echo base_url('modules/settings/system_access.php?download=lan_ca'); ?>" class="btn btn-outline-primary">Download LAN Certificate</a>
-                            <?php endif; ?>
                             <a href="<?php echo base_url('modules/settings/index.php'); ?>" class="btn btn-outline-secondary">Back to Settings</a>
                         </div>
                     </form>

@@ -14,8 +14,11 @@ $isCli = PHP_SAPI === 'cli';
 $isHttps = (
     (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
     || (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] === '443')
-    || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
 );
+$canonicalHost = strtolower((string) (parse_url(APP_URL, PHP_URL_HOST) ?: ''));
+$requestHost = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+$requestHost = preg_replace('/:\\d+$/', '', $requestHost) ?? $requestHost;
+$isCanonicalHttpsHost = $canonicalHost !== '' && hash_equals($canonicalHost, $requestHost);
 
 if (!headers_sent()) {
     header('X-Frame-Options: SAMEORIGIN');
@@ -23,7 +26,7 @@ if (!headers_sent()) {
     header('Referrer-Policy: strict-origin-when-cross-origin');
     header('Permissions-Policy: geolocation=(self), camera=(self), microphone=()');
 
-    if ($isHttps) {
+    if ($isHttps && $isCanonicalHttpsHost) {
         header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
     }
 }

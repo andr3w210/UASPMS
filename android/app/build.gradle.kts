@@ -36,11 +36,9 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Network endpoints — read from local.properties (gitignored); fallback to localhost-only defaults.
-        buildConfigField("String", "BASE_URL",             localUrl("BASE_URL",             "http://10.0.2.2/UASPMS/spams/"))
-        buildConfigField("String", "TAILSCALE_IP_BASE_URL", localUrl("TAILSCALE_IP_BASE_URL", "http://10.0.2.2/UASPMS/spams/"))
-        buildConfigField("String", "LAN_BASE_URL",          localUrl("LAN_BASE_URL",          "http://10.0.2.2/UASPMS/spams/"))
-        buildConfigField("String", "LOCAL_BASE_URL",        localUrl("LOCAL_BASE_URL",        "http://10.0.2.2/UASPMS/spams/"))
+        // Tailscale remains the remote address; MainActivity tries the LAN URL first on office PCs.
+        buildConfigField("String", "BASE_URL", localUrl("BASE_URL", "https://spmu-andrew.tail985047.ts.net/UASPMS/spams/"))
+        buildConfigField("String", "LOCAL_BASE_URL", localUrl("LOCAL_BASE_URL", "http://172.16.1.42/UASPMS/spams/"))
     }
 
     signingConfigs {

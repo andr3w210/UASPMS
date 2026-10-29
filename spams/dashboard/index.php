@@ -545,6 +545,7 @@ $snapshotItems = [
         'tone' => 'dark',
     ],
 ];
+$snapshotItems = array_slice($snapshotItems, 0, 4);
 
 $urgentWorkload = $summary['pending_receivings']
     + $summary['pending_distribution_units']
@@ -569,42 +570,6 @@ foreach ($topAccountableOffices as $row) {
 }
 $commandStatus = $inventoryAlertLoad > 0 ? 'Inventory Attention Needed' : 'Inventory Stable';
 $commandTone = $inventoryAlertLoad > 0 ? 'warning' : 'success';
-$heroMetrics = [
-    [
-        'label' => 'Active assets',
-        'value' => $summary['distributed_items'],
-        'note' => 'Tracked accountable assets in circulation',
-        'icon' => 'bi-diagram-3',
-        'tone' => 'success',
-    ],
-    [
-        'label' => 'Open count sessions',
-        'value' => $summary['open_inventory_counts'] + $summary['open_supply_counts'],
-        'note' => 'Property and supply counts in progress',
-        'icon' => 'bi-clipboard-data',
-        'tone' => 'info',
-    ],
-    [
-        'label' => 'Exception workload',
-        'value' => $summary['unresolved_property_discrepancies'] + $summary['pending_stock_adjustments'],
-        'note' => 'Discrepancies and pending adjustments to resolve',
-        'icon' => 'bi-exclamation-triangle',
-        'tone' => 'warning',
-    ],
-];
-$operationsCards = [
-    $focusItems[2],
-    $focusItems[3],
-    [
-        'label' => 'Inventory Discrepancies',
-        'value' => $summary['unresolved_property_discrepancies'],
-        'note' => 'Count findings pending reconciliation',
-        'icon' => 'bi-exclamation-octagon',
-        'tone' => 'danger',
-        'href' => base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'),
-        'cta' => 'Resolve Findings',
-    ],
-];
 $workQueueCards = [
     [
         'label' => 'POs Awaiting Receiving',
@@ -734,10 +699,10 @@ $analyticsCards = [
 ];
 $quickLinks = [
     ['label' => 'Registry', 'href' => base_url('modules/property/index.php'), 'icon' => 'bi-grid-1x2'],
-    ['label' => 'Counts', 'href' => base_url('modules/property/inventory_counts.php'), 'icon' => 'bi-clipboard-check'],
-    ['label' => 'Reconcile', 'href' => base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'), 'icon' => 'bi-clipboard2-x'],
+    ['label' => 'Receive Items', 'href' => base_url('modules/receivings/index.php'), 'icon' => 'bi-box-arrow-in-down'],
     ['label' => 'Distribution', 'href' => base_url('modules/distributions/index.php'), 'icon' => 'bi-send-check'],
-    ['label' => 'Delivery Calendar', 'href' => base_url('modules/suppliers/monitoring_calendar.php'), 'icon' => 'bi-calendar3'],
+    ['label' => 'Inventory Counts', 'href' => base_url('modules/property/inventory_counts.php'), 'icon' => 'bi-clipboard-check'],
+    ['label' => 'Reports', 'href' => base_url('modules/reports/index.php'), 'icon' => 'bi-bar-chart-line'],
 ];
 if ($isAdministrator) {
     $quickLinks[] = ['label' => 'Audit Log', 'href' => base_url('modules/audit_log/index.php'), 'icon' => 'bi-shield-check'];
@@ -777,7 +742,6 @@ $cardVisibleForRole = static function (array $item) use ($roleName): bool {
     return true;
 };
 
-$operationsCards = array_values(array_filter($operationsCards, $cardVisibleForRole));
 $workQueueCards = array_values(array_filter($workQueueCards, $cardVisibleForRole));
 $inventoryCards = array_values(array_filter($inventoryCards, $cardVisibleForRole));
 $movementCards = array_values(array_filter($movementCards, $cardVisibleForRole));
@@ -796,9 +760,9 @@ require_once __DIR__ . '/../includes/topbar.php';
                 <span class="dashboard-hub-dot"></span>
                 <span><?php echo h($commandStatus); ?></span>
             </div>
-            <h1 class="dashboard-hub-title">Inventory and asset intelligence center</h1>
+            <h1 class="dashboard-hub-title">Welcome back, <?php echo h($displayName); ?></h1>
             <p class="dashboard-hub-copy">
-                Monitor accountability, count completion, stock integrity, and exception resolution from a modern command surface designed for daily inventory operations.
+                Here is your operations snapshot for <?php echo h(date('l, F j, Y')); ?>. Start with the items that need attention, or jump directly to a common task.
             </p>
             <div class="dashboard-hub-actions">
                 <?php foreach ($quickLinks as $link): ?>
@@ -808,26 +772,12 @@ require_once __DIR__ . '/../includes/topbar.php';
                     </a>
                 <?php endforeach; ?>
             </div>
-            <div class="dashboard-hub-metrics">
-                <?php foreach ($heroMetrics as $metric): ?>
-                    <div class="dashboard-hub-metric">
-                        <span class="dashboard-hub-metric-icon tone-<?php echo h($metric['tone']); ?>">
-                            <i class="bi <?php echo h($metric['icon']); ?>"></i>
-                        </span>
-                        <div>
-                            <div class="dashboard-hub-metric-label"><?php echo h($metric['label']); ?></div>
-                            <div class="dashboard-hub-metric-value"><?php echo h((string) $metric['value']); ?></div>
-                            <div class="dashboard-hub-metric-note"><?php echo h($metric['note']); ?></div>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
         </div>
 
         <div class="dashboard-hub-hero-side">
             <div class="dashboard-hub-status-card tone-<?php echo h($commandTone); ?>">
-                <div class="dashboard-hub-status-label">Welcome back</div>
-                <div class="dashboard-hub-status-name"><?php echo h($displayName); ?></div>
+                <div class="dashboard-hub-status-label">Daily overview</div>
+                <div class="dashboard-hub-status-name"><?php echo h($commandStatus); ?></div>
                 <div class="dashboard-hub-status-copy">
                     <?php if ($urgentWorkload > 0): ?>
                         You have <?php echo h((string) $urgentWorkload); ?> items that still need active follow-up across receiving, distribution, and controls.
@@ -842,15 +792,6 @@ require_once __DIR__ . '/../includes/topbar.php';
                 </div>
             </div>
 
-            <div class="dashboard-hub-spotlight-grid">
-                <?php foreach (array_slice($snapshotItems, 0, 4) as $item): ?>
-                    <div class="dashboard-hub-spotlight">
-                        <div class="dashboard-hub-spotlight-label"><?php echo h($item['label']); ?></div>
-                        <div class="dashboard-hub-spotlight-value"><?php echo h((string) $item['value']); ?></div>
-                        <div class="dashboard-hub-spotlight-note"><?php echo h($item['note']); ?></div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
         </div>
     </div>
 
@@ -869,14 +810,14 @@ require_once __DIR__ . '/../includes/topbar.php';
         <?php endforeach; ?>
     </div>
 
-    <div class="dashboard-hub-switcher">
-        <button type="button" class="dashboard-hub-switch is-active" data-dashboard-view="inventory">
+    <div class="dashboard-hub-switcher" role="group" aria-label="Dashboard sections">
+        <button type="button" class="dashboard-hub-switch is-active" data-dashboard-view="operations">
+            <i class="bi bi-sun"></i>
+            <span>Today</span>
+        </button>
+        <button type="button" class="dashboard-hub-switch" data-dashboard-view="inventory">
             <i class="bi bi-clipboard-data"></i>
             <span>Inventory</span>
-        </button>
-        <button type="button" class="dashboard-hub-switch" data-dashboard-view="operations">
-            <i class="bi bi-kanban"></i>
-            <span>Operations</span>
         </button>
         <button type="button" class="dashboard-hub-switch" data-dashboard-view="movement">
             <i class="bi bi-arrow-left-right"></i>
@@ -888,14 +829,14 @@ require_once __DIR__ . '/../includes/topbar.php';
         </button>
     </div>
 
-    <div class="dashboard-hub-panel" data-dashboard-panel="operations">
+    <div class="dashboard-hub-panel is-active" data-dashboard-panel="operations">
         <article class="dashboard-hub-surface dashboard-hub-surface-strong mb-4">
             <div class="dashboard-hub-section-head">
                 <div>
                     <div class="dashboard-hub-section-kicker">Work Queues</div>
-                    <h2 class="dashboard-hub-section-title">Next actions that need attention</h2>
+                    <h2 class="dashboard-hub-section-title">Work that needs attention</h2>
                 </div>
-                <span class="dashboard-hub-badge">Phase 1</span>
+                <span class="dashboard-hub-badge"><?php echo number_format($urgentWorkload); ?> items to review</span>
             </div>
             <div class="dashboard-hub-card-list">
                 <?php foreach ($workQueueCards as $item): ?>
@@ -916,31 +857,6 @@ require_once __DIR__ . '/../includes/topbar.php';
 
         <div class="dashboard-hub-grid">
             <div class="dashboard-hub-stack">
-                <article class="dashboard-hub-surface dashboard-hub-surface-strong">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Action Queue</div>
-                            <h2 class="dashboard-hub-section-title">Clear the high-friction work first</h2>
-                        </div>
-                        <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/distributions/index.php'); ?>">Open Queue</a>
-                    </div>
-                    <div class="dashboard-hub-card-list">
-                        <?php foreach ($operationsCards as $item): ?>
-                            <a class="dashboard-hub-task-card tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
-                                <span class="dashboard-hub-task-icon">
-                                    <i class="bi <?php echo h($item['icon']); ?>"></i>
-                                </span>
-                                <span class="dashboard-hub-task-body">
-                                    <span class="dashboard-hub-task-label"><?php echo h($item['label']); ?></span>
-                                    <span class="dashboard-hub-task-note"><?php echo h($item['note']); ?></span>
-                                    <span class="dashboard-hub-task-cta"><?php echo h($item['cta']); ?></span>
-                                </span>
-                                <span class="dashboard-hub-task-value"><?php echo h((string) $item['value']); ?></span>
-                            </a>
-                        <?php endforeach; ?>
-                    </div>
-                </article>
-
                 <article class="dashboard-hub-surface">
                     <div class="dashboard-hub-section-head">
                         <div>

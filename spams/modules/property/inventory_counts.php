@@ -2470,7 +2470,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
             if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-                setCameraStatus('Camera access is blocked because this page is opened over HTTP. On this PC use http://localhost/UASPMS/spams/, or open the system through HTTPS. DroidCam will then be available to the browser.', 'warning');
+                setCameraStatus('Camera access requires a secure HTTPS page. Open the system through its Tailscale HTTPS address to use DroidCam.', 'warning');
             } else {
                 setCameraStatus('Camera scanning is not available in this browser. Use a current version of Chrome, Edge, or Firefox and allow camera access.', 'warning');
             }

@@ -41,7 +41,6 @@ values take precedence over values in the file.
 | `UPLOAD_DEBUG_LOG` | Enables temporary upload/request diagnostics | No |
 | `SPAMS_CACHE_ENABLED` | Enables or disables the runtime cache | No |
 | `SPAMS_CACHE_TTL_SECONDS` | Runtime cache lifetime | No |
-| `UASPMS_CA_CERT_PATH` | Server path to the optional LAN CA certificate | No; an Administrator can download the certificate through the authenticated settings page |
 | `GEMINI_API_KEY` | Credential for PO image extraction | No; used by the authenticated `scan_proxy.php` server endpoint |
 | `OPENAI_API_KEY` | Reserved AI integration credential; currently unused | No |
 | `ANTHROPIC_API_KEY` | Reserved AI integration credential; currently unused | No |

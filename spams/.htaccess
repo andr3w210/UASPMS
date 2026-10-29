@@ -2,6 +2,9 @@ Options -Indexes
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP_HOST} ^spmu-andrew\.tail985047\.ts\.net(?::\d+)?$ [NC]
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=308,L,NE]
     RewriteRule ^(?:app|includes|scripts|logs)(?:/|$) - [F,L,NC]
 </IfModule>
 

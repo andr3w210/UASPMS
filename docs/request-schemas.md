@@ -38,7 +38,7 @@ The server derives these. They are rejected on every enforced route and must nev
 | `auth/reset_password.php` | token, new_password, confirm_password |
 | `settings/change_password.php` | current_password, new_password, confirm_password |
 | `settings/profile.php` | full_name, email, remove_photo |
-| `settings/system_access.php` | local_access_url, tailscale_ip_url, tailscale_serve_url, session_timeout_minutes |
+| `settings/system_access.php` | local_access_url, tailscale_serve_url, session_timeout_minutes |
 | `settings/thresholds.php` | equipment_min, semi_hv_min, effective_date, basis |
 | `settings/thresholds_edit.php` | id, equipment_min, semi_hv_min, effective_date |
 | `settings/thresholds_delete.php` | id |
