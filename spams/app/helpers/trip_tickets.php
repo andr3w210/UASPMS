@@ -1,5 +1,58 @@
 <?php
 
+function trip_ticket_normalize_sms_number(string $number): string
+{
+    $number = trim($number);
+    $number = preg_replace('/[\s().-]+/', '', $number) ?? '';
+    if (str_starts_with($number, '00')) {
+        $number = '+' . substr($number, 2);
+    }
+    if (preg_match('/^09\d{9}$/', $number)) {
+        $number = '+63' . substr($number, 1);
+    } elseif (preg_match('/^9\d{9}$/', $number)) {
+        $number = '+63' . $number;
+    } elseif (preg_match('/^639\d{9}$/', $number)) {
+        $number = '+' . $number;
+    }
+
+    return preg_match('/^\+[1-9]\d{7,14}$/', $number) ? $number : '';
+}
+
+function trip_ticket_parse_sms_recipients(string $input): array
+{
+    $numbers = [];
+    foreach (preg_split('/[\r\n,;]+/', $input) ?: [] as $candidate) {
+        $candidate = trim($candidate);
+        if ($candidate === '') {
+            continue;
+        }
+        $number = trip_ticket_normalize_sms_number($candidate);
+        if ($number === '') {
+            return ['numbers' => [], 'error' => 'Enter valid phone numbers (one per line), such as 09171234567 or +639171234567.'];
+        }
+        $numbers[$number] = $number;
+    }
+
+    if (count($numbers) > 10) {
+        return ['numbers' => [], 'error' => 'You can notify up to 10 phone numbers per trip ticket.'];
+    }
+
+    return ['numbers' => array_values($numbers), 'error' => ''];
+}
+
+function trip_ticket_sms_message(array $ticket): string
+{
+    $date = trim((string) ($ticket['departure_date'] ?? ''));
+    $time = trim((string) ($ticket['departure_time'] ?? ''));
+    $vehicle = trim((string) ($ticket['vehicle_plate_no'] ?? ''));
+    $driver = trim((string) ($ticket['driver_name'] ?? ''));
+    $destination = trim((string) ($ticket['destination'] ?? ''));
+    $message = 'SPAMS trip ' . (string) ($ticket['trip_ticket_no'] ?? '')
+        . ': ' . $date . ' ' . $time . ', ' . $vehicle . ', driver ' . $driver
+        . ', destination ' . $destination . '.';
+    return mb_substr($message, 0, 459);
+}
+
 function trip_ticket_month_prefix(?string $dateValue = null): string
 {
     $baseDate = $dateValue && strtotime($dateValue) ? $dateValue : date('Y-m-d');

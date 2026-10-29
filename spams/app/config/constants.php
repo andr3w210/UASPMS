@@ -130,6 +130,8 @@ define('DB_HOST', spams_env('DB_HOST', '127.0.0.1'));
 define('DB_NAME', spams_env('DB_NAME', 'spamsdb'));
 define('DB_USER', $dbUser);
 define('DB_PASS', $dbPass);
+define('DB_ADMIN_USER', (string) spams_env('DB_ADMIN_USER', ''));
+define('DB_ADMIN_PASS', (string) spams_env('DB_ADMIN_PASS', ''));
 
 $tripDbUser = spams_env('TRIP_DB_USER', DB_USER);
 $tripDbPass = spams_env('TRIP_DB_PASS', DB_PASS);

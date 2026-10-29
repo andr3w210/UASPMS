@@ -195,6 +195,16 @@ $uploadsRootPublicUrl = normalize_upload_public_url($uploadsRootPublicUrl);
 $inventoryPhotoRoot = normalize_relative_folder($inventoryPhotoRoot, 'inventory_counts');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'form_action' => ['type' => 'enum', 'enum' => ['save', 'test']],
+        'uploads_root_mode' => ['type' => 'string', 'max' => 20],
+        'uploads_root' => ['type' => 'string', 'max' => 300],
+        'uploads_root_absolute' => ['type' => 'string', 'max' => 500],
+        'uploads_root_public_url' => ['type' => 'string', 'max' => 500],
+        'inventory_photo_root' => ['type' => 'string', 'max' => 300],
+        'copy_existing_uploads' => ['type' => 'bool'],
+        'move_existing_uploads' => ['type' => 'bool'],
+    ]);
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } else {

@@ -1,5 +1,20 @@
 Options -Indexes
 
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(?:app|includes|scripts|logs)(?:/|$) - [F,L,NC]
+</IfModule>
+
+<FilesMatch "^\.env(\..*)?$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
 <IfModule mod_autoindex.c>
     IndexIgnore *
 </IfModule>

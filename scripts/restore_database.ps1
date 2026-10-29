@@ -53,10 +53,10 @@ if ($envValues.Count -eq 0) {
 }
 
 if ([string]::IsNullOrWhiteSpace($Database)) { $Database = if ($envValues.ContainsKey('DB_NAME')) { $envValues['DB_NAME'] } else { "spamsdb" } }
-if ([string]::IsNullOrWhiteSpace($User) -and $envValues.ContainsKey('DB_USER')) { $User = $envValues['DB_USER'] }
-if ($Password -eq "" -and $envValues.ContainsKey('DB_PASS')) { $Password = $envValues['DB_PASS'] }
-if ([string]::IsNullOrWhiteSpace($User)) {
-    throw "Database user is required. Set DB_USER in .env or pass -User explicitly."
+if ([string]::IsNullOrWhiteSpace($User) -and $envValues.ContainsKey('DB_ADMIN_USER')) { $User = $envValues['DB_ADMIN_USER'] }
+if ($Password -eq "" -and $envValues.ContainsKey('DB_ADMIN_PASS')) { $Password = $envValues['DB_ADMIN_PASS'] }
+if ([string]::IsNullOrWhiteSpace($User) -or [string]::IsNullOrWhiteSpace($Password)) {
+    throw "Database restore requires separate maintenance credentials. Set DB_ADMIN_USER and DB_ADMIN_PASS in .env or pass -User and -Password explicitly."
 }
 
 if ([string]::IsNullOrWhiteSpace($DumpFile)) {

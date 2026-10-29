@@ -26,6 +26,11 @@ function change_password_validation_errors(string $password): array
 if (!$db) {
     $errors[] = 'Unable to connect to the database.';
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'current_password' => ['type' => 'string', 'max' => 255],
+        'new_password' => ['type' => 'string', 'max' => 255],
+        'confirm_password' => ['type' => 'string', 'max' => 255],
+    ]);
     $form['current_password'] = (string) ($_POST['current_password'] ?? '');
     $form['new_password'] = (string) ($_POST['new_password'] ?? '');
     $form['confirm_password'] = (string) ($_POST['confirm_password'] ?? '');

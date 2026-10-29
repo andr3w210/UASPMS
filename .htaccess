@@ -1,5 +1,12 @@
 Options -Indexes
 
+# The project root contains source code, Git metadata, database dumps, scripts,
+# and local artifacts. Only the SPAMS web application is intended to be public.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(?:\.git|database|scripts|tools|docs|devtools|exports|logs|android|uploads|\.github|\.agents|\.codex)(?:/|$) - [F,L,NC]
+</IfModule>
+
 <FilesMatch "^\.env(\..*)?$">
     <IfModule mod_authz_core.c>
         Require all denied

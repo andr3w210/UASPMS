@@ -11,8 +11,39 @@ $settings = $defaults;
 if ($db) foreach ($defaults as $key => $default) $settings[$key] = get_system_setting($db, $key, $default);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $poNotifyFlags = [
+        'po_notifications_enabled' => ['type' => 'bool'],
+        'po_notification_recipients' => ['type' => 'string', 'max' => 1000],
+        'po_notify_supplier' => ['type' => 'bool'],
+        'po_notification_weekday' => ['type' => 'int', 'min' => 1, 'max' => 7],
+        'po_delivery_summary_enabled' => ['type' => 'bool'],
+        'po_sms_notifications_enabled' => ['type' => 'bool'],
+        'po_sms_recipients' => ['type' => 'string', 'max' => 1000],
+        'po_sms_notify_supplier' => ['type' => 'bool'],
+    ];
+    request_schema_enforce([
+        'save_settings' => $poNotifyFlags,
+        'send_overdue_sms' => [],
+        'send_email_test' => [],
+    ], 'action', false, 'save_settings');
     if (!csrf_verify()) $errors[] = 'Invalid CSRF token.';
     $action = (string) ($_POST['action'] ?? 'save_settings');
+
+    if (!$errors && in_array($action, ['send_overdue_sms', 'send_email_test'], true)) {
+        $rateKey = $action === 'send_overdue_sms' ? 'po_notifications_sms' : 'po_notifications_email';
+        $rateMax = $action === 'send_overdue_sms' ? 3 : 2;
+        $rateWindow = 60;
+        if (rate_limit_check($rateKey, $rateMax, $rateWindow, true)) {
+            $retryAfter = rate_limit_retry_after($rateKey, $rateMax, $rateWindow);
+            http_response_code(429);
+            header('Retry-After: ' . $retryAfter);
+            $errors[] = $action === 'send_overdue_sms'
+                ? 'SMS send limit reached. Try again later.'
+                : 'Email send limit reached. Try again later.';
+        } else {
+            rate_limit_record($rateKey);
+        }
+    }
 
     if (!$errors && $action === 'send_overdue_sms') {
         $testRecipients = po_notification_sms_recipients($db);

@@ -351,6 +351,27 @@ if ($mainDb) {
 
 if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? 'save');
+    request_schema_enforce([
+        'add_station' => ['station_name_new' => ['type' => 'string', 'max' => 150]],
+        'save' => [
+            'id' => ['type' => 'int', 'min' => 0],
+            'ris_date' => ['type' => 'date'],
+            'ris_no' => ['type' => 'string', 'max' => 50],
+            'gas_station_id' => ['type' => 'int', 'min' => 0],
+            'station_name' => ['type' => 'string', 'max' => 150],
+            'vehicle_id' => ['type' => 'int', 'min' => 0],
+            'driver_name' => ['type' => 'string', 'max' => 150],
+            'fuel_type' => ['type' => 'string', 'max' => 50],
+            'unit' => ['type' => 'string', 'max' => 20],
+            'quantity' => ['type' => 'float', 'min' => 0],
+            'amount' => ['type' => 'float', 'min' => 0],
+            'odometer_reading' => ['type' => 'float', 'min' => 0],
+            'purpose' => ['type' => 'string', 'max' => 500],
+            'remarks' => ['type' => 'string', 'max' => 1000],
+        ],
+        'delete' => ['id' => ['type' => 'int', 'min' => 1, 'required' => true]],
+        'import' => ['import_quantity_mode' => ['type' => 'enum', 'enum' => ['consumed', 'purchased']]],
+    ], 'action', false, 'save');
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } elseif ($action === 'add_station') {

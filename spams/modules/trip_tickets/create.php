@@ -41,6 +41,7 @@ $form = [
     'received_by_name' => '',
     'received_by_title' => '',
     'remarks' => '',
+    'sms_recipients' => '',
 ];
 $passengerRows = [['passenger_name' => '']];
 
@@ -167,6 +168,36 @@ if ($tripDb && $isEdit && $_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 if ($tripDb && $mainDb && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'save' => [
+            'id' => ['type' => 'int', 'min' => 0],
+            'departure_date' => ['type' => 'date'],
+            'return_date' => ['type' => 'date'],
+            'departure_time' => ['type' => 'string', 'max' => 8, 'pattern' => '/^\d{2}:\d{2}(:\d{2})?$/'],
+            'vehicle_id' => ['type' => 'int', 'min' => 0],
+            'driver_employee_id' => ['type' => 'int', 'min' => 0],
+            'destination' => ['type' => 'string', 'max' => 255],
+            'map_latitude' => ['type' => 'string', 'max' => 20],
+            'map_longitude' => ['type' => 'string', 'max' => 20],
+            'use_map_picker' => ['type' => 'bool'],
+            'purpose' => ['type' => 'string', 'max' => 1000],
+            'liters_requested' => ['type' => 'float', 'min' => 0, 'max' => 100000],
+            'requested_by_name' => ['type' => 'string', 'max' => 150],
+            'requested_by_title' => ['type' => 'string', 'max' => 150],
+            'approved_by_name' => ['type' => 'string', 'max' => 150],
+            'approved_by_title' => ['type' => 'string', 'max' => 150],
+            'issued_by_name' => ['type' => 'string', 'max' => 150],
+            'issued_by_title' => ['type' => 'string', 'max' => 150],
+            'received_by_name' => ['type' => 'string', 'max' => 150],
+            'received_by_title' => ['type' => 'string', 'max' => 150],
+            'remarks' => ['type' => 'string', 'max' => 1000],
+            'sms_recipients' => ['type' => 'string', 'max' => 500],
+            'passengers' => ['type' => 'rows', 'max_items' => 100, 'items' => [
+                'passenger_name' => ['type' => 'string', 'max' => 150],
+            ]],
+        ],
+        'delete' => ['id' => ['type' => 'int', 'min' => 1, 'required' => true]],
+    ], 'action', false, 'save');
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } else {
@@ -265,6 +296,7 @@ if ($tripDb && $mainDb && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $form['received_by_name'] = old($_POST, 'received_by_name');
         $form['received_by_title'] = old($_POST, 'received_by_title');
         $form['remarks'] = old($_POST, 'remarks');
+        $form['sms_recipients'] = old($_POST, 'sms_recipients');
         $passengerRows = is_array($_POST['passengers'] ?? null) ? $_POST['passengers'] : [['passenger_name' => '']];
 
         $resolveSignatoryTitle = static function (string $name, string $fallback = '') use ($signatoryTitleMap): string {
@@ -319,6 +351,11 @@ if ($tripDb && $mainDb && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $passengers = trip_ticket_format_passengers($passengerRows);
+        $smsRecipientResult = trip_ticket_parse_sms_recipients($form['sms_recipients']);
+        if ($smsRecipientResult['error'] !== '') {
+            $errors[] = $smsRecipientResult['error'];
+        }
+        $smsRecipientNumbers = $smsRecipientResult['numbers'];
 
         if (!$errors) {
             $tripTicketNo = $isEdit ? (string) $ticket['trip_ticket_no'] : trip_ticket_next_number($tripDb, $form['departure_date']);
@@ -498,6 +535,28 @@ if ($tripDb && $mainDb && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     $passengerStmt->close();
                 }
 
+                if (!$isEdit && $smsRecipientNumbers) {
+                    $smsQueueStmt = $tripDb->prepare("INSERT INTO trip_ticket_sms_queue (trip_ticket_id, recipient_phone, message_body) VALUES (?, ?, ?)");
+                    if (!$smsQueueStmt) {
+                        throw new RuntimeException('Unable to prepare trip SMS notifications. Apply the trip ticket SMS gateway migration.');
+                    }
+                    $smsMessage = trip_ticket_sms_message([
+                        'trip_ticket_no' => $tripTicketNo,
+                        'departure_date' => $form['departure_date'],
+                        'departure_time' => $form['departure_time'],
+                        'vehicle_plate_no' => $selectedVehicle['plate_no'],
+                        'driver_name' => $driver['name'],
+                        'destination' => $form['destination'],
+                    ]);
+                    foreach ($smsRecipientNumbers as $recipientPhone) {
+                        $smsQueueStmt->bind_param('iss', $ticketId, $recipientPhone, $smsMessage);
+                        if (!$smsQueueStmt->execute()) {
+                            throw new RuntimeException('Unable to queue trip ticket SMS notification.');
+                        }
+                    }
+                    $smsQueueStmt->close();
+                }
+
                 $tripDb->commit();
 
                 write_audit_log($mainDb, [
@@ -527,7 +586,11 @@ if ($tripDb && $mainDb && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     ],
                 ]);
 
-                set_flash('success', $isEdit ? 'Trip ticket updated successfully.' : 'Trip ticket created successfully.');
+                $successMessage = $isEdit ? 'Trip ticket updated successfully.' : 'Trip ticket created successfully.';
+                if (!$isEdit && $smsRecipientNumbers) {
+                    $successMessage .= ' SMS notifications queued for ' . count($smsRecipientNumbers) . ' recipient(s).';
+                }
+                set_flash('success', $successMessage);
                 redirect('modules/trip_tickets/view.php?id=' . $ticketId);
             } catch (Throwable $e) {
                 $tripDb->rollback();
@@ -650,6 +713,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <textarea name="purpose" id="purpose" class="form-control" rows="3" required><?php echo h($form['purpose']); ?></textarea>
                     </div>
                 </div>
+
+                <?php if (!$isEdit): ?>
+                    <hr class="my-4">
+                    <div class="mb-4">
+                        <label for="sms_recipients" class="form-label">SMS Notifications <span class="text-muted">(Optional)</span></label>
+                        <textarea name="sms_recipients" id="sms_recipients" class="form-control" rows="2" maxlength="500" placeholder="09171234567, +639181234567"><?php echo h($form['sms_recipients']); ?></textarea>
+                        <div class="form-text">Enter up to 10 phone numbers separated by commas or new lines. The office Android gateway phone will send the trip number, departure, vehicle, driver, and destination after the ticket is saved.</div>
+                    </div>
+                <?php endif; ?>
 
                 <hr class="my-4">
                 <div class="d-flex justify-content-between align-items-center mb-2">

@@ -4,4 +4,5 @@
     <string name="file_chooser_title">Choose attachment</string>
     <string name="menu_refresh">Refresh</string>
     <string name="menu_scan_qr">Scan QR</string>
+    <string name="menu_sms_gateway">Start SMS Gateway</string>
 </resources>

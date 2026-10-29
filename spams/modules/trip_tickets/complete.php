@@ -59,6 +59,20 @@ if (!$tripDb) {
 }
 
 if ($tripDb && $ticket && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'id' => ['type' => 'int', 'min' => 1, 'required' => true],
+        'arrival_time' => ['type' => 'string', 'max' => 8, 'pattern' => '/^\d{2}:\d{2}(:\d{2})?$/'],
+        'return_departure_time' => ['type' => 'string', 'max' => 8, 'pattern' => '/^\d{2}:\d{2}(:\d{2})?$/'],
+        'return_arrival_time' => ['type' => 'string', 'max' => 8, 'pattern' => '/^\d{2}:\d{2}(:\d{2})?$/'],
+        'odometer_start' => ['type' => 'float', 'min' => 0],
+        'odometer_end' => ['type' => 'float', 'min' => 0],
+        'distance_traveled' => ['type' => 'float', 'min' => 0],
+        'fuel_purchased' => ['type' => 'float', 'min' => 0],
+        'fuel_consumed' => ['type' => 'float', 'min' => 0],
+        'oil_used' => ['type' => 'float', 'min' => 0],
+        'grease_used' => ['type' => 'float', 'min' => 0],
+        'completion_remarks' => ['type' => 'string', 'max' => 1000],
+    ]);
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } else {

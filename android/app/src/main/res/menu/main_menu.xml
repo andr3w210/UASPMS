@@ -11,4 +11,8 @@
         android:title="@string/menu_scan_qr"
         android:icon="@android:drawable/ic_menu_camera"
         app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/menu_sms_gateway"
+        android:title="@string/menu_sms_gateway"
+        app:showAsAction="never" />
 </menu>

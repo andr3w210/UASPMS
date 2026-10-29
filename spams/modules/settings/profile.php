@@ -221,6 +221,11 @@ if (!$db) {
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$errors) {
+        request_schema_enforce([
+            'full_name' => ['type' => 'string', 'max' => 150],
+            'email' => ['type' => 'string', 'max' => 150],
+            'remove_photo' => ['type' => 'bool'],
+        ]);
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
         } else {

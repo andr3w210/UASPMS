@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/cli_only.php';
 require_once __DIR__ . '/../app/config/init.php';
 
 foreach (['MAIL_HOST', 'MAIL_PORT', 'MAIL_ENCRYPTION', 'MAIL_USERNAME', 'MAIL_FROM', 'MAIL_FROM_NAME'] as $key) {

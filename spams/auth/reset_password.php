@@ -14,13 +14,20 @@ $success = '';
 $token = trim((string) ($_GET['token'] ?? $_POST['token'] ?? ''));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'token' => ['type' => 'string', 'max' => 128],
+        'new_password' => ['type' => 'string', 'max' => 255],
+        'confirm_password' => ['type' => 'string', 'max' => 255],
+    ]);
     $newPassword = (string) ($_POST['new_password'] ?? '');
     $confirmPassword = (string) ($_POST['confirm_password'] ?? '');
 
     if (!csrf_verify()) {
         $error = 'Invalid CSRF token.';
     } elseif (rate_limit_check('reset_password', 5, 15, true)) {
-        $retryAfter = rate_limit_retry_after('reset_password');
+        $retryAfter = rate_limit_retry_after('reset_password', 5, 15);
+        http_response_code(429);
+        header('Retry-After: ' . $retryAfter);
         $retryMinutes = $retryAfter > 0 ? (int) ceil($retryAfter / 60) : 15;
         $error = 'Too many requests from your IP address. Please try again in ' . $retryMinutes . ' minute(s).';
     } elseif ($token === '') {

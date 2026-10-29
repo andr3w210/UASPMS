@@ -766,6 +766,27 @@ db_tools_ensure_directory(db_tools_generated_dir());
 db_tools_ensure_directory(db_tools_uploaded_dir());
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $autoBackupFields = [
+        'task_name' => ['type' => 'string', 'max' => 100, 'pattern' => '/^[A-Za-z0-9 _.\-]+$/'],
+        'output_dir' => ['type' => 'string', 'max' => 500],
+        'photos_dir' => ['type' => 'string', 'max' => 500],
+        'include_photos' => ['type' => 'bool'],
+        'include_tripdb' => ['type' => 'bool'],
+        'upload_onedrive' => ['type' => 'bool'],
+        'onedrive_folder' => ['type' => 'string', 'max' => 200],
+        'onedrive_drive_id' => ['type' => 'string', 'max' => 200],
+        'keep_days' => ['type' => 'int', 'min' => 1, 'max' => 3650],
+        'schedule_type' => ['type' => 'enum', 'enum' => ['hourly', 'daily', 'weekly']],
+        'start_time' => ['type' => 'string', 'max' => 8, 'pattern' => '/^\d{2}:\d{2}(:\d{2})?$/'],
+        'weekly_day' => ['type' => 'enum', 'enum' => ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']],
+    ];
+    request_schema_enforce([
+        'create_backup' => [],
+        'upload_restore' => [],
+        'save_auto_backup_settings' => $autoBackupFields,
+        'run_auto_backup_test' => $autoBackupFields,
+        'validate_auto_backup_path' => $autoBackupFields,
+    ], 'action');
     $action = trim((string) ($_POST['action'] ?? ''));
 
     if (!csrf_verify()) {

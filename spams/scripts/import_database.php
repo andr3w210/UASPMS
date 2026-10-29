@@ -1,11 +1,17 @@
 <?php
 // Simple DB import script — run from command line: php scripts/import_database.php
+require_once __DIR__ . '/cli_only.php';
 require_once __DIR__ . '/../app/config/constants.php';
 
 $host = DB_HOST;
-$user = DB_USER;
-$pass = DB_PASS;
+$user = DB_ADMIN_USER;
+$pass = DB_ADMIN_PASS;
 $dbName = DB_NAME;
+
+if (trim($user) === '' || trim($pass) === '') {
+    fwrite(STDERR, "Database creation requires separate DB_ADMIN_USER and DB_ADMIN_PASS settings.\n");
+    exit(1);
+}
 
 // resolve workspace root and database directory
 $workspaceRoot = dirname(APP_ROOT);

@@ -2475,12 +2475,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
     }
 
     function postQA(payload, onSuccess, onError) {
-        payload['_csrf'] = getCsrf();
+        var csrf = getCsrf();
+        if (!csrf) {
+            onError('Security token is missing. Refresh the page and try again.');
+            return;
+        }
+        payload['_csrf'] = csrf;
         fetch(qaEndpoint, {
             method: 'POST',
+            credentials: 'same-origin',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRF-Token': getCsrf()
+                'X-CSRF-Token': csrf
             },
             body: new URLSearchParams(payload).toString()
         })

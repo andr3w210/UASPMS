@@ -8,6 +8,12 @@ $flash = get_flash();
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'effective_date' => ['type' => 'date'],
+        'equipment_min' => ['type' => 'float', 'min' => 0],
+        'semi_hv_min' => ['type' => 'float', 'min' => 0],
+        'basis' => ['type' => 'string', 'max' => 255],
+    ]);
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } else {

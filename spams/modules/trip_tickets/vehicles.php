@@ -29,6 +29,17 @@ if (!$tripDb) {
 
 if ($tripDb && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? 'save';
+    request_schema_enforce([
+        'save' => [
+            'id' => ['type' => 'int', 'min' => 0],
+            'plate_no' => ['type' => 'string', 'max' => 30],
+            'vehicle_name' => ['type' => 'string', 'max' => 100],
+            'vehicle_type' => ['type' => 'string', 'max' => 50],
+            'fuel_type' => ['type' => 'string', 'max' => 30],
+            'capacity_liters' => ['type' => 'float', 'min' => 0, 'max' => 100000],
+            'is_active' => ['type' => 'bool'],
+        ],
+    ], 'action', false, 'save');
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } elseif ($action === 'save') {

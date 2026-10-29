@@ -57,6 +57,16 @@ if (!$db) {
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        request_schema_enforce([
+            'source_type' => ['type' => 'enum', 'enum' => ['system', 'legacy']],
+            'return_id' => ['type' => 'int', 'min' => 0],
+            'return_ids' => ['type' => 'list', 'items' => ['type' => 'int', 'min' => 1], 'max_items' => 500],
+            'legacy_asset_id' => ['type' => 'int', 'min' => 0],
+            'disposal_date' => ['type' => 'date'],
+            'reason' => ['type' => 'string', 'max' => 100],
+            'approved_by' => ['type' => 'string', 'max' => 150],
+            'remarks' => ['type' => 'string', 'max' => 1000],
+        ]);
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
         }

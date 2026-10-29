@@ -14,6 +14,9 @@ $success = '';
 $identifier = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'identifier' => ['type' => 'string', 'max' => 150],
+    ]);
     $identifier = trim((string) ($_POST['identifier'] ?? ''));
 
     if (!csrf_verify()) {
@@ -21,7 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($identifier === '') {
         $error = 'Please enter your username or email.';
     } elseif (rate_limit_check('forgot_password', 5, 15, true)) {
-        $retryAfter = rate_limit_retry_after('forgot_password');
+        $retryAfter = rate_limit_retry_after('forgot_password', 5, 15);
+        http_response_code(429);
+        header('Retry-After: ' . $retryAfter);
         $retryMinutes = $retryAfter > 0 ? (int) ceil($retryAfter / 60) : 15;
         $error = 'Too many requests from your IP address. Please try again in ' . $retryMinutes . ' minute(s).';
     } elseif (!$db) {

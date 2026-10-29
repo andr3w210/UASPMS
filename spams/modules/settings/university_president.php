@@ -11,6 +11,11 @@ $universityPresidentTitle = $db ? get_system_setting($db, 'university_president_
 $universityPresidentAppointmentDate = $db ? get_system_setting($db, 'university_president_appointment_date', '') : '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'university_president_name' => ['type' => 'string', 'max' => 150],
+        'university_president_title' => ['type' => 'string', 'max' => 150],
+        'university_president_appointment_date' => ['type' => 'date'],
+    ]);
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } else {

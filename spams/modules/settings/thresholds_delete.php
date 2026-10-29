@@ -9,6 +9,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect('modules/settings/thresholds.php');
 }
 
+request_schema_enforce(['id' => ['type' => 'int', 'min' => 1, 'required' => true]]);
+
 if (!csrf_verify()) {
     set_flash('error', 'Invalid CSRF token.');
     redirect('modules/settings/thresholds.php');

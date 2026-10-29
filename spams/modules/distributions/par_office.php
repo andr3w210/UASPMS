@@ -11,7 +11,8 @@ $isShort = $printFormat === 'short';
 $viewMode = (($_GET['view_mode'] ?? 'grouped') === 'detailed') ? 'detailed' : 'grouped';
 $isGrouped = $viewMode === 'grouped';
 $extraRows = max(0, min(50, (int) ($_GET['extra_rows'] ?? 0)));
-$copyCount = max(1, min(20, (int) ($_GET['copies'] ?? 1)));
+$defaultCopyCount = $isShort ? 2 : 1;
+$copyCount = max(1, min(20, (int) ($_GET['copies'] ?? $defaultCopyCount)));
 $requestedDocumentNo = trim((string) ($_GET['document_no'] ?? ''));
 $offices = [];
 $header = null;
@@ -543,9 +544,9 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         .print-shell.short { width: 7.5in; max-width: 7.5in !important; padding: 0; }
         .short-copies { width: 7.5in; }
         .short-sheet { width: 7.5in; height: 12.5in; box-sizing: border-box; display: block; overflow: hidden; }
-        .short-slot { height: 6.25in; box-sizing: border-box; display: block; overflow: hidden; }
+        .short-slot { height: 6.125in; box-sizing: border-box; display: block; overflow: hidden; }
         .short-slot + .short-slot { padding-top: 0.25in; }
-        .short-copy { height: 6.25in; min-height: 6.25in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
+        .short-copy { height: 6.125in; min-height: 6.125in; padding: 0; box-sizing: border-box; overflow: hidden; break-inside: avoid; page-break-inside: avoid; flex: 1 1 auto; }
         .par-form { position: relative; }
         .par-title { text-align:center; font-weight:bold; font-size:16px; text-transform:uppercase; margin:18px 0 22px; }
         .appendix { position:absolute; right:0; top:0; font-size:12px; font-style:italic; }
@@ -571,7 +572,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         .print-shell.short .par-sign-table .sign-name { font-size:10px; margin-top:16px; margin-bottom:0; }
         .print-shell.short .par-sign-table .meta-box { height:42px; padding-top:4px; }
         .print-shell.short .par-sign-table .meta-value { font-size:9px; margin-top:8px; }
-        @media print { .no-print { display:none !important; } thead { display: table-header-group; } .print-shell.short .short-copies { width: 7.5in !important; height: auto !important; overflow: visible !important; } .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display:block !important; overflow: hidden !important; break-after: page; page-break-after: always; } .print-shell.short .short-slot { height: 6.25in !important; display: block !important; overflow: hidden !important; } .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; } .print-shell.short .short-copy { height: 6.25in !important; min-height: 6.25in !important; } .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; } }
+        @media print { .no-print { display:none !important; } thead { display: table-header-group; } .print-shell.short .short-copies { width: 7.5in !important; height: auto !important; overflow: visible !important; } .print-shell.short .short-sheet { width: 7.5in !important; height: 12.5in !important; display:block !important; overflow: hidden !important; break-after: page; page-break-after: always; } .print-shell.short .short-slot { height: 6.125in !important; display: block !important; overflow: hidden !important; } .print-shell.short .short-slot + .short-slot { padding-top: 0.25in !important; } .print-shell.short .short-copy { height: 6.125in !important; min-height: 6.125in !important; } .print-shell.short .short-sheet:last-child { break-after: auto; page-break-after: auto; } }
         <?php if (!$isShort): ?>
             <?php echo print_page_number_css(); ?>
         <?php endif; ?></style>
@@ -584,7 +585,13 @@ $shortSheetCount = (int) ceil($copyCount / 2);
                 <h4 class="mb-0">PAR Print by Office</h4>
                 <div class="small text-muted">Bulk print equipment currently accountable to one office.</div>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <?php if (($officeId > 0 || $legacyAssetId > 0) && $rows): ?>
+                    <div class="btn-group" role="group" aria-label="PAR print format">
+                        <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=short&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . '&copies=' . ($isShort ? $copyCount : max(2, $copyCount)) . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Short</a>
+                        <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=long&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Long</a>
+                    </div>
+                <?php endif; ?>
                 <?php if ($canViewAllOffices): ?>
                     <a href="<?php echo base_url('modules/distributions/index.php?document_type=par'); ?>" class="btn btn-outline-secondary">Back to Distribution</a>
                 <?php else: ?>
@@ -630,11 +637,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
             </div>
         </form>
         <?php if (($officeId > 0 || $legacyAssetId > 0) && $rows): ?>
-        <div class="d-flex justify-content-between align-items-start mt-3 mb-2 no-print">
-            <div class="btn-group" role="group" aria-label="PAR print format">
-                <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=short&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . '&copies=' . $copyCount . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo $isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Short</a>
-                <a href="<?php echo h(base_url('modules/distributions/par_office.php?office_id=' . $officeId . '&print_format=long&view_mode=' . $viewMode . '&extra_rows=' . $extraRows . ($legacyAssetId > 0 ? '&legacy_asset_id=' . $legacyAssetId : ''))); ?>" class="btn btn-sm <?php echo !$isShort ? 'btn-primary' : 'btn-outline-primary'; ?>">Long</a>
-            </div>
+        <div class="d-flex justify-content-end align-items-start mt-3 mb-2 no-print">
             <form method="get" class="d-flex align-items-center gap-2">
                 <input type="hidden" name="office_id" value="<?php echo (int) $officeId; ?>">
                 <input type="hidden" name="print_format" value="<?php echo h($printFormat); ?>">
@@ -795,6 +798,7 @@ $shortSheetCount = (int) ceil($copyCount / 2);
     var shortSheetCount = <?php echo (int) $shortSheetCount; ?>;
     var shell = source.parentElement;
     if (!shell) return;
+    var controls = shell.querySelector(':scope > .no-print');
 
     var host = document.createElement('div');
     host.className = 'short-copies';
@@ -830,7 +834,15 @@ $shortSheetCount = (int) ceil($copyCount / 2);
         host.appendChild(sheet);
     }
 
-    shell.insertBefore(host, shell.firstChild);
+    if (controls && controls.parentElement === shell) {
+        if (controls.nextSibling) {
+            shell.insertBefore(host, controls.nextSibling);
+        } else {
+            shell.appendChild(host);
+        }
+    } else {
+        shell.insertBefore(host, shell.firstChild);
+    }
 })();
 </script>
 <?php endif; ?>

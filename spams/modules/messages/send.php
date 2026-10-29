@@ -34,6 +34,15 @@ if (!csrf_verify()) {
     exit;
 }
 
+request_schema_enforce([
+    'recipient_user_id' => ['type' => 'int', 'min' => 0],
+    'channel_key' => ['type' => 'string', 'max' => 50, 'pattern' => '/^[a-z0-9_\-]+$/i'],
+    'subject' => ['type' => 'string', 'max' => 200],
+    'message_body' => ['type' => 'string', 'max' => 5000],
+    'related_table' => ['type' => 'string', 'max' => 50, 'pattern' => '/^[a-z_]+$/'],
+    'related_id' => ['type' => 'int', 'min' => 0],
+], null, true);
+
 $recipientRaw = trim((string) ($_POST['recipient_user_id'] ?? ''));
 $recipientUserId = (int) $recipientRaw;
 $channelKey = trim((string) ($_POST['channel_key'] ?? ''));

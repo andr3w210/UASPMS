@@ -34,6 +34,11 @@ if (!csrf_verify()) {
     exit;
 }
 
+request_schema_enforce([
+    'message_id' => ['type' => 'int', 'min' => 0],
+    'channel_message_id' => ['type' => 'int', 'min' => 0],
+], null, true);
+
 $messageId = (int) ($_POST['message_id'] ?? 0);
 $channelMessageId = (int) ($_POST['channel_message_id'] ?? 0);
 if ($channelMessageId > 0) {

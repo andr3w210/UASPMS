@@ -636,8 +636,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
 $rangeStart = $total > 0 ? (($page - 1) * $perPage) + 1 : 0;
 $rangeEnd = $total > 0 ? min($total, $rangeStart + count($rows) - 1) : 0;
 $shouldShowPagination = $total > $perPage || $totalPages > 1 || $page > 1 || $hasNextPage;
-$activeFilterCount = 0;
-foreach ([$officeId, $fundCodeFilter, $accountCodeId, $search, $itemType, $sourceFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $filterValue) {
+$activeFilterCount = ($officeId > 0 ? 1 : 0) + ($accountCodeId > 0 ? 1 : 0);
+foreach ([$fundCodeFilter, $search, $itemType, $sourceFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $filterValue) {
     if ((string) $filterValue !== '') {
         $activeFilterCount++;
     }
@@ -656,8 +656,8 @@ $hasAdvancedFiltersActive = $officeId > 0
     || $amountMax !== null
     || $dateFrom !== ''
     || $dateTo !== '';
-$advancedFilterCount = 0;
-foreach ([$officeId, $fundCodeFilter, $accountCodeId, $itemType, $sourceFilter, $rpcppeFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $advancedValue) {
+$advancedFilterCount = ($officeId > 0 ? 1 : 0) + ($accountCodeId > 0 ? 1 : 0);
+foreach ([$fundCodeFilter, $itemType, $sourceFilter, $rpcppeFilter, $brandModelFilter, $serialFilter, $dateFrom, $dateTo] as $advancedValue) {
     if ((string) $advancedValue !== '') {
         $advancedFilterCount++;
     }

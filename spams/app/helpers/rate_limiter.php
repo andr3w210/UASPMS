@@ -140,16 +140,14 @@ function rate_limit_record(string $key): void
  * @param int    $maxAttempts
  * @param int    $windowMinutes
  *
- * @return int  Seconds remaining, or 0 if not blocked / DB unavailable.
+ * @return int  Seconds remaining; if the backend is unavailable, the full window.
  */
 function rate_limit_retry_after(string $key, int $maxAttempts = 5, int $windowMinutes = 15): int
 {
     $db = db();
-    if (!$db) {
-        return 0;
+    if (!$db || !_rate_limit_schema_ready($db)) {
+        return max(1, $windowMinutes * 60);
     }
-
-    _rate_limit_ensure_table($db);
 
     $ip   = _rate_limit_ip();
     $stmt = $db->prepare("
@@ -166,7 +164,7 @@ function rate_limit_retry_after(string $key, int $maxAttempts = 5, int $windowMi
     ");
 
     if (!$stmt) {
-        return 0;
+        return max(1, $windowMinutes * 60);
     }
 
     $stmt->bind_param('ssii', $ip, $key, $windowMinutes, $maxAttempts);
@@ -180,4 +178,15 @@ function rate_limit_retry_after(string $key, int $maxAttempts = 5, int $windowMi
 
     $resetAt = strtotime((string) $row['oldest']) + ($windowMinutes * 60);
     return max(0, $resetAt - time());
+}
+
+/** Send a consistent 429 response for JSON endpoints. */
+function rate_limit_json_reject(string $key, int $maxAttempts, int $windowMinutes, string $message): void
+{
+    $retryAfter = rate_limit_retry_after($key, $maxAttempts, $windowMinutes);
+    http_response_code(429);
+    header('Retry-After: ' . $retryAfter);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => $message, 'retry_after' => $retryAfter]);
+    exit;
 }

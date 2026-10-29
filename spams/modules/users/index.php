@@ -158,6 +158,25 @@ if (!$db) {
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? 'save';
+        $userIdOnly = ['id' => ['type' => 'int', 'min' => 1, 'required' => true]];
+        request_schema_enforce([
+            'save' => [
+                'id' => ['type' => 'int', 'min' => 0],
+                'username' => ['type' => 'string', 'max' => 50],
+                'email' => ['type' => 'string', 'max' => 150],
+                'full_name' => ['type' => 'string', 'max' => 150],
+                'role_id' => ['type' => 'int', 'min' => 1],
+                'employee_id' => ['type' => 'int', 'min' => 0],
+                'office_id' => ['type' => 'int', 'min' => 0],
+                'password' => ['type' => 'string', 'max' => 255],
+                'is_active' => ['type' => 'bool'],
+            ],
+            'ensure_employee_role' => [],
+            'delete' => $userIdOnly,
+            'reactivate' => $userIdOnly,
+            'hard_delete' => $userIdOnly,
+            'reset_password' => $userIdOnly,
+        ], 'action', false, 'save');
         if (!csrf_verify()) {
             $errors[] = 'Invalid CSRF token.';
         } elseif ($action === 'ensure_employee_role') {
@@ -178,7 +197,15 @@ if (!$db) {
                 set_flash('error', 'Unable to create the Employee login role. Please check the roles table setup.');
             }
             redirect('modules/users/index.php');
+        } elseif ($action === 'save' && (int) ($_POST['id'] ?? 0) === 0 && rate_limit_check('signup', 10, 60, true)) {
+            $retryAfter = rate_limit_retry_after('signup', 10, 60);
+            http_response_code(429);
+            header('Retry-After: ' . $retryAfter);
+            $errors[] = 'Account creation limit reached. Try again later.';
         } elseif ($action === 'save') {
+            if ((int) ($_POST['id'] ?? 0) === 0) {
+                rate_limit_record('signup');
+            }
             $form['id']=(int)($_POST['id']??0);
             $form['username']=old($_POST,'username');
             $form['email']=old($_POST,'email');
@@ -472,7 +499,13 @@ if (!$db) {
                 $errors[] = 'Unable to permanently delete the user.';
                 $errors[] = $e->getMessage();
             }
+        } elseif ($action === 'reset_password' && rate_limit_check('admin_password_reset', 5, 15, true)) {
+            $retryAfter = rate_limit_retry_after('admin_password_reset', 5, 15);
+            http_response_code(429);
+            header('Retry-After: ' . $retryAfter);
+            $errors[] = 'Password reset limit reached. Try again later.';
         } elseif($action==='reset_password'){
+            rate_limit_record('admin_password_reset');
             $recordId = (int) ($_POST['id'] ?? 0);
             if (!$userHasForcePasswordColumn) {
                 $errors[] = 'Password reset is not available in this database.';

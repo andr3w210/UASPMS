@@ -9,6 +9,9 @@ $errors = [];
 $risApprovedBy = $db ? get_system_setting($db, 'ris_approved_by', '') : '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'ris_approved_by' => ['type' => 'string', 'max' => 150],
+    ]);
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } else {

@@ -6,6 +6,12 @@ This project already contains a working baseline database dump that can recreate
 
 The application reads database settings from the project `.env` file, falling back to `spams/.env` when needed. Do not rely on hard-coded `root` or blank-password values for production recovery.
 
+The normal application account (`DB_USER` / `DB_PASS`) is scoped to the
+application databases and must not be used for database creation or destructive
+restore. Configure a separate trusted maintenance account as `DB_ADMIN_USER` /
+`DB_ADMIN_PASS` in the ignored `.env` file before using either database
+import/restore utility. These values are never committed.
+
 ## Recovery baseline
 
 The saved baseline dump is:
@@ -33,6 +39,8 @@ The restore script will:
 - Create a pre-restore backup using `scripts/backup_database.ps1`
 - Drop and recreate `spamsdb`
 - Import the saved baseline dump
+- Require the separate `DB_ADMIN_USER` / `DB_ADMIN_PASS` credentials; it never
+  falls back to the application database account.
 
 Script path:
 
@@ -49,5 +57,8 @@ If you want to rebuild from the individual SQL files instead of the baseline dum
 ```powershell
 & 'F:\xampp\php\php.exe' .\spams\scripts\import_database.php
 ```
+
+This importer also requires the separate `DB_ADMIN_USER` / `DB_ADMIN_PASS`
+credentials.
 
 The baseline dump is the safer option because it was created from a database that already loads successfully in this environment.

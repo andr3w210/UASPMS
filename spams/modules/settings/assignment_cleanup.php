@@ -268,6 +268,16 @@ if (!$db) {
 } elseif (!employee_assignments_enabled($db)) {
     $errors[] = 'Employee assignments table is not available.';
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $assignmentOnly = ['assignment_id' => ['type' => 'int', 'min' => 1, 'required' => true]];
+    request_schema_enforce([
+        'set_primary' => $assignmentOnly,
+        'set_unit_head' => $assignmentOnly,
+        'deactivate_assignment' => $assignmentOnly,
+        'sync_office_head' => [
+            'office_id' => ['type' => 'int', 'min' => 1, 'required' => true],
+            'employee_id' => ['type' => 'int', 'min' => 1, 'required' => true],
+        ],
+    ], 'action');
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } else {

@@ -10,6 +10,10 @@ $username = '';
 $flash = get_flash();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'username' => ['type' => 'string', 'max' => 100],
+        'password' => ['type' => 'string', 'max' => 255],
+    ]);
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
 
@@ -18,7 +22,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($username === '' || $password === '') {
         $error = 'Please enter username and password.';
     } elseif (rate_limit_check('login', 5, 15, true)) {
-        $retryAfter = rate_limit_retry_after('login');
+        $retryAfter = rate_limit_retry_after('login', 5, 15);
+        http_response_code(429);
+        header('Retry-After: ' . $retryAfter);
         $retryMinutes = $retryAfter > 0 ? (int) ceil($retryAfter / 60) : 15;
         $error = 'Too many login attempts from your IP address. Please try again in ' . $retryMinutes . ' minute(s).';
     } else {

@@ -1072,7 +1072,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($canManagePhotos || $canEditDetail
             set_flash('error', 'Inventory type must be Equipment or Semi-Expendable.');
             redirect('modules/property/view.php?source=' . urlencode($source) . '&id=' . $id);
         }
-        if ($serialNo !== '') {
+        // Allow edits to other asset details when a pre-existing serial number
+        // is already duplicated. Uniqueness only needs checking if it changes.
+        if ($serialNo !== '' && $serialNo !== $originalSerialNo) {
             $serialConflict = asset_identifier_conflict($db, 'serial_no', $serialNo, $source, $id);
             if ($serialConflict) {
                 set_flash('error', 'Serial number already exists in ' . $serialConflict['label'] . ' #' . $serialConflict['id'] . '.');

@@ -55,6 +55,12 @@ if (isset($_GET['download']) && $_GET['download'] === 'lan_ca') {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    request_schema_enforce([
+        'tailscale_serve_url' => ['type' => 'string', 'max' => 255],
+        'tailscale_ip_url' => ['type' => 'string', 'max' => 255],
+        'local_access_url' => ['type' => 'string', 'max' => 255],
+        'session_timeout_minutes' => ['type' => 'int', 'min' => 0, 'max' => 10080],
+    ]);
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } else {

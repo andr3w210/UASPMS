@@ -14,6 +14,11 @@ if (!$db) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $db) {
+    request_schema_enforce([
+        'current_password' => ['type' => 'string', 'max' => 255],
+        'new_password' => ['type' => 'string', 'max' => 255],
+        'confirm_password' => ['type' => 'string', 'max' => 255],
+    ]);
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     } else {

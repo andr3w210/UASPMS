@@ -590,6 +590,36 @@ function distribution_doc_label(string $type): string
 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $distMap = ['type' => 'list', 'items' => ['type' => 'string', 'max' => 1000], 'max_items' => 2000];
+    request_schema_enforce([
+        'post_distribution' => [
+            'document_type' => ['type' => 'enum', 'enum' => ['par', 'ics']],
+            'semi_type' => ['type' => 'enum', 'enum' => ['high_value', 'low_value', '']],
+            'receiving_id' => ['type' => 'int', 'min' => 0],
+            'office_id' => ['type' => 'int', 'min' => 0],
+            'employee_id' => ['type' => 'int', 'min' => 0],
+            'distribution_date' => ['type' => 'date'],
+            'purpose' => ['type' => 'string', 'max' => 1000],
+            'remarks' => ['type' => 'string', 'max' => 1000],
+            'units' => $distMap,
+            'unit_remarks' => $distMap,
+        ],
+        'update_distribution' => [
+            'edit_id' => ['type' => 'int', 'min' => 1, 'required' => true],
+            'office_id' => ['type' => 'int', 'min' => 0],
+            'employee_id' => ['type' => 'int', 'min' => 0],
+            'distribution_date' => ['type' => 'date'],
+            'purpose' => ['type' => 'string', 'max' => 1000],
+            'remarks' => ['type' => 'string', 'max' => 1000],
+            'quantity_distributed' => $distMap,
+            'line_remarks' => $distMap,
+            'detail_property_number' => $distMap,
+            'detail_brand' => $distMap,
+            'detail_model' => $distMap,
+            'detail_serial_no' => $distMap,
+            'detail_remarks' => $distMap,
+        ],
+    ], 'action', false, 'post_distribution');
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     }

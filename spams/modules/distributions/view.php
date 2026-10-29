@@ -84,6 +84,7 @@ if ($db) {
 }
 
 if ($db && $distributionId > 0 && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'cancel_distribution') {
+    request_schema_enforce(['cancel_distribution' => ['cancel_reason' => ['type' => 'string', 'max' => 500]]], 'action');
     if (!$canCancelDistribution) {
         $errors[] = 'Only administrators can cancel distributions.';
     }
@@ -242,6 +243,12 @@ if ($db && $distributionId > 0 && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_PO
 }
 
 if ($db && $distributionId > 0 && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'correct_distribution_unit') {
+    request_schema_enforce(['correct_distribution_unit' => [
+        'detail_id' => ['type' => 'int', 'min' => 1, 'required' => true],
+        'next_status' => ['type' => 'string', 'max' => 50],
+        'reason' => ['type' => 'string', 'max' => 500],
+        'remarks' => ['type' => 'string', 'max' => 1000],
+    ]], 'action');
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
     }

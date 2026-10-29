@@ -669,13 +669,17 @@ if (!$db) {
                 $serialKey = strtoupper($serialNo);
                 if (isset($postedSerialNumbers[$serialKey])) {
                     $errors[] = 'Duplicate serial number in this receiving: ' . $serialNo . '.';
-                    continue 2;
+                    continue;
                 }
                 $postedSerialNumbers[$serialKey] = true;
 
                 $serialStmt = $db->prepare("
                     SELECT source_name FROM (
-                        SELECT 'receiving detail' AS source_name FROM receiving_item_details WHERE serial_no = ?
+                        SELECT 'receiving detail' AS source_name
+                        FROM receiving_item_details rid
+                        INNER JOIN receiving_items ri ON ri.id = rid.receiving_item_id
+                        INNER JOIN receivings r ON r.id = ri.receiving_id AND r.status <> 'cancelled'
+                        WHERE rid.serial_no = ?
                         UNION ALL
                         SELECT 'distributed asset' AS source_name FROM distribution_item_details WHERE serial_no = ?
                         UNION ALL
@@ -690,7 +694,7 @@ if (!$db) {
                     $serialStmt->close();
                     if ($serialExists) {
                         $errors[] = 'Serial number already exists in ' . $serialExists['source_name'] . ' records: ' . $serialNo . '.';
-                        continue 2;
+                        continue;
                     }
                 }
             }

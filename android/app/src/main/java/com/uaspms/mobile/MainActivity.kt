@@ -1,13 +1,17 @@
 package com.uaspms.mobile
 
 import android.annotation.SuppressLint
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewConfiguration
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -17,10 +21,12 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import java.io.File
@@ -43,6 +49,13 @@ class MainActivity : AppCompatActivity() {
     private var resolvedBaseUrls: List<String> = emptyList()
 
     private lateinit var fileChooserLauncher: ActivityResultLauncher<Intent>
+    private val smsGatewayPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        if (grants[Manifest.permission.SEND_SMS] == true || hasSmsPermission()) {
+            startSmsGateway()
+        } else {
+            Toast.makeText(this, "SMS permission is required for the phone gateway.", Toast.LENGTH_LONG).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,6 +107,10 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebView() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+        }
+
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
@@ -414,8 +431,33 @@ class MainActivity : AppCompatActivity() {
                 launchQrScanner()
                 true
             }
+            R.id.menu_sms_gateway -> {
+                enableSmsGateway()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun hasSmsPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+
+    private fun enableSmsGateway() {
+        if (hasSmsPermission()) {
+            startSmsGateway()
+            return
+        }
+        val permissions = mutableListOf(Manifest.permission.SEND_SMS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        smsGatewayPermissionLauncher.launch(permissions.toTypedArray())
+    }
+
+    private fun startSmsGateway() {
+        val intent = Intent(this, SmsGatewayService::class.java).putExtra(SmsGatewayService.EXTRA_BASE_URL, currentBaseUrl())
+        ContextCompat.startForegroundService(this, intent)
+        Toast.makeText(this, "UASPMS SMS Gateway started. Keep this phone online.", Toast.LENGTH_LONG).show()
     }
 
     private fun launchQrScanner() {

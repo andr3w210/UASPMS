@@ -160,8 +160,9 @@ function extract_scanned_property_reference(string $rawValue): string
     return $rawValue;
 }
 
-function resolve_inventory_count_property_reference(mysqli $db, string $rawValue): string
+function resolve_inventory_count_property_reference(mysqli $db, string $rawValue, int $sessionId = 0, ?string &$resolutionError = null): string
 {
+    $resolutionError = '';
     $rawValue = trim($rawValue);
     if ($rawValue === '') {
         return '';
@@ -181,6 +182,70 @@ function resolve_inventory_count_property_reference(mysqli $db, string $rawValue
     $serialNumber = trim((string) ($payload['serial_number'] ?? ''));
     $tagOrSerial = $tagCode !== '' ? $tagCode : $rawValue;
     $serialOrRaw = $serialNumber !== '' ? $serialNumber : $rawValue;
+
+    // Resolve serials against the open count's own snapshot first. A serial can
+    // be duplicated or stale elsewhere in the asset tables, so a global LIMIT 1
+    // can otherwise select an unrelated property number.
+    if ($sessionId > 0 && $tagCode === '' && $serialOrRaw !== '') {
+        $sessionSerialStmt = $db->prepare("SELECT DISTINCT property_number FROM inventory_count_items WHERE session_id = ? AND TRIM(serial_no) = ? AND property_number IS NOT NULL AND TRIM(property_number) <> '' ORDER BY property_number ASC LIMIT 2");
+        if ($sessionSerialStmt) {
+            $sessionSerialStmt->bind_param('is', $sessionId, $serialOrRaw);
+            $sessionSerialStmt->execute();
+            $sessionSerialResult = $sessionSerialStmt->get_result();
+            $sessionMatches = $sessionSerialResult ? $sessionSerialResult->fetch_all(MYSQLI_ASSOC) : [];
+            $sessionSerialStmt->close();
+
+            if (count($sessionMatches) === 1) {
+                return trim((string) $sessionMatches[0]['property_number']);
+            }
+            if (count($sessionMatches) > 1) {
+                $resolutionError = 'This serial number matches multiple assets in the current count. Scan the asset tag or enter its property number.';
+                return '';
+            }
+        }
+    }
+
+    $isSerialScan = $tagCode === ''
+        && $propertyNumber === ''
+        && $serialOrRaw !== ''
+        && function_exists('property_qr_looks_like_serial_number')
+        && property_qr_looks_like_serial_number($serialOrRaw);
+    if ($isSerialScan) {
+        $activeSerialStmt = $db->prepare("SELECT DISTINCT property_number FROM (
+            SELECT did.property_number
+            FROM distribution_item_details did
+            INNER JOIN distribution_items di ON di.id = did.distribution_item_id
+            INNER JOIN distributions d ON d.id = di.distribution_id AND d.status = 'posted'
+            INNER JOIN receiving_items ri ON ri.id = di.receiving_item_id
+            INNER JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+            WHERE TRIM(did.serial_no) = ? AND did.is_distributed = 1
+              AND (did.is_disposed IS NULL OR did.is_disposed = 0)
+              AND poi.item_type IN ('equipment', 'semi_expendable')
+            UNION ALL
+            SELECT la.property_number
+            FROM legacy_assets la
+            WHERE TRIM(la.serial_no) = ? AND la.is_active = 1
+              AND la.item_type IN ('equipment', 'semi_expendable')
+        ) active_assets WHERE property_number IS NOT NULL AND TRIM(property_number) <> '' ORDER BY property_number ASC LIMIT 2");
+        if ($activeSerialStmt) {
+            $activeSerialStmt->bind_param('ss', $serialOrRaw, $serialOrRaw);
+            $activeSerialStmt->execute();
+            $activeSerialResult = $activeSerialStmt->get_result();
+            $activeMatches = $activeSerialResult ? $activeSerialResult->fetch_all(MYSQLI_ASSOC) : [];
+            $activeSerialStmt->close();
+
+            if (count($activeMatches) === 1) {
+                return trim((string) $activeMatches[0]['property_number']);
+            }
+            if (count($activeMatches) > 1) {
+                $resolutionError = 'This serial number matches multiple active assets. Scan the asset tag or enter its property number.';
+                return '';
+            }
+        }
+
+        // Do not fall back to a stale or inactive row with the same serial.
+        return $rawValue;
+    }
 
     if (function_exists('property_qr_ensure_schema')) {
         property_qr_ensure_schema($db);
@@ -325,14 +390,15 @@ if ($db) {
         }
 
         $sessionId = (int) ($_POST['session_id'] ?? 0);
-        $propertyReference = resolve_inventory_count_property_reference($db, trim((string) ($_POST['scan_value'] ?? '')));
+        $resolutionError = '';
+        $propertyReference = resolve_inventory_count_property_reference($db, trim((string) ($_POST['scan_value'] ?? '')), $sessionId, $resolutionError);
         $expectedUpdatedAt = trim((string) ($_POST['expected_updated_at'] ?? ''));
         $response = ['success' => false, 'error' => 'Unable to mark scanned asset as found.'];
 
         if ($sessionId <= 0) {
             $response['error'] = 'Invalid count session.';
         } elseif ($propertyReference === '') {
-            $response['error'] = 'Scan a QR code or enter a property number.';
+            $response['error'] = $resolutionError !== '' ? $resolutionError : 'Scan a QR code or enter a property number.';
         } else {
             $sessionStmt = $db->prepare('SELECT id, status FROM inventory_count_sessions WHERE id = ? LIMIT 1');
             $sessionRow = null;
@@ -966,12 +1032,13 @@ if ($db) {
         if (empty($errors) && $action === 'scan_asset') {
             $sessionId = (int) ($_POST['session_id'] ?? 0);
             $rawScanValue = trim((string) ($_POST['scan_value'] ?? ''));
-            $propertyReference = resolve_inventory_count_property_reference($db, $rawScanValue);
+            $resolutionError = '';
+            $propertyReference = resolve_inventory_count_property_reference($db, $rawScanValue, $sessionId, $resolutionError);
 
             if ($sessionId <= 0) {
                 $errors[] = 'Invalid count session.';
             } elseif ($propertyReference === '') {
-                $errors[] = 'Scan a QR code or enter a property number.';
+                $errors[] = $resolutionError !== '' ? $resolutionError : 'Scan a QR code or enter a property number.';
             } else {
                 $sessionStmt = $db->prepare("
                     SELECT id, office_id, status

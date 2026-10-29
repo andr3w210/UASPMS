@@ -57,6 +57,14 @@ if ($mediaType === 'application/pdf') {
     exit;
 }
 
+$scanRateKey = 'po_scan_gemini';
+$scanRateMax = 10;
+$scanRateWindow = 60;
+if (rate_limit_check($scanRateKey, $scanRateMax, $scanRateWindow, true)) {
+    rate_limit_json_reject($scanRateKey, $scanRateMax, $scanRateWindow, 'PO scan limit reached. Try again later.');
+}
+rate_limit_record($scanRateKey);
+
 $payload = json_encode([
     'contents' => [[
         'parts' => [
