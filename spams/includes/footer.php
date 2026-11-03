@@ -9,7 +9,7 @@
             </div>
             <div class="col-12 col-lg-auto mt-3 mt-lg-0">
                 SPAMS &copy; <?php echo date('Y'); ?> University of Antique. Supply and Property Asset Management System.
-                                <span class="text-secondary ms-2">&middot; Designed by aDDicTus</span>
+                                <span class="text-secondary ms-2">&middot; Designed by <a href="https://www.facebook.com/aDDicTus69" target="_blank" rel="noopener noreferrer">aDDicTus</a></span>
                             </div>
         </div>
     </div>
@@ -19,7 +19,7 @@
 <?php else: ?>
     <div class="text-center text-secondary small py-3 d-print-none">
         SPAMS &copy; <?php echo date('Y'); ?> University of Antique
-        <div>Designed by aDDicTus</div>
+        <div>Designed by <a href="https://www.facebook.com/aDDicTus69" target="_blank" rel="noopener noreferrer">aDDicTus</a></div>
     </div>
 <?php endif; ?>
 
