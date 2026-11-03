@@ -135,37 +135,39 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         </table>
 
         <table class="ris-signatures">
+            <?php
+            $sigDate = format_date((string) $ticket['departure_date'], 'n/j/Y');
+            $sigNames = [trip_ticket_natural_name($requestedByName), trip_ticket_natural_name($approvedByName), trip_ticket_natural_name($issuedByName), trip_ticket_natural_name($receivedByName)];
+            $sigTitles = [$requestedByTitle, $approvedByTitle, $issuedByTitle, $receivedByTitle];
+            ?>
             <tr>
+                <td class="sig-label"></td>
                 <th>Requested by:</th>
                 <th>Approved by:</th>
                 <th>Issued by:</th>
                 <th>Received by:</th>
             </tr>
+            <tr class="sig-row-space">
+                <td class="sig-label">Signature:</td>
+                <td></td><td></td><td></td><td></td>
+            </tr>
             <tr>
-                <td class="signature-block">
-                    <div class="signature-space"></div>
-                    <div class="signature-name"><?php echo h(trip_ticket_natural_name($requestedByName)); ?></div>
-                    <div class="signature-role"><?php echo h($requestedByTitle); ?></div>
-                    <div class="signature-date"><?php echo h(format_date((string) $ticket['departure_date'], 'n/j/Y')); ?></div>
-                </td>
-                <td class="signature-block">
-                    <div class="signature-space"></div>
-                    <div class="signature-name"><?php echo h(trip_ticket_natural_name($approvedByName)); ?></div>
-                    <div class="signature-role"><?php echo h($approvedByTitle); ?></div>
-                    <div class="signature-date"><?php echo h(format_date((string) $ticket['departure_date'], 'n/j/Y')); ?></div>
-                </td>
-                <td class="signature-block">
-                    <div class="signature-space"></div>
-                    <div class="signature-name"><?php echo h(trip_ticket_natural_name($issuedByName)); ?></div>
-                    <div class="signature-role"><?php echo h($issuedByTitle); ?></div>
-                    <div class="signature-date"><?php echo h(format_date((string) $ticket['departure_date'], 'n/j/Y')); ?></div>
-                </td>
-                <td class="signature-block">
-                    <div class="signature-space"></div>
-                    <div class="signature-name"><?php echo h(trip_ticket_natural_name($receivedByName)); ?></div>
-                    <div class="signature-role"><?php echo h($receivedByTitle); ?></div>
-                    <div class="signature-date"><?php echo h(format_date((string) $ticket['departure_date'], 'n/j/Y')); ?></div>
-                </td>
+                <td class="sig-label">Printed Name:</td>
+                <?php foreach ($sigNames as $sigName): ?>
+                    <td class="signature-name"><?php echo h($sigName); ?></td>
+                <?php endforeach; ?>
+            </tr>
+            <tr>
+                <td class="sig-label">Designation:</td>
+                <?php foreach ($sigTitles as $sigTitle): ?>
+                    <td class="signature-role"><?php echo h($sigTitle); ?></td>
+                <?php endforeach; ?>
+            </tr>
+            <tr>
+                <td class="sig-label">Date:</td>
+                <?php for ($i = 0; $i < 4; $i++): ?>
+                    <td class="signature-role"><?php echo h($sigDate); ?></td>
+                <?php endfor; ?>
             </tr>
         </table>
     </div>
@@ -223,7 +225,9 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         .ris-grid th, .ris-signatures th { text-align: center; font-weight: bold; }
         .center-cell { text-align: center; }
         .purpose-cell { min-height: 40px; }
-        .signature-block { height: 92px; }
+        .sig-label { width: 16%; text-align: left; font-size: 11px; white-space: nowrap; }
+        .sig-row-space td { height: 30px; }
+        .ris-signatures td.signature-name { font-size: 11px; }
         .signature-space { height: 24px; }
         .signature-name { font-weight: bold; text-align: center; text-transform: uppercase; }
         .signature-role, .signature-date { text-align: center; font-size: 11px; }
