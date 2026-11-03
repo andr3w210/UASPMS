@@ -39,9 +39,37 @@ if ($tripDb && $_SERVER['REQUEST_METHOD'] === 'POST') {
             'capacity_liters' => ['type' => 'float', 'min' => 0, 'max' => 100000],
             'is_active' => ['type' => 'bool'],
         ],
+        'toggle' => [
+            'id' => ['type' => 'int', 'min' => 1],
+        ],
     ], 'action', false, 'save');
     if (!csrf_verify()) {
         $errors[] = 'Invalid CSRF token.';
+    } elseif ($action === 'toggle') {
+        $toggleId = (int) ($_POST['id'] ?? 0);
+        $stmt = $tripDb->prepare("UPDATE trip_vehicles SET is_active = 1 - is_active, updated_by = ?, updated_at = NOW() WHERE id = ?");
+        if ($stmt) {
+            $toggleUser = current_user_id();
+            $stmt->bind_param('ii', $toggleUser, $toggleId);
+            $ok = $stmt->execute() && $stmt->affected_rows > 0;
+            $stmt->close();
+            if ($ok) {
+                if ($mainDb) {
+                    write_audit_log($mainDb, [
+                        'action' => 'update',
+                        'table_name' => 'trip_vehicles',
+                        'record_id' => $toggleId,
+                        'module_name' => 'trip_tickets',
+                        'record_type' => 'trip_vehicle',
+                        'action_name' => 'toggle_trip_vehicle',
+                        'description' => 'Toggled trip vehicle active status.',
+                    ]);
+                }
+                set_flash('success', 'Vehicle status updated.');
+                redirect('modules/trip_tickets/vehicles.php');
+            }
+        }
+        $errors[] = 'Unable to update the vehicle status.';
     } elseif ($action === 'save') {
         $form['id'] = (int) ($_POST['id'] ?? 0);
         $form['plate_no'] = strtoupper(old($_POST, 'plate_no'));
@@ -235,8 +263,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
             <div class="card shadow-sm">
                 <div class="card-body">
                     <h5 class="card-title">Vehicle List</h5>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-8"><input type="search" id="vehicleSearch" class="form-control" placeholder="Search plate, vehicle, type or fuel"></div>
+                        <div class="col-md-4">
+                            <select id="vehicleStatus" class="form-select" data-no-select2>
+                                <option value="">All statuses</option>
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </div>
+                    </div>
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle">
+                        <table class="table table-hover align-middle" id="vehicleTable" data-no-table-search="true">
                             <thead>
                                 <tr>
                                     <th>Plate No.</th>
@@ -253,14 +291,29 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <tr><td colspan="7" class="text-center text-muted py-4">No vehicles found.</td></tr>
                                 <?php else: ?>
                                     <?php foreach ($vehicles as $vehicle): ?>
-                                        <tr>
+                                        <tr data-status="<?php echo (int) $vehicle['is_active'] === 1 ? 'active' : 'inactive'; ?>">
                                             <td><?php echo h($vehicle['plate_no']); ?></td>
                                             <td><?php echo h($vehicle['vehicle_name']); ?></td>
                                             <td><?php echo h($vehicle['vehicle_type'] ?? ''); ?></td>
                                             <td><?php echo h($vehicle['fuel_type']); ?></td>
                                             <td class="text-end"><?php echo $vehicle['capacity_liters'] !== null ? number_format((float) $vehicle['capacity_liters'], 2) : ''; ?></td>
                                             <td><span class="badge bg-<?php echo (int) $vehicle['is_active'] === 1 ? 'success' : 'secondary'; ?>"><?php echo (int) $vehicle['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span></td>
-                                            <td class="text-end"><a href="<?php echo base_url('modules/trip_tickets/vehicles.php?edit=' . (int) $vehicle['id']); ?>" class="btn btn-sm btn-outline-primary">Edit</a></td>
+                                            <td class="text-end">
+                                                <div class="dropdown">
+                                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Actions</button>
+                                                    <ul class="dropdown-menu dropdown-menu-end">
+                                                        <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/vehicles.php?edit=' . (int) $vehicle['id']); ?>"><i class="bi bi-pencil-square me-2"></i>Edit</a></li>
+                                                        <li>
+                                                            <form method="post" class="m-0">
+                                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                                <input type="hidden" name="action" value="toggle">
+                                                                <input type="hidden" name="id" value="<?php echo (int) $vehicle['id']; ?>">
+                                                                <button type="submit" class="dropdown-item"><?php echo (int) $vehicle['is_active'] === 1 ? '<i class="bi bi-slash-circle me-2"></i>Deactivate' : '<i class="bi bi-arrow-counterclockwise me-2"></i>Reactivate'; ?></button>
+                                                            </form>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
@@ -272,4 +325,21 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     </div>
 </section>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var search = document.getElementById('vehicleSearch');
+    var status = document.getElementById('vehicleStatus');
+    var rows = document.querySelectorAll('#vehicleTable tbody tr[data-status]');
+    function apply() {
+        var q = search.value.trim().toLowerCase();
+        rows.forEach(function (row) {
+            var okText = q === '' || row.textContent.toLowerCase().indexOf(q) !== -1;
+            var okStatus = status.value === '' || row.dataset.status === status.value;
+            row.style.display = okText && okStatus ? '' : 'none';
+        });
+    }
+    search.addEventListener('input', apply);
+    status.addEventListener('change', apply);
+});
+</script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
