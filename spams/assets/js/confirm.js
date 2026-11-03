@@ -25,6 +25,9 @@
         if (confirmBtn) {
             confirmBtn.textContent = config.confirmText || 'Confirm';
         }
+        if (cancelBtn) {
+            cancelBtn.textContent = config.cancelText || 'Cancel';
+        }
 
         var handled = false;
         var cleanup = function () {
@@ -50,6 +53,9 @@
             handled = true;
             cleanup();
             modal.hide();
+            if (typeof config.onCancel === 'function') {
+                config.onCancel();
+            }
         }
 
         function onHidden() {

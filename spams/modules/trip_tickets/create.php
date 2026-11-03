@@ -1126,17 +1126,20 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
         window.confirmAction({
-            title: 'Confirm action',
-            message: 'Fuel requested is 0 liters or blank. Save this trip ticket without creating a fuel RIS?',
-            confirmText: 'Confirm',
+            title: 'No fuel / RIS',
+            message: 'Fuel requested is 0 liters or blank, so no fuel RIS will be created. Save this trip ticket without fuel, or go back and add fuel and a RIS?',
+            confirmText: 'Save without fuel',
+            cancelText: 'Add fuel / RIS',
             onConfirm: function () {
                 if (litersRequestedField && (litersRequestedField.value || '').trim() === '') {
                     litersRequestedField.value = '0';
                 }
                 tripTicketForm?.submit();
+            },
+            onCancel: function () {
+                litersRequestedField?.focus();
             }
         });
-        litersRequestedField?.focus();
     });
 
     destinationField?.addEventListener('input', updateMapPreview);

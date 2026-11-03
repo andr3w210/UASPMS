@@ -196,7 +196,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         .trip-section-label { margin-top: 10px; font-weight: bold; }
         .driver-log { width: 100%; border-collapse: collapse; margin-top: 8px; }
         .driver-log td { padding: 3px 4px; vertical-align: top; }
-        .driver-log .entry-line { border-bottom: 1px solid #000; min-height: 18px; }
+        .driver-log .entry-line { border-bottom: 1px solid #000; min-height: 18px; text-align: center; }
         .driver-log .unit-col { width: 56px; }
         .remarks-box { min-height: 44px; border-bottom: 1px solid #000; }
         .driver-cert { margin-top: 14px; text-align: center; }

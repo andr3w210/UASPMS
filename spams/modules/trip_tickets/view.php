@@ -56,7 +56,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/create.php?id=' . (int) $ticket['id']); ?>">Edit</a></li>
-                        <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/print.php?id=' . (int) $ticket['id']); ?>" target="_blank">Print Trip Ticket</a></li>
+                        <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/print.php?id=' . (int) $ticket['id']); ?>" target="_blank"<?php echo $hasFuelRis ? '' : ' data-no-fuel-edit-url="' . h(base_url('modules/trip_tickets/create.php?id=' . (int) $ticket['id'])) . '"'; ?>>Print Trip Ticket</a></li>
                         <?php if ($hasFuelRis): ?>
                             <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/print.php?part=ris&id=' . (int) $ticket['id']); ?>" target="_blank">Print Fuel RIS</a></li>
                         <?php endif; ?>
@@ -205,4 +205,25 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     <?php endif; ?>
 </section>
+<script>
+document.addEventListener('click', function (event) {
+    var link = event.target.closest('a[data-no-fuel-edit-url]');
+    if (!link || !window.confirmAction) {
+        return;
+    }
+    event.preventDefault();
+    window.confirmAction({
+        title: 'No fuel / RIS',
+        message: 'This trip ticket has no fuel or RIS. Print it without fuel, or add fuel and a RIS first?',
+        confirmText: 'Print without fuel',
+        cancelText: 'Add fuel / RIS',
+        onConfirm: function () {
+            window.open(link.href, '_blank');
+        },
+        onCancel: function () {
+            window.location.href = link.getAttribute('data-no-fuel-edit-url');
+        }
+    });
+});
+</script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
