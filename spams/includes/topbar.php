@@ -695,7 +695,7 @@ $hasNotifications = $notificationBadgeCount > 0;
             <?php endif; ?>
             <div class="dropdown d-flex align-items-center">
                 <button class="btn topbar-user-btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                    <div class="text-end d-none d-lg-flex">
+                    <div class="text-end d-none d-xl-block">
                         <div class="small text-muted">Signed in as</div>
                         <div class="fw-semibold"><?php echo h($displayName); ?> <span class="text-muted small ms-2"><?php echo h($userRole); ?></span></div>
                     </div>
