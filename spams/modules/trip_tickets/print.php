@@ -230,7 +230,9 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         .footer-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; }
 
         .ris-sheet { padding: 0; }
-        .ris-copy { height: 5.9in; overflow: hidden; box-sizing: border-box; margin-bottom: 0; font-size: 12px; }
+        .ris-copy { height: 5.9in; overflow: hidden; box-sizing: border-box; margin-bottom: 0; font-size: 12px; display: flex; flex-direction: column; }
+        .ris-copy > table { flex: 0 0 auto; }
+        .ris-copy > .ris-grid { flex: 1 1 auto; }
         .ris-copy:first-child { border-bottom: 1px dashed #000; padding-bottom: 0.1in; margin-bottom: 0.1in; }
         .ris-copy .ris-grid td { padding-top: 1px; padding-bottom: 1px; height: 16px; }
         .ris-appendix { text-align: right; font-size: 12px; }
