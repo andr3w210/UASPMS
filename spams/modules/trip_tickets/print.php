@@ -113,7 +113,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
             </thead>
             <tbody>
                 <tr>
-                    <td></td>
+                    <td class="center-cell"><?php echo strtolower(trim((string) $ticket['fuel_type'])) === 'diesel' ? 'LQS-004' : ''; ?></td>
                     <td>ltr/s</td>
                     <td><?php echo h((string) $ticket['fuel_type']); ?></td>
                     <td class="center-cell">/</td>
