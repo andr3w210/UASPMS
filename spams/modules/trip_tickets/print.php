@@ -226,7 +226,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         .signature-line { border-bottom: 1px solid #000; height: 28px; }
         .trip-signatory { font-weight: bold; text-transform: uppercase; text-decoration: underline; }
         .passenger-grid { width: 100%; border-collapse: collapse; margin-top: 14px; }
-        .passenger-grid td { width: 50%; border-bottom: 1px solid #000; padding: 14px 6px 2px; text-align: center; vertical-align: bottom; font-weight: bold; text-transform: uppercase; font-size: 11px; }
+        .passenger-grid td { width: 50%; border-bottom: 1px solid #000; padding: 14px 6px 2px; text-align: center; vertical-align: bottom; font-weight: bold; text-transform: uppercase; }
         .trip-driver-name { font-weight: bold; text-transform: uppercase; padding-top: 22px; font-size: 17px; }
         .footer-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; }
 
