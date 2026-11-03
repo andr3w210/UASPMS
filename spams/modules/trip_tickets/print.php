@@ -66,12 +66,13 @@ function trip_ticket_natural_name(string $name): string
     if ($last === '' || $rest === '') {
         return $name;
     }
-    $suffix = '';
-    if (preg_match('/^(.*?)[\s,]+((?:jr|sr)\.?|ii|iii|iv|v|vi)$/i', $rest, $m)) {
-        $rest = trim($m[1]);
-        $suffix = $m[2];
+    $suffixes = [];
+    // Trailing suffixes: Jr./Sr., roman numerals, or all-caps credentials such as MPA.
+    while (preg_match('/^(.*\S)[\s,]+((?:[Jj][Rr]|[Ss][Rr])\.?|[A-Z]{2,}[A-Za-z]*\.?)$/', $rest, $m)) {
+        $rest = rtrim(trim($m[1]), ', ');
+        array_unshift($suffixes, $m[2]);
     }
-    return trim($rest . ' ' . $last . ($suffix !== '' ? ' ' . $suffix : ''));
+    return trim($rest . ' ' . $last) . ($suffixes ? ', ' . implode(', ', $suffixes) : '');
 }
 
 function render_ris_copy(array $ticket, string $officeName, string $rcCode, string $purpose, string $approvedByName, string $approvedByTitle, string $issuedByName, string $issuedByTitle, string $requestedByName, string $requestedByTitle, string $receivedByName, string $receivedByTitle): void
