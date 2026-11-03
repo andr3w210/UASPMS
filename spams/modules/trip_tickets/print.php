@@ -163,6 +163,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         .trip-sheet { padding: 0; }
         .center { text-align: center; }
         .trip-header { line-height: 1.25; font-size: 14px; }
+        .trip-logo { display: block; width: 64px; height: 64px; object-fit: contain; margin: 0 auto 2px; }
         .trip-title { margin: 8px 0 6px; font-size: 18px; font-weight: bold; text-decoration: underline; }
         .trip-no-row { width: 100%; border-collapse: collapse; margin: 10px 0 8px; }
         .trip-no-row td { padding: 0 4px 4px; vertical-align: bottom; }
@@ -206,6 +207,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
 <?php if ($printPart === 'ticket'): ?>
     <div class="sheet trip-sheet">
         <div class="center trip-header">
+            <img class="trip-logo" src="<?php echo h(base_url('assets/img/ua-logo.png')); ?>" alt="University of Antique logo">
             <div>Republic of the Philippines</div>
             <div><strong>UNIVERSITY OF ANTIQUE</strong></div>
             <div>Sibalom, Antique</div>
