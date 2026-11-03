@@ -160,6 +160,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <a href="<?php echo base_url('modules/trip_tickets/complete.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-success">Complete</a>
                                         <a href="<?php echo base_url('modules/trip_tickets/view.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-primary">View</a>
                                         <a href="<?php echo base_url('modules/trip_tickets/print.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Print</a>
+                                        <?php if ((float) $ticket['liters_requested'] > 0 && trim((string) $ticket['ris_no']) !== ''): ?>
+                                            <a href="<?php echo base_url('modules/trip_tickets/print.php?part=ris&id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Print RIS</a>
+                                        <?php endif; ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

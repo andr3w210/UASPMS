@@ -48,7 +48,13 @@ $requestedByTitle = trim((string) ($ticket['requested_by_title'] ?? ''));
 $receivedByName = trim((string) ($ticket['received_by_name'] ?? ''));
 $receivedByTitle = trim((string) ($ticket['received_by_title'] ?? ''));
 $hasFuelRis = ((float) ($ticket['liters_requested'] ?? 0) > 0) && trim((string) ($ticket['ris_no'] ?? '')) !== '';
-
+// The trip ticket and its fuel RIS are printed as separate documents.
+$printPart = (string) ($_GET['part'] ?? 'ticket') === 'ris' ? 'ris' : 'ticket';
+if ($printPart === 'ris' && !$hasFuelRis) {
+    http_response_code(404);
+    echo 'This trip ticket has no fuel RIS.';
+    exit;
+}
 function render_ris_copy(array $ticket, string $officeName, string $rcCode, string $purpose, string $approvedByName, string $approvedByTitle, string $issuedByName, string $issuedByTitle, string $requestedByName, string $requestedByTitle, string $receivedByName, string $receivedByTitle): void
 {
 ?>
@@ -148,13 +154,13 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title><?php echo h($ticket['trip_ticket_no']); ?> | Trip Ticket</title>
+    <title><?php echo h($ticket['trip_ticket_no']); ?> | <?php echo $printPart === 'ris' ? 'Fuel RIS' : 'Trip Ticket'; ?></title>
     <style>
-        @page { size: 8.5in 13in; margin: 10mm 8mm; }
+        @page { size: 8.5in 13in; margin: 0.5in; }
         body { font-family: "Times New Roman", serif; margin: 0; color: #000; font-size: 13px; }
         .sheet { page-break-after: always; }
         .sheet:last-child { page-break-after: auto; }
-        .trip-sheet { padding: 2mm 2mm 0; }
+        .trip-sheet { padding: 0; }
         .center { text-align: center; }
         .trip-header { line-height: 1.25; font-size: 14px; }
         .trip-title { margin: 8px 0 6px; font-size: 18px; font-weight: bold; text-decoration: underline; }
@@ -180,7 +186,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         .passenger-grid td { width: 50%; border-bottom: 1px solid #000; padding: 5px 6px 3px; }
         .footer-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; }
 
-        .ris-sheet { padding: 2mm 2mm 0; }
+        .ris-sheet { padding: 0; }
         .ris-copy { margin-bottom: 8mm; }
         .ris-title { text-align: center; font-weight: bold; font-size: 18px; margin-bottom: 2px; }
         .ris-meta, .ris-grid, .ris-signatures { width: 100%; border-collapse: collapse; }
@@ -197,6 +203,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
             <?php echo print_page_number_css(); ?></style>
 </head>
 <body onload="window.print()">
+<?php if ($printPart === 'ticket'): ?>
     <div class="sheet trip-sheet">
         <div class="center trip-header">
             <div>Republic of the Philippines</div>
@@ -330,13 +337,14 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
             <span>Rev. 01/02-04-20</span>
         </div>
     </div>
-
+<?php else: ?>
     <?php if ($hasFuelRis): ?>
         <div class="sheet ris-sheet">
             <?php render_ris_copy($ticket, $officeName, $rcCode, $purpose, $approvedByName, $approvedByTitle, $issuedByName, $issuedByTitle, $requestedByName, $requestedByTitle, $receivedByName, $receivedByTitle); ?>
             <?php render_ris_copy($ticket, $officeName, $rcCode, $purpose, $approvedByName, $approvedByTitle, $issuedByName, $issuedByTitle, $requestedByName, $requestedByTitle, $receivedByName, $receivedByTitle); ?>
         </div>
     <?php endif; ?>
+<?php endif; ?>
 
 <?php render_print_page_number(); ?></body>
 </html>
