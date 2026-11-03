@@ -55,6 +55,25 @@ if ($printPart === 'ris' && !$hasFuelRis) {
     echo 'This trip ticket has no fuel RIS.';
     exit;
 }
+// Stored names are "Last, First M. Suffix"; the trip ticket prints "First M. Last Suffix".
+function trip_ticket_natural_name(string $name): string
+{
+    $name = trim($name);
+    if ($name === '' || strpos($name, ',') === false) {
+        return $name;
+    }
+    [$last, $rest] = array_map('trim', explode(',', $name, 2));
+    if ($last === '' || $rest === '') {
+        return $name;
+    }
+    $suffix = '';
+    if (preg_match('/^(.*?)[\s,]+((?:jr|sr)\.?|ii|iii|iv|v|vi)$/i', $rest, $m)) {
+        $rest = trim($m[1]);
+        $suffix = $m[2];
+    }
+    return trim($rest . ' ' . $last . ($suffix !== '' ? ' ' . $suffix : ''));
+}
+
 function render_ris_copy(array $ticket, string $officeName, string $rcCode, string $purpose, string $approvedByName, string $approvedByTitle, string $issuedByName, string $issuedByTitle, string $requestedByName, string $requestedByTitle, string $receivedByName, string $receivedByTitle): void
 {
 ?>
@@ -263,8 +282,8 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
             <tr>
                 <td style="width: 62%;"></td>
                 <td class="center">
-                    <div class="signature-line"></div>
-                    <div class="trip-signatory"><?php echo h($approvedByName); ?></div>
+                    <div style="height: 28px;"></div>
+                    <div class="trip-signatory"><?php echo h(trip_ticket_natural_name($approvedByName)); ?></div>
                     <div><?php echo h($approvedByTitle); ?></div>
                 </td>
             </tr>
