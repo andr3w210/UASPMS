@@ -696,7 +696,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td class="text-end fw-semibold po-col-amount"><?php echo h(number_format((float) ($po['display_total_amount'] ?? $po['total_amount'] ?? 0), 2)); ?></td>
                                         <td class="text-end po-col-actions">
                                             <div class="dropdown d-inline-block">
-                                                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" aria-expanded="false">Actions</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" data-bs-strategy="fixed" aria-expanded="false">Actions</button>
                                                 <div class="dropdown-menu dropdown-menu-end">
                                                 <a href="<?php echo base_url('modules/purchase_orders/view.php?id=' . (int) $po['id']); ?>" class="dropdown-item" target="_blank" rel="noopener">
                                                     View / Print
