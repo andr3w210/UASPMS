@@ -103,6 +103,26 @@ if ($mainDb) {
         foreach ($signatoryEmployees as $signatoryEmployee) {
             $signatoryTitleMap[mb_strtolower(trim(employee_display_name($signatoryEmployee)))] = (string) ($signatoryEmployee['position_title'] ?? '');
         }
+        if (!$isEdit) {
+            $findByTitle = static function (array $employees, string $pattern): ?array {
+                foreach ($employees as $candidate) {
+                    if (preg_match($pattern, (string) ($candidate['position_title'] ?? '')) === 1) {
+                        return $candidate;
+                    }
+                }
+                return null;
+            };
+            $supplyHead = $findByTitle($signatoryEmployees, '/supply.*(head|officer)|(head|officer).*supply/i');
+            if ($supplyHead) {
+                $form['issued_by_name'] = employee_display_name($supplyHead);
+                $form['issued_by_title'] = (string) ($supplyHead['position_title'] ?? '');
+            }
+            $approver = $findByTitle($signatoryEmployees, '/\bCAO\b|chief administrative/i');
+            if ($approver) {
+                $form['approved_by_name'] = employee_display_name($approver);
+                $form['approved_by_title'] = (string) ($approver['position_title'] ?? '');
+            }
+        }
     }
 }
 
