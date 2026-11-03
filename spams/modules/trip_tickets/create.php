@@ -836,9 +836,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <?php if ($isEdit && $isAdministrator): ?>
                         <button
                             type="submit"
+                            form="trip-ticket-delete-form"
                             class="btn btn-outline-danger"
                             formnovalidate
-                            onclick="this.form.action.value='delete'; return confirm('Delete this trip ticket? This cannot be undone.');"
+                            onclick="return confirm('Delete this trip ticket? This cannot be undone.');"
                         >
                             Delete
                         </button>
@@ -850,6 +851,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <?php endif; ?>
                 </div>
             </form>
+            <?php if ($isEdit && $isAdministrator): ?>
+                <form method="post" id="trip-ticket-delete-form" class="d-none">
+                    <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="id" value="<?php echo (int) $form['id']; ?>">
+                </form>
+            <?php endif; ?>
         </div>
     </div>
 </section>
