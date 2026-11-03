@@ -759,9 +759,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
                 </div>
                 <datalist id="passenger_employee_list">
                     <?php foreach ($signatoryEmployees as $employee): ?>
-                        <option value="<?php echo h(employee_display_name($employee)); ?>">
-                            <?php echo h((string) ($employee['position_title'] ?? '')); ?>
-                        </option>
+                        <?php
+                        $middle = trim((string) ($employee['middle_name'] ?? ''));
+                        $suffix = trim((string) ($employee['suffix_name'] ?? ''));
+                        $passengerName = trim(
+                            trim((string) ($employee['first_name'] ?? ''))
+                            . ($middle !== '' ? ' ' . mb_substr($middle, 0, 1) . '.' : '')
+                            . ' ' . trim((string) ($employee['last_name'] ?? ''))
+                        ) . ($suffix !== '' ? ', ' . $suffix : '');
+                        ?>
+                        <option value="<?php echo h($passengerName); ?>" label="<?php echo h((string) ($employee['position_title'] ?? '')); ?>"></option>
                     <?php endforeach; ?>
                 </datalist>
                 <div id="passenger-rows" class="d-flex flex-column gap-2 mb-4">
