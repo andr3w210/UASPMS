@@ -79,6 +79,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
 {
 ?>
     <div class="ris-copy">
+        <div class="ris-appendix">Appendix 63</div>
         <div class="ris-title">REQUISITION AND ISSUE SLIP</div>
         <table class="ris-meta">
             <tr>
@@ -98,13 +99,14 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         <table class="ris-grid">
             <thead>
                 <tr>
-                    <th rowspan="2" style="width:10%;">Stock No.</th>
-                    <th rowspan="2" style="width:8%;">Unit</th>
-                    <th rowspan="2" style="width:40%;">Description</th>
-                    <th colspan="2" style="width:14%;">Stocks Available?</th>
-                    <th colspan="2" style="width:28%;">Issue</th>
+                    <th colspan="3" class="ris-band"><em>Requisition</em></th>
+                    <th colspan="2" class="ris-band"><em>Stocks Available?</em></th>
+                    <th colspan="2" class="ris-band"><em>Issue</em></th>
                 </tr>
                 <tr>
+                    <th style="width:10%;">Stock No.</th>
+                    <th style="width:8%;">Unit</th>
+                    <th style="width:40%;">Description</th>
                     <th style="width:7%;">Yes</th>
                     <th style="width:7%;">No</th>
                     <th style="width:10%;">Quantity</th>
@@ -121,7 +123,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
                     <td class="center-cell"><?php echo number_format((float) $ticket['liters_requested'], 2); ?></td>
                     <td></td>
                 </tr>
-                <?php for ($i = 0; $i < 7; $i++): ?>
+                <?php for ($i = 0; $i < 11; $i++): ?>
                     <tr>
                         <td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td>
                     </tr>
@@ -142,25 +144,25 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
             <tr>
                 <td class="signature-block">
                     <div class="signature-space"></div>
-                    <div class="signature-name"><?php echo h($requestedByName); ?></div>
+                    <div class="signature-name"><?php echo h(trip_ticket_natural_name($requestedByName)); ?></div>
                     <div class="signature-role"><?php echo h($requestedByTitle); ?></div>
                     <div class="signature-date"><?php echo h(format_date((string) $ticket['departure_date'], 'n/j/Y')); ?></div>
                 </td>
                 <td class="signature-block">
                     <div class="signature-space"></div>
-                    <div class="signature-name"><?php echo h($approvedByName); ?></div>
+                    <div class="signature-name"><?php echo h(trip_ticket_natural_name($approvedByName)); ?></div>
                     <div class="signature-role"><?php echo h($approvedByTitle); ?></div>
                     <div class="signature-date"><?php echo h(format_date((string) $ticket['departure_date'], 'n/j/Y')); ?></div>
                 </td>
                 <td class="signature-block">
                     <div class="signature-space"></div>
-                    <div class="signature-name"><?php echo h($issuedByName); ?></div>
+                    <div class="signature-name"><?php echo h(trip_ticket_natural_name($issuedByName)); ?></div>
                     <div class="signature-role"><?php echo h($issuedByTitle); ?></div>
                     <div class="signature-date"><?php echo h(format_date((string) $ticket['departure_date'], 'n/j/Y')); ?></div>
                 </td>
                 <td class="signature-block">
                     <div class="signature-space"></div>
-                    <div class="signature-name"><?php echo h($receivedByName); ?></div>
+                    <div class="signature-name"><?php echo h(trip_ticket_natural_name($receivedByName)); ?></div>
                     <div class="signature-role"><?php echo h($receivedByTitle); ?></div>
                     <div class="signature-date"><?php echo h(format_date((string) $ticket['departure_date'], 'n/j/Y')); ?></div>
                 </td>
@@ -210,6 +212,8 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
 
         .ris-sheet { padding: 0; }
         .ris-copy { margin-bottom: 8mm; }
+        .ris-appendix { text-align: right; font-size: 12px; }
+        .ris-band { font-size: 12px; padding: 2px 5px !important; }
         .ris-title { text-align: center; font-weight: bold; font-size: 18px; margin-bottom: 2px; }
         .ris-meta, .ris-grid, .ris-signatures { width: 100%; border-collapse: collapse; }
         .ris-meta td { border: 1px solid #000; padding: 3px 6px; }
