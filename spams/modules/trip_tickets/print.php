@@ -118,7 +118,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
                     <td class="center-cell"><?php echo strtolower(trim((string) $ticket['fuel_type'])) === 'diesel' ? 'LQS-004' : ''; ?></td>
                     <td class="center-cell">Liters</td>
                     <td><?php echo h((string) $ticket['fuel_type']); ?></td>
-                    <td class="center-cell">Yes</td>
+                    <td class="center-cell">&#10003;</td>
                     <td></td>
                     <td class="center-cell"><?php echo number_format((float) $ticket['liters_requested'], 2); ?></td>
                     <td></td>
@@ -211,7 +211,9 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         .footer-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; }
 
         .ris-sheet { padding: 0; }
-        .ris-copy { margin-bottom: 8mm; }
+        .ris-copy { height: 5.9in; overflow: hidden; box-sizing: border-box; margin-bottom: 0; font-size: 12px; }
+        .ris-copy:first-child { border-bottom: 1px dashed #000; padding-bottom: 0.1in; margin-bottom: 0.1in; }
+        .ris-copy .ris-grid td { padding-top: 1px; padding-bottom: 1px; height: 16px; }
         .ris-appendix { text-align: right; font-size: 12px; }
         .ris-band { font-size: 12px; padding: 2px 5px !important; }
         .ris-title { text-align: center; font-weight: bold; font-size: 18px; margin-bottom: 2px; }
