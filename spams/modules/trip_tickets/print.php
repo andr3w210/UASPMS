@@ -183,6 +183,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         .signature-area { width: 100%; border-collapse: collapse; margin-top: 8px; }
         .signature-area td { vertical-align: top; }
         .signature-line { border-bottom: 1px solid #000; height: 28px; }
+        .trip-signatory { font-weight: bold; text-transform: uppercase; text-decoration: underline; }
         .passenger-grid { width: 100%; border-collapse: collapse; margin-top: 14px; }
         .passenger-grid td { width: 50%; border-bottom: 1px solid #000; padding: 5px 6px 3px; }
         .footer-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; }
@@ -263,7 +264,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
                 <td style="width: 62%;"></td>
                 <td class="center">
                     <div class="signature-line"></div>
-                    <div><?php echo h($approvedByName); ?></div>
+                    <div class="trip-signatory"><?php echo h($approvedByName); ?></div>
                     <div><?php echo h($approvedByTitle); ?></div>
                 </td>
             </tr>
