@@ -80,7 +80,7 @@ if ($db) {
         FROM legacy_assets la
         LEFT JOIN offices o ON o.id = la.office_id
         WHERE la.is_active = 1
-        ORDER BY la.updated_at DESC, la.id DESC
+        ORDER BY la.id DESC
         LIMIT 400";
     $legacyRes = $db->query($legacySql);
     if ($legacyRes) {
