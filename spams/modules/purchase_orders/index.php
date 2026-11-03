@@ -695,29 +695,32 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </td>
                                         <td class="text-end fw-semibold po-col-amount"><?php echo h(number_format((float) ($po['display_total_amount'] ?? $po['total_amount'] ?? 0), 2)); ?></td>
                                         <td class="text-end po-col-actions">
-                                            <div class="d-inline-flex flex-wrap justify-content-end gap-1">
-                                                <a href="<?php echo base_url('modules/purchase_orders/view.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">
+                                            <div class="dropdown d-inline-block">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" aria-expanded="false">Actions</button>
+                                                <div class="dropdown-menu dropdown-menu-end">
+                                                <a href="<?php echo base_url('modules/purchase_orders/view.php?id=' . (int) $po['id']); ?>" class="dropdown-item" target="_blank" rel="noopener">
                                                     View / Print
                                                 </a>
                                                 <?php if (($po['status'] ?? '') !== 'completed' && ($po['status'] ?? '') !== 'cancelled'): ?>
-                                                    <a href="<?php echo base_url('modules/purchase_orders/extensions.php?po_id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-warning">Extend</a>
+                                                    <a href="<?php echo base_url('modules/purchase_orders/extensions.php?po_id=' . (int) $po['id']); ?>" class="dropdown-item">Extend</a>
                                                 <?php endif; ?>
                                                 <?php if (!empty($po['expected_delivery_date'])
                                                     && $po['expected_delivery_date'] < date('Y-m-d')
                                                     && (string) ($po['po_entry_status'] ?? '') !== 'property_items_complete'
                                                     && in_array((string) ($po['status'] ?? ''), ['encoded', 'partial'], true)): ?>
-                                                    <a target="_blank" rel="noopener" href="<?php echo base_url('modules/purchase_orders/demand_letter.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-danger">Demand Letter</a>
+                                                    <a target="_blank" rel="noopener" href="<?php echo base_url('modules/purchase_orders/demand_letter.php?id=' . (int) $po['id']); ?>" class="dropdown-item">Demand Letter</a>
                                                 <?php endif; ?>
                                                 <?php if ($po['status'] === 'encoded' || (!empty($po['is_partial_entry']) && ($po['status'] ?? '') !== 'cancelled')): ?>
-                                                    <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $po['id']); ?>" class="btn btn-sm btn-outline-secondary"><?php echo !empty($po['is_partial_entry']) ? 'Edit / Add Items' : 'Edit'; ?></a>
+                                                    <a href="<?php echo base_url('modules/purchase_orders/edit.php?id=' . (int) $po['id']); ?>" class="dropdown-item"><?php echo !empty($po['is_partial_entry']) ? 'Edit / Add Items' : 'Edit'; ?></a>
                                                 <?php endif; ?>
                                                 <?php if ($po['status'] === 'encoded'): ?>
                                                     <button type="button"
-                                                            class="btn btn-sm btn-outline-danger"
+                                                            class="dropdown-item text-danger"
                                                             onclick="confirmCancelPO(<?php echo (int)$po['id']; ?>, '<?php echo h(addslashes($po['po_number'])); ?>')">
-                                                        Cancel
+                                                        Cancel PO
                                                     </button>
                                                 <?php endif; ?>
+                                                </div>
                                             </div>
                                         </td>
                                     </tr>
