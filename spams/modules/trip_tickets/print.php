@@ -226,7 +226,8 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         .signature-line { border-bottom: 1px solid #000; height: 28px; }
         .trip-signatory { font-weight: bold; text-transform: uppercase; text-decoration: underline; }
         .passenger-grid { width: 100%; border-collapse: collapse; margin-top: 14px; }
-        .passenger-grid td { width: 50%; border-bottom: 1px solid #000; padding: 5px 6px 3px; }
+        .passenger-grid td { width: 50%; border-bottom: 1px solid #000; padding: 14px 6px 2px; text-align: center; vertical-align: bottom; font-weight: bold; text-transform: uppercase; }
+        .trip-driver-name { font-weight: bold; text-transform: uppercase; padding-top: 22px; }
         .footer-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; }
 
         .ris-sheet { padding: 0; }
@@ -362,8 +363,8 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
             <tr>
                 <td style="width: 52%;"></td>
                 <td class="center">
-                    <div class="signature-line"></div>
-                    <div><?php echo h((string) $ticket['driver_name']); ?></div>
+                    <div class="trip-driver-name"><?php echo h(trip_ticket_natural_name((string) $ticket['driver_name'])); ?></div>
+                    <div class="signature-line" style="height: 0;"></div>
                     <div>Driver</div>
                 </td>
             </tr>
@@ -372,7 +373,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         <table class="passenger-grid">
             <?php
             $gridPassengers = $passengerNames;
-            while (count($gridPassengers) < 4) {
+            while (count($gridPassengers) < 10) {
                 $gridPassengers[] = '';
             }
             for ($i = 0; $i < count($gridPassengers); $i += 2):
