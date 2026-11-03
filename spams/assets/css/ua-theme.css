@@ -430,19 +430,48 @@ body.ua-auth > .text-center.text-secondary {
     }
 }
 
-/* Asset registry: the 240px sidebar leaves less room, so keep the Assignment column visible */
+/* Asset registry: show every column; the frame scrolls sideways when the screen is narrow */
 @media (min-width: 992px) and (max-width: 1366px) {
-    .asset-registry-table-frame .asset-col-assignment {
+    .asset-registry-table-frame .asset-col-item-details,
+    .asset-registry-table-frame .asset-col-amount,
+    .asset-registry-table-frame .asset-col-date,
+    .asset-registry-table-frame .asset-col-assignment,
+    .asset-registry-table-frame .asset-col-reference {
         display: table-cell;
-        min-width: 190px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-primary {
+        min-width: 150px !important;
+        width: auto;
     }
 
     .asset-registry-table-frame .asset-col-classification {
-        min-width: 260px !important;
+        min-width: 250px !important;
     }
 
-    .asset-registry-table-frame .asset-registry-compact-meta > div:nth-child(3) {
+    .asset-registry-table-frame .asset-col-item-details {
+        min-width: 150px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-amount,
+    .asset-registry-table-frame .asset-col-date {
+        min-width: 110px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-assignment {
+        min-width: 180px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-reference {
+        min-width: 150px !important;
+    }
+
+    .asset-registry-table-frame .asset-registry-compact-meta {
         display: none;
+    }
+
+    .asset-registry-table-frame {
+        overflow-x: auto;
     }
 }
 
