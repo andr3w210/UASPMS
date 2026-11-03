@@ -430,6 +430,22 @@ body.ua-auth > .text-center.text-secondary {
     }
 }
 
+/* Asset registry: the 240px sidebar leaves less room, so keep the Assignment column visible */
+@media (min-width: 992px) and (max-width: 1366px) {
+    .asset-registry-table-frame .asset-col-assignment {
+        display: table-cell;
+        min-width: 190px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-classification {
+        min-width: 260px !important;
+    }
+
+    .asset-registry-table-frame .asset-registry-compact-meta > div:nth-child(3) {
+        display: none;
+    }
+}
+
 /* Printing keeps the official document layout */
 @media print {
     .navbar-vertical,
