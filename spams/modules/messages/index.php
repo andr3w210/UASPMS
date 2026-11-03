@@ -231,7 +231,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <?php if ($relatedContextLabel !== ''): ?><div class="alert alert-primary py-2"><strong>Linked Discussion:</strong> <?php echo h($relatedContextLabel); ?></div><?php endif; ?>
                     <?php if ($flash): ?><div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'info'; ?>"><?php echo h($flash['message']); ?></div><?php endif; ?>
                     <?php if ($errors): ?><div class="alert alert-danger"><?php foreach ($errors as $error): ?><div><?php echo h($error); ?></div><?php endforeach; ?></div><?php endif; ?>
-                    ">
+                    <form method="post">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="send">
                         <input type="hidden" name="related_table" value="<?php echo h($selectedRelatedTable); ?>">

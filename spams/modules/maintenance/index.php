@@ -534,7 +534,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                     <?php endif; ?>
 
-                    
+                    <form method="post">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
 
@@ -852,7 +852,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td class="text-end">
                                             <?php if (($record['status'] ?? '') === 'posted' && empty($record['completed_at'])): ?>
                                                 <?php if ($maintenanceHasCompletionColumns): ?>
-                                                    
+                                                    <form method="post" class="d-inline">
                                                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                         <input type="hidden" name="action" value="complete">
                                                         <input type="hidden" name="id" value="<?php echo (int) $record['id']; ?>">
@@ -869,7 +869,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                                         </button>
                                                     </form>
                                                 <?php endif; ?>
-                                                
+                                                <form method="post" class="d-inline">
                                                     <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="cancel">
                                                     <input type="hidden" name="id" value="<?php echo (int) $record['id']; ?>">

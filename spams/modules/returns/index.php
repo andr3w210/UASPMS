@@ -1656,7 +1656,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             </td>
                                             <td>
                                                 <?php if (($row['status'] ?? '') === 'posted' && empty($row['disposal_id'])): ?>
-                                                    
+                                                    <form method="post" class="d-inline" onsubmit="return confirm('Cancel this return?');">
                                                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                                                         <input type="hidden" name="action" value="cancel_return">
                                                         <input type="hidden" name="return_id" value="<?php echo (int) $row['id']; ?>">
