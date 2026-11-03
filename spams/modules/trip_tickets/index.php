@@ -9,6 +9,7 @@ $page_title = 'Trip Tickets';
 $flash = get_flash();
 $errors = [];
 $tickets = [];
+$isAdministrator = current_user_role() === 'Administrator';
 
 if (!$mainDb) {
     $errors[] = 'Unable to connect to the main database.';
@@ -162,6 +163,14 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <a href="<?php echo base_url('modules/trip_tickets/print.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Print</a>
                                         <?php if ((float) $ticket['liters_requested'] > 0 && trim((string) $ticket['ris_no']) !== ''): ?>
                                             <a href="<?php echo base_url('modules/trip_tickets/print.php?part=ris&id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Print RIS</a>
+                                        <?php endif; ?>
+                                        <?php if ($isAdministrator): ?>
+                                            <form method="post" action="<?php echo base_url('modules/trip_tickets/create.php'); ?>" class="d-inline" onsubmit="return confirm('Delete this trip ticket? This cannot be undone.');">
+                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="delete">
+                                                <input type="hidden" name="id" value="<?php echo (int) $ticket['id']; ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                            </form>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
