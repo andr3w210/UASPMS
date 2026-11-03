@@ -157,21 +157,30 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td class="text-end"><?php echo $ticket['distance_traveled'] !== null ? number_format((float) $ticket['distance_traveled'], 2) : '-'; ?></td>
                                     <td class="text-end"><?php echo number_format((float) $ticket['liters_requested'], 2); ?></td>
                                     <td class="text-end">
-                                        <a href="<?php echo base_url('modules/trip_tickets/create.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                                        <a href="<?php echo base_url('modules/trip_tickets/complete.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-success">Complete</a>
-                                        <a href="<?php echo base_url('modules/trip_tickets/view.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-primary">View</a>
-                                        <a href="<?php echo base_url('modules/trip_tickets/print.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Print</a>
-                                        <?php if ((float) $ticket['liters_requested'] > 0 && trim((string) $ticket['ris_no']) !== ''): ?>
-                                            <a href="<?php echo base_url('modules/trip_tickets/print.php?part=ris&id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Print RIS</a>
-                                        <?php endif; ?>
-                                        <?php if ($isAdministrator): ?>
-                                            <form method="post" action="<?php echo base_url('modules/trip_tickets/create.php'); ?>" class="d-inline" onsubmit="return confirm('Delete this trip ticket? This cannot be undone.');">
-                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
-                                                <input type="hidden" name="action" value="delete">
-                                                <input type="hidden" name="id" value="<?php echo (int) $ticket['id']; ?>">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                                            </form>
-                                        <?php endif; ?>
+                                        <div class="dropdown">
+                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-config='{"popperConfig":{"strategy":"fixed"}}' aria-expanded="false">Actions</button>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/view.php?id=' . (int) $ticket['id']); ?>">View</a></li>
+                                                <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/create.php?id=' . (int) $ticket['id']); ?>">Edit</a></li>
+                                                <li><a class="dropdown-item text-success" href="<?php echo base_url('modules/trip_tickets/complete.php?id=' . (int) $ticket['id']); ?>">Complete Trip</a></li>
+                                                <li><hr class="dropdown-divider"></li>
+                                                <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/print.php?id=' . (int) $ticket['id']); ?>" target="_blank">Print Trip Ticket</a></li>
+                                                <?php if ((float) $ticket['liters_requested'] > 0 && trim((string) $ticket['ris_no']) !== ''): ?>
+                                                    <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/print.php?part=ris&id=' . (int) $ticket['id']); ?>" target="_blank">Print Fuel RIS</a></li>
+                                                <?php endif; ?>
+                                                <?php if ($isAdministrator): ?>
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li>
+                                                        <form method="post" action="<?php echo base_url('modules/trip_tickets/create.php'); ?>" onsubmit="return confirm('Delete this trip ticket? This cannot be undone.');">
+                                                            <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                            <input type="hidden" name="action" value="delete">
+                                                            <input type="hidden" name="id" value="<?php echo (int) $ticket['id']; ?>">
+                                                            <button type="submit" class="dropdown-item text-danger">Delete</button>
+                                                        </form>
+                                                    </li>
+                                                <?php endif; ?>
+                                            </ul>
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
