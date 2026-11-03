@@ -446,34 +446,7 @@ if ($db) {
     }
 }
 
-$focusItems = [
-    [
-        'label' => 'Pending Distribution',
-        'value' => $summary['pending_distribution_units'],
-        'note' => 'Units waiting for ICS and PAR posting',
-        'icon' => 'bi-hourglass-split',
-        'tone' => 'warning',
-        'href' => base_url('modules/distributions/index.php'),
-        'cta' => 'Review Queue',
-    ],
-    [
-        'label' => 'Pending Receivings',
-        'value' => $summary['pending_receivings'],
-        'note' => 'POs still waiting for complete receiving',
-        'icon' => 'bi-box-seam',
-        'tone' => 'warning',
-        'href' => base_url('modules/receivings/index.php'),
-        'cta' => 'Open Receiving',
-    ],
-    [
-        'label' => 'Active Assets',
-        'value' => $summary['distributed_items'],
-        'note' => 'Equipment and semi assets in circulation',
-        'icon' => 'bi-diagram-3',
-        'tone' => 'success',
-        'href' => base_url('modules/property/index.php'),
-        'cta' => 'Open Registry',
-    ],
+$inventoryCards = [
     [
         'label' => 'Open Inventory Counts',
         'value' => $summary['open_inventory_counts'],
@@ -492,68 +465,17 @@ $focusItems = [
         'href' => base_url('modules/property/stock_adjustments.php'),
         'cta' => 'Review Adjustments',
     ],
-];
-
-$snapshotItems = [
     [
-        'label' => 'Active Assets',
-        'value' => $summary['distributed_items'],
-        'note' => 'Accountable equipment and semi-expendable assets',
-        'icon' => 'bi-diagram-3',
-        'tone' => 'success',
-    ],
-    [
-        'label' => 'Open Property Counts',
-        'value' => $summary['open_inventory_counts'],
-        'note' => 'Property inventory sessions in progress',
-        'icon' => 'bi-clipboard-check',
-        'tone' => 'info',
-    ],
-    [
-        'label' => 'Open Supply Counts',
-        'value' => $summary['open_supply_counts'],
-        'note' => 'Supply inventory workspaces still open',
-        'icon' => 'bi-boxes',
-        'tone' => 'secondary',
-    ],
-    [
-        'label' => 'Discrepancies',
+        'label' => 'Property Discrepancies',
         'value' => $summary['unresolved_property_discrepancies'],
-        'note' => 'Unresolved property inventory findings',
-        'icon' => 'bi-exclamation-diamond',
+        'note' => 'Count exceptions still unresolved',
+        'icon' => 'bi-exclamation-octagon',
         'tone' => 'warning',
-    ],
-    [
-        'label' => 'Pending Adjustments',
-        'value' => $summary['pending_stock_adjustments'],
-        'note' => 'Stock adjustments awaiting confirmation',
-        'icon' => 'bi-sliders2-vertical',
-        'tone' => 'danger',
-    ],
-    [
-        'label' => 'QR Tags Needed',
-        'value' => $summary['missing_qr_tags'],
-        'note' => 'Active assets waiting for generated tag codes',
-        'icon' => 'bi-qr-code',
-        'tone' => 'primary',
-    ],
-    [
-        'label' => 'Unserviceable Review',
-        'value' => $summary['unserviceable_review_items'],
-        'note' => 'Assets flagged for repair or disposal review',
-        'icon' => 'bi-tools',
-        'tone' => 'dark',
+        'href' => base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'),
+        'cta' => 'Resolve Items',
     ],
 ];
-$snapshotItems = array_slice($snapshotItems, 0, 4);
 
-$urgentWorkload = $summary['pending_receivings']
-    + $summary['pending_distribution_units']
-    + $summary['unresolved_property_discrepancies']
-    + $summary['pending_stock_adjustments'];
-$inventoryAlertLoad = $summary['unresolved_property_discrepancies']
-    + $summary['pending_stock_adjustments']
-    + $summary['missing_qr_tags'];
 $stockRiskRate = $stockRiskSummary['total_supply_items'] > 0
     ? round(($stockRiskSummary['low_stock_items'] / $stockRiskSummary['total_supply_items']) * 100)
     : 0;
@@ -568,8 +490,6 @@ $topOfficePeak = 0;
 foreach ($topAccountableOffices as $row) {
     $topOfficePeak = max($topOfficePeak, (int) ($row['total_assets'] ?? 0));
 }
-$commandStatus = $inventoryAlertLoad > 0 ? 'Inventory Attention Needed' : 'Inventory Stable';
-$commandTone = $inventoryAlertLoad > 0 ? 'warning' : 'success';
 $workQueueCards = [
     [
         'label' => 'POs Awaiting Receiving',
@@ -624,19 +544,6 @@ $workQueueCards = [
         'tone' => 'dark',
         'href' => base_url('modules/property/unserviceable_review.php'),
         'cta' => 'Review Items',
-    ],
-];
-$inventoryCards = [
-    $focusItems[3],
-    $focusItems[4],
-    [
-        'label' => 'Property Discrepancies',
-        'value' => $summary['unresolved_property_discrepancies'],
-        'note' => 'Count exceptions still unresolved',
-        'icon' => 'bi-exclamation-octagon',
-        'tone' => 'warning',
-        'href' => base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'),
-        'cta' => 'Resolve Items',
     ],
 ];
 $movementCards = [
@@ -747,558 +654,409 @@ $inventoryCards = array_values(array_filter($inventoryCards, $cardVisibleForRole
 $movementCards = array_values(array_filter($movementCards, $cardVisibleForRole));
 $analyticsCards = array_values(array_filter($analyticsCards, $cardVisibleForRole));
 $quickLinks = array_values(array_filter($quickLinks, $cardVisibleForRole));
+$activeQueueCount = count(array_filter($workQueueCards, static fn (array $item): bool => (int) ($item['value'] ?? 0) > 0));
 
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar.php';
 require_once __DIR__ . '/../includes/topbar.php';
 ?>
-<section class="dashboard-hub" data-dashboard-hub>
-    <div class="dashboard-hub-hero">
-        <div class="dashboard-hub-hero-main">
-            <div class="dashboard-hub-kicker">
-                <span><?php echo h($roleName); ?></span>
-                <span class="dashboard-hub-dot"></span>
-                <span><?php echo h($commandStatus); ?></span>
+<section class="dashboard-v2 container-fluid px-0">
+    <header class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-center gap-3 mb-4">
+        <div>
+            <div class="small text-uppercase fw-semibold text-primary mb-1"><?php echo h($roleName); ?> workspace</div>
+            <h1 class="h2 fw-bold mb-1">Welcome back, <?php echo h($displayName); ?></h1>
+            <p class="text-secondary mb-0"><?php echo h(date('l, F j, Y')); ?> <span class="mx-1">·</span> Your daily operations at a glance.</p>
+        </div>
+        <nav class="d-flex flex-wrap gap-2" aria-label="Dashboard shortcuts">
+            <?php foreach ($quickLinks as $index => $link): ?>
+                <a class="btn <?php echo $index === 0 ? 'btn-primary' : 'btn-outline-primary'; ?> btn-sm" href="<?php echo h($link['href']); ?>">
+                    <i class="bi <?php echo h($link['icon']); ?> me-1" aria-hidden="true"></i><?php echo h($link['label']); ?>
+                </a>
+            <?php endforeach; ?>
+        </nav>
+    </header>
+
+    <nav class="nav nav-pills gap-2 mb-4" aria-label="Dashboard sections">
+        <a class="nav-link active" href="#today">Today</a>
+        <a class="nav-link" href="#inventory">Inventory</a>
+        <a class="nav-link" href="#movement">Movement</a>
+        <a class="nav-link" href="#analytics">Analytics</a>
+    </nav>
+
+    <section id="today" class="dashboard-v2-section mb-4" aria-labelledby="today-heading">
+        <h2 id="today-heading" class="visually-hidden">Today</h2>
+        <div class="row g-3 mb-4">
+            <?php
+                $overviewMetrics = [
+                    ['label' => 'Awaiting receiving', 'value' => $summary['pending_receivings'], 'icon' => 'bi-inbox', 'tone' => 'warning', 'href' => base_url('modules/receivings/index.php')],
+                    ['label' => 'Ready to distribute', 'value' => $summary['pending_distribution_units'], 'icon' => 'bi-send-check', 'tone' => 'primary', 'href' => base_url('modules/distributions/index.php')],
+                    ['label' => 'Assets in circulation', 'value' => $summary['distributed_items'], 'icon' => 'bi-boxes', 'tone' => 'success', 'href' => base_url('modules/property/index.php')],
+                    ['label' => 'Unresolved discrepancies', 'value' => $summary['unresolved_property_discrepancies'], 'icon' => 'bi-exclamation-triangle', 'tone' => 'danger', 'href' => base_url('modules/property/inventory_reconciliation.php?resolution=unresolved')],
+                ];
+                $metricTextClass = ['warning' => 'text-warning-emphasis', 'primary' => 'text-primary', 'success' => 'text-success', 'danger' => 'text-danger'];
+            ?>
+            <?php foreach ($overviewMetrics as $metric): ?>
+                <?php if ($cardVisibleForRole(['href' => $metric['href']])): ?>
+                    <div class="col-12 col-sm-6 col-xxl-3">
+                        <a href="<?php echo h($metric['href']); ?>" class="card h-100 text-decoration-none border-0 shadow-sm dashboard-v2-metric">
+                            <div class="card-body d-flex align-items-center gap-3">
+                                <span class="rounded-3 bg-body-tertiary p-3 <?php echo $metricTextClass[$metric['tone']]; ?>">
+                                    <i class="bi <?php echo h($metric['icon']); ?> fs-4" aria-hidden="true"></i>
+                                </span>
+                                <span>
+                                    <span class="d-block small text-secondary"><?php echo h($metric['label']); ?></span>
+                                    <strong class="d-block fs-3 text-body lh-1 mt-1"><?php echo number_format((int) $metric['value']); ?></strong>
+                                </span>
+                                <i class="bi bi-arrow-up-right ms-auto text-secondary" aria-hidden="true"></i>
+                            </div>
+                        </a>
+                    </div>
+                <?php endif; ?>
+            <?php endforeach; ?>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-12 col-xl-7">
+                <article class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-start gap-3">
+                        <div>
+                            <h2 class="h5 fw-bold mb-1">Work queue</h2>
+                            <p class="small text-secondary mb-0">Open the items that need follow-up.</p>
+                        </div>
+                        <span class="badge rounded-pill <?php echo $activeQueueCount > 0 ? 'text-bg-warning' : 'text-bg-success'; ?>">
+                            <?php echo number_format($activeQueueCount); ?> active queues
+                        </span>
+                    </div>
+                    <div class="card-body px-4 pt-2">
+                        <?php if ($workQueueCards): ?>
+                            <div class="list-group list-group-flush">
+                                <?php foreach ($workQueueCards as $item): ?>
+                                    <?php $toneClass = ['warning' => 'text-warning-emphasis', 'primary' => 'text-primary', 'info' => 'text-info-emphasis', 'danger' => 'text-danger', 'dark' => 'text-secondary'][$item['tone']] ?? 'text-primary'; ?>
+                                    <a href="<?php echo h($item['href']); ?>" class="list-group-item list-group-item-action px-0 py-3 d-flex align-items-center gap-3">
+                                        <span class="rounded-3 bg-body-tertiary p-2 <?php echo $toneClass; ?>"><i class="bi <?php echo h($item['icon']); ?> fs-5" aria-hidden="true"></i></span>
+                                        <span class="flex-grow-1 min-w-0">
+                                            <span class="d-block fw-semibold text-body"><?php echo h($item['label']); ?></span>
+                                            <span class="d-block small text-secondary text-truncate"><?php echo h($item['note']); ?></span>
+                                        </span>
+                                        <span class="badge rounded-pill text-bg-light border text-dark fs-6"><?php echo number_format((int) $item['value']); ?></span>
+                                        <i class="bi bi-chevron-right small text-secondary" aria-hidden="true"></i>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <div class="alert alert-success mb-0"><i class="bi bi-check-circle me-2"></i>No pending work is assigned to your role.</div>
+                        <?php endif; ?>
+                    </div>
+                </article>
             </div>
-            <h1 class="dashboard-hub-title">Welcome back, <?php echo h($displayName); ?></h1>
-            <p class="dashboard-hub-copy">
-                Here is your operations snapshot for <?php echo h(date('l, F j, Y')); ?>. Start with the items that need attention, or jump directly to a common task.
-            </p>
-            <div class="dashboard-hub-actions">
-                <?php foreach ($quickLinks as $link): ?>
-                    <a class="dashboard-hub-action" href="<?php echo h($link['href']); ?>">
-                        <i class="bi <?php echo h($link['icon']); ?>"></i>
-                        <span><?php echo h($link['label']); ?></span>
+
+            <div class="col-12 col-xl-5">
+                <article class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-start gap-2">
+                        <div>
+                            <h2 class="h5 fw-bold mb-1">Recent purchase orders</h2>
+                            <p class="small text-secondary mb-0">Latest procurement activity.</p>
+                        </div>
+                        <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/purchase_orders/index.php'); ?>">All orders</a>
+                    </div>
+                    <div class="card-body px-4 pt-2">
+                        <?php if ($recentPurchaseOrders): ?>
+                            <div class="list-group list-group-flush">
+                                <?php foreach ($recentPurchaseOrders as $po): ?>
+                                    <?php
+                                        $poStatus = (string) ($po['status'] ?? 'pending');
+                                        $poBadge = $poStatus === 'completed' ? 'text-bg-success' : ($poStatus === 'cancelled' ? 'text-bg-secondary' : 'text-bg-warning');
+                                    ?>
+                                    <div class="list-group-item px-0 py-3 d-flex justify-content-between align-items-center gap-3">
+                                        <div class="min-w-0">
+                                            <div class="fw-semibold text-truncate"><?php echo h((string) ($po['po_number'] ?? 'No PO Number')); ?></div>
+                                            <div class="small text-secondary text-truncate"><?php echo h((string) ($po['supplier_name'] ?? 'No supplier')); ?>
+                                                <span class="mx-1">·</span><?php echo !empty($po['po_date']) ? h(date('M d, Y', strtotime($po['po_date']))) : 'No date'; ?>
+                                            </div>
+                                        </div>
+                                        <span class="badge <?php echo $poBadge; ?>"><?php echo h(ucfirst($poStatus)); ?></span>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <p class="text-secondary mb-0 py-3">No purchase orders yet.</p>
+                        <?php endif; ?>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <section id="inventory" class="dashboard-v2-section mb-4" aria-labelledby="inventory-heading">
+        <div class="d-flex justify-content-between align-items-end gap-3 mb-3">
+            <div>
+                <div class="small text-uppercase fw-semibold text-primary">Stock and accountability</div>
+                <h2 id="inventory-heading" class="h4 fw-bold mb-0">Inventory overview</h2>
+            </div>
+            <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/property/index.php'); ?>">Open registry</a>
+        </div>
+        <div class="row g-3">
+            <div class="col-12 col-lg-7">
+                <article class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 pt-4 px-4">
+                        <h3 class="h6 fw-bold mb-1">Inventory controls</h3>
+                        <p class="small text-secondary mb-0">Counts, exceptions, and supply approvals.</p>
+                    </div>
+                    <div class="card-body px-4 pt-2">
+                        <div class="list-group list-group-flush">
+                            <?php foreach ($inventoryCards as $item): ?>
+                                <a href="<?php echo h($item['href']); ?>" class="list-group-item list-group-item-action px-0 py-3 d-flex align-items-center gap-3">
+                                    <i class="bi <?php echo h($item['icon']); ?> fs-5 text-primary" aria-hidden="true"></i>
+                                    <span class="flex-grow-1">
+                                        <span class="d-block fw-semibold"><?php echo h($item['label']); ?></span>
+                                        <span class="d-block small text-secondary"><?php echo h($item['note']); ?></span>
+                                    </span>
+                                    <span class="badge text-bg-light border text-dark fs-6"><?php echo number_format((int) $item['value']); ?></span>
+                                    <i class="bi bi-chevron-right small text-secondary" aria-hidden="true"></i>
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </article>
+            </div>
+            <div class="col-12 col-lg-5">
+                <article class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-start gap-2">
+                        <div>
+                            <h3 class="h6 fw-bold mb-1">Low stock</h3>
+                            <p class="small text-secondary mb-0">Items at or below <?php echo number_format($lowStockThreshold); ?> on hand.</p>
+                        </div>
+                        <?php if ($cardVisibleForRole(['href' => base_url('modules/stock_catalog/index.php')])): ?>
+                            <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/stock_catalog/index.php'); ?>">Catalog</a>
+                        <?php endif; ?>
+                    </div>
+                    <div class="card-body px-4 pt-2">
+                        <?php if ($lowStockItems): ?>
+                            <div class="list-group list-group-flush">
+                                <?php foreach ($lowStockItems as $item): ?>
+                                    <div class="list-group-item px-0 py-3 d-flex justify-content-between align-items-center gap-3">
+                                        <div class="min-w-0">
+                                            <div class="fw-semibold text-truncate"><?php echo h((string) ($item['item_name'] ?? 'Supply item')); ?></div>
+                                            <div class="small text-secondary text-truncate"><?php echo h((string) ($item['stock_no'] ?? '')); ?></div>
+                                        </div>
+                                        <span class="badge <?php echo (float) ($item['quantity_on_hand'] ?? 0) <= 0 ? 'text-bg-danger' : 'text-bg-warning'; ?>"><?php echo h(format_quantity($item['quantity_on_hand'] ?? 0)); ?> on hand</span>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <div class="alert alert-success mb-0"><i class="bi bi-check-circle me-2"></i>No supplies are below the stock threshold.</div>
+                        <?php endif; ?>
+                    </div>
+                </article>
+            </div>
+        </div>
+        <div class="row g-3 mt-1">
+            <div class="col-12 col-lg-4">
+                <article class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 pt-4 px-4">
+                        <h3 class="h6 fw-bold mb-1">Asset lifecycle</h3>
+                        <p class="small text-secondary mb-0">Current accountability status.</p>
+                    </div>
+                    <div class="card-body px-4">
+                        <?php if ($assetLifecycleMix): ?>
+                            <?php foreach ($assetLifecycleMix as $row): ?>
+                                <?php $total = (int) ($row['total'] ?? 0); $percent = $assetLifecycleTotal > 0 ? (int) round(($total / $assetLifecycleTotal) * 100) : 0; ?>
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between small mb-1"><span><?php echo h((string) ($row['label'] ?? 'Unknown')); ?></span><strong><?php echo number_format($total); ?></strong></div>
+                                    <?php $lifecycleLabel = (string) ($row['label'] ?? 'Unknown'); ?>
+                                    <div class="progress" role="img" aria-label="<?php echo h($lifecycleLabel); ?>: <?php echo $percent; ?> percent"><div class="progress-bar <?php echo $lifecycleLabel === 'In Accountability' ? 'bg-primary' : ($lifecycleLabel === 'Available' ? 'bg-success' : 'bg-secondary'); ?>" style="width: <?php echo $percent; ?>%"></div></div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <p class="text-secondary mb-0">No asset lifecycle data available.</p>
+                        <?php endif; ?>
+                    </div>
+                </article>
+            </div>
+            <div class="col-12 col-lg-4">
+                <article class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 pt-4 px-4">
+                        <h3 class="h6 fw-bold mb-1">Top accountable offices</h3>
+                        <p class="small text-secondary mb-0">Offices with the most assigned active assets.</p>
+                    </div>
+                    <div class="card-body px-4">
+                        <?php if ($topAccountableOffices): ?>
+                            <?php foreach ($topAccountableOffices as $row): ?>
+                                <?php $totalAssets = (int) ($row['total_assets'] ?? 0); $percent = $topOfficePeak > 0 ? (int) round(($totalAssets / $topOfficePeak) * 100) : 0; ?>
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between small mb-1 gap-2"><span class="text-truncate"><?php echo h((string) ($row['office_name'] ?? 'Unassigned')); ?></span><strong><?php echo number_format($totalAssets); ?></strong></div>
+                                    <div class="progress" role="img" aria-label="<?php echo h((string) ($row['office_name'] ?? 'Unassigned')); ?>: <?php echo number_format($totalAssets); ?> assets"><div class="progress-bar bg-info" style="width: <?php echo $percent; ?>%"></div></div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <p class="text-secondary mb-0">No office accountability data available.</p>
+                        <?php endif; ?>
+                    </div>
+                </article>
+            </div>
+            <div class="col-12 col-lg-4">
+                <article class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 pt-4 px-4">
+                        <h3 class="h6 fw-bold mb-1">Inventory findings</h3>
+                        <p class="small text-secondary mb-0">Recorded count findings grouped by status.</p>
+                    </div>
+                    <div class="card-body px-4">
+                        <?php if ($inventoryExceptionMix): ?>
+                            <div class="list-group list-group-flush">
+                                <?php foreach ($inventoryExceptionMix as $row): ?>
+                                    <div class="list-group-item px-0 py-2 d-flex justify-content-between gap-3">
+                                        <span><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['label'] ?? 'Unknown')))); ?></span>
+                                        <span class="badge text-bg-warning"><?php echo number_format((int) ($row['total'] ?? 0)); ?></span>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <div class="alert alert-success mb-0">No inventory count findings need follow-up.</div>
+                        <?php endif; ?>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <section id="movement" class="dashboard-v2-section mb-4" aria-labelledby="movement-heading">
+        <div class="d-flex justify-content-between align-items-end gap-3 mb-3">
+            <div>
+                <div class="small text-uppercase fw-semibold text-primary">Recent transactions</div>
+                <h2 id="movement-heading" class="h4 fw-bold mb-0">Movement and accountability</h2>
+            </div>
+            <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/reports/index.php'); ?>">Reports</a>
+        </div>
+        <div class="row g-3 mb-3">
+            <?php foreach ($movementCards as $item): ?>
+                <div class="col-12 col-md-4">
+                    <a href="<?php echo h($item['href']); ?>" class="card h-100 border-0 shadow-sm text-decoration-none dashboard-v2-metric">
+                        <div class="card-body d-flex align-items-center gap-3">
+                            <i class="bi <?php echo h($item['icon']); ?> fs-3 text-primary" aria-hidden="true"></i>
+                            <span><span class="d-block small text-secondary"><?php echo h($item['label']); ?></span><strong class="fs-4 text-body"><?php echo h((string) $item['value']); ?></strong></span>
+                        </div>
                     </a>
-                <?php endforeach; ?>
-            </div>
+                </div>
+            <?php endforeach; ?>
         </div>
-
-        <div class="dashboard-hub-hero-side">
-            <div class="dashboard-hub-status-card tone-<?php echo h($commandTone); ?>">
-                <div class="dashboard-hub-status-label">Daily overview</div>
-                <div class="dashboard-hub-status-name"><?php echo h($commandStatus); ?></div>
-                <div class="dashboard-hub-status-copy">
-                    <?php if ($urgentWorkload > 0): ?>
-                        You have <?php echo h((string) $urgentWorkload); ?> items that still need active follow-up across receiving, distribution, and controls.
-                    <?php else: ?>
-                        Your queues are stable right now. This is a good time to review movement history and control quality.
-                    <?php endif; ?>
-                </div>
-                <div class="dashboard-hub-status-pills">
-                    <span class="dashboard-hub-pill">Open Counts <?php echo number_format($summary['open_inventory_counts'] + $summary['open_supply_counts']); ?></span>
-                    <span class="dashboard-hub-pill">Discrepancies <?php echo number_format($summary['unresolved_property_discrepancies']); ?></span>
-                    <span class="dashboard-hub-pill">QR Pending <?php echo number_format($summary['missing_qr_tags']); ?></span>
-                </div>
-            </div>
-
-        </div>
-    </div>
-
-    <div class="dashboard-hub-band">
-        <?php foreach ($snapshotItems as $item): ?>
-            <div class="dashboard-hub-band-card">
-                <div class="dashboard-hub-band-icon tone-<?php echo h($item['tone']); ?>">
-                    <i class="bi <?php echo h($item['icon']); ?>"></i>
-                </div>
-                <div class="dashboard-hub-band-body">
-                    <div class="dashboard-hub-band-label"><?php echo h($item['label']); ?></div>
-                    <div class="dashboard-hub-band-value"><?php echo h((string) $item['value']); ?></div>
-                    <div class="dashboard-hub-band-note"><?php echo h($item['note']); ?></div>
-                </div>
-            </div>
-        <?php endforeach; ?>
-    </div>
-
-    <div class="dashboard-hub-switcher" role="group" aria-label="Dashboard sections">
-        <button type="button" class="dashboard-hub-switch is-active" data-dashboard-view="operations">
-            <i class="bi bi-sun"></i>
-            <span>Today</span>
-        </button>
-        <button type="button" class="dashboard-hub-switch" data-dashboard-view="inventory">
-            <i class="bi bi-clipboard-data"></i>
-            <span>Inventory</span>
-        </button>
-        <button type="button" class="dashboard-hub-switch" data-dashboard-view="movement">
-            <i class="bi bi-arrow-left-right"></i>
-            <span>Movement</span>
-        </button>
-        <button type="button" class="dashboard-hub-switch" data-dashboard-view="analytics">
-            <i class="bi bi-bar-chart"></i>
-            <span>Analytics</span>
-        </button>
-    </div>
-
-    <div class="dashboard-hub-panel is-active" data-dashboard-panel="operations">
-        <article class="dashboard-hub-surface dashboard-hub-surface-strong mb-4">
-            <div class="dashboard-hub-section-head">
+        <article class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-start gap-2">
                 <div>
-                    <div class="dashboard-hub-section-kicker">Work Queues</div>
-                    <h2 class="dashboard-hub-section-title">Work that needs attention</h2>
+                    <h3 class="h6 fw-bold mb-1">Latest distributions</h3>
+                    <p class="small text-secondary mb-0">Most recently recorded property movements.</p>
                 </div>
-                <span class="dashboard-hub-badge"><?php echo number_format($urgentWorkload); ?> items to review</span>
+                <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/distributions/index.php'); ?>">All distributions</a>
             </div>
-            <div class="dashboard-hub-card-list">
-                <?php foreach ($workQueueCards as $item): ?>
-                    <a class="dashboard-hub-task-card tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
-                        <span class="dashboard-hub-task-icon">
-                            <i class="bi <?php echo h($item['icon']); ?>"></i>
-                        </span>
-                        <span class="dashboard-hub-task-body">
-                            <span class="dashboard-hub-task-label"><?php echo h($item['label']); ?></span>
-                            <span class="dashboard-hub-task-note"><?php echo h($item['note']); ?></span>
-                            <span class="dashboard-hub-task-cta"><?php echo h($item['cta']); ?></span>
-                        </span>
-                        <span class="dashboard-hub-task-value"><?php echo h((string) $item['value']); ?></span>
-                    </a>
-                <?php endforeach; ?>
+            <div class="card-body px-4 pt-2">
+                <?php if ($recentDistributions): ?>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <thead><tr><th scope="col">Document</th><th scope="col">Office</th><th scope="col">Accountable person</th><th scope="col">Date</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($recentDistributions as $distribution): ?>
+                                <tr>
+                                    <td class="fw-semibold"><?php echo h((string) ($distribution['document_no'] ?? 'No document')); ?></td>
+                                    <td><?php echo h((string) ($distribution['office_name'] ?? 'No office')); ?></td>
+                                    <td><?php echo !empty($distribution['employee_no']) ? h(employee_display_name($distribution) . ' · ' . $distribution['employee_no']) : 'Not specified'; ?></td>
+                                    <td><?php echo !empty($distribution['distribution_date']) ? h(date('M d, Y', strtotime($distribution['distribution_date']))) : '—'; ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php else: ?>
+                    <p class="text-secondary mb-0 py-3">No distribution records yet.</p>
+                <?php endif; ?>
             </div>
         </article>
+    </section>
 
-        <div class="dashboard-hub-grid">
-            <div class="dashboard-hub-stack">
-                <article class="dashboard-hub-surface">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Recent Procurement</div>
-                            <h2 class="dashboard-hub-section-title">Latest purchase orders</h2>
-                        </div>
-                        <div class="d-flex gap-2 flex-wrap justify-content-end">
-                            <?php if (in_array($roleName, ['Administrator', 'Supply Officer'], true)): ?>
-                                <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/suppliers/monitoring_calendar.php'); ?>"><i class="bi bi-calendar3 me-1"></i>Delivery Calendar</a>
-                            <?php endif; ?>
-                            <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/purchase_orders/index.php'); ?>">View All</a>
-                        </div>
-                    </div>
-                    <div class="dashboard-hub-feed">
-                        <?php if ($recentPurchaseOrders): ?>
-                            <?php foreach ($recentPurchaseOrders as $po): ?>
-                                <?php $poStatus = (string) ($po['status'] ?? ''); ?>
-                                <div class="dashboard-hub-feed-item">
-                                    <div class="dashboard-hub-feed-main">
-                                        <div class="dashboard-hub-feed-title"><?php echo h((string) ($po['po_number'] ?? 'No PO Number')); ?></div>
-                                        <div class="dashboard-hub-feed-meta">
-                                            <span><?php echo h((string) ($po['supplier_name'] ?? 'No supplier')); ?></span>
-                                            <span class="dashboard-hub-dot"></span>
-                                            <span><?php echo !empty($po['po_date']) ? h(date('M d, Y', strtotime($po['po_date']))) : 'No date'; ?></span>
-                                        </div>
-                                    </div>
-                                    <span class="badge <?php echo $poStatus === 'cancelled' ? 'text-bg-secondary' : ($poStatus === 'completed' ? 'text-bg-success' : 'text-bg-warning'); ?>">
-                                        <?php echo h(ucfirst($poStatus !== '' ? $poStatus : 'pending')); ?>
-                                    </span>
-                                </div>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <div class="dashboard-hub-empty">No purchase orders found.</div>
-                        <?php endif; ?>
-                    </div>
-                </article>
+    <section id="analytics" class="dashboard-v2-section mb-5" aria-labelledby="analytics-heading">
+        <div class="d-flex justify-content-between align-items-end gap-3 mb-3">
+            <div>
+                <div class="small text-uppercase fw-semibold text-primary">Trends and indicators</div>
+                <h2 id="analytics-heading" class="h4 fw-bold mb-0">Analytics</h2>
             </div>
-
-            <div class="dashboard-hub-stack">
-                <article class="dashboard-hub-surface dashboard-hub-surface-accent">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Supply Watch</div>
-                            <h2 class="dashboard-hub-section-title">Low stock radar</h2>
-                        </div>
-                        <span class="dashboard-hub-badge">Threshold <?php echo h((string) $lowStockThreshold); ?></span>
-                    </div>
-                    <div class="dashboard-hub-feed">
-                        <?php if ($lowStockItems): ?>
-                            <?php foreach ($lowStockItems as $item): ?>
-                                <div class="dashboard-hub-feed-item">
-                                    <div class="dashboard-hub-feed-main">
-                                        <div class="dashboard-hub-feed-title"><?php echo h((string) ($item['item_name'] ?? 'Supply Item')); ?></div>
-                                        <div class="dashboard-hub-feed-meta">
-                                            <span><?php echo h((string) ($item['stock_no'] ?? '')); ?></span>
-                                            <?php if (!empty($item['classification_name'])): ?>
-                                                <span class="dashboard-hub-dot"></span>
-                                                <span><?php echo h((string) $item['classification_name']); ?></span>
-                                            <?php endif; ?>
-                                        </div>
-                                    </div>
-                                    <div class="dashboard-hub-feed-aside">
-                                        <span class="dashboard-hub-feed-metric"><?php echo h(format_quantity($item['quantity_on_hand'] ?? 0)); ?></span>
-                                        <span class="dashboard-hub-feed-caption">On hand</span>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <div class="dashboard-hub-empty">No low stock items right now.</div>
-                        <?php endif; ?>
-                    </div>
-                </article>
-
-                <article class="dashboard-hub-surface">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Control Quality</div>
-                            <h2 class="dashboard-hub-section-title">Follow-up requiring attention</h2>
-                        </div>
-                        <a class="btn btn-sm btn-outline-danger" href="<?php echo base_url('modules/property/inventory_reconciliation.php'); ?>">Open Reconciliation</a>
-                    </div>
-                    <div class="dashboard-hub-mini-grid">
-                        <a class="dashboard-hub-mini-card tone-danger" href="<?php echo base_url('modules/property/inventory_reconciliation.php?resolution=unresolved'); ?>">
-                            <span class="dashboard-hub-mini-label">Discrepancies</span>
-                            <strong><?php echo number_format($summary['unresolved_property_discrepancies']); ?></strong>
-                            <span class="dashboard-hub-mini-note">Unresolved property count exceptions</span>
-                        </a>
-                        <a class="dashboard-hub-mini-card tone-warning" href="<?php echo base_url('modules/property/stock_adjustments.php'); ?>">
-                            <span class="dashboard-hub-mini-label">Adjustments</span>
-                            <strong><?php echo number_format($summary['pending_stock_adjustments']); ?></strong>
-                            <span class="dashboard-hub-mini-note">Pending stock adjustment approvals</span>
-                        </a>
-                        <a class="dashboard-hub-mini-card tone-secondary" href="<?php echo base_url('modules/property/unserviceable_review.php'); ?>">
-                            <span class="dashboard-hub-mini-label">Review</span>
-                            <strong><?php echo number_format($summary['unserviceable_review_items']); ?></strong>
-                            <span class="dashboard-hub-mini-note">Assets tagged for repair or disposal</span>
-                        </a>
-                    </div>
-                </article>
-            </div>
+            <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/reports/index.php'); ?>">Open reports</a>
         </div>
-    </div>
-
-    <div class="dashboard-hub-panel" data-dashboard-panel="inventory">
-        <div class="dashboard-hub-grid dashboard-hub-grid-wide">
-            <div class="dashboard-hub-stack">
-                <article class="dashboard-hub-surface dashboard-hub-surface-strong">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Inventory Control</div>
-                            <h2 class="dashboard-hub-section-title">Counts, adjustments, and reconciliation</h2>
+        <div class="row g-3 mb-4">
+            <?php foreach ($analyticsCards as $item): ?>
+                <div class="col-12 col-md-6 col-xl-4">
+                    <a href="<?php echo h($item['href']); ?>" class="card h-100 border-0 shadow-sm text-decoration-none dashboard-v2-metric">
+                        <div class="card-body">
+                            <div class="small text-secondary"><?php echo h($item['label']); ?></div>
+                            <div class="d-flex align-items-baseline gap-2 mt-1">
+                                <strong class="fs-3 text-body"><?php echo h((string) $item['value']); ?></strong>
+                                <i class="bi <?php echo h($item['icon']); ?> text-primary" aria-hidden="true"></i>
+                            </div>
+                            <div class="small text-secondary mt-2"><?php echo h($item['note']); ?></div>
                         </div>
-                        <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/property/inventory_counts.php'); ?>">Open Inventory Counts</a>
-                    </div>
-                    <div class="dashboard-hub-card-list">
-                        <?php foreach ($inventoryCards as $item): ?>
-                            <a class="dashboard-hub-task-card tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
-                                <span class="dashboard-hub-task-icon">
-                                    <i class="bi <?php echo h($item['icon']); ?>"></i>
-                                </span>
-                                <span class="dashboard-hub-task-body">
-                                    <span class="dashboard-hub-task-label"><?php echo h($item['label']); ?></span>
-                                    <span class="dashboard-hub-task-note"><?php echo h($item['note']); ?></span>
-                                    <span class="dashboard-hub-task-cta"><?php echo h($item['cta']); ?></span>
-                                </span>
-                                <span class="dashboard-hub-task-value"><?php echo h((string) $item['value']); ?></span>
-                            </a>
-                        <?php endforeach; ?>
-                    </div>
-                </article>
-            </div>
-
-            <div class="dashboard-hub-stack">
-                <article class="dashboard-hub-surface">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Control Snapshot</div>
-                            <h2 class="dashboard-hub-section-title">Current inventory posture</h2>
-                        </div>
-                    </div>
-                    <div class="dashboard-hub-mini-grid">
-                        <div class="dashboard-hub-mini-card tone-info">
-                            <span class="dashboard-hub-mini-label">Open Property Counts</span>
-                            <strong><?php echo number_format($summary['open_inventory_counts']); ?></strong>
-                            <span class="dashboard-hub-mini-note">Sessions still active and not yet closed</span>
-                        </div>
-                        <div class="dashboard-hub-mini-card tone-secondary">
-                            <span class="dashboard-hub-mini-label">Open Supply Counts</span>
-                            <strong><?php echo number_format($summary['open_supply_counts']); ?></strong>
-                            <span class="dashboard-hub-mini-note">Supply workspaces still in progress</span>
-                        </div>
-                        <div class="dashboard-hub-mini-card tone-dark">
-                            <span class="dashboard-hub-mini-label">Unserviceable Review</span>
-                            <strong><?php echo number_format($summary['unserviceable_review_items']); ?></strong>
-                            <span class="dashboard-hub-mini-note">Items flagged for repair or disposal</span>
-                        </div>
-                    </div>
-                </article>
-            </div>
+                    </a>
+                </div>
+            <?php endforeach; ?>
         </div>
-    </div>
 
-    <div class="dashboard-hub-panel" data-dashboard-panel="movement">
-        <div class="dashboard-hub-grid">
-            <div class="dashboard-hub-stack">
-                <article class="dashboard-hub-surface dashboard-hub-surface-strong">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Asset Movement</div>
-                            <h2 class="dashboard-hub-section-title">Registry and posted movement</h2>
-                        </div>
-                        <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/property/index.php'); ?>">Open Asset Registry</a>
+        <div class="row g-3">
+            <div class="col-12 col-xl-7">
+                <article class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 pt-4 px-4">
+                        <h3 class="h6 fw-bold mb-1">Six-month movement</h3>
+                        <p class="small text-secondary mb-0">Distributions, returns, and disposals by month.</p>
                     </div>
-                    <div class="dashboard-hub-card-list">
-                        <?php foreach ($movementCards as $item): ?>
-                            <a class="dashboard-hub-task-card tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
-                                <span class="dashboard-hub-task-icon">
-                                    <i class="bi <?php echo h($item['icon']); ?>"></i>
-                                </span>
-                                <span class="dashboard-hub-task-body">
-                                    <span class="dashboard-hub-task-label"><?php echo h($item['label']); ?></span>
-                                    <span class="dashboard-hub-task-note"><?php echo h($item['note']); ?></span>
-                                    <span class="dashboard-hub-task-cta"><?php echo h($item['cta']); ?></span>
-                                </span>
-                                <span class="dashboard-hub-task-value"><?php echo h((string) $item['value']); ?></span>
-                            </a>
-                        <?php endforeach; ?>
-                    </div>
-                </article>
-            </div>
-
-            <div class="dashboard-hub-stack">
-                <article class="dashboard-hub-surface">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Recent Activity</div>
-                            <h2 class="dashboard-hub-section-title">Latest distributions</h2>
-                        </div>
-                        <a class="btn btn-sm btn-outline-secondary" href="<?php echo base_url('modules/distributions/index.php'); ?>">View All</a>
-                    </div>
-                    <div class="dashboard-hub-feed">
-                        <?php if ($recentDistributions): ?>
-                            <?php foreach ($recentDistributions as $distribution): ?>
-                                <div class="dashboard-hub-feed-item">
-                                    <div class="dashboard-hub-feed-main">
-                                        <div class="dashboard-hub-feed-title"><?php echo h((string) ($distribution['document_no'] ?? 'No Document Number')); ?></div>
-                                        <div class="dashboard-hub-feed-meta">
-                                            <span><?php echo h(strtoupper((string) ($distribution['document_type'] ?? ''))); ?></span>
-                                            <span class="dashboard-hub-dot"></span>
-                                            <span><?php echo h((string) ($distribution['office_name'] ?? 'No office')); ?></span>
-                                        </div>
-                                        <div class="dashboard-hub-feed-note">
-                                            <?php if (!empty($distribution['employee_no'])): ?>
-                                                <?php echo h(employee_display_name($distribution) . ' - ' . $distribution['employee_no']); ?>
-                                            <?php else: ?>
-                                                Not specified
-                                            <?php endif; ?>
-                                        </div>
-                                    </div>
-                                    <div class="dashboard-hub-feed-aside">
-                                        <span class="dashboard-hub-feed-metric"><?php echo !empty($distribution['distribution_date']) ? h(date('M d', strtotime($distribution['distribution_date']))) : '--'; ?></span>
-                                        <span class="dashboard-hub-feed-caption"><?php echo !empty($distribution['distribution_date']) ? h(date('Y', strtotime($distribution['distribution_date']))) : 'No date'; ?></span>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <div class="dashboard-hub-empty">No distributions found.</div>
-                        <?php endif; ?>
-                    </div>
-                </article>
-            </div>
-        </div>
-    </div>
-
-    <div class="dashboard-hub-panel" data-dashboard-panel="analytics">
-        <div class="dashboard-hub-grid dashboard-hub-grid-wide">
-            <div class="dashboard-hub-stack">
-                <article class="dashboard-hub-surface dashboard-hub-surface-strong">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Analytics Overview</div>
-                            <h2 class="dashboard-hub-section-title">Risk, control, and supply pressure</h2>
-                        </div>
-                        <a class="btn btn-sm btn-outline-primary" href="<?php echo base_url('modules/reports/index.php'); ?>">Open Reports</a>
-                    </div>
-                    <div class="dashboard-hub-card-list">
-                        <?php foreach ($analyticsCards as $item): ?>
-                            <a class="dashboard-hub-task-card tone-<?php echo h($item['tone']); ?>" href="<?php echo h($item['href']); ?>">
-                                <span class="dashboard-hub-task-icon">
-                                    <i class="bi <?php echo h($item['icon']); ?>"></i>
-                                </span>
-                                <span class="dashboard-hub-task-body">
-                                    <span class="dashboard-hub-task-label"><?php echo h($item['label']); ?></span>
-                                    <span class="dashboard-hub-task-note"><?php echo h($item['note']); ?></span>
-                                    <span class="dashboard-hub-task-cta"><?php echo h($item['cta']); ?></span>
-                                </span>
-                                <span class="dashboard-hub-task-value"><?php echo h((string) $item['value']); ?></span>
-                            </a>
-                        <?php endforeach; ?>
-                    </div>
-                </article>
-
-                <article class="dashboard-hub-surface">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Six-Month Movement</div>
-                            <h2 class="dashboard-hub-section-title">Posted activity trend</h2>
-                        </div>
-                    </div>
-                    <?php if ($movementMonthlyTrend): ?>
-                        <div class="dashboard-hub-chart-list">
+                    <div class="card-body px-4">
+                        <?php if ($movementMonthlyTrend): ?>
                             <?php foreach ($movementMonthlyTrend as $row): ?>
                                 <?php
                                     $distributed = (int) ($row['distributed'] ?? 0);
                                     $returned = (int) ($row['returned'] ?? 0);
                                     $disposed = (int) ($row['disposed'] ?? 0);
                                     $rowTotal = $distributed + $returned + $disposed;
-                                    $barWidth = $movementTrendPeak > 0 ? max(4, (int) round(($rowTotal / $movementTrendPeak) * 100)) : 0;
+                                    $peak = max(1, $movementTrendPeak);
                                 ?>
-                                <div class="dashboard-hub-chart-row">
-                                    <div class="dashboard-hub-chart-label"><?php echo h((string) ($row['month_label'] ?? '')); ?></div>
-                                    <div class="dashboard-hub-chart-track">
-                                        <span class="dashboard-hub-chart-bar tone-primary" style="width: <?php echo $barWidth; ?>%;"></span>
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between small mb-1"><span><?php echo h((string) ($row['month_label'] ?? '')); ?></span><strong><?php echo number_format($rowTotal); ?></strong></div>
+                                    <div class="progress" role="img" aria-label="<?php echo h((string) ($row['month_label'] ?? '')); ?>: <?php echo number_format($rowTotal); ?> movements">
+                                        <div class="progress-bar bg-primary" style="width: <?php echo (int) round(($distributed / $peak) * 100); ?>%" title="Distributed: <?php echo $distributed; ?>"></div>
+                                        <div class="progress-bar bg-info" style="width: <?php echo (int) round(($returned / $peak) * 100); ?>%" title="Returned: <?php echo $returned; ?>"></div>
+                                        <div class="progress-bar bg-danger" style="width: <?php echo (int) round(($disposed / $peak) * 100); ?>%" title="Disposed: <?php echo $disposed; ?>"></div>
                                     </div>
-                                    <div class="dashboard-hub-chart-value"><?php echo number_format($rowTotal); ?></div>
-                                    <div class="dashboard-hub-chart-meta">
-                                        Distributed <?php echo number_format($distributed); ?> - Returned <?php echo number_format($returned); ?> - Disposed <?php echo number_format($disposed); ?>
-                                    </div>
+                                    <div class="small text-secondary mt-1">Distributed <?php echo number_format($distributed); ?> <span class="mx-1">·</span> Returned <?php echo number_format($returned); ?> <span class="mx-1">·</span> Disposed <?php echo number_format($disposed); ?></div>
                                 </div>
                             <?php endforeach; ?>
-                        </div>
-                    <?php else: ?>
-                        <div class="dashboard-hub-empty">No posted movement found for the last six months.</div>
-                    <?php endif; ?>
+                            <div class="small text-secondary"><span class="badge text-bg-primary me-1"> </span>Distributed <span class="badge text-bg-info ms-2 me-1"> </span>Returned <span class="badge text-bg-danger ms-2 me-1"> </span>Disposed</div>
+                        <?php else: ?>
+                            <p class="text-secondary mb-0">No posted movement data for the last six months.</p>
+                        <?php endif; ?>
+                    </div>
                 </article>
             </div>
-
-            <div class="dashboard-hub-stack">
-                <article class="dashboard-hub-surface">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Procurement Mix</div>
-                            <h2 class="dashboard-hub-section-title">Purchase order status</h2>
-                        </div>
+            <div class="col-12 col-xl-5">
+                <article class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 pt-4 px-4">
+                        <h3 class="h6 fw-bold mb-1">Purchase order status</h3>
+                        <p class="small text-secondary mb-0">Current procurement mix.</p>
                     </div>
-                    <?php if ($procurementStatusMix): ?>
-                        <div class="dashboard-hub-chart-list">
+                    <div class="card-body px-4">
+                        <?php if ($procurementStatusMix): ?>
                             <?php foreach ($procurementStatusMix as $row): ?>
                                 <?php
                                     $total = (int) ($row['total'] ?? 0);
                                     $percent = $procurementStatusTotal > 0 ? (int) round(($total / $procurementStatusTotal) * 100) : 0;
+                                    $statusName = ucwords(str_replace('_', ' ', (string) ($row['label'] ?? 'Unknown')));
+                                    $statusTone = strtolower((string) ($row['label'] ?? '')) === 'completed' ? 'bg-success' : (strtolower((string) ($row['label'] ?? '')) === 'cancelled' ? 'bg-secondary' : 'bg-warning');
                                 ?>
-                                <div class="dashboard-hub-chart-row dashboard-hub-chart-row-compact">
-                                    <div class="dashboard-hub-chart-label"><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['label'] ?? 'Unknown')))); ?></div>
-                                    <div class="dashboard-hub-chart-track">
-                                        <span class="dashboard-hub-chart-bar tone-success" style="width: <?php echo max(4, $percent); ?>%;"></span>
-                                    </div>
-                                    <div class="dashboard-hub-chart-value"><?php echo number_format($total); ?></div>
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between small mb-1"><span><?php echo h($statusName); ?></span><strong><?php echo number_format($total); ?> <span class="text-secondary fw-normal">(<?php echo $percent; ?>%)</span></strong></div>
+                                    <div class="progress" role="img" aria-label="<?php echo h($statusName); ?>: <?php echo $percent; ?> percent"><div class="progress-bar <?php echo $statusTone; ?>" style="width: <?php echo $percent; ?>%"></div></div>
                                 </div>
                             <?php endforeach; ?>
-                        </div>
-                    <?php else: ?>
-                        <div class="dashboard-hub-empty">No purchase order status data available.</div>
-                    <?php endif; ?>
-                </article>
-
-                <article class="dashboard-hub-surface">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Asset Lifecycle</div>
-                            <h2 class="dashboard-hub-section-title">Accountability status mix</h2>
-                        </div>
+                        <?php else: ?>
+                            <p class="text-secondary mb-0">No purchase order data available.</p>
+                        <?php endif; ?>
                     </div>
-                    <?php if ($assetLifecycleMix): ?>
-                        <div class="dashboard-hub-chart-list">
-                            <?php foreach ($assetLifecycleMix as $row): ?>
-                                <?php
-                                    $total = (int) ($row['total'] ?? 0);
-                                    $percent = $assetLifecycleTotal > 0 ? (int) round(($total / $assetLifecycleTotal) * 100) : 0;
-                                ?>
-                                <div class="dashboard-hub-chart-row dashboard-hub-chart-row-compact">
-                                    <div class="dashboard-hub-chart-label"><?php echo h((string) ($row['label'] ?? 'Unknown')); ?></div>
-                                    <div class="dashboard-hub-chart-track">
-                                        <span class="dashboard-hub-chart-bar tone-info" style="width: <?php echo max(4, $percent); ?>%;"></span>
-                                    </div>
-                                    <div class="dashboard-hub-chart-value"><?php echo number_format($total); ?></div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php else: ?>
-                        <div class="dashboard-hub-empty">No asset lifecycle data available.</div>
-                    <?php endif; ?>
-                </article>
-
-                <article class="dashboard-hub-surface dashboard-hub-surface-accent">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Accountability Leaders</div>
-                            <h2 class="dashboard-hub-section-title">Top offices by active assets</h2>
-                        </div>
-                    </div>
-                    <?php if ($topAccountableOffices): ?>
-                        <div class="dashboard-hub-chart-list">
-                            <?php foreach ($topAccountableOffices as $row): ?>
-                                <?php
-                                    $totalAssets = (int) ($row['total_assets'] ?? 0);
-                                    $percent = $topOfficePeak > 0 ? (int) round(($totalAssets / $topOfficePeak) * 100) : 0;
-                                ?>
-                                <div class="dashboard-hub-chart-row">
-                                    <div class="dashboard-hub-chart-label"><?php echo h((string) ($row['office_name'] ?? 'Unassigned')); ?></div>
-                                    <div class="dashboard-hub-chart-track">
-                                        <span class="dashboard-hub-chart-bar tone-warning" style="width: <?php echo max(4, $percent); ?>%;"></span>
-                                    </div>
-                                    <div class="dashboard-hub-chart-value"><?php echo number_format($totalAssets); ?></div>
-                                    <div class="dashboard-hub-chart-meta">Value <?php echo h(number_format((float) ($row['total_value'] ?? 0), 2)); ?></div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php else: ?>
-                        <div class="dashboard-hub-empty">No active accountability data available.</div>
-                    <?php endif; ?>
-                </article>
-
-                <article class="dashboard-hub-surface">
-                    <div class="dashboard-hub-section-head">
-                        <div>
-                            <div class="dashboard-hub-section-kicker">Exception Mix</div>
-                            <h2 class="dashboard-hub-section-title">Inventory count findings</h2>
-                        </div>
-                    </div>
-                    <?php if ($inventoryExceptionMix): ?>
-                        <div class="dashboard-hub-mini-grid">
-                            <?php foreach ($inventoryExceptionMix as $row): ?>
-                                <div class="dashboard-hub-mini-card tone-warning">
-                                    <span class="dashboard-hub-mini-label"><?php echo h(ucwords(str_replace('_', ' ', (string) ($row['label'] ?? 'Unknown')))); ?></span>
-                                    <strong><?php echo number_format((int) ($row['total'] ?? 0)); ?></strong>
-                                    <span class="dashboard-hub-mini-note">Count lines requiring verification or resolution</span>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php else: ?>
-                        <div class="dashboard-hub-empty">No inventory count exceptions found.</div>
-                    <?php endif; ?>
                 </article>
             </div>
         </div>
-    </div>
+    </section>
 </section>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    var dashboardRoot = document.querySelector('[data-dashboard-hub]');
-    if (!dashboardRoot) {
-        return;
-    }
-
-    var switches = Array.prototype.slice.call(dashboardRoot.querySelectorAll('[data-dashboard-view]'));
-    var panels = Array.prototype.slice.call(dashboardRoot.querySelectorAll('[data-dashboard-panel]'));
-
-    function activateDashboardView(viewName) {
-        switches.forEach(function (button) {
-            button.classList.toggle('is-active', button.getAttribute('data-dashboard-view') === viewName);
-        });
-
-        panels.forEach(function (panel) {
-            panel.classList.toggle('is-active', panel.getAttribute('data-dashboard-panel') === viewName);
-        });
-    }
-
-    switches.forEach(function (button) {
-        button.addEventListener('click', function () {
-            activateDashboardView(button.getAttribute('data-dashboard-view'));
-        });
-    });
-
-    var initialButton = dashboardRoot.querySelector('[data-dashboard-view].is-active') || switches[0];
-    if (initialButton) {
-        activateDashboardView(initialButton.getAttribute('data-dashboard-view'));
-    }
-
-    window.requestAnimationFrame(function () {
-        dashboardRoot.setAttribute('data-dashboard-ready', '1');
-    });
-});
-</script>
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
