@@ -75,6 +75,23 @@ function trip_ticket_natural_name(string $name): string
     return trim($rest . ' ' . $last) . ($suffixes ? ', ' . implode(', ', $suffixes) : '');
 }
 
+function trip_ticket_short_name(string $name): string
+{
+    $name = trim($name);
+    if (strpos($name, ',') === false) {
+        $parts = preg_split('/\s+/', $name) ?: [];
+        if (count($parts) < 2) {
+            return $name;
+        }
+        $last = (string) array_pop($parts);
+        return mb_substr((string) $parts[0], 0, 1) . '.' . $last;
+    }
+    [$last, $rest] = array_map('trim', explode(',', $name, 2));
+    $first = preg_split('/\s+/', $rest) ?: [];
+    $initial = $first !== [] && $first[0] !== '' ? mb_substr((string) $first[0], 0, 1) . '.' : '';
+    return $initial . $last;
+}
+
 function render_ris_copy(array $ticket, string $officeName, string $rcCode, string $purpose, string $approvedByName, string $approvedByTitle, string $issuedByName, string $issuedByTitle, string $requestedByName, string $requestedByTitle, string $receivedByName, string $receivedByTitle): void
 {
 ?>
@@ -137,7 +154,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         <table class="ris-signatures">
             <?php
             $sigDate = format_date((string) $ticket['departure_date'], 'n/j/Y');
-            $sigNames = [trip_ticket_natural_name($requestedByName), trip_ticket_natural_name($approvedByName), trip_ticket_natural_name($issuedByName), trip_ticket_natural_name($receivedByName)];
+            $sigNames = [trip_ticket_natural_name($requestedByName), trip_ticket_natural_name($approvedByName), trip_ticket_natural_name($issuedByName), trip_ticket_short_name($receivedByName)];
             $sigTitles = [$requestedByTitle, $approvedByTitle, $issuedByTitle, $receivedByTitle];
             ?>
             <tr>
