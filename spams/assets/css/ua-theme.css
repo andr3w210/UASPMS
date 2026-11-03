@@ -492,15 +492,15 @@ body.ua-auth > .text-center.text-secondary {
     }
 
     .asset-registry-table-frame .asset-col-classification {
-        min-width: 170px !important;
+        min-width: 140px !important;
     }
 
     .asset-registry-table-frame .asset-col-item-details {
-        min-width: 105px !important;
+        min-width: 100px !important;
     }
 
     .asset-registry-table-frame .asset-col-amount {
-        min-width: 80px !important;
+        min-width: 76px !important;
         white-space: nowrap;
     }
 
