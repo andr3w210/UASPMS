@@ -874,9 +874,17 @@ document.addEventListener('DOMContentLoaded', function () {
         return employeeSelect.value || '';
     }
 
+    var refreshingSharedSelect = false;
     function refreshSharedSelect(select) {
+        // jQuery's trigger also fires the inline onchange attribute, which would re-enter the sync functions.
+        if (refreshingSharedSelect) return;
         if (window.jQuery && jQuery.fn.select2) {
-            jQuery(select).trigger('change.select2');
+            refreshingSharedSelect = true;
+            try {
+                jQuery(select).trigger('change.select2');
+            } finally {
+                refreshingSharedSelect = false;
+            }
         }
     }
 

@@ -65,12 +65,12 @@ require_once __DIR__ . '/../../includes/sidebar.php';
 require_once __DIR__ . '/../../includes/topbar.php';
 ?>
 <section class="section">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <div>
             <h4 class="mb-1">Trip Tickets</h4>
             <div class="text-muted">Driver’s trip ticket with embedded fuel RIS.</div>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex flex-wrap gap-2">
             <a href="<?php echo base_url('modules/trip_tickets/monthly_report.php'); ?>" class="btn btn-outline-secondary">
                 <i class="bi bi-file-earmark-bar-graph me-1"></i> Monthly Report
             </a>
