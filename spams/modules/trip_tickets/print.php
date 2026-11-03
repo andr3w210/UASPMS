@@ -373,7 +373,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
         <table class="passenger-grid">
             <?php
             $gridPassengers = $passengerNames;
-            while (count($gridPassengers) < 10) {
+            while (count($gridPassengers) < 6) {
                 $gridPassengers[] = '';
             }
             for ($i = 0; $i < count($gridPassengers); $i += 2):
