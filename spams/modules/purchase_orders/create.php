@@ -1359,7 +1359,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (currentFilter === 'done' && !ln.is_complete) continue; if (currentFilter === 'empty' && ln.is_complete) continue; if (currentFilter === 'supply' && ln.item_type !== 'supply') continue; if (currentFilter === 'semi_expendable' && ln.item_type !== 'semi_expendable') continue; if (currentFilter === 'equipment' && ln.item_type !== 'equipment') continue; var searchBlob = [ln.item_description || '', ln.item_type || '', classificationNameById(ln.classification_id || ''), uomLabelById(ln.unit_of_measure_id || ''), accountCodeLabelById(ln.account_code_id || '')].join(' ').toLowerCase(); if (searchTerm && searchBlob.indexOf(searchTerm) === -1) continue;
             var dotColor = (i === activeIndex) ? '#0d6efd' : (ln.is_complete ? '#198754' : '#adb5bd');
             var badgeClass = (ln.item_type === 'equipment') ? 'text-bg-warning-subtle' : (ln.item_type === 'semi_expendable' ? 'text-bg-primary-subtle' : 'text-bg-success-subtle');
-            var shortType = typeShortLabel(ln.item_type); var desc = (ln.item_description || 'New item'); var classificationName = classificationNameById(ln.classification_id || ''); var amt = (parseFloat(ln.line_total || 0) !== 0) ? formatNumber(ln.line_total) : 'â€”';
+            var shortType = typeShortLabel(ln.item_type); var desc = (ln.item_description || 'New item'); var classificationName = classificationNameById(ln.classification_id || ''); var amt = (parseFloat(ln.line_total || 0) !== 0) ? formatNumber(ln.line_total) : '-';
             var row = document.createElement('div'); row.className = 'po-line-list-item'; row.setAttribute('data-index', i);
             row.style.cssText = 'display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:12px; border:0.5px solid transparent;';
             row.innerHTML = '<span style="width:20px; text-align:center; color:var(--bs-body-color); opacity:0.5; font-size:11px;">' + (i+1) + '</span>' +
@@ -2315,7 +2315,7 @@ document.addEventListener('DOMContentLoaded', function () {
         supplierAddressInput.value = addr;
         supplierAddressInput.placeholder = addr
             ? ''
-            : 'No address on file â€” type manually';
+            : 'No address on file - type manually';
     }
 
     if (supplierSelect && supplierAddressInput) {
@@ -2482,7 +2482,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     populateFormFromScan(result);
                     var lineCount = (result.items || []).length;
-                    showScanStatus('success', 'PO read successfully â€” ' + lineCount + ' line(s) found. Please review all fields and select Account Codes before saving.');
+                    showScanStatus('success', 'PO read successfully - ' + lineCount + ' line(s) found. Please review all fields and select Account Codes before saving.');
                 } catch (err) {
                     console.error('Scan error:', err);
                     var friendly = err.message || 'Unknown error';
