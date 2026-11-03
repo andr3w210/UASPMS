@@ -2530,7 +2530,7 @@ document.addEventListener('DOMContentLoaded', function () {
         iarUnitsFilter.addEventListener('change', applyIarFilters);
     }
 
-    refreshEmployeeFilter(!$form['employee_id']);
+    refreshEmployeeFilter(<?= ($form['employee_id'] ?? '') === '' ? 'true' : 'false' ?>);
     applyIarFilters();
     refreshSummary();
 
