@@ -114,9 +114,9 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
             <tbody>
                 <tr>
                     <td class="center-cell"><?php echo strtolower(trim((string) $ticket['fuel_type'])) === 'diesel' ? 'LQS-004' : ''; ?></td>
-                    <td>ltr/s</td>
+                    <td class="center-cell">Liters</td>
                     <td><?php echo h((string) $ticket['fuel_type']); ?></td>
-                    <td class="center-cell">/</td>
+                    <td class="center-cell">Yes</td>
                     <td></td>
                     <td class="center-cell"><?php echo number_format((float) $ticket['liters_requested'], 2); ?></td>
                     <td></td>
