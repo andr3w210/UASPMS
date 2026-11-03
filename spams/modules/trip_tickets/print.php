@@ -326,7 +326,7 @@ function render_ris_copy(array $ticket, string $officeName, string $rcCode, stri
                 <td style="width: 28px;">1.</td>
                 <td>Time of departure from office/ garage</td>
                 <td class="entry-line" style="width: 150px;"><?php echo h(date('g:i', strtotime((string) $ticket['departure_time']))); ?></td>
-                <td class="unit-col">AM/PM</td>
+                <td class="unit-col"><?php echo h(date('A', strtotime((string) $ticket['departure_time']))); ?></td>
             </tr>
             <tr><td>2.</td><td>Time of arrival (per no. 5 above)</td><td class="entry-line"></td><td>AM/PM</td></tr>
             <tr><td>3.</td><td>Time of departure from (per no. 4)</td><td class="entry-line"></td><td>AM/PM</td></tr>
