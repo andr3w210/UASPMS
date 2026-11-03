@@ -436,7 +436,7 @@ body.ua-auth > .text-center.text-secondary {
 }
 
 /* Asset registry: show every column; the frame scrolls sideways when the screen is narrow */
-@media (min-width: 992px) and (max-width: 1366px) {
+@media (min-width: 992px) and (max-width: 1919px) {
     .asset-registry-table-frame .asset-col-item-details,
     .asset-registry-table-frame .asset-col-amount,
     .asset-registry-table-frame .asset-col-date,
