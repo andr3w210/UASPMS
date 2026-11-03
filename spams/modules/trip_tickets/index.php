@@ -159,9 +159,8 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <a href="<?php echo base_url('modules/trip_tickets/create.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
                                         <a href="<?php echo base_url('modules/trip_tickets/complete.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-success">Complete</a>
                                         <a href="<?php echo base_url('modules/trip_tickets/view.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-primary">View</a>
-                                        <?php $ticketHasRis = (float) $ticket['liters_requested'] > 0 && trim((string) $ticket['ris_no']) !== ''; ?>
-                                        <a href="<?php echo base_url('modules/trip_tickets/print.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank"<?php echo $ticketHasRis ? '' : ' data-no-fuel-edit-url="' . h(base_url('modules/trip_tickets/create.php?id=' . (int) $ticket['id'])) . '"'; ?>>Print</a>
-                                        <?php if ($ticketHasRis): ?>
+                                        <a href="<?php echo base_url('modules/trip_tickets/print.php?id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Print</a>
+                                        <?php if ((float) $ticket['liters_requested'] > 0 && trim((string) $ticket['ris_no']) !== ''): ?>
                                             <a href="<?php echo base_url('modules/trip_tickets/print.php?part=ris&id=' . (int) $ticket['id']); ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Print RIS</a>
                                         <?php endif; ?>
                                     </td>
@@ -174,25 +173,4 @@ require_once __DIR__ . '/../../includes/topbar.php';
         </div>
     </div>
 </section>
-<script>
-document.addEventListener('click', function (event) {
-    var link = event.target.closest('a[data-no-fuel-edit-url]');
-    if (!link || !window.confirmAction) {
-        return;
-    }
-    event.preventDefault();
-    window.confirmAction({
-        title: 'No fuel / RIS',
-        message: 'This trip ticket has no fuel or RIS. Print it without fuel, or add fuel and a RIS first?',
-        confirmText: 'Print without fuel',
-        cancelText: 'Add fuel / RIS',
-        onConfirm: function () {
-            window.open(link.href, '_blank');
-        },
-        onCancel: function () {
-            window.location.href = link.getAttribute('data-no-fuel-edit-url');
-        }
-    });
-});
-</script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

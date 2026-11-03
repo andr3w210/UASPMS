@@ -668,9 +668,15 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </select>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">Fuel Requested (Liters)</label>
-                        <input type="number" step="0.01" min="0" name="liters_requested" id="liters_requested" class="form-control" value="<?php echo h($form['liters_requested']); ?>">
-                        <div class="form-text">Leave blank or set to 0 if this trip does not need a fuel RIS.</div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="needs_fuel_ris" <?php echo ((float) $form['liters_requested']) > 0 ? 'checked' : ''; ?>>
+                            <label class="form-check-label" for="needs_fuel_ris">This trip needs fuel / a fuel RIS</label>
+                        </div>
+                        <div id="fuel_liters_group" class="<?php echo ((float) $form['liters_requested']) > 0 ? '' : 'd-none'; ?>">
+                            <label class="form-label" for="liters_requested">Fuel Requested (Liters)</label>
+                            <input type="number" step="0.01" min="0" name="liters_requested" id="liters_requested" class="form-control" value="<?php echo h($form['liters_requested']); ?>">
+                            <div class="form-text">A fuel RIS is created only when this box is checked.</div>
+                        </div>
                     </div>
                     <div class="col-12">
                         <label class="form-label">Place to Visit / Location to Travel</label>
@@ -843,6 +849,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const syncDriverPeopleButton = document.getElementById('sync-driver-people');
     const destinationField = document.querySelector('textarea[name="destination"]');
     const litersRequestedField = document.getElementById('liters_requested');
+    const needsFuelRisField = document.getElementById('needs_fuel_ris');
+    const fuelLitersGroup = document.getElementById('fuel_liters_group');
     const useMapPickerField = document.getElementById('use_map_picker');
     const latitudeField = document.getElementById('map_latitude');
     const longitudeField = document.getElementById('map_longitude');
@@ -893,8 +901,14 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function syncRisSectionVisibility() {
+        const needsFuel = !!needsFuelRisField?.checked;
+        fuelLitersGroup?.classList.toggle('d-none', !needsFuel);
+        if (litersRequestedField) {
+            litersRequestedField.required = needsFuel;
+            litersRequestedField.min = needsFuel ? '0.01' : '0';
+        }
         const litersValue = parseFloat((litersRequestedField?.value || '').trim());
-        const hasFuel = !Number.isNaN(litersValue) && litersValue > 0;
+        const hasFuel = needsFuel && !Number.isNaN(litersValue) && litersValue > 0;
         if (risSignatoriesSection) {
             risSignatoriesSection.classList.toggle('d-none', !hasFuel);
         }
@@ -1107,39 +1121,17 @@ document.addEventListener('DOMContentLoaded', function () {
     syncDriverPeopleButton?.addEventListener('click', function () {
         applyDriverToRisSignatories(true);
     });
-    tripTicketForm?.addEventListener('submit', function (event) {
-        if (event.defaultPrevented) {
-            return;
+    needsFuelRisField?.addEventListener('change', function () {
+        if (needsFuelRisField.checked) {
+            litersRequestedField?.focus();
         }
-
-        const litersValue = parseFloat((litersRequestedField?.value || '').trim());
-        if (!Number.isNaN(litersValue) && litersValue > 0) {
-            return;
+        syncRisSectionVisibility();
+    });
+    tripTicketForm?.addEventListener('submit', function () {
+        // No fuel needed: send 0 so the server creates no fuel RIS.
+        if (litersRequestedField && !needsFuelRisField?.checked) {
+            litersRequestedField.value = '0';
         }
-
-        event.preventDefault();
-        if (!window.confirmAction) {
-            if (litersRequestedField && (litersRequestedField.value || '').trim() === '') {
-                litersRequestedField.value = '0';
-            }
-            tripTicketForm?.submit();
-            return;
-        }
-        window.confirmAction({
-            title: 'No fuel / RIS',
-            message: 'Fuel requested is 0 liters or blank, so no fuel RIS will be created. Save this trip ticket without fuel, or go back and add fuel and a RIS?',
-            confirmText: 'Save without fuel',
-            cancelText: 'Add fuel / RIS',
-            onConfirm: function () {
-                if (litersRequestedField && (litersRequestedField.value || '').trim() === '') {
-                    litersRequestedField.value = '0';
-                }
-                tripTicketForm?.submit();
-            },
-            onCancel: function () {
-                litersRequestedField?.focus();
-            }
-        });
     });
 
     destinationField?.addEventListener('input', updateMapPreview);
