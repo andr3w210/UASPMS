@@ -1,22 +1,35 @@
+<?php if (!empty($GLOBALS['spams_shell_open'])): ?>
     </div>
-    <footer id="footer" class="footer">
-        <div class="footer-shell">
-            <span class="footer-badge"><i class="bi bi-shield-check"></i> SPAMS</span>
-            <div class="copyright">
-                SPAMS &copy; <?php echo date('Y'); ?>. Supply and Property Asset Management System. &mdash; <span style="font-style:italic;opacity:0.7;">aDDicTus</span> &middot; <span style="opacity:0.6;"><?php echo APP_VERSION; ?></span>
+</main>
+<footer id="footer" class="footer footer-transparent d-print-none">
+    <div class="container-fluid">
+        <div class="row text-center align-items-center flex-row-reverse">
+            <div class="col-lg-auto ms-lg-auto">
+                <span class="badge bg-primary-lt"><i class="bi bi-shield-check me-1"></i>SPAMS <?php echo APP_VERSION; ?></span>
+            </div>
+            <div class="col-12 col-lg-auto mt-3 mt-lg-0">
+                SPAMS &copy; <?php echo date('Y'); ?> University of Antique. Supply and Property Asset Management System.
             </div>
         </div>
-    </footer>
-</main>
+    </div>
+</footer>
+</div>
+</div>
+<?php else: ?>
+    <div class="text-center text-secondary small py-3 d-print-none">
+        SPAMS &copy; <?php echo date('Y'); ?> University of Antique
+    </div>
+<?php endif; ?>
 
 <?php require_once __DIR__ . '/chat_widget.php'; ?>
 <?php require_once __DIR__ . '/confirm_modal.php'; ?>
 
 <div id="globalToastContainer" class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1080;"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script src="<?php echo base_url('assets/vendor/tabler/js/tabler.min.js'); ?>"></script>
+<script>window.bootstrap = window.bootstrap || (window.tabler && window.tabler.bootstrap) || window.tabler;</script>
+<script src="<?php echo base_url('assets/vendor/tabler/jquery/jquery.min.js'); ?>"></script>
+<script src="<?php echo base_url('assets/vendor/tabler/select2/select2.min.js'); ?>"></script>
 <script src="<?php echo base_url('assets/js/app.js?v=' . rawurlencode((string) filemtime(__DIR__ . '/../assets/js/app.js'))); ?>"></script>
 <script src="<?php echo base_url('assets/js/confirm.js?v=' . rawurlencode((string) filemtime(__DIR__ . '/../assets/js/confirm.js'))); ?>"></script>
 <script>

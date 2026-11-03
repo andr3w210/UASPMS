@@ -1,0 +1,331 @@
+/* University of Antique theme for SPAMS, layered over Tabler. Palette is taken from the UA seal. */
+:root,
+[data-bs-theme="light"] {
+    --ua-navy: #2b2f7e;
+    --ua-navy-deep: #1a1d52;
+    --ua-gold: #f2b705;
+    --ua-red: #c8102e;
+    --ua-green: #0a8f4a;
+
+    --tblr-primary: #2b2f7e;
+    --tblr-primary-rgb: 43, 47, 126;
+    --tblr-primary-fg: #ffffff;
+    --tblr-primary-darken: #232669;
+    --tblr-primary-lt: #e9eaf5;
+    --tblr-primary-lt-rgb: 233, 234, 245;
+    --tblr-secondary: #6b7280;
+    --tblr-success: #0a8f4a;
+    --tblr-success-rgb: 10, 143, 74;
+    --tblr-warning: #f2b705;
+    --tblr-warning-rgb: 242, 183, 5;
+    --tblr-danger: #c8102e;
+    --tblr-danger-rgb: 200, 16, 46;
+    --tblr-link-color: #2b2f7e;
+    --tblr-link-color-rgb: 43, 47, 126;
+    --tblr-link-hover-color: #1a1d52;
+    --tblr-body-bg: #f3f4f9;
+    --tblr-font-sans-serif: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --tblr-border-radius: 0.5rem;
+}
+
+body.ua-skin {
+    background: var(--tblr-body-bg);
+    font-family: var(--tblr-font-sans-serif);
+}
+
+/* Sidebar */
+.navbar-vertical {
+    --tblr-navbar-bg: var(--ua-navy-deep);
+    background: var(--ua-navy-deep);
+    border-right: 0;
+}
+
+.navbar-vertical .navbar-brand {
+    padding: 1rem 1rem 0.75rem;
+}
+
+.spams-brand {
+    align-items: center;
+    color: #ffffff;
+    display: flex;
+    gap: 0.75rem;
+    text-decoration: none;
+}
+
+.spams-brand-logo {
+    background: #ffffff;
+    border-radius: 50%;
+    height: 44px;
+    padding: 2px;
+    width: 44px;
+}
+
+.spams-brand-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+    text-align: left;
+}
+
+.spams-brand-text strong {
+    font-size: 1.1rem;
+    letter-spacing: 0.04em;
+}
+
+.spams-brand-text small {
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.navbar-vertical .nav-link {
+    border-radius: 0.5rem;
+    margin: 1px 0.5rem;
+}
+
+.navbar-vertical .nav-link.active,
+.navbar-vertical .nav-link.show {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.navbar-vertical .dropdown-menu {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    padding-top: 0;
+}
+
+.navbar-vertical .dropdown-item {
+    border-radius: 0.5rem;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.85rem;
+    margin: 1px 0.5rem;
+    padding: 0.4rem 0.75rem 0.4rem 1.5rem;
+    width: auto;
+    white-space: normal;
+}
+
+.navbar-vertical .dropdown-item:hover,
+.navbar-vertical .dropdown-item:focus {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+}
+
+.navbar-vertical .dropdown-menu .dropdown-item.active,
+.navbar-vertical .dropdown-menu .dropdown-item.active:hover {
+    background: var(--ua-gold) !important;
+    color: var(--ua-navy-deep) !important;
+    font-weight: 600;
+}
+
+.navbar-vertical .dropdown-header {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    padding-left: 1.5rem;
+    text-transform: uppercase;
+}
+
+/* Top bar */
+.ua-topbar {
+    background: #ffffff;
+    border-bottom: 1px solid var(--tblr-border-color);
+    min-height: 3.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 1020;
+}
+
+.ua-topbar-title {
+    color: var(--ua-navy-deep);
+    font-weight: 600;
+}
+
+.topbar-avatar {
+    align-items: center;
+    background: var(--ua-navy);
+    border-radius: 50%;
+    color: #ffffff;
+    display: inline-flex;
+    font-weight: 700;
+    height: 36px;
+    justify-content: center;
+    overflow: hidden;
+    width: 36px;
+}
+
+.topbar-avatar img {
+    height: 100%;
+    object-fit: cover;
+    width: 100%;
+}
+
+.topbar-user-btn {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    display: flex;
+    gap: 0.6rem;
+}
+
+.topbar-user-btn::after {
+    display: none;
+}
+
+.topbar-user-menu-head {
+    border-bottom: 1px solid var(--tblr-border-color);
+    padding: 0.6rem 1rem;
+}
+
+/* Page header */
+.page-header .page-title {
+    color: var(--ua-navy-deep);
+}
+
+/* Cards and tables */
+.card {
+    border-color: var(--tblr-border-color);
+    box-shadow: 0 1px 2px rgba(26, 29, 82, 0.05);
+}
+
+.table thead th {
+    background: #f6f7fb;
+    color: #4b5266;
+}
+
+.btn-primary {
+    --tblr-btn-bg: var(--ua-navy);
+    --tblr-btn-border-color: var(--ua-navy);
+    --tblr-btn-hover-bg: var(--ua-navy-deep);
+    --tblr-btn-hover-border-color: var(--ua-navy-deep);
+    --tblr-btn-active-bg: var(--ua-navy-deep);
+}
+
+.badge.bg-primary-lt {
+    color: var(--ua-navy);
+}
+
+/* Select2 aligned with Tabler form controls */
+.select2-container--default .select2-selection--single,
+.select2-container--default .select2-selection--multiple {
+    border-color: var(--tblr-border-color);
+    border-radius: var(--tblr-border-radius);
+    min-height: 2.25rem;
+}
+
+.select2-container--default .select2-selection--single {
+    align-items: center;
+    display: flex;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__arrow {
+    height: 100%;
+}
+
+.select2-container--default .select2-results__option--highlighted.select2-results__option--selectable {
+    background: var(--ua-navy);
+}
+
+.topbar-actions {
+    flex-shrink: 0;
+}
+
+.topbar-user-btn .text-end {
+    line-height: 1.15;
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ua-topbar .navbar-nav,
+.ua-topbar .topbar-user-btn {
+    min-width: 0;
+}
+
+@media (max-width: 1199.98px) {
+    .topbar-user-btn .text-end {
+        display: none;
+    }
+}
+
+.chat-widget-toggle {
+    background: var(--ua-navy);
+    box-shadow: 0 0.75rem 1.75rem rgba(26, 29, 82, 0.28);
+}
+
+.chat-widget-toggle:hover {
+    background: var(--ua-navy-deep);
+}
+
+/* Neutralise the legacy blue/pill master-data skin while keeping its layout rules */
+body.ua-skin.module-master-data {
+    background: var(--tblr-body-bg);
+}
+
+body.ua-skin.module-master-data .btn-primary {
+    background: var(--ua-navy);
+    border-color: var(--ua-navy);
+    border-radius: var(--tblr-border-radius);
+    box-shadow: none;
+}
+
+body.ua-skin.module-master-data .btn-primary:hover {
+    background: var(--ua-navy-deep);
+    border-color: var(--ua-navy-deep);
+}
+
+body.ua-skin.module-master-data .btn,
+body.ua-skin.module-master-data .btn-outline-primary,
+body.ua-skin.module-master-data .btn-outline-secondary,
+body.ua-skin.module-master-data .btn-outline-warning,
+body.ua-skin.module-master-data .btn-outline-danger,
+body.ua-skin.module-master-data .table-search-input,
+body.ua-skin.module-master-data .master-data-reset-btn,
+body.ua-skin.module-master-data .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 .form-control,
+body.ua-skin.module-master-data .card-body > .d-flex.flex-wrap.gap-2.align-items-center.mb-3 .form-select {
+    border-radius: var(--tblr-border-radius);
+}
+
+body.ua-skin.module-master-data .form-control,
+body.ua-skin.module-master-data .form-select,
+body.ua-skin.module-master-data textarea.form-control {
+    border-radius: var(--tblr-border-radius);
+    box-shadow: none;
+    min-height: 2.35rem;
+}
+
+body.ua-skin.module-master-data .form-control:focus,
+body.ua-skin.module-master-data .form-select:focus {
+    border-color: var(--ua-navy);
+    box-shadow: 0 0 0 0.2rem rgba(43, 47, 126, 0.15);
+}
+
+body.ua-skin.module-master-data .card,
+body.ua-skin.module-master-data .table-responsive {
+    border-radius: 0.6rem;
+    box-shadow: 0 1px 2px rgba(26, 29, 82, 0.05);
+}
+
+body.ua-skin.module-master-data .card-header {
+    background: #f6f7fb;
+}
+
+body.ua-skin.module-master-data .form-label {
+    letter-spacing: 0.02em;
+}
+
+/* Printing keeps the official document layout */
+@media print {
+    .navbar-vertical,
+    .ua-topbar,
+    .page-header,
+    .footer {
+        display: none !important;
+    }
+
+    .page-wrapper {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+}

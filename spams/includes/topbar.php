@@ -456,16 +456,12 @@ $notificationBadgeCount =
     $mustChangePasswordUserCount;
 $hasNotifications = $notificationBadgeCount > 0;
 ?>
-<header id="header" class="header fixed-top d-flex align-items-center">
-    <div class="d-flex align-items-center justify-content-between w-100">
+<div class="page-wrapper">
+<header id="header" class="navbar navbar-expand-md d-print-none ua-topbar">
+    <div class="container-fluid">
+        <div class="d-flex align-items-center justify-content-between w-100 gap-3">
         <div class="topbar-brand-group d-flex align-items-center gap-3">
-            <button class="btn btn-link text-decoration-none p-0 toggle-sidebar-btn" type="button" id="sidebarToggle" aria-label="Toggle sidebar">
-                <i class="bi bi-list fs-3"></i>
-            </button>
-            <a href="<?php echo base_url('dashboard/index.php'); ?>" class="logo d-flex align-items-center text-decoration-none">
-                <i class="bi bi-box-seam me-2"></i>
-                <span>SPAMS</span>
-            </a>
+            <span class="ua-topbar-title d-none d-md-inline"><?php echo h($pageTitle ?? 'Dashboard'); ?></span>
         </div>
 
         <div class="topbar-actions d-flex align-items-center gap-3">
@@ -729,16 +725,16 @@ $hasNotifications = $notificationBadgeCount > 0;
                 </div>
             </div>
         </div>
+        </div>
     </div>
 </header>
 
-<main id="main" class="main">
-    <div class="page-shell">
-        <div class="pagetitle d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <div class="page-heading">
-                <span class="page-heading-pill"><i class="bi bi-speedometer2 me-1"></i> Operational view</span>
-                <h1><?php echo h($pageTitle ?? 'Dashboard'); ?></h1>
-                <div class="page-heading-subtitle"><?php echo h($roleName); ?></div>
+<div class="page-header d-print-none">
+    <div class="container-fluid">
+        <div class="row g-2 align-items-center">
+            <div class="col">
+                <div class="page-pretitle"><?php echo h($roleName); ?></div>
+                <h2 class="page-title"><?php echo h($pageTitle ?? 'Dashboard'); ?></h2>
             </div>
         </div>
         <?php
@@ -747,11 +743,16 @@ $hasNotifications = $notificationBadgeCount > 0;
             $breadcrumbSection = h($activeMenuItem['groupLabel']);
             $breadcrumbPage = h($activeMenuItem['itemLabel']);
         ?>
-        <nav class="breadcrumb-shell" aria-label="breadcrumb">
-            <ol class="breadcrumb mb-0">
+        <nav class="mt-2" aria-label="breadcrumb">
+            <ol class="breadcrumb breadcrumb-arrows mb-0">
                 <li class="breadcrumb-item"><a href="<?php echo base_url('dashboard/index.php'); ?>">Dashboard</a></li>
                 <li class="breadcrumb-item"><span><?php echo $breadcrumbSection; ?></span></li>
                 <li class="breadcrumb-item active" aria-current="page"><?php echo $breadcrumbPage; ?></li>
             </ol>
         </nav>
         <?php endif; ?>
+    </div>
+</div>
+
+<main id="main" class="page-body mt-3">
+    <div class="container-fluid page-shell">
