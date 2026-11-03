@@ -473,6 +473,66 @@ body.ua-auth > .text-center.text-secondary {
     .asset-registry-table-frame {
         overflow-x: auto;
     }
+
+    /* Compact widths so every column, including Assignment, fits beside the sidebar */
+    .asset-registry-table-frame table {
+        font-size: 0.78rem;
+        width: 100%;
+    }
+
+    .asset-registry-table-frame th,
+    .asset-registry-table-frame td {
+        padding-left: 0.4rem;
+        padding-right: 0.4rem;
+        overflow-wrap: anywhere;
+    }
+
+    .asset-registry-table-frame .asset-col-primary {
+        min-width: 120px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-classification {
+        min-width: 170px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-item-details {
+        min-width: 105px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-amount {
+        min-width: 80px !important;
+        white-space: nowrap;
+    }
+
+    .asset-registry-table-frame .asset-col-primary,
+    .asset-registry-table-frame .asset-col-primary * {
+        white-space: normal;
+    }
+
+    .asset-registry-table-frame .asset-col-item-details,
+    .asset-registry-table-frame .asset-col-item-details *,
+    .asset-registry-table-frame .asset-col-reference,
+    .asset-registry-table-frame .asset-col-reference *,
+    .asset-registry-table-frame .asset-col-date {
+        white-space: normal;
+    }
+
+    .asset-registry-table-frame .asset-col-item-details {
+        overflow-wrap: break-word;
+        width: 120px;
+    }
+
+    .asset-registry-table-frame .asset-col-date {
+        min-width: 92px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-assignment {
+        min-width: 130px !important;
+    }
+
+    .asset-registry-table-frame .asset-col-reference {
+        min-width: 100px !important;
+    }
 }
 
 /* Printing keeps the official document layout */
