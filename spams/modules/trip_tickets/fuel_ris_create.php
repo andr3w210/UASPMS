@@ -894,12 +894,6 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <h5 class="card-title mb-1">Encode Fuel RIS Entry</h5>
                     <div class="text-muted small mb-3">Large input workspace for faster and cleaner data entry.</div>
 
-                    <div class="d-flex justify-content-end mb-3 pb-3 border-bottom">
-                        <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#fuel-ris-add-station-modal">
-                            <i class="bi bi-plus-circle me-1"></i> Add Gasoline Station
-                        </button>
-                    </div>
-
                     <form method="post" class="row g-3" id="fuel-ris-entry-form" data-submit-loading="1">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">

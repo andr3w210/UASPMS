@@ -56,7 +56,8 @@ chat history. For the full contributor and COA rules, also read
   entry is stored as an empty string; other required fields remain required.
   Odometer reading is not collected on manual entries; the database field is
   stored as NULL. Import behavior is separate and should not be changed unless
-  requested.
+  requested. The single Add Gasoline Station button is next to the saved-station
+  selector and opens the station modal.
 - Do not assume the previous security follow-ups (DB password rotation or
   administrative DB credentials) have been completed. Ask the user before
   relying on their status; do not include secret values in this file.
