@@ -407,10 +407,6 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'RIS date is required and must be a valid date.';
         }
 
-        if ($form['ris_no'] === '') {
-            $errors[] = 'RIS number is required.';
-        }
-
         if ($form['fuel_type'] === '') {
             $errors[] = 'Type is required.';
         }

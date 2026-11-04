@@ -407,10 +407,6 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'RIS date is required and must be a valid date.';
         }
 
-        if ($form['ris_no'] === '') {
-            $errors[] = 'RIS number is required.';
-        }
-
         if ($form['fuel_type'] === '') {
             $errors[] = 'Type is required.';
         }
@@ -922,7 +918,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">RIS No.</label>
-                            <input type="text" name="ris_no" id="ris_no" class="form-control" required value="<?php echo h($form['ris_no']); ?>" placeholder="RIS-2026-05-0001">
+                            <input type="text" name="ris_no" id="ris_no" class="form-control" value="<?php echo h($form['ris_no']); ?>" placeholder="Optional">
                         </div>
 
                         <div class="col-12">
@@ -1085,7 +1081,6 @@ document.addEventListener('DOMContentLoaded', function () {
         summaryPrefix: 'Please complete required fields: ',
         requiredFields: [
             { id: 'ris_date', label: 'RIS Date' },
-            { id: 'ris_no', label: 'RIS No.' },
             { id: 'fuel_type', label: 'Type' },
             { id: 'quantity', label: 'Quantity' }
         ]
