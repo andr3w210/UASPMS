@@ -573,3 +573,17 @@ body.ua-auth > .text-center.text-secondary {
 .po-list-table thead .po-col-actions {
     z-index: 6;
 }
+
+/* Keep the total amount visible beside the pinned Actions column */
+.po-list-table .po-col-amount {
+    position: sticky;
+    right: 110px;
+    z-index: 3;
+    min-width: 110px;
+    white-space: nowrap;
+    background: #fff;
+}
+
+.po-list-table thead .po-col-amount {
+    z-index: 5;
+}
