@@ -2018,8 +2018,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td><?php echo receiving_status_badge($receiving['status']); ?></td>
                                     <td class="text-end"><?php echo h(number_format((float) $receiving['total_received_amount'], 2)); ?></td>
                                     <td class="text-end">
+                                        <a href="<?php echo base_url('modules/receivings/view.php?id=' . (int) $receiving['id']); ?>" class="btn btn-sm btn-outline-primary me-1"><i class="bi bi-eye me-1"></i>View Items</a>
                                         <?php if (in_array($receiving['status'], ['completed', 'partial'], true)): ?>
-                                            <div class="dropdown">
+                                            <div class="dropdown d-inline-block">
                                                 <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i><span class="visually-hidden">Actions</span></button>
                                                 <ul class="dropdown-menu dropdown-menu-end">
                                                     <li><a href="<?php echo base_url('modules/receivings/iar.php?id=' . (int) $receiving['id']); ?>" class="dropdown-item" target="_blank"><i class="bi bi-printer me-2"></i>Print IAR</a></li>
