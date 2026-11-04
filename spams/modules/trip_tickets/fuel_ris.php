@@ -271,7 +271,6 @@ $form = [
     'purpose' => '',
     'driver_name' => '',
     'amount' => '',
-    'odometer_reading' => '',
     'remarks' => '',
 ];
 
@@ -365,7 +364,6 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
             'unit' => ['type' => 'string', 'max' => 20],
             'quantity' => ['type' => 'float', 'min' => 0],
             'amount' => ['type' => 'float', 'min' => 0],
-            'odometer_reading' => ['type' => 'float', 'min' => 0],
             'purpose' => ['type' => 'string', 'max' => 500],
             'remarks' => ['type' => 'string', 'max' => 1000],
         ],
@@ -399,7 +397,6 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $form['purpose'] = trim((string) ($_POST['purpose'] ?? ''));
         $form['driver_name'] = trim((string) ($_POST['driver_name'] ?? ''));
         $form['amount'] = trim((string) ($_POST['amount'] ?? ''));
-        $form['odometer_reading'] = trim((string) ($_POST['odometer_reading'] ?? ''));
         $form['remarks'] = trim((string) ($_POST['remarks'] ?? ''));
 
         $dateValue = fr_parse_date_value($form['ris_date']);
@@ -425,7 +422,7 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $quantity = fr_parse_decimal($form['quantity']);
         $amount = fr_parse_decimal($form['amount']);
-        $odometer = fr_parse_decimal($form['odometer_reading']);
+        $odometer = null;
 
         $quantity = $quantity ?? 0.0;
 
@@ -435,10 +432,6 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($amount !== null && $amount < 0) {
             $errors[] = 'Amount cannot be negative.';
         }
-        if ($odometer !== null && $odometer < 0) {
-            $errors[] = 'Odometer reading cannot be negative.';
-        }
-
         if (!$errors) {
             if (!$gasStation && $form['station_name'] !== '') {
                 $gasStationId = fr_find_or_create_gas_station($tripDb, $gasStationByName, $form['station_name'], (int) current_user_id());
