@@ -254,6 +254,7 @@ $vehicleById = [];
 $vehicleByPlate = [];
 $vehicleByName = [];
 $driverEmployees = [];
+$requesterEmployees = [];
 $gasStations = [];
 $gasStationById = [];
 $gasStationByName = [];
@@ -265,11 +266,14 @@ $form = [
     'gas_station_id' => '',
     'station_name' => '',
     'vehicle_id' => '',
+    'fuel_use' => 'vehicle',
+    'use_description' => '',
     'fuel_type' => 'Diesel',
     'quantity' => '',
     'unit' => 'Liter',
     'purpose' => '',
     'driver_name' => '',
+    'requested_by' => '',
     'amount' => '',
     'remarks' => '',
 ];
@@ -282,11 +286,11 @@ if (!$tripDb) {
     if (!$hasTable) {
         $errors[] = 'Fuel RIS table is missing. Run database/097_trip_fuel_ris_entries.sql first.';
     } else {
-        $requiredColumns = ['gas_station_id', 'quantity', 'unit', 'purpose', 'driver_name'];
+        $requiredColumns = ['gas_station_id', 'quantity', 'unit', 'purpose', 'driver_name', 'fuel_use', 'use_description', 'requested_by'];
         foreach ($requiredColumns as $requiredColumn) {
             $columnCheck = $tripDb->query("SHOW COLUMNS FROM trip_fuel_ris_entries LIKE '" . $tripDb->real_escape_string($requiredColumn) . "'");
             if (!$columnCheck || $columnCheck->num_rows === 0) {
-                $errors[] = 'Fuel RIS schema is outdated. Run database/098_trip_fuel_ris_excel_fields_and_gas_stations.sql.';
+                $errors[] = 'Fuel RIS schema is outdated. Run database/098_trip_fuel_ris_excel_fields_and_gas_stations.sql and database/124_trip_fuel_ris_use_and_requester.sql.';
                 break;
             }
         }
@@ -346,6 +350,15 @@ if ($mainDb) {
     if ($driverResult) {
         $driverEmployees = $driverResult->fetch_all(MYSQLI_ASSOC);
     }
+    $requesterResult = $mainDb->query(
+        "SELECT id, employee_no, first_name, middle_name, last_name, suffix_name
+         FROM employees
+         WHERE is_active = 1
+         ORDER BY last_name ASC, first_name ASC"
+    );
+    if ($requesterResult) {
+        $requesterEmployees = $requesterResult->fetch_all(MYSQLI_ASSOC);
+    }
 }
 
 if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -360,6 +373,9 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
             'station_name' => ['type' => 'string', 'max' => 150],
             'vehicle_id' => ['type' => 'int', 'min' => 0],
             'driver_name' => ['type' => 'string', 'max' => 150],
+            'fuel_use' => ['type' => 'enum', 'enum' => ['vehicle', 'powerplant', 'equipment', 'other']],
+            'use_description' => ['type' => 'string', 'max' => 150],
+            'requested_by' => ['type' => 'string', 'max' => 150],
             'fuel_type' => ['type' => 'string', 'max' => 50],
             'unit' => ['type' => 'string', 'max' => 20],
             'quantity' => ['type' => 'float', 'min' => 0],
@@ -396,8 +412,22 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $form['unit'] = trim((string) ($_POST['unit'] ?? 'Liter'));
         $form['purpose'] = trim((string) ($_POST['purpose'] ?? ''));
         $form['driver_name'] = trim((string) ($_POST['driver_name'] ?? ''));
+        $form['requested_by'] = trim((string) ($_POST['requested_by'] ?? ''));
+        $form['fuel_use'] = trim((string) ($_POST['fuel_use'] ?? 'vehicle'));
+        $form['use_description'] = trim((string) ($_POST['use_description'] ?? ''));
         $form['amount'] = trim((string) ($_POST['amount'] ?? ''));
         $form['remarks'] = trim((string) ($_POST['remarks'] ?? ''));
+
+        if ($form['fuel_use'] === 'vehicle') {
+            $form['use_description'] = '';
+        } else {
+            // Non-vehicle fuel has no vehicle or driver.
+            $form['vehicle_id'] = '';
+            $form['driver_name'] = '';
+            if ($form['use_description'] === '') {
+                $errors[] = 'Please enter what the fuel is for (e.g. Powerplant, Generator Set).';
+            }
+        }
 
         $dateValue = fr_parse_date_value($form['ris_date']);
         if (!$dateValue) {
@@ -450,9 +480,9 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $tripDb->prepare(
                 'INSERT INTO trip_fuel_ris_entries (
                     ris_date, ris_no, gas_station_id, station_name, vehicle_id, vehicle_plate_no, vehicle_name, fuel_type,
-                    quantity, unit, purpose, driver_name,
+                    quantity, unit, purpose, driver_name, fuel_use, use_description, requested_by,
                     liters_purchased, liters_consumed, amount, odometer_reading, remarks, source_tag, created_by
-                ) VALUES (?, ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                ) VALUES (?, ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
 
             if (!$stmt) {
@@ -460,7 +490,7 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $sourceTag = 'manual';
                 $stmt->bind_param(
-                    'ssisisssdsssddddssi',
+                    'ssisisssdssssssddddssi',
                     $dateValue,
                     $form['ris_no'],
                     $gasStationId,
@@ -473,6 +503,9 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     $unit,
                     $form['purpose'],
                     $form['driver_name'],
+                    $form['fuel_use'],
+                    $form['use_description'],
+                    $form['requested_by'],
                     $litersPurchased,
                     $litersConsumed,
                     $amount,
@@ -768,7 +801,7 @@ if ($tripDb && $hasTable) {
         e.gas_station_id, e.station_name,
         gs.station_name AS gas_station_name,
         e.vehicle_id, e.vehicle_plate_no, e.vehicle_name,
-        e.fuel_type, e.quantity, e.unit, e.purpose, e.driver_name,
+        e.fuel_type, e.quantity, e.unit, e.purpose, e.driver_name, e.fuel_use, e.use_description, e.requested_by,
         e.liters_purchased, e.liters_consumed, e.amount, e.odometer_reading, e.remarks, e.source_tag, e.created_at
      FROM trip_fuel_ris_entries e
      LEFT JOIN trip_gas_stations gs ON gs.id = e.gas_station_id
@@ -924,8 +957,17 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <input type="text" name="station_name" id="station_name" class="form-control" value="<?php echo h($form['station_name']); ?>" placeholder="Or type a new station name">
                         </div>
 
-                        <div class="col-12">
-                            <label class="form-label">Vehicle (optional)</label>
+                        <div class="col-md-4">
+                            <label class="form-label">Fuel is for</label>
+                            <select name="fuel_use" id="fuel_use" class="form-select" data-no-select2>
+                                <option value="vehicle" <?php echo $form['fuel_use'] === 'vehicle' ? 'selected' : ''; ?>>Vehicle</option>
+                                <option value="powerplant" <?php echo $form['fuel_use'] === 'powerplant' ? 'selected' : ''; ?>>Powerplant</option>
+                                <option value="equipment" <?php echo $form['fuel_use'] === 'equipment' ? 'selected' : ''; ?>>Other equipment / machinery</option>
+                                <option value="other" <?php echo $form['fuel_use'] === 'other' ? 'selected' : ''; ?>>Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-8 fuel-use-vehicle">
+                            <label class="form-label">Vehicle</label>
                             <select name="vehicle_id" id="vehicle_id" class="form-select">
                                 <option value="">Not linked to vehicle</option>
                                 <?php foreach ($vehicles as $vehicle): ?>
@@ -934,6 +976,10 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                        </div>
+                        <div class="col-md-8 fuel-use-other d-none">
+                            <label class="form-label">What is it for?</label>
+                            <input type="text" name="use_description" id="use_description" class="form-control" maxlength="150" value="<?php echo h($form['use_description']); ?>" placeholder="e.g. Powerplant, Generator Set, Lawn Mower">
                         </div>
 
                         <div class="col-md-4">
@@ -954,9 +1000,18 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <textarea name="purpose" id="purpose" class="form-control" rows="2" placeholder="Purpose from RIS"><?php echo h($form['purpose']); ?></textarea>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Driver</label>
+                            <label class="form-label">Requested by (Unit Head)</label>
+                            <input type="text" name="requested_by" id="requested_by" class="form-control" maxlength="150" list="fuel-ris-requesters" value="<?php echo h($form['requested_by']); ?>" placeholder="e.g. GSU Unit Head">
+                            <datalist id="fuel-ris-requesters">
+                                <?php foreach ($requesterEmployees as $requesterEmployee): ?>
+                                    <option value="<?php echo h(employee_display_name($requesterEmployee)); ?>"></option>
+                                <?php endforeach; ?>
+                            </datalist>
+                        </div>
+                        <div class="col-md-6 fuel-use-vehicle">
+                            <label class="form-label">Driver (optional)</label>
                             <select name="driver_name" id="driver_name" class="form-select">
-                                <option value="">Select driver</option>
+                                <option value="">No driver / not applicable</option>
                                 <?php foreach ($driverEmployees as $driverEmployee): ?>
                                     <?php $driverName = employee_display_name($driverEmployee); ?>
                                     <option value="<?php echo h($driverName); ?>" <?php echo $driverName === $form['driver_name'] ? 'selected' : ''; ?>>
@@ -1067,6 +1122,19 @@ document.addEventListener('DOMContentLoaded', function () {
             { id: 'quantity', label: 'Quantity' }
         ]
     });
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    var fuelUse = document.getElementById('fuel_use');
+    if (fuelUse) {
+        var syncFuelUse = function () {
+            var isVehicle = fuelUse.value === 'vehicle';
+            document.querySelectorAll('.fuel-use-vehicle').forEach(function (el) { el.classList.toggle('d-none', !isVehicle); });
+            document.querySelectorAll('.fuel-use-other').forEach(function (el) { el.classList.toggle('d-none', isVehicle); });
+        };
+        fuelUse.addEventListener('change', syncFuelUse);
+        syncFuelUse();
+    }
 });
 </script>
 

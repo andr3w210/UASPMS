@@ -768,7 +768,7 @@ if ($tripDb && $hasTable) {
         e.gas_station_id, e.station_name,
         gs.station_name AS gas_station_name,
         e.vehicle_id, e.vehicle_plate_no, e.vehicle_name,
-        e.fuel_type, e.quantity, e.unit, e.purpose, e.driver_name,
+        e.fuel_type, e.quantity, e.unit, e.purpose, e.driver_name, e.fuel_use, e.use_description, e.requested_by,
         e.liters_purchased, e.liters_consumed, e.amount, e.odometer_reading, e.remarks, e.source_tag, e.created_at
      FROM trip_fuel_ris_entries e
      LEFT JOIN trip_gas_stations gs ON gs.id = e.gas_station_id
@@ -1053,8 +1053,9 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <th class="text-end">Quantity</th>
                             <th>Unit</th>
                             <th>Purpose</th>
+                            <th>Requested By</th>
                             <th>Driver</th>
-                            <th>Vehicle</th>
+                            <th>Vehicle / Use</th>
                             <th>Gasoline Station</th>
                             <th class="text-end">Amount</th>
                             <th class="text-center">Source</th>
@@ -1064,7 +1065,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <tbody>
                         <?php if (!$entries): ?>
                             <tr>
-                                <td colspan="12" class="text-center text-muted py-5">No Fuel RIS entries found.</td>
+                                <td colspan="13" class="text-center text-muted py-5">No Fuel RIS entries found.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($entries as $entry): ?>
@@ -1075,10 +1076,16 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td class="text-end fw-semibold"><?php echo number_format((float) ($entry['quantity'] ?? 0), 2); ?></td>
                                     <td><?php echo h((string) ($entry['unit'] ?? '')); ?></td>
                                     <td class="text-wrap"><?php echo h((string) ($entry['purpose'] ?? '')); ?></td>
+                                    <td><?php echo h((string) ($entry['requested_by'] ?? '')); ?></td>
                                     <td><?php echo h((string) ($entry['driver_name'] ?? '')); ?></td>
                                     <td>
-                                        <div><?php echo h((string) ($entry['vehicle_plate_no'] ?? '')); ?></div>
-                                        <small class="text-muted"><?php echo h((string) ($entry['vehicle_name'] ?? '')); ?></small>
+                                        <?php if (($entry['fuel_use'] ?? 'vehicle') !== 'vehicle'): ?>
+                                            <div><?php echo h((string) ($entry['use_description'] ?? '')); ?></div>
+                                            <small class="text-muted"><?php echo h(ucfirst((string) $entry['fuel_use'])); ?></small>
+                                        <?php else: ?>
+                                            <div><?php echo h((string) ($entry['vehicle_plate_no'] ?? '')); ?></div>
+                                            <small class="text-muted"><?php echo h((string) ($entry['vehicle_name'] ?? '')); ?></small>
+                                        <?php endif; ?>
                                     </td>
                                     <td><?php echo h((string) (($entry['gas_station_name'] ?? '') !== '' ? $entry['gas_station_name'] : ($entry['station_name'] ?? ''))); ?></td>
                                     <td class="text-end"><?php echo number_format((float) ($entry['amount'] ?? 0), 2); ?></td>

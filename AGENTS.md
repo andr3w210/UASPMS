@@ -58,6 +58,13 @@ chat history. For the full contributor and COA rules, also read
   stored as NULL. Import behavior is separate and should not be changed unless
   requested. The single Add Gasoline Station button is next to the saved-station
   selector and opens the station modal.
+- Fuel RIS entries have a "Fuel is for" selector (`fuel_use`: vehicle,
+  powerplant, equipment, other). Non-vehicle uses store `use_description` and
+  clear vehicle/driver. `requested_by` (usually the unit head, e.g. GSU) is
+  separate from the optional driver. Schema: `database/124_trip_fuel_ris_use_and_requester.sql`
+  (apply to the trip DB). Imports still default to `fuel_use = 'vehicle'`.
+- Receiving records have a read-only detail page, `spams/modules/receivings/view.php`,
+  listing delivered/accepted/rejected items per receiving.
 - Do not assume the previous security follow-ups (DB password rotation or
   administrative DB credentials) have been completed. Ask the user before
   relying on their status; do not include secret values in this file.
