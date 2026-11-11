@@ -1,6 +1,7 @@
 ﻿<?php
 require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/employee_assignments.php';
+require_once __DIR__ . '/../../app/helpers/po_notifications.php';
 require_role('Administrator', 'Supply Officer', 'Property Officer');
 
 $distributionPage = $distributionPage ?? 'list';
@@ -1269,6 +1270,92 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $db->commit();
+                $recipientStmt = $db->prepare("SELECT office_name, email FROM offices WHERE id = ? LIMIT 1");
+                if ($recipientStmt) {
+                    $recipientStmt->bind_param('i', $officeId);
+                    $recipientStmt->execute();
+                    $recipientOffice = $recipientStmt->get_result()->fetch_assoc() ?: [];
+                    $recipientStmt->close();
+                    $recipientEmail = trim((string) ($recipientOffice['email'] ?? ''));
+                    if (filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
+                        $noticeItems = [];
+                        $noticeStmt = $db->prepare(
+                            "SELECT di.id, di.quantity_distributed, di.line_total,
+                                    poi.item_description, c.classification_name, u.abbreviation AS unit_abbreviation,
+                                    GROUP_CONCAT(DISTINCT NULLIF(did.property_number, '') ORDER BY did.property_number SEPARATOR ', ') AS property_numbers,
+                                    GROUP_CONCAT(DISTINCT NULLIF(did.brand, '') ORDER BY did.brand SEPARATOR ', ') AS brands,
+                                    GROUP_CONCAT(DISTINCT NULLIF(did.model, '') ORDER BY did.model SEPARATOR ', ') AS models,
+                                    GROUP_CONCAT(DISTINCT NULLIF(did.serial_no, '') ORDER BY did.serial_no SEPARATOR ', ') AS serial_numbers
+                             FROM distribution_items di
+                             INNER JOIN distribution_item_details did ON did.distribution_item_id = di.id
+                             LEFT JOIN receiving_item_details rid ON rid.id = did.receiving_item_detail_id
+                             LEFT JOIN receiving_items ri ON ri.id = rid.receiving_item_id
+                             LEFT JOIN purchase_order_items poi ON poi.id = ri.purchase_order_item_id
+                             LEFT JOIN classifications c ON c.id = poi.classification_id
+                             LEFT JOIN unit_of_measures u ON u.id = poi.unit_of_measure_id
+                             WHERE di.distribution_id = ? AND did.is_distributed = 1
+                             GROUP BY di.id, di.quantity_distributed, di.line_total, poi.item_description, c.classification_name, u.abbreviation
+                             ORDER BY poi.item_description, di.id"
+                        );
+                        if ($noticeStmt) {
+                            $noticeStmt->bind_param('i', $distributionId);
+                            $noticeStmt->execute();
+                            $noticeRows = $noticeStmt->get_result();
+                            while ($noticeRow = $noticeRows->fetch_assoc()) {
+                                $quantity = rtrim(rtrim(number_format((float) ($noticeRow['quantity_distributed'] ?? 0), 2, '.', ','), '0'), '.');
+                                $classificationDescription = trim((string) ($noticeRow['classification_name'] ?? ''));
+                                $itemDescription = trim((string) ($noticeRow['item_description'] ?? ''));
+                                if ($itemDescription === '') $itemDescription = 'Distributed item';
+                                $classificationDescription = $classificationDescription !== ''
+                                    ? $classificationDescription . ' — ' . $itemDescription
+                                    : $itemDescription;
+                                $noticeItems[] = '<tr>'
+                                    . '<td style="border:1px solid #d1d5db;padding:8px;text-align:right">' . h($quantity) . '</td>'
+                                    . '<td style="border:1px solid #d1d5db;padding:8px">' . h((string) ($noticeRow['unit_abbreviation'] ?? '—') ?: '—') . '</td>'
+                                    . '<td style="border:1px solid #d1d5db;padding:8px">' . h($classificationDescription) . '</td>'
+                                    . '<td style="border:1px solid #d1d5db;padding:8px;text-align:right">₱' . number_format((float) ($noticeRow['line_total'] ?? 0), 2) . '</td>'
+                                    . '<td style="border:1px solid #d1d5db;padding:8px">' . h((string) ($noticeRow['brands'] ?? '') ?: '—') . '</td>'
+                                    . '<td style="border:1px solid #d1d5db;padding:8px">' . h((string) ($noticeRow['models'] ?? '') ?: '—') . '</td>'
+                                    . '<td style="border:1px solid #d1d5db;padding:8px">' . h((string) ($noticeRow['serial_numbers'] ?? '') ?: '—') . '</td>'
+                                    . '<td style="border:1px solid #d1d5db;padding:8px">' . h((string) ($noticeRow['property_numbers'] ?? '') ?: '—') . '</td>'
+                                    . '</tr>';
+                            }
+                            $noticeStmt->close();
+                        }
+                        $documentLabel = strtoupper((string) $form['document_type']) . ' ' . $documentNo;
+                        $documentTitle = 'Property Distribution Notice';
+                        $noticeBody = '<div style="max-width:1000px;margin:0 auto;font-family:Arial,sans-serif;color:#111;font-size:14px">'
+                            . '<div style="text-align:center;font-family:Georgia,serif;font-size:17px;font-weight:bold">' . h(APP_NAME) . '</div>'
+                            . '<div style="border-bottom:2px solid #111;margin:8px 0 14px"></div>'
+                            . '<div style="text-align:center;font-family:Georgia,serif;font-size:19px;font-weight:bold;text-transform:uppercase;margin-bottom:4px">' . h($documentTitle) . '</div>'
+                            . '<div style="text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin-bottom:15px">ITEMS PENDING PICKUP</div>'
+                            . '<table style="border-collapse:collapse;width:100%;margin-bottom:14px"><tbody>'
+                            . '<tr><td style="padding:5px 8px;width:18%"><strong>Entity Name:</strong></td><td style="padding:5px 8px;width:42%">' . h(APP_NAME) . '</td><td style="padding:5px 8px;width:18%"><strong>' . h(strtoupper((string) $form['document_type'])) . ' No.:</strong></td><td style="padding:5px 8px;width:22%">' . h($documentNo) . '</td></tr>'
+                            . '<tr><td style="padding:5px 8px"><strong>Office:</strong></td><td style="padding:5px 8px">' . h((string) ($recipientOffice['office_name'] ?? '')) . '</td><td style="padding:5px 8px"><strong>Distribution Date:</strong></td><td style="padding:5px 8px">' . h((string) $form['distribution_date']) . '</td></tr>'
+                            . '</tbody></table>'
+                            . '<div style="border:1px solid #555;padding:10px 12px;margin:10px 0 14px"><strong>Collection notice:</strong> The items listed below are ready for pickup at the Supply Office. This email is a notification only and does not confirm receipt.</div>'
+                            . ($noticeItems
+                                ? '<table style="border-collapse:collapse;width:100%;font-family:Georgia,serif;font-size:12px"><thead><tr>'
+                                    . '<th style="border:1px solid #d1d5db;padding:8px;text-align:right;background:#f3f4f6">Quantity</th>'
+                                    . '<th style="border:1px solid #d1d5db;padding:8px;text-align:left;background:#f3f4f6">Unit</th>'
+                                    . '<th style="border:1px solid #d1d5db;padding:8px;text-align:left;background:#f3f4f6">Item classification + description</th>'
+                                    . '<th style="border:1px solid #d1d5db;padding:8px;text-align:right;background:#f3f4f6">Amount</th>'
+                                    . '<th style="border:1px solid #d1d5db;padding:8px;text-align:left;background:#f3f4f6">Brand</th>'
+                                    . '<th style="border:1px solid #d1d5db;padding:8px;text-align:left;background:#f3f4f6">Model</th>'
+                                    . '<th style="border:1px solid #d1d5db;padding:8px;text-align:left;background:#f3f4f6">Serial number</th>'
+                                    . '<th style="border:1px solid #d1d5db;padding:8px;text-align:left;background:#f3f4f6">Property number</th>'
+                                    . '</tr></thead><tbody>' . implode('', $noticeItems)
+                                    . '<tr><td colspan="3" style="border:1px solid #111;padding:8px;text-align:right;font-weight:bold">Total Amount</td>'
+                                    . '<td style="border:1px solid #111;padding:8px;text-align:right;font-weight:bold">₱' . number_format((float) $totalAmount, 2) . '</td>'
+                                    . '<td colspan="4" style="border:1px solid #111;padding:8px"></td></tr></tbody></table>'
+                                : '<p>Please refer to the issued ' . h(strtoupper((string) $form['document_type'])) . ' document for item details.</p>')
+                            . '<p style="margin-top:16px;font-size:12px;color:#444">Please coordinate pickup with the Supply Office. The corresponding signed issuance document documents acknowledgment of receipt.</p>'
+                            . '</div>';
+                        if (!po_notification_send($recipientEmail, '[UASPMS] Items pending pickup: ' . $documentLabel, $noticeBody)) {
+                            error_log('UASPMS distribution notification could not be sent for distribution ' . $distributionId . '.');
+                        }
+                    }
+                }
                 set_flash('success', strtoupper($form['document_type']) . ' distribution posted successfully.');
                 redirect('modules/distributions/index.php?document_type=' . urlencode($form['document_type']));
             } catch (Throwable $e) {

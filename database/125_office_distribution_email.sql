@@ -1,0 +1,2 @@
+ALTER TABLE `offices`
+    ADD COLUMN IF NOT EXISTS `email` VARCHAR(150) DEFAULT NULL AFTER `office_name`;

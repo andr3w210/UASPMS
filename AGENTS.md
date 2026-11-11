@@ -77,3 +77,13 @@ chat history. For the full contributor and COA rules, also read
 - For database-backed changes, use throwaway records and clean them up. Avoid
   destructive tests against real operational records.
 - Never report a test as passing unless it was actually run.
+
+## Distribution email notifications
+
+- Office distribution notices use the optional `offices.email` field added by
+  `database/125_office_distribution_email.sql`, editable in the Offices form.
+- After posting a distribution, send the destination office a pending-pickup
+  email when its address is valid. Use the shared Property Distribution Notice
+  layout for PAR and ICS, show the selected document number, item details, and
+  item identity fields when available. A blank or invalid office email skips
+  the notification; the notice does not confirm receipt.

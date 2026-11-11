@@ -9,11 +9,11 @@ $errors = [];
 $recordId = (int) ($_GET['id'] ?? $_POST['id'] ?? 0);
 $isEdit = $recordId > 0;
 $page_title = $isEdit ? 'Edit Office' : 'Add Office';
-$snapshotFields = ['office_code', 'office_name', 'office_head_employee_id', 'description', 'is_active'];
+$snapshotFields = ['office_code', 'office_name', 'office_head_employee_id', 'description', 'email', 'is_active'];
 
-$form = ['office_code' => '', 'office_name' => '', 'description' => '', 'is_active' => 1];
+$form = ['office_code' => '', 'office_name' => '', 'description' => '', 'email' => '', 'is_active' => 1];
 if ($isEdit) {
-    $stmt = $db->prepare("SELECT office_code, office_name, description, is_active FROM offices WHERE id = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT office_code, office_name, description, email, is_active FROM offices WHERE id = ? LIMIT 1");
     $stmt->bind_param('i', $recordId);
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
@@ -31,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'id' => ['type' => 'int', 'min' => 0],
             'office_code' => ['type' => 'string', 'max' => 50, 'required' => true],
             'office_name' => ['type' => 'string', 'max' => 255, 'required' => true],
+            'email' => ['type' => 'string', 'max' => 150],
             'description' => ['type' => 'string', 'max' => 1000],
             'is_active' => ['type' => 'bool'],
         ],
@@ -40,6 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $form['office_code'] = strtoupper(trim((string) ($_POST['office_code'] ?? '')));
         $form['office_name'] = trim((string) ($_POST['office_name'] ?? ''));
+        $form['email'] = strtolower(trim((string) ($_POST['email'] ?? '')));
         $form['description'] = trim((string) ($_POST['description'] ?? ''));
         $form['is_active'] = isset($_POST['is_active']) ? 1 : 0;
         if ($form['office_code'] === '') {
@@ -47,6 +49,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if ($form['office_name'] === '') {
             $errors[] = 'Office name is required.';
+        }
+        if ($form['email'] !== '' && !filter_var($form['email'], FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'Enter a valid office email address or leave it blank.';
         }
         $stmt = $db->prepare("SELECT id FROM offices WHERE (office_code = ? OR office_name = ?) AND id != ? LIMIT 1");
         $stmt->bind_param('ssi', $form['office_code'], $form['office_name'], $recordId);
@@ -61,15 +66,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $isActive = (int) $form['is_active'];
             if ($isEdit) {
                 $before = audit_fetch_row_snapshot($db, 'offices', $recordId, $snapshotFields);
-                $stmt = $db->prepare("UPDATE offices SET office_code = ?, office_name = ?, department_id = NULL, description = ?, is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->bind_param('sssiii', $form['office_code'], $form['office_name'], $form['description'], $isActive, $userId, $recordId);
+                $stmt = $db->prepare("UPDATE offices SET office_code = ?, office_name = ?, department_id = NULL, description = ?, email = NULLIF(?, ''), is_active = ?, updated_by = ?, updated_at = NOW() WHERE id = ?");
+                $stmt->bind_param('ssssiii', $form['office_code'], $form['office_name'], $form['description'], $form['email'], $isActive, $userId, $recordId);
                 $ok = $stmt->execute();
                 $stmt->close();
                 $savedId = $recordId;
             } else {
                 $before = null;
-                $stmt = $db->prepare("INSERT INTO offices (office_code, office_name, department_id, office_head_employee_id, description, is_active, created_by) VALUES (?, ?, NULL, NULL, ?, ?, ?)");
-                $stmt->bind_param('sssii', $form['office_code'], $form['office_name'], $form['description'], $isActive, $userId);
+                $stmt = $db->prepare("INSERT INTO offices (office_code, office_name, department_id, office_head_employee_id, description, email, is_active, created_by) VALUES (?, ?, NULL, NULL, ?, NULLIF(?, ''), ?, ?)");
+                $stmt->bind_param('ssssii', $form['office_code'], $form['office_name'], $form['description'], $form['email'], $isActive, $userId);
                 $ok = $stmt->execute();
                 $savedId = (int) $stmt->insert_id;
                 $stmt->close();
@@ -87,6 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'new_values' => [
                         'office_code' => $form['office_code'],
                         'office_name' => $form['office_name'],
+                        'email' => $form['email'],
                         'description' => $form['description'],
                         'is_active' => $isActive,
                     ],
@@ -131,6 +137,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <div class="col-md-8">
                         <label class="form-label">Office name <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="office_name" value="<?php echo h($form['office_name']); ?>" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Office email</label>
+                        <input type="email" class="form-control" name="email" maxlength="150" value="<?php echo h($form['email']); ?>" placeholder="office@antiquespride.edu.ph">
+                        <div class="form-text">Distribution notices are sent to this address when it is set.</div>
                     </div>
                     <div class="col-12">
                         <label class="form-label">Description</label>
