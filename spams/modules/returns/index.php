@@ -538,7 +538,16 @@ if (!$db) {
                     WHERE id = ? AND is_active = 1
                     LIMIT 1
                 ");
-                $dupStmt = $db->prepare("SELECT id FROM returns WHERE source_type = 'legacy' AND legacy_asset_id = ? AND status = 'posted' LIMIT 1");
+                $dupStmt = $db->prepare("SELECT rt.id FROM returns rt
+                    WHERE rt.source_type = 'legacy' AND rt.legacy_asset_id = ? AND rt.status = 'posted'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM asset_transfers at
+                          WHERE at.source_type = 'legacy'
+                            AND at.legacy_asset_id = rt.legacy_asset_id
+                            AND at.status = 'posted'
+                            AND at.created_at > rt.created_at
+                      )
+                    LIMIT 1");
 
                 foreach ($legacyAssetIds as $selectedLegacyAssetId) {
                     $asset = null;
@@ -590,7 +599,16 @@ if (!$db) {
                     WHERE did.id = ?
                     LIMIT 1
                 ");
-                $dupStmt = $db->prepare("SELECT id FROM returns WHERE source_type = 'system' AND distribution_item_detail_id = ? AND status = 'posted' LIMIT 1");
+                $dupStmt = $db->prepare("SELECT rt.id FROM returns rt
+                    WHERE rt.source_type = 'system' AND rt.distribution_item_detail_id = ? AND rt.status = 'posted'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM asset_transfers at
+                          WHERE at.source_type = 'system'
+                            AND at.distribution_item_detail_id = rt.distribution_item_detail_id
+                            AND at.status = 'posted'
+                            AND at.created_at > rt.created_at
+                      )
+                    LIMIT 1");
 
                 foreach ($detailIds as $selectedDetailId) {
                     $asset = null;
@@ -799,10 +817,21 @@ if (!$db) {
         LEFT JOIN employees base_e ON base_e.id = d.employee_id
         LEFT JOIN offices o ON o.id = COALESCE(did.current_office_id, d.office_id)
         LEFT JOIN employees e ON e.id = COALESCE(did.current_employee_id, d.employee_id)
-        LEFT JOIN returns rt ON rt.distribution_item_detail_id = did.id AND rt.status = 'posted'
         WHERE did.is_distributed = 1
           AND (did.is_disposed IS NULL OR did.is_disposed = 0)
-          AND rt.id IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM returns rt
+              WHERE rt.source_type = 'system'
+                AND rt.distribution_item_detail_id = did.id
+                AND rt.status = 'posted'
+                AND NOT EXISTS (
+                    SELECT 1 FROM asset_transfers at
+                    WHERE at.source_type = 'system'
+                      AND at.distribution_item_detail_id = did.id
+                      AND at.status = 'posted'
+                      AND at.created_at > rt.created_at
+                )
+          )
                     AND COALESCE(poi.item_type, si.item_type) IN ('semi_expendable', 'equipment')
     ";
     $types = '';
@@ -917,10 +946,6 @@ if (!$db) {
                 e.last_name,
                 e.suffix_name
             FROM legacy_assets la
-            LEFT JOIN returns rt
-              ON rt.source_type = 'legacy'
-             AND rt.legacy_asset_id = la.id
-             AND rt.status = 'posted'
             LEFT JOIN classifications c ON c.id = la.classification_id
             LEFT JOIN offices o ON o.id = la.office_id
             LEFT JOIN employees e
@@ -937,7 +962,19 @@ if (!$db) {
              )
             WHERE la.is_active = 1
               AND la.item_type IN ('equipment', 'semi_expendable')
-              AND rt.id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM returns rt
+                  WHERE rt.source_type = 'legacy'
+                    AND rt.legacy_asset_id = la.id
+                    AND rt.status = 'posted'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM asset_transfers at
+                        WHERE at.source_type = 'legacy'
+                          AND at.legacy_asset_id = la.id
+                          AND at.status = 'posted'
+                          AND at.created_at > rt.created_at
+                    )
+              )
         ";
         $legacyTypes = '';
         $legacyParams = [];
@@ -994,10 +1031,6 @@ if (!$db) {
                 e.last_name,
                 e.suffix_name
             FROM legacy_assets la
-            LEFT JOIN returns rt
-              ON rt.source_type = 'legacy'
-             AND rt.legacy_asset_id = la.id
-             AND rt.status = 'posted'
             LEFT JOIN classifications c ON c.id = la.classification_id
             LEFT JOIN offices o ON o.id = la.office_id
             LEFT JOIN employees e
@@ -1014,7 +1047,19 @@ if (!$db) {
              )
             WHERE la.is_active = 1
               AND la.item_type IN ('equipment', 'semi_expendable')
-              AND rt.id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM returns rt
+                  WHERE rt.source_type = 'legacy'
+                    AND rt.legacy_asset_id = la.id
+                    AND rt.status = 'posted'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM asset_transfers at
+                        WHERE at.source_type = 'legacy'
+                          AND at.legacy_asset_id = la.id
+                          AND at.status = 'posted'
+                          AND at.created_at > rt.created_at
+                    )
+              )
               AND (
                   la.property_number = ?
                   OR la.serial_no = ?

@@ -3,6 +3,10 @@ require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 require_role('Administrator', 'Transport Officer');
+$isFuelRisAdmin = current_user_role() === 'Administrator';
+if (isset($_GET['edit']) && !$isFuelRisAdmin) {
+    require_role('Administrator');
+}
 
 if (isset($_GET['download_template'])) {
     $templatePath = dirname(__DIR__, 3) . '/database/templates/fuel_ris_import_template.csv';
@@ -259,6 +263,7 @@ $gasStations = [];
 $gasStationById = [];
 $gasStationByName = [];
 $hasTable = false;
+$editingEntryId = 0;
 
 $form = [
     'ris_date' => date('Y-m-d'),
@@ -361,8 +366,47 @@ if ($mainDb) {
     }
 }
 
+if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] !== 'POST' && isset($_GET['edit'])) {
+    $editingEntryId = filter_var($_GET['edit'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0;
+    if ($editingEntryId > 0) {
+        $editStmt = $tripDb->prepare(
+            'SELECT id, ris_date, ris_no, gas_station_id, station_name, vehicle_id, fuel_type, quantity, unit,
+                    purpose, driver_name, fuel_use, use_description, requested_by, amount, remarks
+             FROM trip_fuel_ris_entries WHERE id = ? LIMIT 1'
+        );
+        if ($editStmt) {
+            $editStmt->bind_param('i', $editingEntryId);
+            $editStmt->execute();
+            $editEntry = $editStmt->get_result()->fetch_assoc() ?: null;
+            $editStmt->close();
+            if ($editEntry) {
+                foreach ($form as $field => $defaultValue) {
+                    if (array_key_exists($field, $editEntry) && $editEntry[$field] !== null) {
+                        $form[$field] = (string) $editEntry[$field];
+                    }
+                }
+                if ($form['station_name'] === '' && (int) $form['gas_station_id'] > 0) {
+                    $form['station_name'] = (string) ($gasStationById[(int) $form['gas_station_id']]['station_name'] ?? '');
+                }
+            } else {
+                $errors[] = 'Fuel RIS entry was not found.';
+                $editingEntryId = 0;
+            }
+        } else {
+            $errors[] = 'Unable to load Fuel RIS entry for editing.';
+            $editingEntryId = 0;
+        }
+    } else {
+        $errors[] = 'Invalid Fuel RIS entry selected.';
+    }
+}
+
 if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? 'save');
+    $postedEntryId = filter_var($_POST['id'] ?? 0, FILTER_VALIDATE_INT) ?: 0;
+    if (($action === 'delete' || ($action === 'save' && $postedEntryId > 0)) && !$isFuelRisAdmin) {
+        require_role('Administrator');
+    }
     request_schema_enforce([
         'add_station' => ['station_name_new' => ['type' => 'string', 'max' => 150]],
         'save' => [
@@ -402,6 +446,7 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif ($action === 'save') {
+        $editingEntryId = (int) ($_POST['id'] ?? 0);
         $form['ris_date'] = trim((string) ($_POST['ris_date'] ?? ''));
         $form['ris_no'] = trim((string) ($_POST['ris_no'] ?? ''));
         $form['gas_station_id'] = trim((string) ($_POST['gas_station_id'] ?? ''));
@@ -477,45 +522,60 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $stationName = $gasStation ? (string) ($gasStation['station_name'] ?? $form['station_name']) : $form['station_name'];
             $userId = current_user_id();
 
-            $stmt = $tripDb->prepare(
+            if ($editingEntryId > 0) {
+                $existsStmt = $tripDb->prepare('SELECT id FROM trip_fuel_ris_entries WHERE id = ? LIMIT 1');
+                if (!$existsStmt) {
+                    $errors[] = 'Unable to verify the Fuel RIS entry selected for editing.';
+                } else {
+                    $existsStmt->bind_param('i', $editingEntryId);
+                    $existsStmt->execute();
+                    $entryExists = (bool) $existsStmt->get_result()->fetch_assoc();
+                    $existsStmt->close();
+                    if (!$entryExists) {
+                        $errors[] = 'Fuel RIS entry was not found.';
+                    }
+                }
+            }
+
+            $stmt = !$errors && $editingEntryId > 0
+                ? $tripDb->prepare(
+                    'UPDATE trip_fuel_ris_entries SET
+                        ris_date = ?, ris_no = ?, gas_station_id = NULLIF(?, 0), station_name = ?, vehicle_id = NULLIF(?, 0),
+                        vehicle_plate_no = ?, vehicle_name = ?, fuel_type = ?, quantity = ?, unit = ?, purpose = ?, driver_name = ?,
+                        fuel_use = ?, use_description = ?, requested_by = ?, liters_consumed = IF(liters_purchased > 0, liters_consumed, ?),
+                        amount = ?, remarks = ?
+                     WHERE id = ? LIMIT 1'
+                )
+                : (!$errors ? $tripDb->prepare(
                 'INSERT INTO trip_fuel_ris_entries (
                     ris_date, ris_no, gas_station_id, station_name, vehicle_id, vehicle_plate_no, vehicle_name, fuel_type,
                     quantity, unit, purpose, driver_name, fuel_use, use_description, requested_by,
                     liters_purchased, liters_consumed, amount, odometer_reading, remarks, source_tag, created_by
                 ) VALUES (?, ?, NULLIF(?, 0), ?, NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-            );
+            ) : null);
 
-            if (!$stmt) {
+            if (!$stmt && !$errors) {
                 $errors[] = 'Unable to prepare Fuel RIS insert statement.';
-            } else {
-                $sourceTag = 'manual';
-                $stmt->bind_param(
-                    'ssisisssdssssssddddssi',
-                    $dateValue,
-                    $form['ris_no'],
-                    $gasStationId,
-                    $stationName,
-                    $vehicleId,
-                    $vehiclePlate,
-                    $vehicleName,
-                    $fuelType,
-                    $quantity,
-                    $unit,
-                    $form['purpose'],
-                    $form['driver_name'],
-                    $form['fuel_use'],
-                    $form['use_description'],
-                    $form['requested_by'],
-                    $litersPurchased,
-                    $litersConsumed,
-                    $amount,
-                    $odometer,
-                    $form['remarks'],
-                    $sourceTag,
-                    $userId
-                );
+            } elseif ($stmt) {
+                if ($editingEntryId > 0) {
+                    $stmt->bind_param(
+                        'ssisisssdssssssddsi',
+                        $dateValue, $form['ris_no'], $gasStationId, $stationName, $vehicleId, $vehiclePlate, $vehicleName,
+                        $fuelType, $quantity, $unit, $form['purpose'], $form['driver_name'], $form['fuel_use'],
+                        $form['use_description'], $form['requested_by'], $litersConsumed, $amount, $form['remarks'], $editingEntryId
+                    );
+                } else {
+                    $sourceTag = 'manual';
+                    $stmt->bind_param(
+                        'ssisisssdssssssddddssi',
+                        $dateValue, $form['ris_no'], $gasStationId, $stationName, $vehicleId, $vehiclePlate, $vehicleName,
+                        $fuelType, $quantity, $unit, $form['purpose'], $form['driver_name'], $form['fuel_use'],
+                        $form['use_description'], $form['requested_by'], $litersPurchased, $litersConsumed, $amount,
+                        $odometer, $form['remarks'], $sourceTag, $userId
+                    );
+                }
                 $saved = $stmt->execute();
-                $newId = (int) $stmt->insert_id;
+                $newId = $editingEntryId > 0 ? $editingEntryId : (int) $stmt->insert_id;
                 $stmt->close();
 
                 if (!$saved) {
@@ -523,13 +583,13 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     if ($mainDb) {
                         write_audit_log($mainDb, [
-                            'action' => 'insert',
+                            'action' => $editingEntryId > 0 ? 'update' : 'insert',
                             'table_name' => 'trip_fuel_ris_entries',
                             'record_id' => $newId,
                             'module_name' => 'trip_tickets',
                             'record_type' => 'fuel_ris',
-                            'action_name' => 'create_fuel_ris_entry',
-                            'description' => 'Created Fuel RIS entry.',
+                            'action_name' => $editingEntryId > 0 ? 'update_fuel_ris_entry' : 'create_fuel_ris_entry',
+                            'description' => $editingEntryId > 0 ? 'Updated Fuel RIS entry.' : 'Created Fuel RIS entry.',
                             'new_values' => [
                                 'ris_no' => $form['ris_no'],
                                 'ris_date' => $dateValue,
@@ -543,7 +603,7 @@ if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
                         ]);
                     }
 
-                    set_flash('success', 'Fuel RIS entry saved successfully.');
+                    set_flash('success', $editingEntryId > 0 ? 'Fuel RIS entry updated successfully.' : 'Fuel RIS entry saved successfully.');
                     redirect('modules/trip_tickets/fuel_ris.php');
                 }
             }
@@ -924,12 +984,13 @@ require_once __DIR__ . '/../../includes/topbar.php';
         <div class="col-xl-8">
             <div class="card border-0 shadow-sm">
                 <div class="card-body">
-                    <h5 class="card-title mb-1">Encode Fuel RIS Entry</h5>
+                    <h5 class="card-title mb-1"><?php echo $editingEntryId > 0 ? 'Edit Fuel RIS Entry' : 'Encode Fuel RIS Entry'; ?></h5>
                     <div class="text-muted small mb-3">Large input workspace for faster and cleaner data entry.</div>
 
                     <form method="post" class="row g-3" id="fuel-ris-entry-form" data-submit-loading="1">
                         <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
                         <input type="hidden" name="action" value="save">
+                        <input type="hidden" name="id" value="<?php echo (int) $editingEntryId; ?>">
                         <div id="fuelRisFormSummary" class="alert alert-danger d-none mb-0" role="alert" aria-live="polite"></div>
 
                         <div class="col-md-6">
@@ -1035,8 +1096,11 @@ require_once __DIR__ . '/../../includes/topbar.php';
 
                         <div class="col-12 d-grid d-md-flex justify-content-md-end">
                             <button type="submit" class="btn btn-primary px-4">
-                                <i class="bi bi-save me-1"></i> Save Entry
+                                <i class="bi bi-save me-1"></i> <?php echo $editingEntryId > 0 ? 'Update Entry' : 'Save Entry'; ?>
                             </button>
+                            <?php if ($editingEntryId > 0): ?>
+                                <a href="<?php echo base_url('modules/trip_tickets/fuel_ris.php'); ?>" class="btn btn-outline-secondary ms-2">Cancel</a>
+                            <?php endif; ?>
                         </div>
                     </form>
                 </div>

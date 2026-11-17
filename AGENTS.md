@@ -63,6 +63,9 @@ chat history. For the full contributor and COA rules, also read
   clear vehicle/driver. `requested_by` (usually the unit head, e.g. GSU) is
   separate from the optional driver. Schema: `database/124_trip_fuel_ris_use_and_requester.sql`
   (apply to the trip DB). Imports still default to `fuel_use = 'vehicle'`.
+- Fuel RIS list access is available to Administrators and Transport Officers,
+  but editing and deleting encoded Fuel RIS entries are Administrator-only.
+  Enforce that restriction both in the rendered controls and server handlers.
 - Receiving records have a read-only detail page, `spams/modules/receivings/view.php`,
   listing delivered/accepted/rejected items per receiving.
 - Do not assume the previous security follow-ups (DB password rotation or

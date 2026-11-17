@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../app/config/init.php';
 require_once __DIR__ . '/../../app/helpers/audit.php';
 require_login();
 require_role('Administrator', 'Transport Officer');
+$isFuelRisAdmin = current_user_role() === 'Administrator';
 
 if (isset($_GET['download_template'])) {
     $templatePath = dirname(__DIR__, 3) . '/database/templates/fuel_ris_import_template.csv';
@@ -350,6 +351,10 @@ if ($mainDb) {
 
 if ($tripDb && $hasTable && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? 'save');
+    $postedEntryId = filter_var($_POST['id'] ?? 0, FILTER_VALIDATE_INT) ?: 0;
+    if (($action === 'delete' || ($action === 'save' && $postedEntryId > 0)) && !$isFuelRisAdmin) {
+        require_role('Administrator');
+    }
     request_schema_enforce([
         'add_station' => ['station_name_new' => ['type' => 'string', 'max' => 150]],
         'save' => [
@@ -1095,12 +1100,19 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         </span>
                                     </td>
                                     <td class="text-end">
-                                        <form method="post" class="d-inline" onsubmit="return confirm('Delete this Fuel RIS entry?');">
-                                            <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="id" value="<?php echo (int) $entry['id']; ?>">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                                        </form>
+                                        <?php if ($isFuelRisAdmin): ?>
+                                            <a href="<?php echo base_url('modules/trip_tickets/fuel_ris_create.php?edit=' . (int) $entry['id']); ?>" class="btn btn-sm btn-outline-primary me-1">
+                                                <i class="bi bi-pencil-square me-1"></i>Edit
+                                            </a>
+                                            <form method="post" class="d-inline" onsubmit="return confirm('Delete this Fuel RIS entry?');">
+                                                <input type="hidden" name="_csrf" value="<?php echo h(csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="delete">
+                                                <input type="hidden" name="id" value="<?php echo (int) $entry['id']; ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                            </form>
+                                        <?php else: ?>
+                                            <span class="text-muted small">View only</span>
+                                        <?php endif; ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
