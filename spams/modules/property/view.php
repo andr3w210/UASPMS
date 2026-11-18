@@ -2439,7 +2439,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         <?php $assetKey = $source . ':' . (int) $id; ?>
                         <a href="<?php echo base_url('modules/property/index.php'); ?>" class="btn btn-outline-secondary btn-sm">Back to Registry</a>
                         <div class="dropdown">
-                            <button class="btn btn-dark btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <button class="btn btn-dark btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-strategy="fixed" aria-expanded="false">
                                 Actions
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end">

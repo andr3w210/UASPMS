@@ -300,7 +300,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                             <td><span class="badge bg-<?php echo (int) $vehicle['is_active'] === 1 ? 'success' : 'secondary'; ?>"><?php echo (int) $vehicle['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span></td>
                                             <td class="text-end">
                                                 <div class="dropdown">
-                                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Actions</button>
+                                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-strategy="fixed" aria-expanded="false">Actions</button>
                                                     <ul class="dropdown-menu dropdown-menu-end">
                                                         <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/vehicles.php?edit=' . (int) $vehicle['id']); ?>"><i class="bi bi-pencil-square me-2"></i>Edit</a></li>
                                                         <li>

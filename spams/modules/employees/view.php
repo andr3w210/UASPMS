@@ -222,7 +222,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <a href="<?php echo base_url('modules/employees/index.php'); ?>" class="btn btn-outline-secondary">Back</a>
                     <?php if ($isAdministrator): ?>
                     <div class="dropdown">
-                        <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" type="button">Admin</button>
+                        <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" data-bs-strategy="fixed" type="button">Admin</button>
                         <ul class="dropdown-menu dropdown-menu-end">
                             <?php if ($linkedUser === '' && $employee['is_active']): ?>
                             <li>
@@ -294,7 +294,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <td class="small"><?php echo $a['start_date'] ? h(format_date($a['start_date'])) : '—'; ?> – <?php echo $a['end_date'] ? h(format_date($a['end_date'])) : 'present'; ?></td>
                                 <td class="text-end">
                                     <div class="dropdown">
-                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" type="button">Actions</button>
+                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" data-bs-strategy="fixed" type="button">Actions</button>
                                         <ul class="dropdown-menu dropdown-menu-end">
                                             <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#designationModal" data-assignment="<?php echo h(json_encode($a, JSON_HEX_APOS | JSON_HEX_QUOT)); ?>"><i class="bi bi-pencil me-2"></i>Edit</button></li>
                                             <?php if (!$a['is_primary']): ?>

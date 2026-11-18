@@ -587,3 +587,12 @@ body.ua-auth > .text-center.text-secondary {
 .po-list-table thead .po-col-amount {
     z-index: 5;
 }
+
+/* Keep Select2 menus above cards/tables when attached to body */
+.select2-container--open {
+    z-index: 2000;
+}
+
+.select2-dropdown {
+    z-index: 2000;
+}

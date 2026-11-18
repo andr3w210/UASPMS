@@ -158,7 +158,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                     <td class="text-end"><?php echo number_format((float) $ticket['liters_requested'], 2); ?></td>
                                     <td class="text-end">
                                         <div class="dropdown">
-                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-config='{"popperConfig":{"strategy":"fixed"}}' aria-expanded="false">Actions</button>
+                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-strategy="fixed" aria-expanded="false">Actions</button>
                                             <ul class="dropdown-menu dropdown-menu-end">
                                                 <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/view.php?id=' . (int) $ticket['id']); ?>">View</a></li>
                                                 <li><a class="dropdown-item" href="<?php echo base_url('modules/trip_tickets/create.php?id=' . (int) $ticket['id']); ?>">Edit</a></li>

@@ -51,7 +51,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
             <a href="<?php echo base_url('modules/trip_tickets/index.php'); ?>" class="btn btn-outline-secondary">Back to List</a>
             <?php if ($ticket): ?>
                 <div class="dropdown">
-                    <button class="btn btn-dark dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <button class="btn btn-dark dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-strategy="fixed" aria-expanded="false">
                         Actions
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">

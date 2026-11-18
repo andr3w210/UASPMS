@@ -307,7 +307,7 @@ $displayPoNumber = strpos((string) ($purchaseOrder['po_number'] ?? ''), 'NO-PO-'
                 <?php endif; ?>
                 <?php if (!empty($risOffices)): ?>
                     <div class="dropdown d-inline-block">
-                        <button class="btn btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">Print RIS</button>
+                        <button class="btn btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-strategy="fixed">Print RIS</button>
                         <ul class="dropdown-menu dropdown-menu-end">
                             <?php foreach ($risOffices as $ro): ?>
                                 <li>

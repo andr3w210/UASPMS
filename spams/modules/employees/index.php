@@ -257,7 +257,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                         </td>
                         <td class="text-end">
                             <div class="dropdown">
-                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Actions</button>
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-strategy="fixed" aria-expanded="false">Actions</button>
                                 <ul class="dropdown-menu dropdown-menu-end">
                                     <li><a class="dropdown-item" href="<?php echo base_url('modules/employees/view.php?id=' . (int) $employee['id']); ?>"><i class="bi bi-person-lines-fill me-2"></i>View Profile</a></li>
                                     <li><a class="dropdown-item" href="<?php echo base_url('modules/employees/form.php?id=' . (int) $employee['id']); ?>"><i class="bi bi-pencil-square me-2"></i>Edit</a></li>

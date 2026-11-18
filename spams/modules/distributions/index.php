@@ -2063,7 +2063,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                         <td><?php echo operational_status_badge('posted_transaction', (string) ($distribution['status'] ?? 'posted')); ?></td>
                                         <td class="text-end">
                                             <div class="dropdown">
-                                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Actions</button>
+                                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-strategy="fixed" aria-expanded="false">Actions</button>
                                                 <ul class="dropdown-menu dropdown-menu-end">
                                                     <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/view.php?id=' . (int) $distribution['id']); ?>">View</a></li>
                                                     <li><a class="dropdown-item" href="<?php echo base_url('modules/distributions/edit.php?id=' . (int) $distribution['id']); ?>">Edit</a></li>

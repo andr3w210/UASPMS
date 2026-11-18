@@ -81,7 +81,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                     <a href="<?php echo base_url('modules/suppliers/form.php?id=' . $recordId); ?>" class="btn btn-primary"><i class="bi bi-pencil-square me-1"></i>Edit</a>
                     <a href="<?php echo base_url('modules/suppliers/index.php'); ?>" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back</a>
                     <div class="dropdown">
-                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">More</button>
+                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-strategy="fixed">More</button>
                         <ul class="dropdown-menu dropdown-menu-end">
                             <li>
                                 <form method="post" class="m-0">

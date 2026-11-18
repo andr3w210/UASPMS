@@ -602,7 +602,8 @@ document.addEventListener('DOMContentLoaded', function () {
             var allowClear = select.hasAttribute('data-allow-clear') || Array.from(select.options).some(function (option) {
                 return option.value === '';
             });
-            var dropdownParent = jQuery(select.parentElement || document.body);
+            // Attach to body so menus are not clipped by card/table overflow.
+            var dropdownParent = jQuery(document.body);
 
             $select.select2({
                 placeholder: placeholder,

@@ -249,7 +249,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                             <div class="col-md-2"><label class="form-label">Suffix</label><input class="form-control" name="suffix_name" maxlength="20" placeholder="Jr." value="<?php echo h($form['suffix_name']); ?>"></div>
                             <div class="col-md-3">
                                 <label class="form-label">Sex</label>
-                                <select name="sex" class="form-select">
+                                <select name="sex" class="form-select" data-no-select2>
                                     <option value="">—</option>
                                     <?php foreach (['Male', 'Female'] as $s): ?><option <?php echo $form['sex'] === $s ? 'selected' : ''; ?>><?php echo $s; ?></option><?php endforeach; ?>
                                 </select>

@@ -49,7 +49,12 @@ chat history. For the full contributor and COA rules, also read
   `spams/modules/users/view.php`; account-changing actions remain in
   `spams/modules/users/index.php` with the existing security checks.
 - Purchase Orders uses an Actions dropdown. Its sticky Actions column and
-  dropdown behavior are styled in `spams/assets/css/ua-theme.css`.
+  dropdown behavior are styled in `spams/assets/css/ua-theme.css`. Actions
+  dropdowns use fixed Popper positioning so menus remain visible near clipped
+  table/card containers.
+- Select2 controls attach their menus to the document body and use the shared
+  high z-index styles in `spams/assets/css/ua-theme.css`, preventing menus from
+  being clipped by cards and tables.
 - Fuel RIS encoding (`spams/modules/trip_tickets/fuel_ris_create.php`) accepts a
   blank RIS number. The list handler in
   `spams/modules/trip_tickets/fuel_ris.php` is kept consistent. A blank manual

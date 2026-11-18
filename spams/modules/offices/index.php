@@ -634,7 +634,7 @@ require_once __DIR__ . '/../../includes/topbar.php';
                                 <td><span class="badge <?php echo (int) $office['is_active'] === 1 ? 'bg-success-lt' : 'bg-secondary-lt'; ?>"><?php echo (int) $office['is_active'] === 1 ? 'Active' : 'Inactive'; ?></span></td>
                                 <td class="text-end">
                                     <div class="dropdown">
-                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Actions</button>
+                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-strategy="fixed" aria-expanded="false">Actions</button>
                                         <ul class="dropdown-menu dropdown-menu-end">
                                             <li><a class="dropdown-item" href="<?php echo base_url('modules/offices/view.php?id=' . $oid); ?>"><i class="bi bi-building me-2"></i>View Profile</a></li>
                                             <li><a class="dropdown-item" href="<?php echo base_url('modules/offices/form.php?id=' . $oid); ?>"><i class="bi bi-pencil-square me-2"></i>Edit</a></li>

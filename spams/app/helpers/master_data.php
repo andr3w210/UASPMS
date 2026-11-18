@@ -524,7 +524,7 @@ function master_data_action_menu(array $cfg, array $row, bool $withProfile = tru
     $label = strtolower($cfg['singular']);
     ob_start(); ?>
     <div class="dropdown">
-        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Actions</button>
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-strategy="fixed" aria-expanded="false">Actions</button>
         <ul class="dropdown-menu dropdown-menu-end">
             <?php if ($withProfile): ?>
                 <li><a class="dropdown-item" href="<?php echo h(master_data_url($cfg, 'view', ['id' => $id])); ?>"><i class="bi bi-person-vcard me-2"></i>View Profile</a></li>
